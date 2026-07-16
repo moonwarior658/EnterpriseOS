@@ -1,35 +1,36 @@
  EnterpriseOS
 
- EnterpriseOS  модульная корпоративная платформа.
+EnterpriseOS  модульная экосистема автоматизации бизнеса.
 
-  Архитектура
-
-
-  frontend/
-  backend/
-  services/
-  database/
-  docker/
-  storage/
-  docs/
-  scripts/
-  infrastructure/
+ Архитектура
 
 
-  Каждый модуль является независимым сервисом и запускается через Docker Compose.
+backend/
+frontend/
+services/
+database/
+docker/
+storage/
+docs/
+scripts/
+infrastructure/
 
-  Основные принципы:
 
-  - Docker-first
-  - PostgreSQL
-  - Fastify
-  - TypeScript
-  - Microservices
-  - Git Flow
-  - Infrastructure as Code
+ Стек
 
-  ---
+- TypeScript
+- Fastify
+- PostgreSQL
+- Redis
+- Docker
+- Nginx Proxy Manager
+- n8n
+- React
 
-  Статус проекта:
+ Принципы
 
-   Development
+- Docker First
+- API First
+- Microservices
+- Infrastructure as Code
+- Git Flow
