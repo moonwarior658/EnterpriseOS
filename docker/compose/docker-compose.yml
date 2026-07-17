@@ -1,0 +1,47 @@
+﻿services:
+  api:
+    build:
+      context: ../../backend/api
+      dockerfile: Dockerfile
+    container_name: eos-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    networks:
+      - enterpriseos-network
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: eos-postgres
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - enterpriseos-network
+
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: eos-npm
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    environment:
+      TZ: "Asia/Yekaterinburg"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - enterpriseos-network
+
+volumes:
+  postgres_data:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  enterpriseos-network:
+    name: enterpriseos-network
