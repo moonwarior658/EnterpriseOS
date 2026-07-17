@@ -1,4 +1,4 @@
-﻿services:
+services:
   api:
     build:
       context: ../../backend/api
@@ -9,6 +9,17 @@
       - ../../.env
     depends_on:
       - postgres
+    networks:
+      - enterpriseos-network
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: eos-frontend
+    restart: unless-stopped
+    depends_on:
+      - api
     networks:
       - enterpriseos-network
 
