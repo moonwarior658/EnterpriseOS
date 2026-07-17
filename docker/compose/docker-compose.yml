@@ -5,6 +5,8 @@
       dockerfile: Dockerfile
     container_name: eos-api
     restart: unless-stopped
+    env_file:
+      - ../../.env
     depends_on:
       - postgres
     networks:
