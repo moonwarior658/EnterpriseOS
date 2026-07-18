@@ -1,13 +1,11 @@
 ﻿import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getApiHealth, type ApiHealth } from '../services/api'
 
 type ConnectionState = 'checking' | 'online' | 'offline'
 
 function DashboardPage() {
-  const navigate = useNavigate()
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
 
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('checking')
@@ -24,56 +22,41 @@ function DashboardPage() {
       })
   }, [])
 
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
-
   return (
-    <main className="login-page">
-      <section className="login-card">
-        <div className="brand-mark" aria-hidden="true">
-          <span>EOS</span>
+    <section className="dashboard-view">
+      <div className="dashboard-empty">
+        <div className="dashboard-status-mark">
+          <span />
         </div>
 
-        <header className="login-header">
-          <p className="eyebrow">ENTERPRISEOS</p>
-          <h1>Всё спокойно</h1>
-          <p className="subtitle">
-            {user?.display_name}, сейчас нет событий,
-            требующих вашего участия
-          </p>
-        </header>
-
-        <p className="subtitle">
-          {connectionState === 'checking' &&
-            'Проверяем соединение с API…'}
-          {connectionState === 'online' &&
-            `API подключён · ${apiHealth?.service} v${apiHealth?.version}`}
-          {connectionState === 'offline' &&
-            'Нет соединения с API'}
+        <p className="eyebrow">ENTERPRISEOS</p>
+        <h1>Всё спокойно</h1>
+        <p>
+          {user?.display_name}, сейчас нет событий,
+          требующих вашего участия
         </p>
+      </div>
 
-        <div className="login-form">
-          {user?.is_admin && (
-            <button
-              type="button"
-              onClick={() => navigate('/users')}
-            >
-              <span>Пользователи</span>
-              <span className="button-arrow">→</span>
-            </button>
-          )}
+      <footer className="dashboard-system-state">
+        <span
+          className={
+            connectionState === 'offline'
+              ? 'status-dot status-dot-error'
+              : 'status-dot'
+          }
+        />
 
-          <button type="button" onClick={handleLogout}>
-            <span>Выйти</span>
-            <span className="button-arrow">→</span>
-          </button>
-        </div>
-      </section>
-    </main>
+        {connectionState === 'checking' &&
+          'Проверяем состояние системы…'}
+
+        {connectionState === 'online' &&
+          `Система работает · ${apiHealth?.service} v${apiHealth?.version}`}
+
+        {connectionState === 'offline' &&
+          'Нет соединения с ядром системы'}
+      </footer>
+    </section>
   )
 }
 
 export default DashboardPage
-
