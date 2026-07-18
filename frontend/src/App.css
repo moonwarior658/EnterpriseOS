@@ -739,3 +739,250 @@
     padding-inline: 18px;
   }
 }
+
+/* EnterpriseOS visual system */
+
+.login-page,
+.workspace-shell {
+  background:
+    radial-gradient(
+      circle at 12% 8%,
+      rgb(181 215 255 / 32%) 0,
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      rgb(218 198 255 / 27%) 0,
+      transparent 29%
+    ),
+    radial-gradient(
+      circle at 52% 100%,
+      rgb(190 235 217 / 18%) 0,
+      transparent 32%
+    ),
+    linear-gradient(145deg, #f5f7fa 0%, var(--color-bg) 100%);
+}
+
+.workspace-topbar {
+  height: 64px;
+  border-color: var(--color-border-soft);
+  background: rgb(255 255 255 / 68%);
+  padding: 0 24px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 70%);
+}
+
+.menu-toggle,
+.workspace-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-small);
+}
+
+.menu-toggle {
+  border-color: var(--color-border);
+  background: rgb(255 255 255 / 68%);
+  box-shadow: var(--shadow-small);
+}
+
+.workspace-logo {
+  box-shadow: 0 8px 22px rgb(23 24 27 / 18%);
+}
+
+.workspace-avatar {
+  background: rgb(255 255 255 / 64%);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-soft),
+    var(--shadow-small);
+}
+
+.menu-backdrop {
+  inset: 64px 0 0;
+  background: rgb(28 31 38 / 14%);
+  backdrop-filter: blur(5px);
+}
+
+.workspace-menu {
+  top: 76px;
+  bottom: 12px;
+  left: 12px;
+  width: min(318px, calc(100vw - 24px));
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: var(--radius-card);
+  background: rgb(255 255 255 / 88%);
+  box-shadow: var(--shadow-floating);
+  transform: translateX(calc(-100% - 24px));
+}
+
+.workspace-menu-open {
+  transform: translateX(0);
+}
+
+.menu-link {
+  border-radius: var(--radius-control);
+}
+
+.menu-link-active {
+  box-shadow: 0 10px 24px rgb(23 24 27 / 16%);
+}
+
+.workspace-content {
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-view {
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-status-mark {
+  border: 1px solid rgb(255 255 255 / 80%);
+  background: var(--color-surface);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 rgb(255 255 255 / 90%);
+  backdrop-filter: blur(22px);
+}
+
+.dashboard-empty h1 {
+  color: var(--color-text);
+}
+
+.dashboard-empty > p:last-child,
+.dashboard-system-state,
+.subtitle {
+  color: var(--color-text-secondary);
+}
+
+.page-panel,
+.login-card {
+  border-color: rgb(255 255 255 / 78%);
+  background: var(--color-surface);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 rgb(255 255 255 / 82%);
+}
+
+.page-panel {
+  border-radius: var(--radius-panel);
+}
+
+.user-create-form {
+  background: rgb(245 246 248 / 78%);
+  box-shadow: inset 0 0 0 1px var(--color-border-soft);
+}
+
+.user-row {
+  border-color: var(--color-border-soft);
+  box-shadow: 0 6px 20px rgb(32 39 52 / 4%);
+}
+
+.primary-action,
+.login-form button {
+  background: var(--color-text);
+  box-shadow: 0 12px 28px rgb(23 24 27 / 17%);
+}
+
+.secondary-action,
+.app-user button {
+  border-color: var(--color-border);
+  background: rgb(255 255 255 / 72%);
+}
+
+@media (max-width: 620px) {
+  .workspace-topbar {
+    padding-inline: 14px;
+  }
+
+  .workspace-menu {
+    top: 72px;
+    bottom: 8px;
+    left: 8px;
+    width: calc(100vw - 16px);
+  }
+}
+
+/* Compact macOS-style navigation popover */
+
+.menu-backdrop {
+  background: rgb(28 31 38 / 7%);
+  backdrop-filter: blur(2px);
+}
+
+.workspace-menu {
+  top: 72px;
+  right: auto;
+  bottom: auto;
+  left: 16px;
+  width: 300px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+  border-radius: 22px;
+  padding: 22px 18px 18px;
+}
+
+.menu-header {
+  padding: 0 10px 18px;
+}
+
+.menu-navigation {
+  gap: 6px;
+}
+
+.menu-link {
+  padding: 13px 14px;
+}
+
+.menu-footer {
+  margin-top: 22px;
+  padding-top: 18px;
+}
+
+@media (max-width: 620px) {
+  .workspace-menu {
+    top: 70px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 78px);
+  }
+}
+
+/* Compact dashboard scale */
+
+.dashboard-empty {
+  max-width: 470px;
+}
+
+.dashboard-status-mark {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 22px;
+  border-radius: 18px;
+}
+
+.dashboard-status-mark span {
+  width: 11px;
+  height: 11px;
+  box-shadow: 0 0 0 6px rgb(57 184 108 / 12%);
+}
+
+.dashboard-empty .eyebrow {
+  margin-bottom: 8px;
+  font-size: 9px;
+}
+
+.dashboard-empty h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  letter-spacing: -0.045em;
+}
+
+.dashboard-empty > p:last-child {
+  max-width: 430px;
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dashboard-system-state {
+  bottom: 24px;
+  gap: 8px;
+  font-size: 12px;
+}
