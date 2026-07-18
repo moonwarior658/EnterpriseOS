@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_port: int = 5432
 
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480
+
     model_config = SettingsConfigDict(
         case_sensitive=False,
         extra="ignore",
