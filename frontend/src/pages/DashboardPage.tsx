@@ -55,6 +55,16 @@ function DashboardPage() {
         </p>
 
         <div className="login-form">
+          {user?.is_admin && (
+            <button
+              type="button"
+              onClick={() => navigate('/users')}
+            >
+              <span>Пользователи</span>
+              <span className="button-arrow">→</span>
+            </button>
+          )}
+
           <button type="button" onClick={handleLogout}>
             <span>Выйти</span>
             <span className="button-arrow">→</span>
@@ -66,3 +76,4 @@ function DashboardPage() {
 }
 
 export default DashboardPage
+

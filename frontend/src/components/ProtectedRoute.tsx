@@ -2,7 +2,15 @@
 import { useAuth } from '../contexts/AuthContext'
 import type { ReactNode } from 'react'
 
-function ProtectedRoute({ children }: { children: ReactNode }) {
+type ProtectedRouteProps = {
+  children: ReactNode
+  adminOnly?: boolean
+}
+
+function ProtectedRoute({
+  children,
+  adminOnly = false,
+}: ProtectedRouteProps) {
   const { user, isLoading } = useAuth()
 
   if (isLoading) {
@@ -17,6 +25,10 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (adminOnly && !user.is_admin) {
+    return <Navigate to="/dashboard" replace />
   }
 
   return children

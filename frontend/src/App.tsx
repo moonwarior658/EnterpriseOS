@@ -2,6 +2,7 @@
 import ProtectedRoute from './components/ProtectedRoute'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import UsersPage from './pages/UsersPage'
 import './App.css'
 
 function App() {
@@ -9,6 +10,7 @@ function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<LoginPage />} />
+
       <Route
         path="/dashboard"
         element={
@@ -17,6 +19,16 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute adminOnly>
+            <UsersPage />
+          </ProtectedRoute>
+        }
+      />
+
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
