@@ -11,7 +11,7 @@ Read project context in this priority order:
 
 1. `docs/PROJECT_CHARTER_v1.1.md` — mission and governing constraints.
 2. `docs/BLUEPRINT_v0.0.2.md` — business and product model.
-3. `docs/ROADMAP_v0.8.0.md` — current scope and delivery sequence.
+3. `docs/ROADMAP_v0.9.0.md` — current scope and delivery sequence.
 4. `docs/ADR-001_AUTOMATION_ARCHITECTURE.md` — accepted automation decision.
 
 Do not silently resolve contradictions between these documents. Report them
