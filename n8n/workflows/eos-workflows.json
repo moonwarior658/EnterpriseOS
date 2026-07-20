@@ -1,0 +1,170 @@
+[
+  {
+    "updatedAt": "2026-07-20T06:04:36.078Z",
+    "createdAt": "2026-07-20T05:44:13.596Z",
+    "id": "mSzJd2s6yNm5NhXS",
+    "name": "EOS - universal Automation Dispatcher",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "automation-dispatch",
+          "authentication": "headerAuth",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "id": "fc6b7d67-c557-41af-98ff-5e23bd38bafd",
+        "name": "Webhook",
+        "webhookId": "59ec78a1-5440-4cfd-9f5a-93ddd5460641",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "VTcczXWnSo9DMzMr",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "{\n  \"accepted\": true\n}",
+          "options": {
+            "responseCode": 202
+          }
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          208,
+          0
+        ],
+        "id": "b1049d1d-468e-486a-94fb-d03522c1384c",
+        "name": "Respond to Webhook"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Webhook').item.json.body.callback_url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"contract_version\": \"{{ $('Webhook').item.json.body.contract_version }}\",\n  \"execution_id\": \"{{ $('Webhook').item.json.body.execution_id }}\",\n  \"status\": \"succeeded\",\n  \"started_at\": \"{{ $now.toISO() }}\",\n  \"finished_at\": \"{{ $now.toISO() }}\",\n  \"result\": {\n    \"message\": \"Test automation completed\"\n  },\n  \"error_code\": null,\n  \"error_message\": null\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          624,
+          0
+        ],
+        "id": "adebee1c-b2bb-4465-aaf9-a9942d86befd",
+        "name": "HTTP Request",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ktgxwtjxdSRhcahn",
+            "name": "EOS Callback Authorization"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          416,
+          0
+        ],
+        "id": "d3fad344-dcea-4301-91c6-2a4568be7936",
+        "name": "Wait",
+        "webhookId": "430d8034-c720-49e8-b13d-6751955533a2"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respond to Webhook": {
+        "main": [
+          [
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "HTTP Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "availableInMCP": false
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "1f1b7e87-c501-4a24-aa2f-1a7b4d642557",
+    "activeVersionId": "1f1b7e87-c501-4a24-aa2f-1a7b4d642557",
+    "versionCounter": 32,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-07-20T05:44:13.596Z",
+        "createdAt": "2026-07-20T05:44:13.596Z",
+        "role": "workflow:owner",
+        "workflowId": "mSzJd2s6yNm5NhXS",
+        "projectId": "74OUmhtapxMS9LOv",
+        "project": {
+          "updatedAt": "2026-07-20T05:26:43.281Z",
+          "createdAt": "2026-07-20T05:21:08.620Z",
+          "id": "74OUmhtapxMS9LOv",
+          "name": "Leonid L <moonwarior658@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "82cdc3e6-2ea3-400e-bb4b-d32694e7f4fe"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": "Version 1f1b7e87",
+      "description": ""
+    }
+  }
+]
