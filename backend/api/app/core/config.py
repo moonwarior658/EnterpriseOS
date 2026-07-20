@@ -1,6 +1,7 @@
 ﻿from functools import lru_cache
 from urllib.parse import quote_plus
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+
+    automation_callback_token: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         case_sensitive=False,
