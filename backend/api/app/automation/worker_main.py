@@ -3,11 +3,13 @@ import logging
 import os
 import signal
 import socket
+import time
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.automation.outbox import OutboxWorker, SqlAlchemyOutboxStore
 from app.automation.providers.n8n import N8nProvider
+from app.automation.timeouts import expire_stale_executions
 from app.core.n8n_config import get_n8n_settings
 from app.db.session import SessionLocal
 
@@ -73,6 +75,18 @@ async def run_worker() -> None:
         "AUTOMATION_OUTBOX_PROCESSING_TIMEOUT_SECONDS",
         300.0,
     )
+    execution_timeout_seconds = positive_float(
+        "AUTOMATION_EXECUTION_TIMEOUT_SECONDS",
+        300.0,
+    )
+    timeout_sweep_seconds = positive_float(
+        "AUTOMATION_TIMEOUT_SWEEP_SECONDS",
+        30.0,
+    )
+    timeout_sweep_limit = positive_int(
+        "AUTOMATION_TIMEOUT_SWEEP_LIMIT",
+        100,
+    )
     callback_url = os.getenv(
         "AUTOMATION_CALLBACK_URL",
         "http://api:8000/automation/callback",
@@ -97,11 +111,16 @@ async def run_worker() -> None:
 
     logger.info(
         "Automation worker starting worker_id=%s poll_seconds=%s "
-        "batch_limit=%s",
+        "batch_limit=%s execution_timeout_seconds=%s "
+        "timeout_sweep_seconds=%s",
         worker_id,
         poll_seconds,
         batch_limit,
+        execution_timeout_seconds,
+        timeout_sweep_seconds,
     )
+
+    next_timeout_sweep = 0.0
 
     async with N8nProvider(get_n8n_settings()) as provider:
         worker = OutboxWorker(
@@ -113,6 +132,28 @@ async def run_worker() -> None:
 
         while not stop_event.is_set():
             try:
+                monotonic_now = time.monotonic()
+
+                if monotonic_now >= next_timeout_sweep:
+                    expired_ids = expire_stale_executions(
+                        SessionLocal,
+                        now=datetime.now(timezone.utc),
+                        timeout=timedelta(
+                            seconds=execution_timeout_seconds
+                        ),
+                        limit=timeout_sweep_limit,
+                    )
+
+                    if expired_ids:
+                        logger.warning(
+                            "Automation executions timed out count=%s",
+                            len(expired_ids),
+                        )
+
+                    next_timeout_sweep = (
+                        monotonic_now + timeout_sweep_seconds
+                    )
+
                 results = await worker.process_batch(
                     limit=batch_limit
                 )
