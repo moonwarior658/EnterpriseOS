@@ -12,6 +12,27 @@
     networks:
       - enterpriseos-network
 
+  automation-worker:
+    build:
+      context: ../../backend/api
+      dockerfile: Dockerfile
+    container_name: eos-automation-worker
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - app.automation.worker_main
+    env_file:
+      - ../../.env
+    depends_on:
+      postgres:
+        condition: service_started
+      api:
+        condition: service_started
+      n8n:
+        condition: service_started
+    networks:
+      - enterpriseos-network
   frontend:
     build:
       context: ../../frontend
@@ -113,3 +134,4 @@ volumes:
 networks:
   enterpriseos-network:
     name: enterpriseos-network
+
