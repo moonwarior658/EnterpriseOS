@@ -1,4 +1,4 @@
-services:
+﻿services:
   api:
     build:
       context: ../../backend/api
@@ -34,6 +34,59 @@ services:
     networks:
       - enterpriseos-network
 
+  n8n-postgres:
+    image: postgres:17-alpine
+    container_name: eos-n8n-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${N8N_POSTGRES_DB}
+      POSTGRES_USER: ${N8N_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${N8N_POSTGRES_PASSWORD}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - n8n_postgres_data:/var/lib/postgresql/data
+    networks:
+      - enterpriseos-network
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.30.7
+    container_name: eos-n8n
+    restart: unless-stopped
+    depends_on:
+      n8n-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${N8N_POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${N8N_POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_EDITOR_BASE_URL: http://localhost:5678
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      GENERIC_TIMEZONE: Asia/Yekaterinburg
+      TZ: Asia/Yekaterinburg
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - enterpriseos-network
+
   npm:
     image: jc21/nginx-proxy-manager:latest
     container_name: eos-npm
@@ -52,6 +105,8 @@ services:
 
 volumes:
   postgres_data:
+  n8n_postgres_data:
+  n8n_data:
   npm_data:
   npm_letsencrypt:
 
