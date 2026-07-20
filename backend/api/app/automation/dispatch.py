@@ -46,7 +46,13 @@ def create_automation_execution(
         execution=execution,
     )
 
-    with session.begin():
+    transaction = (
+        session.begin_nested()
+        if session.in_transaction()
+        else session.begin()
+    )
+
+    with transaction:
         session.add_all([execution, outbox_event])
         session.flush()
 

@@ -37,6 +37,25 @@ class FakeTransaction:
         self._session.staged.clear()
 
 
+class FakeNestedTransaction:
+    def __init__(self, session: "FakeSession") -> None:
+        self._session = session
+
+    def __enter__(self) -> "FakeNestedTransaction":
+        if not self._session.transaction_open:
+            raise AssertionError("Nested transaction requires outer transaction")
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> None:
+        if exc_type is not None:
+            self._session.staged.clear()
+
+
 class FakeSession:
     def __init__(self, *, fail_on_flush: bool = False) -> None:
         self.fail_on_flush = fail_on_flush
@@ -45,9 +64,17 @@ class FakeSession:
         self.committed: list[object] = []
         self.commit_count = 0
         self.rollback_count = 0
+        self.nested_begin_count = 0
+
+    def in_transaction(self) -> bool:
+        return self.transaction_open
 
     def begin(self) -> FakeTransaction:
         return FakeTransaction(self)
+
+    def begin_nested(self) -> FakeNestedTransaction:
+        self.nested_begin_count += 1
+        return FakeNestedTransaction(self)
 
     def add_all(self, instances: list[object]) -> None:
         if not self.transaction_open:
@@ -100,12 +127,14 @@ class AutomationDispatchTests(unittest.TestCase):
         )
         self.assertIsNotNone(execution.execution_id)
         self.assertIsNotNone(execution.requested_at.tzinfo)
+
         another_execution = create_automation_execution(
             FakeSession(),
             automation_type="daily_sales_report",
             tenant_id="tenant-42",
             payload={},
         )
+
         self.assertNotEqual(
             another_execution.execution_id,
             execution.execution_id,
@@ -140,6 +169,25 @@ class AutomationDispatchTests(unittest.TestCase):
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.rollback_count, 1)
         self.assertFalse(session.transaction_open)
+
+    def test_works_inside_existing_transaction(self) -> None:
+        session = FakeSession()
+
+        with session.begin():
+            execution = create_automation_execution(
+                session,
+                automation_type="daily_sales_report",
+                tenant_id="tenant-42",
+                payload={"location_ids": [10, 20]},
+            )
+
+            self.assertTrue(session.transaction_open)
+            self.assertEqual(session.committed, [])
+            self.assertEqual(session.nested_begin_count, 1)
+
+        self.assertEqual(len(session.committed), 2)
+        self.assertIs(session.committed[0], execution)
+        self.assertEqual(session.commit_count, 1)
 
 
 if __name__ == "__main__":
