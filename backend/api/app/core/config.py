@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 
+    default_tenant_id: str = "eclair"
     automation_callback_token: SecretStr | None = None
 
     model_config = SettingsConfigDict(
