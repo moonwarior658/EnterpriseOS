@@ -1,7 +1,8 @@
 from secrets import compare_digest
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +16,12 @@ from app.automation.schedules import (
     list_schedules,
     update_schedule,
 )
+from app.automation.executions import (
+    DEFAULT_EXECUTION_LIMIT,
+    get_execution,
+    get_latest_schedule_execution,
+    list_executions,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.automation import (
@@ -25,6 +32,8 @@ from app.models.automation import (
 from app.models.user import User
 from app.schemas.automation import (
     AutomationCallbackResult,
+    AutomationCallbackStatus,
+    AutomationExecutionRead,
     AutomationScheduleCreate,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
@@ -130,6 +139,84 @@ def delete_automation_schedule(
         raise schedule_not_found()
 
     delete_schedule(db, schedule)
+
+
+def execution_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Automation execution not found",
+    )
+
+
+@router.get("/executions", response_model=list[AutomationExecutionRead])
+def read_executions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    schedule_id: int | None = None,
+    execution_status: Annotated[
+        AutomationCallbackStatus | None,
+        Query(alias="status"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = DEFAULT_EXECUTION_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AutomationExecution]:
+    return list_executions(
+        db,
+        schedule_id=schedule_id,
+        status=execution_status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/executions/{execution_id}",
+    response_model=AutomationExecutionRead,
+)
+def read_execution(
+    execution_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> AutomationExecution:
+    execution = get_execution(db, execution_id)
+    if execution is None:
+        raise execution_not_found()
+    return execution
+
+
+@router.get(
+    "/schedules/{schedule_id}/executions/latest",
+    response_model=AutomationExecutionRead | None,
+)
+def read_latest_schedule_execution(
+    schedule_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> AutomationExecution | None:
+    if get_schedule(db, schedule_id) is None:
+        raise schedule_not_found()
+    return get_latest_schedule_execution(db, schedule_id)
+
+
+@router.get(
+    "/schedules/{schedule_id}/executions",
+    response_model=list[AutomationExecutionRead],
+)
+def read_schedule_executions(
+    schedule_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = DEFAULT_EXECUTION_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AutomationExecution]:
+    if get_schedule(db, schedule_id) is None:
+        raise schedule_not_found()
+    return list_executions(
+        db,
+        schedule_id=schedule_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def require_callback_token(

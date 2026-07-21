@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -20,9 +21,13 @@ def create_automation_execution(
     *,
     automation_type: str,
     tenant_id: str,
+    scope_type: str,
+    scope_id: str | None,
+    recipients: list[dict[str, Any]],
     payload: dict[str, Any],
     contract_version: str = "1.0",
     schedule_id: int | None = None,
+    requested_at: datetime | None = None,
 ) -> AutomationExecution:
     execution_id = uuid4()
     command_payload = dict(payload)
@@ -32,8 +37,11 @@ def create_automation_execution(
         contract_version=contract_version,
         automation_type=automation_type,
         tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        recipients=deepcopy(recipients),
         status=ExecutionStatus.PENDING,
-        requested_at=datetime.now(timezone.utc),
+        requested_at=requested_at or datetime.now(timezone.utc),
         payload=command_payload,
     )
     outbox_event = OutboxEvent(

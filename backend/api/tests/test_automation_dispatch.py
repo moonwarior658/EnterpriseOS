@@ -97,6 +97,9 @@ class AutomationDispatchTests(unittest.TestCase):
             self.session,
             automation_type="daily_sales_report",
             tenant_id="tenant-42",
+            scope_type="department",
+            scope_id="department-7",
+            recipients=[{"user_id": 10}],
             payload={"location_ids": [10, 20]},
         )
 
@@ -121,6 +124,9 @@ class AutomationDispatchTests(unittest.TestCase):
         self.assertEqual(execution.contract_version, "1.0")
         self.assertEqual(execution.automation_type, "daily_sales_report")
         self.assertEqual(execution.tenant_id, "tenant-42")
+        self.assertEqual(execution.scope_type, "department")
+        self.assertEqual(execution.scope_id, "department-7")
+        self.assertEqual(execution.recipients, [{"user_id": 10}])
         self.assertEqual(
             execution.payload,
             {"location_ids": [10, 20]},
@@ -132,6 +138,9 @@ class AutomationDispatchTests(unittest.TestCase):
             FakeSession(),
             automation_type="daily_sales_report",
             tenant_id="tenant-42",
+            scope_type="company",
+            scope_id=None,
+            recipients=[],
             payload={},
         )
 
@@ -161,6 +170,9 @@ class AutomationDispatchTests(unittest.TestCase):
                 session,
                 automation_type="daily_sales_report",
                 tenant_id="tenant-42",
+                scope_type="company",
+                scope_id=None,
+                recipients=[],
                 payload={"location_ids": [10, 20]},
             )
 
@@ -178,6 +190,9 @@ class AutomationDispatchTests(unittest.TestCase):
                 session,
                 automation_type="daily_sales_report",
                 tenant_id="tenant-42",
+                scope_type="company",
+                scope_id=None,
+                recipients=[],
                 payload={"location_ids": [10, 20]},
             )
 
@@ -188,6 +203,23 @@ class AutomationDispatchTests(unittest.TestCase):
         self.assertEqual(len(session.committed), 2)
         self.assertIs(session.committed[0], execution)
         self.assertEqual(session.commit_count, 1)
+
+    def test_recipients_are_snapshotted(self) -> None:
+        recipients = [{"user_id": 10}]
+
+        execution = create_automation_execution(
+            self.session,
+            automation_type="daily_sales_report",
+            tenant_id="tenant-42",
+            scope_type="department",
+            scope_id="department-7",
+            recipients=recipients,
+            payload={},
+        )
+        recipients.append({"user_id": 11})
+        recipients[0]["user_id"] = 99
+
+        self.assertEqual(execution.recipients, [{"user_id": 10}])
 
 
 if __name__ == "__main__":

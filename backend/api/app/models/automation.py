@@ -217,6 +217,20 @@ class AutomationExecution(Base):
         String(64),
         nullable=False,
     )
+    scope_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    scope_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    recipients: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+        nullable=False,
+    )
     provider: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,

@@ -235,6 +235,17 @@ class AutomationScheduleUpdate(BaseModel):
         return self
 
 
+class AutomationCallbackStatus(StrEnum):
+    PENDING = "pending"
+    DISPATCHING = "dispatching"
+    RUNNING = "running"
+    RETRYING = "retrying"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    TIMED_OUT = "timed_out"
+    CANCELLED = "cancelled"
+
+
 class AutomationScheduleRead(AutomationScheduleBase):
     id: int
     contract_version: str = Field(max_length=20)
@@ -247,15 +258,27 @@ class AutomationScheduleRead(AutomationScheduleBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AutomationCallbackStatus(StrEnum):
-    PENDING = "pending"
-    DISPATCHING = "dispatching"
-    RUNNING = "running"
-    RETRYING = "retrying"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    TIMED_OUT = "timed_out"
-    CANCELLED = "cancelled"
+class AutomationExecutionRead(BaseModel):
+    id: int
+    execution_id: UUID
+    schedule_id: int | None
+    automation_type: str
+    scope_type: AutomationScopeType
+    scope_id: str | None
+    recipients: list[Any]
+    status: AutomationCallbackStatus
+    provider: str | None
+    requested_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    attempt_count: int
+    max_attempts: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AutomationCommand(BaseModel):
