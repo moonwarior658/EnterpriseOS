@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -9,6 +9,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictInt,
     field_validator,
     model_validator,
 )
@@ -21,6 +22,48 @@ AutomationScopeType = Literal[
     "department",
     "location",
     "user",
+]
+ScheduleTime = Annotated[
+    str,
+    Field(strict=True, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$"),
+]
+
+
+class DailyScheduleConfig(BaseModel):
+    type: Literal["daily"]
+    time: ScheduleTime
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WeeklyScheduleConfig(BaseModel):
+    type: Literal["weekly"]
+    weekdays: list[
+        Annotated[StrictInt, Field(ge=0, le=6)]
+    ] = Field(min_length=1)
+    time: ScheduleTime
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("weekdays")
+    @classmethod
+    def normalize_weekdays(cls, value: list[int]) -> list[int]:
+        if len(value) != len(set(value)):
+            raise ValueError("weekdays must not contain duplicates")
+
+        return sorted(value)
+
+
+class IntervalScheduleConfig(BaseModel):
+    type: Literal["interval"]
+    minutes: Annotated[StrictInt, Field(ge=1, le=10080)]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+ScheduleConfig = Annotated[
+    DailyScheduleConfig | WeeklyScheduleConfig | IntervalScheduleConfig,
+    Field(discriminator="type"),
 ]
 
 
@@ -66,7 +109,7 @@ class AutomationScheduleBase(BaseModel):
     automation_type: str = Field(min_length=1, max_length=100)
     scope_type: AutomationScopeType = "company"
     scope_id: str | None = Field(default=None, max_length=64)
-    schedule_config: dict[str, Any] = Field(strict=True)
+    schedule_config: ScheduleConfig
     payload: dict[str, Any] = Field(strict=True)
     recipients: list[Any] = Field(strict=True)
     timezone: str = Field(default="UTC", max_length=64)
@@ -116,10 +159,7 @@ class AutomationScheduleUpdate(BaseModel):
     )
     scope_type: AutomationScopeType | None = None
     scope_id: str | None = Field(default=None, max_length=64)
-    schedule_config: dict[str, Any] | None = Field(
-        default=None,
-        strict=True,
-    )
+    schedule_config: ScheduleConfig | None = None
     payload: dict[str, Any] | None = Field(default=None, strict=True)
     recipients: list[Any] | None = Field(default=None, strict=True)
     timezone: str | None = Field(default=None, max_length=64)

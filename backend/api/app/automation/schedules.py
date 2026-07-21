@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.automation.schedule_time import calculate_next_run_at
 from app.core.config import settings
 from app.models.automation import AutomationSchedule
 from app.schemas.automation import (
@@ -72,17 +73,24 @@ def create_schedule(
     created_by_user_id: int,
 ) -> AutomationSchedule:
     try:
+        schedule_config = payload.schedule_config.model_dump(mode="json")
+        next_run_at = (
+            calculate_next_run_at(schedule_config, payload.timezone)
+            if payload.is_enabled
+            else None
+        )
         schedule = AutomationSchedule(
             name=payload.name,
             automation_type=payload.automation_type,
             tenant_id=settings.default_tenant_id,
             scope_type=payload.scope_type,
             scope_id=payload.scope_id,
-            schedule_config=payload.schedule_config,
+            schedule_config=schedule_config,
             payload=payload.payload,
             recipients=payload.recipients,
             timezone=payload.timezone,
             is_enabled=payload.is_enabled,
+            next_run_at=next_run_at,
             created_by_user_id=created_by_user_id,
         )
         session.add(schedule)
@@ -115,9 +123,35 @@ def update_schedule(
     validate_schedule_scope(final_scope_type, final_scope_id)
 
     try:
+        final_is_enabled = updates.get(
+            "is_enabled",
+            schedule.is_enabled,
+        )
+        final_schedule_config = updates.get(
+            "schedule_config",
+            schedule.schedule_config,
+        )
+        final_timezone = updates.get("timezone", schedule.timezone)
+        schedule_changed = (
+            "schedule_config" in updates or "timezone" in updates
+        )
+        became_enabled = not schedule.is_enabled and final_is_enabled
+
+        if not final_is_enabled:
+            next_run_at = None
+        elif became_enabled or schedule_changed:
+            next_run_at = calculate_next_run_at(
+                final_schedule_config,
+                final_timezone,
+            )
+        else:
+            next_run_at = schedule.next_run_at
+
         for field in SCHEDULE_MUTABLE_FIELDS:
             if field in updates:
                 setattr(schedule, field, updates[field])
+
+        schedule.next_run_at = next_run_at
 
         session.flush()
         session.refresh(schedule)

@@ -8,6 +8,9 @@ from app.schemas.automation import (
     AutomationScheduleCreate,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
+    DailyScheduleConfig,
+    IntervalScheduleConfig,
+    WeeklyScheduleConfig,
 )
 
 
@@ -17,7 +20,7 @@ def valid_create_payload(**overrides: object) -> dict[str, object]:
         "automation_type": "daily_report",
         "scope_type": "company",
         "scope_id": None,
-        "schedule_config": {"frequency": "daily"},
+        "schedule_config": {"type": "daily", "time": "08:30"},
         "payload": {"report": "sales"},
         "recipients": [{"user_id": 1}],
         "timezone": "Asia/Yekaterinburg",
@@ -191,6 +194,185 @@ class AutomationScheduleCreateTests(unittest.TestCase):
             )
 
 
+class ScheduleConfigTests(unittest.TestCase):
+    def test_accepts_daily(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                schedule_config={"type": "daily", "time": "08:30"}
+            )
+        )
+
+        self.assertIsInstance(schedule.schedule_config, DailyScheduleConfig)
+
+    def test_accepts_and_sorts_weekly_weekdays(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                schedule_config={
+                    "type": "weekly",
+                    "weekdays": [4, 0, 2],
+                    "time": "09:00",
+                }
+            )
+        )
+
+        self.assertIsInstance(schedule.schedule_config, WeeklyScheduleConfig)
+        self.assertEqual(schedule.schedule_config.weekdays, [0, 2, 4])
+
+    def test_accepts_interval(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                schedule_config={"type": "interval", "minutes": 30}
+            )
+        )
+
+        self.assertIsInstance(
+            schedule.schedule_config,
+            IntervalScheduleConfig,
+        )
+
+    def test_rejects_unknown_type(self) -> None:
+        with self.assertRaises(ValidationError):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    schedule_config={"type": "monthly"}
+                )
+            )
+
+    def test_rejects_invalid_daily_time(self) -> None:
+        invalid_times = ("8:30", "24:00", "12:60", "08:30:00", 830)
+
+        for value in invalid_times:
+            with self.subTest(time=value):
+                with self.assertRaises(ValidationError):
+                    AutomationScheduleCreate.model_validate(
+                        valid_create_payload(
+                            schedule_config={
+                                "type": "daily",
+                                "time": value,
+                            }
+                        )
+                    )
+
+    def test_rejects_extra_fields_for_each_type(self) -> None:
+        configs = (
+            {"type": "daily", "time": "08:30", "minutes": 30},
+            {
+                "type": "weekly",
+                "weekdays": [0],
+                "time": "08:30",
+                "extra": True,
+            },
+            {"type": "interval", "minutes": 30, "time": "08:30"},
+        )
+
+        for config in configs:
+            with self.subTest(config=config):
+                with self.assertRaises(ValidationError):
+                    AutomationScheduleCreate.model_validate(
+                        valid_create_payload(schedule_config=config)
+                    )
+
+    def test_rejects_empty_weekdays(self) -> None:
+        with self.assertRaises(ValidationError):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    schedule_config={
+                        "type": "weekly",
+                        "weekdays": [],
+                        "time": "09:00",
+                    }
+                )
+            )
+
+    def test_rejects_weekday_outside_range(self) -> None:
+        for weekday in (-1, 7):
+            with self.subTest(weekday=weekday):
+                with self.assertRaises(ValidationError):
+                    AutomationScheduleCreate.model_validate(
+                        valid_create_payload(
+                            schedule_config={
+                                "type": "weekly",
+                                "weekdays": [weekday],
+                                "time": "09:00",
+                            }
+                        )
+                    )
+
+    def test_rejects_duplicate_weekdays(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "duplicates"):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    schedule_config={
+                        "type": "weekly",
+                        "weekdays": [0, 0],
+                        "time": "09:00",
+                    }
+                )
+            )
+
+    def test_rejects_interval_outside_range(self) -> None:
+        for minutes in (0, 10081):
+            with self.subTest(minutes=minutes):
+                with self.assertRaises(ValidationError):
+                    AutomationScheduleCreate.model_validate(
+                        valid_create_payload(
+                            schedule_config={
+                                "type": "interval",
+                                "minutes": minutes,
+                            }
+                        )
+                    )
+
+    def test_rejects_bool_interval_minutes(self) -> None:
+        with self.assertRaises(ValidationError):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    schedule_config={
+                        "type": "interval",
+                        "minutes": True,
+                    }
+                )
+            )
+
+    def test_serializes_to_json_compatible_dict(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                schedule_config={
+                    "type": "weekly",
+                    "weekdays": [4, 0],
+                    "time": "09:00",
+                }
+            )
+        )
+
+        self.assertEqual(
+            schedule.model_dump(mode="json")["schedule_config"],
+            {
+                "type": "weekly",
+                "weekdays": [0, 4],
+                "time": "09:00",
+            },
+        )
+
+    def test_update_uses_schedule_contract(self) -> None:
+        update = AutomationScheduleUpdate(
+            schedule_config={"type": "interval", "minutes": 45}
+        )
+
+        self.assertEqual(
+            update.model_dump(exclude_unset=True),
+            {"schedule_config": {"type": "interval", "minutes": 45}},
+        )
+
+    def test_update_without_schedule_config_remains_partial(self) -> None:
+        update = AutomationScheduleUpdate(name="Updated")
+
+        self.assertEqual(
+            update.model_dump(exclude_unset=True),
+            {"name": "Updated"},
+        )
+
+
 class AutomationScheduleServerFieldTests(unittest.TestCase):
     def assert_server_field_forbidden(
         self,
@@ -336,7 +518,7 @@ class AutomationScheduleReadTests(unittest.TestCase):
             tenant_id="enterpriseos",
             scope_type="company",
             scope_id=None,
-            schedule_config={"frequency": "daily"},
+            schedule_config={"type": "daily", "time": "08:30"},
             payload={"report": "sales"},
             recipients=[{"user_id": 1}],
             timezone="Asia/Yekaterinburg",

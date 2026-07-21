@@ -19,6 +19,7 @@ from app.automation.schedules import (
     list_schedules,
     update_schedule,
 )
+from app.automation.schedule_time import InvalidScheduleConfigError
 from app.core.config import Settings, settings
 from app.models.automation import AutomationSchedule
 from app.schemas.automation import (
@@ -35,7 +36,7 @@ def make_schedule(schedule_id: int) -> AutomationSchedule:
         tenant_id="enterpriseos",
         scope_type="company",
         scope_id=None,
-        schedule_config={},
+        schedule_config={"type": "daily", "time": "08:30"},
         payload={},
         recipients=[],
         timezone="UTC",
@@ -44,17 +45,26 @@ def make_schedule(schedule_id: int) -> AutomationSchedule:
     )
 
 
-def make_create_payload() -> AutomationScheduleCreate:
+def make_create_payload(
+    *,
+    schedule_config: dict[str, object] | None = None,
+    timezone_name: str = "Asia/Yekaterinburg",
+    is_enabled: bool = True,
+) -> AutomationScheduleCreate:
     return AutomationScheduleCreate(
         name="  Daily report  ",
         automation_type="  daily_report  ",
         scope_type="department",
         scope_id="  department-1  ",
-        schedule_config={"frequency": "daily"},
+        schedule_config=(
+            schedule_config
+            if schedule_config is not None
+            else {"type": "daily", "time": "08:30"}
+        ),
         payload={"report": "sales"},
         recipients=[{"user_id": 7}],
-        timezone="Asia/Yekaterinburg",
-        is_enabled=True,
+        timezone=timezone_name,
+        is_enabled=is_enabled,
     )
 
 
@@ -68,21 +78,18 @@ def make_update_schedule(
     schedule.automation_type = "original_automation"
     schedule.scope_type = scope_type
     schedule.scope_id = scope_id
-    schedule.schedule_config = {"frequency": "weekly"}
+    schedule.schedule_config = {
+        "type": "weekly",
+        "weekdays": [0, 2, 4],
+        "time": "09:00",
+    }
     schedule.payload = {"report": "original"}
     schedule.recipients = [{"user_id": 1}]
     schedule.timezone = "UTC"
     schedule.is_enabled = False
     schedule.contract_version = "1.0"
     schedule.tenant_id = "enterpriseos"
-    schedule.next_run_at = datetime(
-        2026,
-        7,
-        22,
-        5,
-        0,
-        tzinfo=timezone.utc,
-    )
+    schedule.next_run_at = None
     schedule.created_by_user_id = 1
     schedule.created_at = datetime(
         2026,
@@ -337,7 +344,10 @@ class CreateScheduleTests(unittest.TestCase):
         self.assertEqual(schedule.automation_type, payload.automation_type)
         self.assertEqual(schedule.scope_type, payload.scope_type)
         self.assertEqual(schedule.scope_id, payload.scope_id)
-        self.assertIs(schedule.schedule_config, payload.schedule_config)
+        self.assertEqual(
+            schedule.schedule_config,
+            payload.schedule_config.model_dump(mode="json"),
+        )
         self.assertIs(schedule.payload, payload.payload)
         self.assertIs(schedule.recipients, payload.recipients)
         self.assertEqual(schedule.timezone, payload.timezone)
@@ -376,16 +386,79 @@ class CreateScheduleTests(unittest.TestCase):
 
         self.assertNotIn("contract_version", schedule.__dict__)
 
-    def test_does_not_set_next_run_at(self) -> None:
+    def test_disabled_schedule_has_no_next_run_at(self) -> None:
         session = FakeSession()
 
         schedule = create_schedule(
             session,
-            make_create_payload(),
+            make_create_payload(is_enabled=False),
             created_by_user_id=7,
         )
 
-        self.assertNotIn("next_run_at", schedule.__dict__)
+        self.assertIsNone(schedule.next_run_at)
+
+    def test_enabled_daily_calculates_next_run_at(self) -> None:
+        self.assert_enabled_config_calculates_next_run_at(
+            {"type": "daily", "time": "08:30"}
+        )
+
+    def test_enabled_weekly_calculates_next_run_at(self) -> None:
+        self.assert_enabled_config_calculates_next_run_at(
+            {
+                "type": "weekly",
+                "weekdays": [0, 2, 4],
+                "time": "09:00",
+            }
+        )
+
+    def test_enabled_interval_calculates_next_run_at(self) -> None:
+        self.assert_enabled_config_calculates_next_run_at(
+            {"type": "interval", "minutes": 30}
+        )
+
+    def assert_enabled_config_calculates_next_run_at(
+        self,
+        schedule_config: dict[str, object],
+    ) -> None:
+        expected = datetime(2026, 7, 22, 5, 30, tzinfo=timezone.utc)
+
+        with patch(
+            "app.automation.schedules.calculate_next_run_at",
+            return_value=expected,
+        ) as calculate:
+            schedule = create_schedule(
+                FakeSession(),
+                make_create_payload(schedule_config=schedule_config),
+                created_by_user_id=7,
+            )
+
+        self.assertEqual(schedule.next_run_at, expected)
+        calculate.assert_called_once_with(
+            schedule_config,
+            "Asia/Yekaterinburg",
+        )
+
+    def test_calculation_error_rolls_back_without_commit(self) -> None:
+        error = InvalidScheduleConfigError("invalid schedule")
+        session = FakeSession()
+
+        with (
+            patch(
+                "app.automation.schedules.calculate_next_run_at",
+                side_effect=error,
+            ),
+            self.assertRaises(InvalidScheduleConfigError) as raised,
+        ):
+            create_schedule(
+                session,
+                make_create_payload(),
+                created_by_user_id=7,
+            )
+
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.rollback_count, 1)
+        self.assertEqual(session.add_count, 0)
+        self.assertEqual(session.commit_count, 0)
 
     def test_adds_created_schedule_once(self) -> None:
         session = FakeSession()
@@ -554,7 +627,7 @@ class UpdateScheduleTests(unittest.TestCase):
 
     def test_updates_schedule_config(self) -> None:
         schedule = make_update_schedule()
-        value = {"frequency": "daily"}
+        value = {"type": "daily", "time": "10:15"}
 
         update_schedule(
             FakeSession(),
@@ -601,14 +674,135 @@ class UpdateScheduleTests(unittest.TestCase):
 
     def test_updates_is_enabled(self) -> None:
         schedule = make_update_schedule()
+        expected = datetime(2026, 7, 22, 5, 30, tzinfo=timezone.utc)
+
+        with patch(
+            "app.automation.schedules.calculate_next_run_at",
+            return_value=expected,
+        ) as calculate:
+            update_schedule(
+                FakeSession(),
+                schedule,
+                AutomationScheduleUpdate(is_enabled=True),
+            )
+
+        self.assertTrue(schedule.is_enabled)
+        self.assertEqual(schedule.next_run_at, expected)
+        calculate.assert_called_once_with(
+            schedule.schedule_config,
+            schedule.timezone,
+        )
+
+    def test_disabling_clears_next_run_at(self) -> None:
+        schedule = make_update_schedule()
+        schedule.is_enabled = True
+        schedule.next_run_at = datetime(
+            2026,
+            7,
+            22,
+            5,
+            30,
+            tzinfo=timezone.utc,
+        )
 
         update_schedule(
             FakeSession(),
             schedule,
-            AutomationScheduleUpdate(is_enabled=True),
+            AutomationScheduleUpdate(is_enabled=False),
         )
 
-        self.assertTrue(schedule.is_enabled)
+        self.assertFalse(schedule.is_enabled)
+        self.assertIsNone(schedule.next_run_at)
+
+    def test_enabled_schedule_config_change_recalculates(self) -> None:
+        schedule = make_update_schedule()
+        schedule.is_enabled = True
+        expected = datetime(2026, 7, 23, 9, 0, tzinfo=timezone.utc)
+        config = {"type": "daily", "time": "12:00"}
+
+        with patch(
+            "app.automation.schedules.calculate_next_run_at",
+            return_value=expected,
+        ) as calculate:
+            update_schedule(
+                FakeSession(),
+                schedule,
+                AutomationScheduleUpdate(schedule_config=config),
+            )
+
+        self.assertEqual(schedule.schedule_config, config)
+        self.assertEqual(schedule.next_run_at, expected)
+        calculate.assert_called_once_with(config, "UTC")
+
+    def test_enabled_timezone_change_recalculates(self) -> None:
+        schedule = make_update_schedule()
+        schedule.is_enabled = True
+        expected = datetime(2026, 7, 23, 6, 0, tzinfo=timezone.utc)
+
+        with patch(
+            "app.automation.schedules.calculate_next_run_at",
+            return_value=expected,
+        ) as calculate:
+            update_schedule(
+                FakeSession(),
+                schedule,
+                AutomationScheduleUpdate(timezone="Europe/Moscow"),
+            )
+
+        self.assertEqual(schedule.timezone, "Europe/Moscow")
+        self.assertEqual(schedule.next_run_at, expected)
+        calculate.assert_called_once_with(
+            schedule.schedule_config,
+            "Europe/Moscow",
+        )
+
+    def test_enabled_name_change_preserves_next_run_at(self) -> None:
+        schedule = make_update_schedule()
+        schedule.is_enabled = True
+        expected = datetime(2026, 7, 23, 6, 0, tzinfo=timezone.utc)
+        schedule.next_run_at = expected
+
+        with patch(
+            "app.automation.schedules.calculate_next_run_at"
+        ) as calculate:
+            update_schedule(
+                FakeSession(),
+                schedule,
+                AutomationScheduleUpdate(name="Updated name"),
+            )
+
+        self.assertIs(schedule.next_run_at, expected)
+        calculate.assert_not_called()
+
+    def test_calculation_error_rolls_back_without_mutation_or_commit(
+        self,
+    ) -> None:
+        schedule = make_update_schedule()
+        schedule.is_enabled = True
+        original_config = schedule.schedule_config
+        error = InvalidScheduleConfigError("invalid schedule")
+        session = FakeSession()
+
+        with (
+            patch(
+                "app.automation.schedules.calculate_next_run_at",
+                side_effect=error,
+            ),
+            self.assertRaises(InvalidScheduleConfigError) as raised,
+        ):
+            update_schedule(
+                session,
+                schedule,
+                AutomationScheduleUpdate(
+                    schedule_config={"type": "interval", "minutes": 30}
+                ),
+            )
+
+        self.assertIs(raised.exception, error)
+        self.assertIs(schedule.schedule_config, original_config)
+        self.assertEqual(session.rollback_count, 1)
+        self.assertEqual(session.flush_count, 0)
+        self.assertEqual(session.commit_count, 0)
 
     def test_updates_multiple_fields(self) -> None:
         schedule = make_update_schedule()
@@ -699,6 +893,15 @@ class UpdateScheduleTests(unittest.TestCase):
 
     def test_preserves_contract_version_and_next_run_at(self) -> None:
         schedule = make_update_schedule()
+        schedule.is_enabled = True
+        schedule.next_run_at = datetime(
+            2026,
+            7,
+            22,
+            5,
+            0,
+            tzinfo=timezone.utc,
+        )
         next_run_at = schedule.next_run_at
 
         update_schedule(
