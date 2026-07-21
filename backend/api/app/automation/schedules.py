@@ -127,3 +127,16 @@ def update_schedule(
         raise
 
     return schedule
+
+
+def delete_schedule(
+    session: Session,
+    schedule: AutomationSchedule,
+) -> None:
+    try:
+        session.delete(schedule)
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise

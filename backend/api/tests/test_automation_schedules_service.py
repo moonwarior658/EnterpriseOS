@@ -14,6 +14,7 @@ from sqlalchemy.dialects import postgresql
 from app.automation.schedules import (
     InvalidScheduleScopeError,
     create_schedule,
+    delete_schedule,
     get_schedule,
     list_schedules,
     update_schedule,
@@ -143,9 +144,11 @@ class FakeSession:
         self.get_model = None
         self.get_identity = None
         self.added: list[AutomationSchedule] = []
+        self.deleted: list[AutomationSchedule] = []
         self.refreshed: list[AutomationSchedule] = []
         self.operations: list[str] = []
         self.add_count = 0
+        self.delete_count = 0
         self.flush_count = 0
         self.commit_count = 0
         self.refresh_count = 0
@@ -168,6 +171,15 @@ class FakeSession:
             raise self.failure
 
         self.added.append(schedule)
+
+    def delete(self, schedule: AutomationSchedule) -> None:
+        self.operations.append("delete")
+        self.delete_count += 1
+
+        if self.fail_on == "delete":
+            raise self.failure
+
+        self.deleted.append(schedule)
 
     def flush(self) -> None:
         self.operations.append("flush")
@@ -902,6 +914,64 @@ class UpdateScheduleTests(unittest.TestCase):
         self.assertEqual(session.rollback_count, 1)
 
 
+class DeleteScheduleTests(unittest.TestCase):
+    def test_deletes_passed_schedule(self) -> None:
+        session = FakeSession()
+        schedule = make_update_schedule()
+
+        result = delete_schedule(session, schedule)
+
+        self.assertIsNone(result)
+        self.assertEqual(session.delete_count, 1)
+        self.assertEqual(session.deleted, [schedule])
+
+    def test_calls_delete_flush_commit_in_order_without_refresh(self) -> None:
+        session = FakeSession()
+
+        delete_schedule(session, make_update_schedule())
+
+        self.assertEqual(session.operations, ["delete", "flush", "commit"])
+        self.assertEqual(session.refresh_count, 0)
+        self.assertEqual(session.rollback_count, 0)
+
+    def test_delete_error_rolls_back_and_is_reraised(self) -> None:
+        error = RuntimeError("delete failed")
+        session = FakeSession(fail_on="delete", failure=error)
+
+        with self.assertRaises(RuntimeError) as raised:
+            delete_schedule(session, make_update_schedule())
+
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.delete_count, 1)
+        self.assertEqual(session.flush_count, 0)
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.rollback_count, 1)
+
+    def test_flush_error_rolls_back_without_commit(self) -> None:
+        error = RuntimeError("flush failed")
+        session = FakeSession(fail_on="flush", failure=error)
+
+        with self.assertRaises(RuntimeError) as raised:
+            delete_schedule(session, make_update_schedule())
+
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.rollback_count, 1)
+
+    def test_commit_error_rolls_back_without_retry(self) -> None:
+        error = RuntimeError("commit failed")
+        session = FakeSession(fail_on="commit", failure=error)
+
+        with self.assertRaises(RuntimeError) as raised:
+            delete_schedule(session, make_update_schedule())
+
+        self.assertIs(raised.exception, error)
+        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(session.rollback_count, 1)
+
+
 class SettingsTests(unittest.TestCase):
     def test_default_tenant_id_is_available_without_environment_value(
         self,
@@ -986,6 +1056,25 @@ class ScheduleServiceIsolationTests(unittest.TestCase):
                 make_update_schedule(),
                 AutomationScheduleUpdate(name="Updated name"),
             )
+
+        dispatch.assert_not_called()
+        provider.assert_not_called()
+        outbox.assert_not_called()
+
+    def test_delete_does_not_call_execution_components(self) -> None:
+        with (
+            patch(
+                "app.automation.dispatch.create_automation_execution"
+            ) as dispatch,
+            patch(
+                "app.automation.providers.base."
+                "AutomationProvider.send_command"
+            ) as provider,
+            patch(
+                "app.automation.outbox.OutboxWorker.process_one"
+            ) as outbox,
+        ):
+            delete_schedule(FakeSession(), make_update_schedule())
 
         dispatch.assert_not_called()
         provider.assert_not_called()
