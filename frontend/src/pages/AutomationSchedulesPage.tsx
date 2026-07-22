@@ -9,6 +9,7 @@ import {
   type AutomationScopeType,
   type ScheduleConfig,
 } from '../services/automation'
+import AutomationScheduleForm from './AutomationScheduleForm'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
@@ -121,6 +122,10 @@ function AutomationSchedulesPage() {
   const [scopeFilter, setScopeFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [formSchedule, setFormSchedule] =
+    useState<AutomationSchedule | null>(null)
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -266,6 +271,54 @@ function AutomationSchedulesPage() {
     setCurrentPage(1)
   }
 
+  function openCreateForm() {
+    setFormSchedule(null)
+    setIsFormOpen(true)
+    setError('')
+    setNotice('')
+  }
+
+  function openEditForm(schedule: AutomationSchedule) {
+    setFormSchedule(schedule)
+    setIsFormOpen(true)
+    setError('')
+    setNotice('')
+  }
+
+  function closeForm() {
+    setIsFormOpen(false)
+    setFormSchedule(null)
+  }
+
+  function handleScheduleSaved(
+    savedSchedule: AutomationSchedule,
+    isCreated: boolean,
+  ) {
+    setSchedules((current) =>
+      isCreated
+        ? [...current, savedSchedule]
+        : current.map((item) =>
+            item.id === savedSchedule.id ? savedSchedule : item,
+          ),
+    )
+
+    if (isCreated) {
+      setLatestExecutions((current) => {
+        const next = new Map(current)
+        next.set(savedSchedule.id, null)
+        return next
+      })
+    }
+
+    setNotice(
+      isCreated
+        ? 'Регламент создан'
+        : 'Изменения регламента сохранены',
+    )
+    closeForm()
+    resetPage()
+  }
+
   async function handleToggle(schedule: AutomationSchedule) {
     setError('')
     setUpdatingIds((current) => new Set(current).add(schedule.id))
@@ -317,12 +370,22 @@ function AutomationSchedulesPage() {
             <button
               className="primary-action"
               type="button"
-              disabled
-              title="Создание задач будет доступно на следующем этапе"
+              disabled={isFormOpen}
+              onClick={openCreateForm}
             >
               Добавить
             </button>
           </div>
+
+          {isFormOpen && (
+            <AutomationScheduleForm
+              key={formSchedule?.id ?? 'create'}
+              schedule={formSchedule}
+              automationTypes={typeOptions}
+              onCancel={closeForm}
+              onSaved={handleScheduleSaved}
+            />
+          )}
 
           <div className="automation-filters" aria-label="Фильтры задач">
             <label className="automation-search">
@@ -393,6 +456,11 @@ function AutomationSchedulesPage() {
           </div>
 
           {error && <p className="page-error">{error}</p>}
+          {notice && (
+            <p className="automation-page-notice" role="status">
+              {notice}
+            </p>
+          )}
 
           {!loadFailed && (
             <div className="automation-table-wrap">
@@ -528,11 +596,12 @@ function AutomationSchedulesPage() {
                             <button
                               className="automation-row-actions"
                               type="button"
-                              disabled
-                              title="Действия будут доступны на следующем этапе"
-                              aria-label={`Действия для задачи ${schedule.name}`}
+                              disabled={isFormOpen}
+                              title="Редактировать регламент"
+                              aria-label={`Редактировать задачу ${schedule.name}`}
+                              onClick={() => openEditForm(schedule)}
                             >
-                              ···
+                              Изменить
                             </button>
                           </td>
                         </tr>

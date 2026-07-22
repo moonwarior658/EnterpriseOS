@@ -40,6 +40,22 @@ export type AutomationSchedule = {
   updated_at: string
 }
 
+export type AutomationScheduleCreateInput = {
+  name: string
+  automation_type: string
+  scope_type: AutomationScopeType
+  scope_id: string | null
+  schedule_config: ScheduleConfig
+  payload: Record<string, unknown>
+  recipients: unknown[]
+  timezone: string
+  is_enabled: boolean
+}
+
+export type AutomationScheduleUpdateInput = Partial<
+  AutomationScheduleCreateInput
+>
+
 export type AutomationExecutionStatus =
   | 'pending'
   | 'dispatching'
@@ -143,6 +159,43 @@ export async function getAutomationSchedules(): Promise<
   return schedules ?? []
 }
 
+export async function createAutomationSchedule(
+  input: AutomationScheduleCreateInput,
+): Promise<AutomationSchedule> {
+  const schedule = await authorizedRequest<AutomationSchedule>(
+    '/automation/schedules',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  )
+
+  if (!schedule) {
+    throw new Error('Не удалось создать регламент')
+  }
+
+  return schedule
+}
+
+export async function updateAutomationSchedule(
+  scheduleId: number,
+  input: AutomationScheduleUpdateInput,
+): Promise<AutomationSchedule> {
+  const schedule = await authorizedRequest<AutomationSchedule>(
+    `/automation/schedules/${scheduleId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  )
+
+  if (!schedule) {
+    throw new Error('Не удалось сохранить регламент')
+  }
+
+  return schedule
+}
+
 export function getLatestScheduleExecution(
   scheduleId: number,
 ): Promise<AutomationExecution | null> {
@@ -155,11 +208,7 @@ export async function updateAutomationScheduleEnabled(
   scheduleId: number,
   isEnabled: boolean,
 ): Promise<AutomationSchedule | null> {
-  return authorizedRequest<AutomationSchedule>(
-    `/automation/schedules/${scheduleId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ is_enabled: isEnabled }),
-    },
-  )
+  return updateAutomationSchedule(scheduleId, {
+    is_enabled: isEnabled,
+  })
 }

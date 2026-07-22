@@ -54,6 +54,215 @@
   box-shadow: 0 0 0 3px rgb(25 26 29 / 6%);
 }
 
+.automation-schedule-form {
+  display: grid;
+  gap: 22px;
+  margin-top: 24px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 20px;
+  background: rgb(245 246 248 / 78%);
+  padding: 22px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%);
+}
+
+.automation-form-heading,
+.automation-form-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.automation-form-heading h2 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: -0.025em;
+}
+
+.automation-form-heading .eyebrow {
+  margin-bottom: 7px;
+}
+
+.automation-form-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 78%);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.automation-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.automation-form-field,
+.automation-weekdays {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.automation-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.automation-form-field > span,
+.automation-weekdays legend {
+  color: #555860;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.automation-form-field input,
+.automation-form-field select {
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  outline: none;
+  background: white;
+  padding: 0 13px;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.automation-form-field input:focus,
+.automation-form-field select:focus,
+.automation-form-close:focus-visible,
+.automation-weekdays input:focus-visible + span,
+.automation-form-actions button:focus-visible,
+.automation-row-actions:focus-visible,
+.schedule-toggle:focus-visible {
+  outline: none;
+  border-color: #8f939c;
+  box-shadow: 0 0 0 3px rgb(25 26 29 / 8%);
+}
+
+.automation-form-field input[aria-invalid="true"],
+.automation-form-field select[aria-invalid="true"] {
+  border-color: #cf7773;
+}
+
+.automation-form-field small,
+.automation-enabled-field small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.automation-field-error {
+  color: #a23530 !important;
+}
+
+.automation-weekdays legend {
+  margin-bottom: 8px;
+}
+
+.automation-weekdays > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.automation-weekdays label {
+  cursor: pointer;
+}
+
+.automation-weekdays input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.automation-weekdays label span {
+  display: grid;
+  min-width: 38px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: white;
+  color: #555860;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.automation-weekdays input:checked + span {
+  border-color: #191a1d;
+  background: #191a1d;
+  color: white;
+}
+
+.automation-enabled-field {
+  display: flex;
+  min-height: 44px;
+  align-items: flex-start;
+  gap: 10px;
+  align-self: end;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 68%);
+  padding: 11px 12px;
+  cursor: pointer;
+}
+
+.automation-enabled-field input {
+  margin-top: 2px;
+}
+
+.automation-enabled-field > span {
+  display: grid;
+  gap: 3px;
+}
+
+.automation-enabled-field strong {
+  font-size: 12px;
+}
+
+.automation-form-actions {
+  justify-content: flex-start;
+}
+
+.automation-form-error,
+.automation-page-notice {
+  margin: 0;
+  border-radius: 13px;
+  padding: 11px 13px;
+  font-size: 13px;
+}
+
+.automation-form-error {
+  background: #fde9e8;
+  color: #a23530;
+}
+
+.automation-page-notice {
+  margin-top: 18px;
+  background: #e4f6eb;
+  color: #247c47;
+}
+
 .automation-table-wrap {
   margin-top: 18px;
   overflow-x: auto;
@@ -101,7 +310,7 @@
 }
 
 .automation-table th:nth-child(1) {
-  width: 18%;
+  width: 15%;
 }
 
 .automation-table th:nth-child(2) {
@@ -129,7 +338,7 @@
 }
 
 .automation-table th:nth-child(8) {
-  width: 5%;
+  width: 8%;
 }
 
 .automation-name-cell,
@@ -237,14 +446,16 @@
 }
 
 .automation-row-actions {
-  width: 32px;
+  min-width: 32px;
   height: 28px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: white;
   color: #555860;
-  font-size: 15px;
-  letter-spacing: 1px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
 }
 
 .automation-row-actions:disabled {
@@ -322,6 +533,18 @@
 
   .automation-filters {
     grid-template-columns: 1fr;
+  }
+
+  .automation-schedule-form {
+    padding: 18px 14px;
+  }
+
+  .automation-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .automation-form-field-wide {
+    grid-column: auto;
   }
 
   .automation-pagination {
