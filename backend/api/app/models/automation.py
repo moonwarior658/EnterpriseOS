@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
+    Float,
     Index,
     Integer,
     String,
@@ -47,6 +48,12 @@ class OutboxStatus(StrEnum):
     PROCESSING = "processing"
     PUBLISHED = "published"
     FAILED = "failed"
+
+
+class RuntimeComponent(StrEnum):
+    WORKER = "worker"
+    SCHEDULER = "scheduler"
+    N8N = "n8n"
 
 
 class ScheduleAuditEventType(StrEnum):
@@ -498,4 +505,62 @@ class OutboxEvent(Base):
 
     execution: Mapped[AutomationExecution] = relationship(
         back_populates="outbox_events",
+    )
+
+
+class AutomationRuntimeStatus(Base):
+    __tablename__ = "automation_runtime_status"
+    __table_args__ = (
+        CheckConstraint(
+            "component_key IN ('worker', 'scheduler', 'n8n')",
+            name="ck_automation_runtime_status_component",
+        ),
+    )
+
+    component_key: Mapped[str] = mapped_column(
+        String(32),
+        primary_key=True,
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    worker_id_safe: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+    poll_interval_seconds: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    scanned: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    claimed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skipped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    configured: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    safe_message: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

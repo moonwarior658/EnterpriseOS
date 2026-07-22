@@ -8,6 +8,11 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from app.automation.outbox import OutboxWorker, SqlAlchemyOutboxStore
+from app.automation.diagnostics import (
+    WORKER_HEARTBEAT_INTERVAL_SECONDS,
+    record_runtime_status_safely,
+    safe_worker_id,
+)
 from app.automation.providers.n8n import N8nProvider
 from app.automation.scheduler import (
     MAX_SCHEDULER_BATCH_SIZE,
@@ -16,6 +21,7 @@ from app.automation.scheduler import (
 from app.automation.timeouts import expire_stale_executions
 from app.core.n8n_config import get_n8n_settings
 from app.db.session import SessionLocal
+from app.models.automation import RuntimeComponent
 
 
 logging.basicConfig(
@@ -84,6 +90,18 @@ async def run_scheduler_loop(
                 SessionLocal,
                 batch_size=batch_size,
             )
+            record_runtime_status_safely(
+                SessionLocal,
+                RuntimeComponent.SCHEDULER,
+                heartbeat_at=datetime.now(timezone.utc),
+                last_run_at=datetime.now(timezone.utc),
+                poll_interval_seconds=poll_seconds,
+                scanned=result.scanned,
+                claimed=result.claimed,
+                created=result.created,
+                failed=result.failed,
+                skipped=result.skipped,
+            )
             logger.info(
                 "Automation scheduler pass scanned=%s claimed=%s "
                 "created=%s failed=%s skipped=%s",
@@ -95,6 +113,18 @@ async def run_scheduler_loop(
             )
         except Exception:
             logger.exception("Unhandled automation scheduler pass error")
+            record_runtime_status_safely(
+                SessionLocal,
+                RuntimeComponent.SCHEDULER,
+                heartbeat_at=datetime.now(timezone.utc),
+                last_run_at=datetime.now(timezone.utc),
+                poll_interval_seconds=poll_seconds,
+                scanned=0,
+                claimed=0,
+                created=0,
+                failed=1,
+                skipped=0,
+            )
 
         await wait_or_stop(stop_event, poll_seconds)
 
@@ -173,6 +203,7 @@ async def run_worker() -> None:
         raise RuntimeError("AUTOMATION_CALLBACK_URL must not be empty")
 
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    diagnostics_worker_id = safe_worker_id(worker_id)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -198,6 +229,7 @@ async def run_worker() -> None:
     )
 
     next_timeout_sweep = 0.0
+    next_worker_heartbeat = 0.0
     scheduler_task = start_scheduler_task(
         stop_event,
         poll_seconds=scheduler_poll_seconds,
@@ -216,6 +248,19 @@ async def run_worker() -> None:
             while not stop_event.is_set():
                 try:
                     monotonic_now = time.monotonic()
+
+                    if monotonic_now >= next_worker_heartbeat:
+                        record_runtime_status_safely(
+                            SessionLocal,
+                            RuntimeComponent.WORKER,
+                            heartbeat_at=datetime.now(timezone.utc),
+                            worker_id_safe=diagnostics_worker_id,
+                            poll_interval_seconds=poll_seconds,
+                        )
+                        next_worker_heartbeat = (
+                            monotonic_now
+                            + WORKER_HEARTBEAT_INTERVAL_SECONDS
+                        )
 
                     if monotonic_now >= next_timeout_sweep:
                         expired_ids = expire_stale_executions(

@@ -19,6 +19,7 @@ from app.automation.dispatch import (
     DisabledAutomationScheduleError,
     dispatch_schedule_now,
 )
+from app.automation.diagnostics import build_diagnostics_snapshot
 from app.automation.schedules import (
     InvalidScheduleScopeError,
     create_schedule,
@@ -39,7 +40,7 @@ from app.automation.executions import (
     list_executions,
 )
 from app.core.config import settings
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.models.automation import (
     AutomationExecution,
     AutomationSchedule,
@@ -58,6 +59,7 @@ from app.schemas.automation import (
     AutomationScheduleAuditPage,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
+    AutomationDiagnosticsSnapshot,
 )
 
 
@@ -70,6 +72,17 @@ TERMINAL_STATUSES = {
     ExecutionStatus.TIMED_OUT,
     ExecutionStatus.CANCELLED,
 }
+
+
+@router.get(
+    "/diagnostics",
+    response_model=AutomationDiagnosticsSnapshot,
+)
+async def read_automation_diagnostics(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> AutomationDiagnosticsSnapshot:
+    return await build_diagnostics_snapshot(db, SessionLocal)
 
 
 def schedule_not_found() -> HTTPException:

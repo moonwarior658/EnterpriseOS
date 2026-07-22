@@ -336,6 +336,83 @@ class AutomationExecutionHistoryPage(BaseModel):
     offset: int = Field(ge=0)
 
 
+class AutomationComponentState(BaseModel):
+    status: Literal["unknown", "healthy", "degraded"]
+    last_heartbeat_at: datetime | None
+    heartbeat_age_seconds: int | None = Field(ge=0)
+    worker_id: str | None = None
+    poll_interval_seconds: float | None = Field(default=None, gt=0)
+
+
+class AutomationSchedulerState(BaseModel):
+    status: Literal["healthy", "degraded", "unknown"]
+    last_run_at: datetime | None
+    age_seconds: int | None = Field(ge=0)
+    scanned: int = Field(ge=0)
+    claimed: int = Field(ge=0)
+    created: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    poll_interval_seconds: float | None = Field(default=None, gt=0)
+
+
+class AutomationN8nState(BaseModel):
+    configured: bool
+    reachable: bool | None
+    checked_at: datetime | None
+    latency_ms: int | None = Field(default=None, ge=0)
+    status: Literal["healthy", "degraded", "unavailable", "unknown"]
+    safe_message: str
+
+
+class AutomationOutboxSummary(BaseModel):
+    pending: int = Field(ge=0)
+    processing: int = Field(ge=0)
+    retry_scheduled: int = Field(ge=0)
+    published: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    oldest_pending_at: datetime | None
+    oldest_pending_age_seconds: int | None = Field(ge=0)
+    stuck_count: int = Field(ge=0)
+
+
+class AutomationSafeErrorSummary(BaseModel):
+    error_category: str
+    error_code: str
+    count: int = Field(ge=1)
+    last_occurred_at: datetime
+
+
+class AutomationExecutionSummary(BaseModel):
+    pending: int = Field(ge=0)
+    running: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    timed_out: int = Field(ge=0)
+    cancelled: int = Field(ge=0)
+    running_too_long_count: int = Field(ge=0)
+    recent_system_errors: list[AutomationSafeErrorSummary]
+
+
+class AutomationDiagnosticAlert(BaseModel):
+    code: str
+    severity: Literal["warning", "critical"]
+    title: str
+    safe_message: str
+    count: int = Field(ge=1)
+    detected_at: datetime
+
+
+class AutomationDiagnosticsSnapshot(BaseModel):
+    generated_at: datetime
+    worker_state: AutomationComponentState
+    scheduler_state: AutomationSchedulerState
+    n8n_state: AutomationN8nState
+    outbox_summary: AutomationOutboxSummary
+    execution_summary: AutomationExecutionSummary
+    alerts: list[AutomationDiagnosticAlert]
+
+
 class AutomationCommand(BaseModel):
     contract_version: ContractVersion = AUTOMATION_CONTRACT_VERSION
     execution_id: UUID

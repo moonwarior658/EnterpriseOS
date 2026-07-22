@@ -108,6 +108,17 @@ function AppLayout() {
                 <span>Регламентные задачи</span>
                 <span>→</span>
               </NavLink>
+
+              <NavLink
+                to="/automation/diagnostics"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Диагностика автоматизаций</span>
+                <span>→</span>
+              </NavLink>
             </>
           )}
         </nav>

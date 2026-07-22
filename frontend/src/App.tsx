@@ -2,6 +2,7 @@
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './layouts/AppLayout'
 import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
+import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import UsersPage from './pages/UsersPage'
@@ -32,6 +33,15 @@ function App() {
           element={
             <ProtectedRoute adminOnly>
               <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/automation/diagnostics"
+          element={
+            <ProtectedRoute adminOnly>
+              <AutomationDiagnosticsPage />
             </ProtectedRoute>
           }
         />

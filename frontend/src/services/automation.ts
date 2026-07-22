@@ -143,6 +143,75 @@ export type AutomationScheduleAuditPage = {
   offset: number
 }
 
+export type AutomationRuntimeState =
+  | 'known'
+  | 'unknown'
+  | 'healthy'
+  | 'degraded'
+
+export type AutomationDiagnostics = {
+  generated_at: string
+  worker_state: {
+    status: AutomationRuntimeState
+    last_heartbeat_at: string | null
+    heartbeat_age_seconds: number | null
+    worker_id: string | null
+    poll_interval_seconds: number | null
+  }
+  scheduler_state: {
+    status: Exclude<AutomationRuntimeState, 'known'>
+    last_run_at: string | null
+    age_seconds: number | null
+    scanned: number
+    claimed: number
+    created: number
+    failed: number
+    skipped: number
+    poll_interval_seconds: number | null
+  }
+  n8n_state: {
+    configured: boolean
+    reachable: boolean | null
+    checked_at: string | null
+    latency_ms: number | null
+    status: 'healthy' | 'degraded' | 'unavailable' | 'unknown'
+    safe_message: string
+  }
+  outbox_summary: {
+    pending: number
+    processing: number
+    retry_scheduled: number
+    published: number
+    failed: number
+    oldest_pending_at: string | null
+    oldest_pending_age_seconds: number | null
+    stuck_count: number
+  }
+  execution_summary: {
+    pending: number
+    running: number
+    succeeded: number
+    failed: number
+    timed_out: number
+    cancelled: number
+    running_too_long_count: number
+    recent_system_errors: Array<{
+      error_category: string
+      error_code: string
+      count: number
+      last_occurred_at: string
+    }>
+  }
+  alerts: Array<{
+    code: string
+    severity: 'warning' | 'critical'
+    title: string
+    safe_message: string
+    count: number
+    detected_at: string
+  }>
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -213,6 +282,18 @@ export async function getAutomationSchedules(): Promise<
   )
 
   return schedules ?? []
+}
+
+export async function getAutomationDiagnostics(): Promise<AutomationDiagnostics> {
+  const diagnostics = await authorizedRequest<AutomationDiagnostics>(
+    '/automation/diagnostics',
+  )
+
+  if (!diagnostics) {
+    throw new Error('Не удалось загрузить диагностику автоматизаций')
+  }
+
+  return diagnostics
 }
 
 export async function createAutomationSchedule(
