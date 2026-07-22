@@ -1,4 +1,4 @@
-.automation-page-shell {
+﻿.automation-page-shell {
   width: min(1480px, calc(100% - 32px));
 }
 
@@ -298,11 +298,11 @@
 }
 
 .automation-column-enabled {
-  width: 72px;
+  width: 76px;
 }
 
 .automation-column-actions {
-  width: 240px;
+  width: 280px;
 }
 
 .automation-table th,
@@ -723,3 +723,5 @@
     flex-direction: column;
   }
 }
+
+
