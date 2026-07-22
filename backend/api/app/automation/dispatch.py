@@ -5,12 +5,14 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.automation.audit import add_schedule_audit_event
 from app.models.automation import (
     AutomationExecution,
     AutomationSchedule,
     ExecutionStatus,
     OutboxEvent,
     OutboxStatus,
+    ScheduleAuditEventType,
 )
 
 
@@ -79,6 +81,8 @@ def create_automation_execution(
 def dispatch_schedule_now(
     session: Session,
     schedule_id: int,
+    *,
+    actor_user_id: int,
 ) -> AutomationExecution:
     try:
         if not session.in_transaction():
@@ -104,6 +108,13 @@ def dispatch_schedule_now(
             contract_version=schedule.contract_version,
             schedule_id=schedule.id,
         )
+        add_schedule_audit_event(
+            session,
+            event_type=ScheduleAuditEventType.RUN_REQUESTED,
+            actor_user_id=actor_user_id,
+            schedule_id=schedule.id,
+        )
+        session.flush()
         session.refresh(execution)
         session.commit()
     except Exception:

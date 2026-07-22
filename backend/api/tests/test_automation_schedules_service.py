@@ -17,15 +17,27 @@ from app.automation.schedules import (
     delete_schedule,
     get_schedule,
     list_schedules,
-    update_schedule,
+    update_schedule as update_schedule_service,
 )
 from app.automation.schedule_time import InvalidScheduleConfigError
 from app.core.config import Settings, settings
-from app.models.automation import AutomationSchedule
+from app.models.automation import (
+    AutomationSchedule,
+    AutomationScheduleAuditEvent,
+)
 from app.schemas.automation import (
     AutomationScheduleCreate,
     AutomationScheduleUpdate,
 )
+
+
+def update_schedule(session, schedule, payload):
+    return update_schedule_service(
+        session,
+        schedule,
+        payload,
+        actor_user_id=1,
+    )
 
 
 def make_schedule(schedule_id: int) -> AutomationSchedule:
@@ -150,7 +162,7 @@ class FakeSession:
         self.statement = None
         self.get_model = None
         self.get_identity = None
-        self.added: list[AutomationSchedule] = []
+        self.added: list[object] = []
         self.deleted: list[AutomationSchedule] = []
         self.refreshed: list[AutomationSchedule] = []
         self.operations: list[str] = []
@@ -170,7 +182,7 @@ class FakeSession:
         self.get_identity = identity
         return self.schedule
 
-    def add(self, schedule: AutomationSchedule) -> None:
+    def add(self, schedule: object) -> None:
         self.operations.append("add")
         self.add_count += 1
 
@@ -469,8 +481,9 @@ class CreateScheduleTests(unittest.TestCase):
             created_by_user_id=7,
         )
 
-        self.assertEqual(session.add_count, 1)
-        self.assertEqual(session.added, [schedule])
+        self.assertEqual(session.add_count, 2)
+        self.assertIs(session.added[0], schedule)
+        self.assertIsInstance(session.added[1], AutomationScheduleAuditEvent)
 
     def test_calls_add_flush_refresh_commit_in_order(self) -> None:
         session = FakeSession()
@@ -483,14 +496,14 @@ class CreateScheduleTests(unittest.TestCase):
 
         self.assertEqual(
             session.operations,
-            ["add", "flush", "refresh", "commit"],
+            ["add", "flush", "add", "flush", "refresh", "commit"],
         )
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.refresh_count, 1)
         self.assertEqual(session.refreshed, [schedule])
 
-    def test_flushes_once(self) -> None:
+    def test_flushes_schedule_and_audit(self) -> None:
         session = FakeSession()
 
         create_schedule(
@@ -499,7 +512,7 @@ class CreateScheduleTests(unittest.TestCase):
             created_by_user_id=7,
         )
 
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
 
     def test_success_does_not_rollback(self) -> None:
         session = FakeSession()
@@ -569,7 +582,7 @@ class CreateScheduleTests(unittest.TestCase):
             )
 
         self.assertIs(raised.exception, error)
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.refresh_count, 1)
         self.assertEqual(session.rollback_count, 1)
@@ -586,7 +599,7 @@ class CreateScheduleTests(unittest.TestCase):
             )
 
         self.assertIs(raised.exception, error)
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.refresh_count, 1)
         self.assertEqual(session.rollback_count, 1)
@@ -1062,8 +1075,11 @@ class UpdateScheduleTests(unittest.TestCase):
             AutomationScheduleUpdate(name="Updated name"),
         )
 
-        self.assertEqual(session.operations, ["flush", "refresh", "commit"])
-        self.assertEqual(session.add_count, 0)
+        self.assertEqual(
+            session.operations,
+            ["flush", "add", "flush", "refresh", "commit"],
+        )
+        self.assertEqual(session.add_count, 1)
 
     def test_flush_error_rolls_back_and_is_reraised(self) -> None:
         error = RuntimeError("flush failed")
@@ -1094,7 +1110,7 @@ class UpdateScheduleTests(unittest.TestCase):
             )
 
         self.assertIs(raised.exception, error)
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
         self.assertEqual(session.refresh_count, 1)
         self.assertEqual(session.commit_count, 0)
         self.assertEqual(session.rollback_count, 1)
@@ -1111,7 +1127,7 @@ class UpdateScheduleTests(unittest.TestCase):
             )
 
         self.assertIs(raised.exception, error)
-        self.assertEqual(session.flush_count, 1)
+        self.assertEqual(session.flush_count, 2)
         self.assertEqual(session.refresh_count, 1)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.rollback_count, 1)

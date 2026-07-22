@@ -10,9 +10,11 @@ from app.automation.dispatch import (
 from app.models.automation import (
     AutomationExecution,
     AutomationSchedule,
+    AutomationScheduleAuditEvent,
     ExecutionStatus,
     OutboxEvent,
     OutboxStatus,
+    ScheduleAuditEventType,
 )
 
 
@@ -91,6 +93,11 @@ class FakeSession:
         if not self.transaction_open:
             raise AssertionError("Records added outside transaction")
         self.staged.extend(instances)
+
+    def add(self, instance: object) -> None:
+        if not self.transaction_open:
+            raise AssertionError("Record added outside transaction")
+        self.staged.append(instance)
 
     def flush(self) -> None:
         if not self.transaction_open:
@@ -288,11 +295,22 @@ class ManualScheduleDispatchTests(unittest.TestCase):
     def test_creates_execution_and_outbox_atomically(self) -> None:
         session = FakeSession(schedule=make_schedule())
 
-        execution = dispatch_schedule_now(session, 42)
+        execution = dispatch_schedule_now(session, 42, actor_user_id=7)
 
-        self.assertEqual(len(session.committed), 2)
+        self.assertEqual(len(session.committed), 3)
         self.assertIs(session.committed[0], execution)
         self.assertIsInstance(session.committed[1], OutboxEvent)
+        self.assertIsInstance(
+            session.committed[2], AutomationScheduleAuditEvent
+        )
+        audit_event = session.committed[2]
+        self.assertEqual(
+            audit_event.event_type,
+            ScheduleAuditEventType.RUN_REQUESTED,
+        )
+        self.assertEqual(audit_event.actor_user_id, 7)
+        self.assertEqual(audit_event.schedule_id, 42)
+        self.assertEqual(audit_event.metadata_, {})
         self.assertEqual(execution.schedule_id, 42)
         self.assertEqual(session.commit_count, 1)
         self.assertEqual(session.rollback_count, 0)
@@ -301,7 +319,7 @@ class ManualScheduleDispatchTests(unittest.TestCase):
         session = FakeSession()
 
         with self.assertRaises(AutomationScheduleNotFoundError):
-            dispatch_schedule_now(session, 404)
+            dispatch_schedule_now(session, 404, actor_user_id=7)
 
         self.assertEqual(session.committed, [])
         self.assertEqual(session.rollback_count, 1)
@@ -310,7 +328,7 @@ class ManualScheduleDispatchTests(unittest.TestCase):
         session = FakeSession(schedule=make_schedule(is_enabled=False))
 
         with self.assertRaises(DisabledAutomationScheduleError):
-            dispatch_schedule_now(session, 42)
+            dispatch_schedule_now(session, 42, actor_user_id=7)
 
         self.assertEqual(session.committed, [])
         self.assertEqual(session.rollback_count, 1)
@@ -322,7 +340,7 @@ class ManualScheduleDispatchTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(RuntimeError, "database write failed"):
-            dispatch_schedule_now(session, 42)
+            dispatch_schedule_now(session, 42, actor_user_id=7)
 
         self.assertEqual(session.committed, [])
         self.assertEqual(session.staged, [])

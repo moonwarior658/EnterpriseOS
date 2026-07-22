@@ -8,6 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
+from app.automation.audit import (
+    DEFAULT_AUDIT_LIMIT,
+    count_schedule_audit_events,
+    list_schedule_audit_events,
+    safe_schedule_audit_metadata,
+)
 from app.automation.dispatch import (
     AutomationScheduleNotFoundError,
     DisabledAutomationScheduleError,
@@ -48,6 +54,8 @@ from app.schemas.automation import (
     AutomationExecutionHistoryPage,
     AutomationLatestExecutionItem,
     AutomationScheduleCreate,
+    AutomationScheduleAuditItem,
+    AutomationScheduleAuditPage,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
 )
@@ -142,7 +150,7 @@ def update_automation_schedule(
     schedule_id: int,
     payload: AutomationScheduleUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> AutomationSchedule:
     schedule = get_schedule(db, schedule_id)
 
@@ -150,7 +158,12 @@ def update_automation_schedule(
         raise schedule_not_found()
 
     try:
-        return update_schedule(db, schedule, payload)
+        return update_schedule(
+            db,
+            schedule,
+            payload,
+            actor_user_id=current_admin.id,
+        )
     except InvalidScheduleScopeError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -183,10 +196,14 @@ def delete_automation_schedule(
 def run_automation_schedule(
     schedule_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> AutomationExecution:
     try:
-        return dispatch_schedule_now(db, schedule_id)
+        return dispatch_schedule_now(
+            db,
+            schedule_id,
+            actor_user_id=current_admin.id,
+        )
     except AutomationScheduleNotFoundError as error:
         raise schedule_not_found() from error
     except DisabledAutomationScheduleError as error:
@@ -199,6 +216,47 @@ def run_automation_schedule(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start automation schedule",
         ) from error
+
+
+@router.get(
+    "/schedules/{schedule_id}/audit",
+    response_model=AutomationScheduleAuditPage,
+)
+def read_schedule_audit(
+    schedule_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    limit: Annotated[int, Query(ge=1, le=100)] = DEFAULT_AUDIT_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> AutomationScheduleAuditPage:
+    if get_schedule(db, schedule_id) is None:
+        raise schedule_not_found()
+
+    rows = list_schedule_audit_events(
+        db,
+        schedule_id,
+        limit=limit,
+        offset=offset,
+    )
+    return AutomationScheduleAuditPage(
+        items=[
+            AutomationScheduleAuditItem(
+                id=event.id,
+                event_type=event.event_type.value,
+                actor_user_id=event.actor_user_id,
+                actor_display_name=display_name,
+                occurred_at=event.occurred_at,
+                metadata=safe_schedule_audit_metadata(
+                    event.event_type,
+                    event.metadata_,
+                ),
+            )
+            for event, display_name in rows
+        ],
+        total=count_schedule_audit_events(db, schedule_id),
+        limit=limit,
+        offset=offset,
+    )
 
 
 def execution_not_found() -> HTTPException:

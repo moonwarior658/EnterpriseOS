@@ -595,6 +595,14 @@
   border-bottom: 0;
 }
 
+.automation-audit-table {
+  min-width: 760px;
+}
+
+.automation-audit-table th:last-child {
+  width: 38%;
+}
+
 .automation-history-error-cell {
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);

@@ -1,9 +1,17 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.automation.audit import (
+    add_schedule_audit_event,
+    schedule_audit_changes,
+    schedule_audit_snapshot,
+)
 from app.automation.schedule_time import calculate_next_run_at
 from app.core.config import settings
-from app.models.automation import AutomationSchedule
+from app.models.automation import (
+    AutomationSchedule,
+    ScheduleAuditEventType,
+)
 from app.schemas.automation import (
     AutomationScheduleCreate,
     AutomationScheduleUpdate,
@@ -95,6 +103,14 @@ def create_schedule(
         )
         session.add(schedule)
         session.flush()
+        add_schedule_audit_event(
+            session,
+            event_type=ScheduleAuditEventType.CREATED,
+            actor_user_id=created_by_user_id,
+            schedule_id=schedule.id,
+            metadata={"fields": schedule_audit_snapshot(schedule)},
+        )
+        session.flush()
         session.refresh(schedule)
         session.commit()
     except Exception:
@@ -108,6 +124,8 @@ def update_schedule(
     session: Session,
     schedule: AutomationSchedule,
     payload: AutomationScheduleUpdate,
+    *,
+    actor_user_id: int,
 ) -> AutomationSchedule:
     updates = payload.model_dump(exclude_unset=True)
 
@@ -121,6 +139,8 @@ def update_schedule(
         else schedule.scope_id
     )
     validate_schedule_scope(final_scope_type, final_scope_id)
+
+    before = schedule_audit_snapshot(schedule)
 
     try:
         final_is_enabled = updates.get(
@@ -154,6 +174,36 @@ def update_schedule(
         schedule.next_run_at = next_run_at
 
         session.flush()
+        changes = schedule_audit_changes(
+            before,
+            schedule_audit_snapshot(schedule),
+        )
+        enabled_change = changes.pop("is_enabled", None)
+
+        if changes:
+            add_schedule_audit_event(
+                session,
+                event_type=ScheduleAuditEventType.UPDATED,
+                actor_user_id=actor_user_id,
+                schedule_id=schedule.id,
+                metadata={"changes": changes},
+            )
+
+        if enabled_change is not None:
+            add_schedule_audit_event(
+                session,
+                event_type=(
+                    ScheduleAuditEventType.ENABLED
+                    if schedule.is_enabled
+                    else ScheduleAuditEventType.DISABLED
+                ),
+                actor_user_id=actor_user_id,
+                schedule_id=schedule.id,
+                metadata={"changes": {"is_enabled": enabled_change}},
+            )
+
+        if changes or enabled_change is not None:
+            session.flush()
         session.refresh(schedule)
         session.commit()
     except Exception:

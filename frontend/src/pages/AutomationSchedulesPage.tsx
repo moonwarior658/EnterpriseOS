@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getAutomationSchedules,
+  getScheduleAudit,
   getLatestScheduleExecutions,
   getScheduleExecutionHistory,
   runAutomationSchedule,
@@ -9,6 +10,7 @@ import {
   type AutomationExecutionStatus,
   type AutomationLatestExecution,
   type AutomationSchedule,
+  type AutomationScheduleAuditPage,
   type AutomationScopeType,
   type ScheduleConfig,
 } from '../services/automation'
@@ -28,10 +30,16 @@ import {
   loadLatestExecutions,
   noLatestExecution,
 } from './automationLatestExecutionsLogic'
+import {
+  auditEventDescription,
+  auditEventLabel,
+  loadScheduleAudit,
+} from './automationScheduleAuditLogic'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
 const HISTORY_PAGE_SIZE = 6
+const AUDIT_PAGE_SIZE = 6
 const WEEKDAY_LABELS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
 
 type StateFilter =
@@ -157,6 +165,13 @@ function AutomationSchedulesPage() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const historyRequestId = useRef(0)
+  const [auditScheduleId, setAuditScheduleId] = useState<number | null>(null)
+  const [auditPageNumber, setAuditPageNumber] = useState(1)
+  const [auditPage, setAuditPage] =
+    useState<AutomationScheduleAuditPage | null>(null)
+  const [isAuditLoading, setIsAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState('')
+  const auditRequestId = useRef(0)
 
   useEffect(() => {
     let isMounted = true
@@ -347,6 +362,9 @@ function AutomationSchedulesPage() {
             : item,
         ),
       )
+      if (auditScheduleId === schedule.id) {
+        void loadAudit(schedule.id, 1)
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -382,6 +400,9 @@ function AutomationSchedulesPage() {
         updateLatestExecution(current, schedule.id, result.execution),
       )
       setNotice(`Регламент «${schedule.name}» поставлен в очередь`)
+      if (auditScheduleId === schedule.id) {
+        void loadAudit(schedule.id, 1)
+      }
       if (historyScheduleId === schedule.id) {
         if (historyPage) {
           const shouldReloadFirstPage = historyPage.offset > 0
@@ -459,11 +480,41 @@ function AutomationSchedulesPage() {
     setIsHistoryLoading(false)
   }
 
+  async function loadAudit(scheduleId: number, pageNumber: number) {
+    const requestId = auditRequestId.current + 1
+    auditRequestId.current = requestId
+    setAuditScheduleId(scheduleId)
+    setAuditPageNumber(pageNumber)
+    setIsAuditLoading(true)
+    setAuditError('')
+
+    const result = await loadScheduleAudit(
+      scheduleId,
+      pageNumber,
+      AUDIT_PAGE_SIZE,
+      getScheduleAudit,
+    )
+
+    if (auditRequestId.current !== requestId) {
+      return
+    }
+
+    if (result.status === 'success') {
+      setAuditPage(result.page)
+    } else {
+      setAuditPage(null)
+      setAuditError(result.message)
+    }
+    setIsAuditLoading(false)
+  }
+
   function handleHistoryToggle(scheduleId: number) {
     if (historyScheduleId === scheduleId) {
       setHistoryScheduleId(null)
       return
     }
+
+    setAuditScheduleId(null)
 
     if (
       canReuseHistory(loadedHistoryScheduleId, scheduleId, historyPage)
@@ -475,12 +526,29 @@ function AutomationSchedulesPage() {
     void loadHistory(scheduleId, 1)
   }
 
+  function handleAuditToggle(scheduleId: number) {
+    if (auditScheduleId === scheduleId) {
+      setAuditScheduleId(null)
+      return
+    }
+
+    setHistoryScheduleId(null)
+    void loadAudit(scheduleId, 1)
+  }
+
   const historySchedule = schedules.find(
     (schedule) => schedule.id === historyScheduleId,
   )
   const historyTotalPages = Math.max(
     1,
     Math.ceil((historyPage?.total ?? 0) / HISTORY_PAGE_SIZE),
+  )
+  const auditSchedule = schedules.find(
+    (schedule) => schedule.id === auditScheduleId,
+  )
+  const auditTotalPages = Math.max(
+    1,
+    Math.ceil((auditPage?.total ?? 0) / AUDIT_PAGE_SIZE),
   )
 
   return (
@@ -779,6 +847,17 @@ function AutomationSchedulesPage() {
                                 className="automation-row-actions"
                                 type="button"
                                 disabled={isFormOpen || isRunning}
+                                aria-expanded={auditScheduleId === schedule.id}
+                                aria-controls="automation-schedule-audit"
+                                title="Открыть журнал действий"
+                                onClick={() => handleAuditToggle(schedule.id)}
+                              >
+                                Журнал
+                              </button>
+                              <button
+                                className="automation-row-actions"
+                                type="button"
+                                disabled={isFormOpen || isRunning}
                                 title="Редактировать регламент"
                                 aria-label={`Редактировать задачу ${schedule.name}`}
                                 onClick={() => openEditForm(schedule)}
@@ -976,6 +1055,120 @@ function AutomationSchedulesPage() {
                             historySchedule.id,
                             historyPageNumber + 1,
                           )
+                        }
+                      >
+                        Вперёд →
+                      </button>
+                    </nav>
+                  </div>
+                )}
+            </section>
+          )}
+
+          {auditSchedule && (
+            <section
+              className="automation-history"
+              id="automation-schedule-audit"
+              aria-labelledby="automation-audit-title"
+            >
+              <div className="automation-history-heading">
+                <div>
+                  <p className="eyebrow">ЖУРНАЛ ДЕЙСТВИЙ</p>
+                  <h2 id="automation-audit-title">{auditSchedule.name}</h2>
+                </div>
+                <button
+                  className="automation-history-close"
+                  type="button"
+                  aria-label="Закрыть журнал действий"
+                  onClick={() => setAuditScheduleId(null)}
+                >
+                  ×
+                </button>
+              </div>
+
+              {isAuditLoading && (
+                <p className="automation-history-state" role="status">
+                  Загружаем журнал действий…
+                </p>
+              )}
+
+              {!isAuditLoading && auditError && (
+                <div className="automation-history-error" role="alert">
+                  <span>{auditError}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadAudit(auditSchedule.id, auditPageNumber)
+                    }
+                  >
+                    Повторить
+                  </button>
+                </div>
+              )}
+
+              {!isAuditLoading &&
+                !auditError &&
+                auditPage?.items.length === 0 && (
+                  <p className="automation-history-state">
+                    В журнале этого регламента пока нет действий
+                  </p>
+                )}
+
+              {!isAuditLoading &&
+                !auditError &&
+                auditPage &&
+                auditPage.items.length > 0 && (
+                  <div className="automation-history-table-wrap">
+                    <table className="automation-history-table automation-audit-table">
+                      <thead>
+                        <tr>
+                          <th>Действие</th>
+                          <th>Кто выполнил</th>
+                          <th>Дата и время</th>
+                          <th>Изменения</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditPage.items.map((event) => (
+                          <tr key={event.id}>
+                            <td>{auditEventLabel(event.event_type)}</td>
+                            <td>
+                              {event.actor_display_name ??
+                                `Пользователь ${event.actor_user_id}`}
+                            </td>
+                            <td>{formatDate(event.occurred_at)}</td>
+                            <td>{auditEventDescription(event)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              {!isAuditLoading &&
+                !auditError &&
+                auditPage &&
+                auditPage.total > 0 && (
+                  <div className="automation-history-pagination">
+                    <span>
+                      Страница {auditPageNumber} из {auditTotalPages} · действий:{' '}
+                      {auditPage.total}
+                    </span>
+                    <nav aria-label="Пагинация журнала действий">
+                      <button
+                        type="button"
+                        disabled={auditPageNumber === 1}
+                        onClick={() =>
+                          void loadAudit(auditSchedule.id, auditPageNumber - 1)
+                        }
+                      >
+                        ← Назад
+                      </button>
+                      <button
+                        type="button"
+                        disabled={auditPageNumber >= auditTotalPages}
+                        onClick={() =>
+                          void loadAudit(auditSchedule.id, auditPageNumber + 1)
                         }
                       >
                         Вперёд →

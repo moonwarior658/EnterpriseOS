@@ -223,6 +223,11 @@ class AutomationScheduleAuthorizationTests(AutomationSchedulesApiTestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_audit_without_jwt_returns_401(self) -> None:
+        response = self.client.get("/automation/schedules/42/audit")
+
+        self.assertEqual(response.status_code, 401)
+
     def test_active_non_admin_returns_403(self) -> None:
         with patch(
             "app.api.routes.automation.list_schedules"
@@ -459,7 +464,8 @@ class AutomationScheduleUpdateApiTests(AutomationSchedulesApiTestCase):
     ) -> None:
         schedule = make_schedule()
 
-        def apply_update(session, target, payload):
+        def apply_update(session, target, payload, *, actor_user_id):
+            self.assertEqual(actor_user_id, self.admin.id)
             target.name = payload.name
             return target
 
@@ -487,6 +493,7 @@ class AutomationScheduleUpdateApiTests(AutomationSchedulesApiTestCase):
             args[2].model_dump(exclude_unset=True),
             {"name": "Updated report"},
         )
+        self.assertEqual(service.call_args.kwargs, {"actor_user_id": 7})
 
     def test_empty_patch_is_allowed(self) -> None:
         schedule = make_schedule()
@@ -666,7 +673,9 @@ class AutomationScheduleManualRunApiTests(AutomationSchedulesApiTestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["status"], "pending")
         self.assertEqual(response.json()["schedule_id"], 42)
-        dispatch.assert_called_once_with(self.session, 42)
+        dispatch.assert_called_once_with(
+            self.session, 42, actor_user_id=self.admin.id
+        )
 
     def test_missing_schedule_service_error_returns_404(self) -> None:
         with (
@@ -682,7 +691,9 @@ class AutomationScheduleManualRunApiTests(AutomationSchedulesApiTestCase):
             response.json(),
             {"detail": "Automation schedule not found"},
         )
-        dispatch.assert_called_once_with(self.session, 404)
+        dispatch.assert_called_once_with(
+            self.session, 404, actor_user_id=self.admin.id
+        )
 
     def test_disabled_schedule_service_error_returns_409(self) -> None:
         with (
@@ -698,7 +709,9 @@ class AutomationScheduleManualRunApiTests(AutomationSchedulesApiTestCase):
             response.json(),
             {"detail": "Disabled automation schedule cannot be started"},
         )
-        dispatch.assert_called_once_with(self.session, 42)
+        dispatch.assert_called_once_with(
+            self.session, 42, actor_user_id=self.admin.id
+        )
 
     def test_dispatch_failure_returns_safe_error(self) -> None:
         with (

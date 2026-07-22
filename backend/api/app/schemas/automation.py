@@ -258,6 +258,28 @@ class AutomationScheduleRead(AutomationScheduleBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AutomationScheduleAuditItem(BaseModel):
+    id: int
+    event_type: Literal[
+        "automation_schedule_created",
+        "automation_schedule_updated",
+        "automation_schedule_enabled",
+        "automation_schedule_disabled",
+        "automation_schedule_run_requested",
+    ]
+    actor_user_id: int
+    actor_display_name: str | None
+    occurred_at: datetime
+    metadata: dict[str, Any]
+
+
+class AutomationScheduleAuditPage(BaseModel):
+    items: list[AutomationScheduleAuditItem]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
 class AutomationExecutionRead(BaseModel):
     id: int
     execution_id: UUID

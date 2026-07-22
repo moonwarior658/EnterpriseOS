@@ -49,6 +49,14 @@ class OutboxStatus(StrEnum):
     FAILED = "failed"
 
 
+class ScheduleAuditEventType(StrEnum):
+    CREATED = "automation_schedule_created"
+    UPDATED = "automation_schedule_updated"
+    ENABLED = "automation_schedule_enabled"
+    DISABLED = "automation_schedule_disabled"
+    RUN_REQUESTED = "automation_schedule_run_requested"
+
+
 def enum_values(enum_class: type[StrEnum]) -> list[str]:
     return [item.value for item in enum_class]
 
@@ -158,6 +166,59 @@ class AutomationSchedule(Base):
     executions: Mapped[list["AutomationExecution"]] = relationship(
         back_populates="schedule",
         passive_deletes=True,
+    )
+
+
+class AutomationScheduleAuditEvent(Base):
+    __tablename__ = "automation_schedule_audit_events"
+    __table_args__ = (
+        CheckConstraint(
+            "schedule_id > 0",
+            name="ck_automation_schedule_audit_schedule_id_positive",
+        ),
+        Index(
+            "ix_automation_schedule_audit_schedule_occurred",
+            "schedule_id",
+            "occurred_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+    event_type: Mapped[ScheduleAuditEventType] = mapped_column(
+        SqlEnum(
+            ScheduleAuditEventType,
+            name="automation_schedule_audit_event_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=48,
+        ),
+        nullable=False,
+    )
+    actor_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    schedule_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSONB,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+        nullable=False,
     )
 
 

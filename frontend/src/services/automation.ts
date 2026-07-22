@@ -120,6 +120,29 @@ export type AutomationExecutionHistoryPage = {
   offset: number
 }
 
+export type AutomationScheduleAuditEventType =
+  | 'automation_schedule_created'
+  | 'automation_schedule_updated'
+  | 'automation_schedule_enabled'
+  | 'automation_schedule_disabled'
+  | 'automation_schedule_run_requested'
+
+export type AutomationScheduleAuditItem = {
+  id: number
+  event_type: AutomationScheduleAuditEventType
+  actor_user_id: number
+  actor_display_name: string | null
+  occurred_at: string
+  metadata: Record<string, unknown>
+}
+
+export type AutomationScheduleAuditPage = {
+  items: AutomationScheduleAuditItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -253,6 +276,22 @@ export async function getScheduleExecutionHistory(
 
   if (!page) {
     throw new Error('Не удалось загрузить историю запусков')
+  }
+
+  return page
+}
+
+export async function getScheduleAudit(
+  scheduleId: number,
+  limit: number,
+  offset: number,
+): Promise<AutomationScheduleAuditPage> {
+  const page = await authorizedRequest<AutomationScheduleAuditPage>(
+    `/automation/schedules/${scheduleId}/audit?limit=${limit}&offset=${offset}`,
+  )
+
+  if (!page) {
+    throw new Error('Не удалось загрузить журнал действий')
   }
 
   return page
