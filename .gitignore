@@ -17,6 +17,9 @@ build/
 logs/
 *.log
 
+# Local operational backups
+/backups/
+
 # IDE
 .vscode/
 .idea/
