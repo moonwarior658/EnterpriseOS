@@ -315,6 +315,11 @@ class AutomationExecution(Base):
         passive_deletes=True,
     )
 
+    @property
+    def idempotency_key(self) -> UUID:
+        """Stable external-delivery key for this logical execution."""
+        return self.execution_id
+
 
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"

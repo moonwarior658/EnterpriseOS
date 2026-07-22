@@ -186,6 +186,10 @@ class AutomationDispatchTests(unittest.TestCase):
             {"location_ids": [10, 20]},
         )
         self.assertIsNotNone(execution.execution_id)
+        self.assertEqual(
+            execution.idempotency_key,
+            execution.execution_id,
+        )
         self.assertIsNotNone(execution.requested_at.tzinfo)
 
         another_execution = create_automation_execution(
@@ -201,6 +205,10 @@ class AutomationDispatchTests(unittest.TestCase):
         self.assertNotEqual(
             another_execution.execution_id,
             execution.execution_id,
+        )
+        self.assertNotEqual(
+            another_execution.idempotency_key,
+            execution.idempotency_key,
         )
         self.assertEqual(outbox_event.status, OutboxStatus.PENDING)
         self.assertEqual(outbox_event.contract_version, "1.0")

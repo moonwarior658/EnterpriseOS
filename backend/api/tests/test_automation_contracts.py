@@ -19,6 +19,7 @@ class AutomationCommandTests(unittest.TestCase):
     def test_serializes_versioned_command_to_json(self) -> None:
         command = AutomationCommand(
             execution_id=EXECUTION_ID,
+            idempotency_key=EXECUTION_ID,
             automation_type="daily_sales_report",
             tenant_id="tenant-42",
             requested_at=datetime(
@@ -40,6 +41,10 @@ class AutomationCommandTests(unittest.TestCase):
         self.assertEqual(serialized["contract_version"], "1.0")
         self.assertEqual(serialized["execution_id"], str(EXECUTION_ID))
         self.assertEqual(
+            serialized["idempotency_key"],
+            str(EXECUTION_ID),
+        )
+        self.assertEqual(
             serialized["automation_type"],
             "daily_sales_report",
         )
@@ -56,6 +61,24 @@ class AutomationCommandTests(unittest.TestCase):
             serialized["callback_url"],
             "https://api.example.test/automation/callback",
         )
+
+    def test_rejects_idempotency_key_for_another_execution(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError,
+            "idempotency_key must match execution_id",
+        ):
+            AutomationCommand(
+                execution_id=EXECUTION_ID,
+                idempotency_key=UUID(
+                    "3cab29ad-d9b3-48b3-a481-2139f96e8ec5"
+                ),
+                automation_type="daily_sales_report",
+                tenant_id="tenant-42",
+                requested_at=datetime.now(timezone.utc),
+                callback_url=(
+                    "https://api.example.test/automation/callback"
+                ),
+            )
 
 
 class AutomationCallbackResultTests(unittest.TestCase):

@@ -133,6 +133,36 @@ class FailingProvider(AutomationProvider):
         return False
 
 
+class RecordingFailingProvider(RecordingProvider):
+    async def send_command(
+        self,
+        command: AutomationCommand,
+    ) -> CommandAcceptance:
+        self.commands.append(command)
+        raise ProviderUnavailableError("provider is offline")
+
+
+class DeduplicatingProvider(RecordingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.processed_keys: set[UUID] = set()
+        self.side_effect_count = 0
+
+    async def send_command(
+        self,
+        command: AutomationCommand,
+    ) -> CommandAcceptance:
+        self.commands.append(command)
+        if command.idempotency_key not in self.processed_keys:
+            self.processed_keys.add(command.idempotency_key)
+            self.side_effect_count += 1
+        return CommandAcceptance(
+            provider="deduplicating",
+            accepted=True,
+            status_code=202,
+        )
+
+
 class BlockingProvider(RecordingProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -337,6 +367,64 @@ class OutboxWorkerTests(unittest.IsolatedAsyncioTestCase):
             NOW + timedelta(seconds=20),
         )
         self.assertEqual(result.next_attempt_at, store.next_attempt_at)
+
+    async def test_retry_reuses_the_same_idempotency_key(self) -> None:
+        store = InMemoryOutboxStore()
+        provider = RecordingFailingProvider()
+        worker = OutboxWorker(
+            store=store,
+            provider=provider,
+            worker_id="worker-1",
+            callback_url=CALLBACK_URL,
+            clock=lambda: NOW,
+        )
+
+        first_result = await worker.process_one()
+        second_result = await worker.process_one()
+
+        self.assertEqual(
+            first_result.status,
+            DeliveryStatus.RETRY_SCHEDULED,
+        )
+        self.assertEqual(
+            second_result.status,
+            DeliveryStatus.RETRY_SCHEDULED,
+        )
+        self.assertEqual(len(provider.commands), 2)
+        self.assertEqual(
+            provider.commands[0].idempotency_key,
+            provider.commands[1].idempotency_key,
+        )
+        self.assertEqual(
+            provider.commands[0].idempotency_key,
+            EXECUTION_ID,
+        )
+
+    async def test_replayed_event_is_deduplicated_by_execution_key(
+        self,
+    ) -> None:
+        store = InMemoryOutboxStore()
+        provider = DeduplicatingProvider()
+        worker = OutboxWorker(
+            store=store,
+            provider=provider,
+            worker_id="worker-1",
+            callback_url=CALLBACK_URL,
+            clock=lambda: NOW,
+        )
+
+        first_result = await worker.process_one()
+        store.status = "pending"
+        replay_result = await worker.process_one()
+
+        self.assertEqual(first_result.status, DeliveryStatus.PUBLISHED)
+        self.assertEqual(replay_result.status, DeliveryStatus.PUBLISHED)
+        self.assertEqual(len(provider.commands), 2)
+        self.assertEqual(
+            provider.commands[0].idempotency_key,
+            provider.commands[1].idempotency_key,
+        )
+        self.assertEqual(provider.side_effect_count, 1)
 
     async def test_provider_error_after_final_attempt_is_terminal(
         self,

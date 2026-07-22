@@ -317,6 +317,7 @@ class AutomationExecutionHistoryPage(BaseModel):
 class AutomationCommand(BaseModel):
     contract_version: ContractVersion = AUTOMATION_CONTRACT_VERSION
     execution_id: UUID
+    idempotency_key: UUID
     automation_type: str = Field(min_length=1, max_length=100)
     tenant_id: str = Field(min_length=1, max_length=64)
     requested_at: datetime
@@ -342,6 +343,17 @@ class AutomationCommand(BaseModel):
             raise ValueError("requested_at must include a timezone")
 
         return value
+
+    @model_validator(mode="after")
+    def require_execution_id_as_idempotency_key(
+        self,
+    ) -> "AutomationCommand":
+        if self.idempotency_key != self.execution_id:
+            raise ValueError(
+                "idempotency_key must match execution_id"
+            )
+
+        return self
 
 
 class AutomationCallbackResult(BaseModel):

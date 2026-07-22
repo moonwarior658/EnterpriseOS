@@ -56,6 +56,10 @@ class ClaimedOutboxEvent:
     max_attempts: int
     lock_token: str
 
+    @property
+    def idempotency_key(self) -> UUID:
+        return self.execution_id
+
 
 class DeliveryStatus(StrEnum):
     NO_EVENT = "no_event"
@@ -375,6 +379,7 @@ class OutboxWorker:
             command = AutomationCommand(
                 contract_version=claim.contract_version,
                 execution_id=claim.execution_id,
+                idempotency_key=claim.idempotency_key,
                 automation_type=claim.automation_type,
                 tenant_id=claim.tenant_id,
                 requested_at=claim.requested_at,

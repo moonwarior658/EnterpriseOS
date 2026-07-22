@@ -48,6 +48,9 @@ class N8nProvider(AutomationProvider):
             "POST",
             self._dispatch_webhook_url,
             json=command.model_dump(mode="json"),
+            headers={
+                "Idempotency-Key": str(command.idempotency_key),
+            },
         )
 
         return CommandAcceptance(

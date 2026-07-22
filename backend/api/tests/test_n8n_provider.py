@@ -33,6 +33,7 @@ def make_settings() -> N8nSettings:
 def make_command() -> AutomationCommand:
     return AutomationCommand(
         execution_id=EXECUTION_ID,
+        idempotency_key=EXECUTION_ID,
         automation_type="daily_sales_report",
         tenant_id="tenant-42",
         requested_at=datetime(
@@ -61,8 +62,13 @@ class N8nProviderTests(unittest.IsolatedAsyncioTestCase):
                 request.headers["Authorization"],
                 "Bearer test-service-token",
             )
+            self.assertEqual(
+                request.headers["Idempotency-Key"],
+                str(EXECUTION_ID),
+            )
             payload = request.content.decode()
             self.assertIn(str(EXECUTION_ID), payload)
+            self.assertNotIn("test-service-token", payload)
 
             return httpx.Response(
                 httpx.codes.ACCEPTED,
