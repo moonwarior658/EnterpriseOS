@@ -1,0 +1,168 @@
+﻿{
+    "name":  "EOS - universal Automation Dispatcher",
+    "description":  "Portable smoke_test workflow template. Assign both Header Auth credentials manually after import.",
+    "active":  false,
+    "nodes":  [
+                  {
+                      "parameters":  {
+                                         "httpMethod":  "POST",
+                                         "path":  "automation-dispatch",
+                                         "authentication":  "headerAuth",
+                                         "responseMode":  "responseNode",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.webhook",
+                      "typeVersion":  2.1,
+                      "position":  [
+                                       0,
+                                       0
+                                   ],
+                      "name":  "Webhook",
+                      "notes":  "After import, assign Header Auth for the dispatch webhook.",
+                      "notesInFlow":  true
+                  },
+                  {
+                      "parameters":  {
+                                         "respondWith":  "json",
+                                         "responseBody":  "{\n  \"accepted\": true\n}",
+                                         "options":  {
+                                                         "responseCode":  202
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.respondToWebhook",
+                      "typeVersion":  1.5,
+                      "position":  [
+                                       208,
+                                       0
+                                   ],
+                      "name":  "Respond to Webhook"
+                  },
+                  {
+                      "parameters":  {
+                                         "amount":  1
+                                     },
+                      "type":  "n8n-nodes-base.wait",
+                      "typeVersion":  1.1,
+                      "position":  [
+                                       416,
+                                       0
+                                   ],
+                      "name":  "Wait"
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "strict",
+                                                                            "version":  2
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "leftValue":  "={{ $(\u0027Webhook\u0027).item.json.body.automation_type }}",
+                                                                                   "rightValue":  "smoke_test",
+                                                                                   "operator":  {
+                                                                                                    "type":  "string",
+                                                                                                    "operation":  "equals"
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       520,
+                                       0
+                                   ],
+                      "name":  "Require smoke_test"
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ $(\u0027Webhook\u0027).item.json.body.callback_url }}",
+                                         "authentication":  "genericCredentialType",
+                                         "genericAuthType":  "httpHeaderAuth",
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={\n  \"contract_version\": \"{{ $(\u0027Webhook\u0027).item.json.body.contract_version }}\",\n  \"execution_id\": \"{{ $(\u0027Webhook\u0027).item.json.body.execution_id }}\",\n  \"status\": \"succeeded\",\n  \"started_at\": \"{{ $now.toISO() }}\",\n  \"finished_at\": \"{{ $now.toISO() }}\",\n  \"result\": {\n    \"message\": \"Test automation completed\"\n  },\n  \"error_code\": null,\n  \"error_message\": null\n}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.4,
+                      "position":  [
+                                       624,
+                                       0
+                                   ],
+                      "name":  "HTTP Request",
+                      "notes":  "After import, assign EOS Callback Authorization.",
+                      "notesInFlow":  true
+                  }
+              ],
+    "connections":  {
+                        "Webhook":  {
+                                        "main":  [
+                                                     [
+                                                         {
+                                                             "node":  "Respond to Webhook",
+                                                             "type":  "main",
+                                                             "index":  0
+                                                         }
+                                                     ]
+                                                 ]
+                                    },
+                        "Respond to Webhook":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "Wait",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ]
+                                                            ]
+                                               },
+                        "Wait":  {
+                                     "main":  [
+                                                  [
+                                                      {
+                                                          "node":  "Require smoke_test",
+                                                          "type":  "main",
+                                                          "index":  0
+                                                      }
+                                                  ]
+                                              ]
+                                 },
+                        "Require smoke_test":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "HTTP Request",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ],
+                                                                [
+
+                                                                ]
+                                                            ]
+                                               }
+                    },
+    "settings":  {
+                     "executionOrder":  "v1",
+                     "binaryMode":  "separate",
+                     "availableInMCP":  false,
+                     "saveDataErrorExecution":  "none",
+                     "saveDataSuccessExecution":  "none",
+                     "saveManualExecutions":  false
+                 }
+}
