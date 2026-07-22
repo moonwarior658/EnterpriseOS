@@ -15,9 +15,11 @@ from sqlalchemy.dialects import postgresql
 
 from app.api.dependencies import get_current_admin
 from app.automation.executions import (
+    classify_execution_status,
     count_executions,
     get_execution,
     get_latest_schedule_execution,
+    get_latest_schedule_executions,
     list_executions,
 )
 from app.main import app
@@ -102,16 +104,30 @@ class ScalarCollection:
         return self.values
 
 
+class RowCollection:
+    def __init__(
+        self,
+        values: list[tuple[int, AutomationExecution | None]],
+    ) -> None:
+        self.values = values
+
+    def all(self) -> list[tuple[int, AutomationExecution | None]]:
+        return self.values
+
+
 class FakeSession:
     def __init__(
         self,
         *,
         values: list[AutomationExecution] | None = None,
         scalar: AutomationExecution | int | None = None,
+        rows: list[tuple[int, AutomationExecution | None]] | None = None,
     ) -> None:
         self.values = values or []
         self.scalar_value = scalar
+        self.rows = rows or []
         self.statement = None
+        self.execute_count = 0
 
     def scalars(self, statement: object) -> ScalarCollection:
         self.statement = statement
@@ -123,6 +139,11 @@ class FakeSession:
     ) -> AutomationExecution | int | None:
         self.statement = statement
         return self.scalar_value
+
+    def execute(self, statement: object) -> RowCollection:
+        self.statement = statement
+        self.execute_count += 1
+        return RowCollection(self.rows)
 
 
 class ExecutionServiceTests(unittest.TestCase):
@@ -195,6 +216,63 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertIn("requested_at DESC", compiled)
         self.assertIn("LIMIT 1", compiled)
 
+    def test_batch_latest_uses_one_ranked_query_for_all_schedules(self) -> None:
+        latest = make_execution()
+        session = FakeSession(rows=[(7, None), (42, latest)])
+
+        result = get_latest_schedule_executions(session)
+        compiled = str(
+            session.statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+        self.assertEqual(result, [(7, None), (42, latest)])
+        self.assertEqual(session.execute_count, 1)
+        self.assertIn("row_number() OVER", compiled)
+        self.assertIn(
+            "PARTITION BY automation_executions.schedule_id",
+            compiled,
+        )
+        self.assertIn("automation_executions.requested_at DESC", compiled)
+        self.assertIn("automation_executions.id DESC", compiled)
+        self.assertIn("execution_rank = 1", compiled)
+        self.assertIn("LEFT OUTER JOIN", compiled)
+
+    def test_batch_latest_filters_requested_schedules_in_same_query(self) -> None:
+        session = FakeSession(rows=[(42, make_execution())])
+
+        get_latest_schedule_executions(session, [42, 7, 42])
+        compiled = str(
+            session.statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+        self.assertEqual(session.execute_count, 1)
+        self.assertIn("automation_schedules.id IN (7, 42)", compiled)
+
+    def test_all_execution_statuses_have_safe_user_classification(self) -> None:
+        expected = {
+            ExecutionStatus.PENDING: "Ожидает запуска",
+            ExecutionStatus.DISPATCHING: "Запускается",
+            ExecutionStatus.RUNNING: "Выполняется",
+            ExecutionStatus.RETRYING: "Ожидает повторного запуска",
+            ExecutionStatus.SUCCEEDED: "Выполнено",
+            ExecutionStatus.FAILED: "Ошибка выполнения",
+            ExecutionStatus.TIMED_OUT: "Превышено время ожидания",
+            ExecutionStatus.CANCELLED: "Отменено",
+        }
+
+        for execution_status, user_status in expected.items():
+            with self.subTest(status=execution_status):
+                public_state = classify_execution_status(execution_status)
+                self.assertEqual(public_state.user_status, user_status)
+                self.assertNotIn("http", public_state.user_message.lower())
+                self.assertNotIn("exception", public_state.user_message.lower())
+
 
 class ExecutionHistoryApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -211,6 +289,13 @@ class ExecutionHistoryApiTests(unittest.TestCase):
 
     def test_list_without_jwt_returns_401(self) -> None:
         response = self.client.get("/automation/executions")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_batch_latest_without_jwt_returns_401(self) -> None:
+        response = self.client.get(
+            "/automation/schedules/executions/latest"
+        )
 
         self.assertEqual(response.status_code, 401)
 
@@ -338,6 +423,18 @@ class ExecutionHistoryApiTests(unittest.TestCase):
             body["items"][0]["error_message"],
             "Не удалось выполнить регламент",
         )
+        self.assertEqual(
+            body["items"][0]["user_status"],
+            "Ошибка выполнения",
+        )
+        self.assertEqual(
+            body["items"][0]["user_message"],
+            "Не удалось выполнить регламент",
+        )
+        self.assertEqual(
+            body["items"][0]["error_category"],
+            "execution_failed",
+        )
         internal_fields = {
             "id",
             "execution_id",
@@ -438,6 +535,100 @@ class ExecutionHistoryApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_batch_latest_returns_execution_and_schedule_without_runs(self) -> None:
+        self.authorize_admin()
+        execution = make_execution()
+
+        with patch(
+            "app.api.routes.automation.get_latest_schedule_executions",
+            return_value=[(7, None), (42, execution)],
+        ) as service:
+            response = self.client.get(
+                "/automation/schedules/executions/latest"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        service.assert_called_once_with(ANY, None)
+        body = response.json()
+        self.assertEqual(body[0], {
+            "schedule_id": 7,
+            "status": None,
+            "requested_at": None,
+            "started_at": None,
+            "finished_at": None,
+            "duration_seconds": None,
+            "user_status": "Нет запусков",
+            "user_message": "Регламент ещё не запускался",
+            "error_category": None,
+            "error_code": None,
+        })
+        self.assertEqual(body[1]["schedule_id"], 42)
+        self.assertEqual(body[1]["status"], "succeeded")
+        self.assertEqual(body[1]["duration_seconds"], 59.0)
+        self.assertEqual(body[1]["user_status"], "Выполнено")
+
+    def test_batch_latest_accepts_multiple_schedule_ids(self) -> None:
+        self.authorize_admin()
+
+        with patch(
+            "app.api.routes.automation.get_latest_schedule_executions",
+            return_value=[],
+        ) as service:
+            response = self.client.get(
+                "/automation/schedules/executions/latest",
+                params=[("schedule_id", "42"), ("schedule_id", "7")],
+            )
+
+        self.assertEqual(response.status_code, 200)
+        service.assert_called_once_with(ANY, [42, 7])
+
+    def test_batch_latest_contract_excludes_internal_fields_and_errors(self) -> None:
+        self.authorize_admin()
+        unsafe_values = (
+            "Traceback SqlError at https://n8n.invalid/webhook?token=secret"
+        )
+        internal_fields = {
+            "id",
+            "execution_id",
+            "automation_type",
+            "scope_type",
+            "scope_id",
+            "recipients",
+            "provider",
+            "payload",
+            "result",
+            "error_message",
+            "outbox",
+            "outbox_events",
+        }
+
+        for execution_status, expected_message in (
+            (ExecutionStatus.FAILED, "Не удалось выполнить регламент"),
+            (
+                ExecutionStatus.TIMED_OUT,
+                "Регламент не завершился за отведённое время",
+            ),
+            (ExecutionStatus.CANCELLED, "Запуск регламента отменён"),
+        ):
+            with self.subTest(status=execution_status):
+                execution = make_execution()
+                execution.status = execution_status
+                execution.error_code = "N8N_INTERNAL_ERROR"
+                execution.error_message = unsafe_values
+                with patch(
+                    "app.api.routes.automation.get_latest_schedule_executions",
+                    return_value=[(42, execution)],
+                ):
+                    response = self.client.get(
+                        "/automation/schedules/executions/latest"
+                    )
+
+                item = response.json()[0]
+                self.assertTrue(internal_fields.isdisjoint(item))
+                self.assertEqual(item["user_message"], expected_message)
+                self.assertNotIn("n8n", response.text.lower())
+                self.assertNotIn("secret", response.text.lower())
+
     def test_response_contains_snapshot_and_no_sensitive_fields(self) -> None:
         self.authorize_admin()
 
@@ -467,6 +658,10 @@ class ExecutionHistoryApiTests(unittest.TestCase):
         )
         self.assertIn(
             "/automation/schedules/{schedule_id}/executions/latest",
+            paths,
+        )
+        self.assertIn(
+            "/automation/schedules/executions/latest",
             paths,
         )
 

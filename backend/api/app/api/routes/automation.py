@@ -23,9 +23,13 @@ from app.automation.schedules import (
 )
 from app.automation.executions import (
     DEFAULT_EXECUTION_LIMIT,
+    NO_EXECUTION_STATE,
+    classify_execution_status,
     count_executions,
+    execution_duration_seconds,
     get_execution,
     get_latest_schedule_execution,
+    get_latest_schedule_executions,
     list_executions,
 )
 from app.core.config import settings
@@ -42,6 +46,7 @@ from app.schemas.automation import (
     AutomationExecutionRead,
     AutomationExecutionHistoryItem,
     AutomationExecutionHistoryPage,
+    AutomationLatestExecutionItem,
     AutomationScheduleCreate,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
@@ -72,6 +77,27 @@ def read_schedules(
     _: Annotated[User, Depends(get_current_admin)],
 ) -> list[AutomationSchedule]:
     return list_schedules(db)
+
+
+@router.get(
+    "/schedules/executions/latest",
+    response_model=list[AutomationLatestExecutionItem],
+)
+def read_latest_schedule_executions(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    schedule_ids: Annotated[
+        list[int] | None,
+        Query(alias="schedule_id"),
+    ] = None,
+) -> list[AutomationLatestExecutionItem]:
+    return [
+        public_latest_execution_item(schedule_id, execution)
+        for schedule_id, execution in get_latest_schedule_executions(
+            db,
+            schedule_ids,
+        )
+    ]
 
 
 @router.post(
@@ -263,33 +289,52 @@ def read_schedule_executions(
 def public_history_item(
     execution: AutomationExecution,
 ) -> AutomationExecutionHistoryItem:
-    duration_seconds = None
-    if execution.started_at is not None and execution.finished_at is not None:
-        duration_seconds = max(
-            0.0,
-            (execution.finished_at - execution.started_at).total_seconds(),
-        )
-
-    error_code = None
-    error_message = None
-    if execution.status == ExecutionStatus.TIMED_OUT:
-        error_code = "AUTOMATION_TIMED_OUT"
-        error_message = "Регламент не завершился за отведённое время"
-    elif execution.status == ExecutionStatus.CANCELLED:
-        error_code = "AUTOMATION_CANCELLED"
-        error_message = "Запуск регламента отменён"
-    elif execution.status == ExecutionStatus.FAILED:
-        error_code = "AUTOMATION_FAILED"
-        error_message = "Не удалось выполнить регламент"
+    public_state = classify_execution_status(execution.status)
 
     return AutomationExecutionHistoryItem(
         status=AutomationCallbackStatus(execution.status.value),
         requested_at=execution.requested_at,
         started_at=execution.started_at,
         finished_at=execution.finished_at,
-        duration_seconds=duration_seconds,
-        error_code=error_code,
-        error_message=error_message,
+        duration_seconds=execution_duration_seconds(execution),
+        user_status=public_state.user_status,
+        user_message=public_state.user_message,
+        error_category=public_state.error_category,
+        error_code=public_state.error_code,
+        error_message=(
+            public_state.user_message
+            if public_state.error_code is not None
+            else None
+        ),
+    )
+
+
+def public_latest_execution_item(
+    schedule_id: int,
+    execution: AutomationExecution | None,
+) -> AutomationLatestExecutionItem:
+    public_state = (
+        classify_execution_status(execution.status)
+        if execution is not None
+        else NO_EXECUTION_STATE
+    )
+    return AutomationLatestExecutionItem(
+        schedule_id=schedule_id,
+        status=(
+            AutomationCallbackStatus(execution.status.value)
+            if execution is not None
+            else None
+        ),
+        requested_at=execution.requested_at if execution else None,
+        started_at=execution.started_at if execution else None,
+        finished_at=execution.finished_at if execution else None,
+        duration_seconds=(
+            execution_duration_seconds(execution) if execution else None
+        ),
+        user_status=public_state.user_status,
+        user_message=public_state.user_message,
+        error_category=public_state.error_category,
+        error_code=public_state.error_code,
     )
 
 

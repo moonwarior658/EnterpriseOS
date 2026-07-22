@@ -93,8 +93,24 @@ export type AutomationExecutionHistoryItem = {
   started_at: string | null
   finished_at: string | null
   duration_seconds: number | null
+  user_status: string
+  user_message: string
+  error_category: string | null
   error_code: string | null
   error_message: string | null
+}
+
+export type AutomationLatestExecution = {
+  schedule_id: number
+  status: AutomationExecutionStatus | null
+  requested_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  duration_seconds: number | null
+  user_status: string
+  user_message: string
+  error_category: string | null
+  error_code: string | null
 }
 
 export type AutomationExecutionHistoryPage = {
@@ -213,12 +229,17 @@ export async function updateAutomationSchedule(
   return schedule
 }
 
-export function getLatestScheduleExecution(
-  scheduleId: number,
-): Promise<AutomationExecution | null> {
-  return authorizedRequest<AutomationExecution>(
-    `/automation/schedules/${scheduleId}/executions/latest`,
+export async function getLatestScheduleExecutions(
+  scheduleIds?: number[],
+): Promise<AutomationLatestExecution[]> {
+  const query = scheduleIds?.length
+    ? `?${scheduleIds.map((id) => `schedule_id=${encodeURIComponent(id)}`).join('&')}`
+    : ''
+  const executions = await authorizedRequest<AutomationLatestExecution[]>(
+    `/automation/schedules/executions/latest${query}`,
   )
+
+  return executions ?? []
 }
 
 export async function getScheduleExecutionHistory(

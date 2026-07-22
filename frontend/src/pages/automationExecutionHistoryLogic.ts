@@ -3,6 +3,7 @@ import type {
   AutomationExecutionHistoryItem,
   AutomationExecutionHistoryPage,
 } from '../services/automation'
+import { getUserExecutionPresentation } from './automationLatestExecutionsLogic.ts'
 
 export type HistoryApi = (
   scheduleId: number,
@@ -54,13 +55,18 @@ export async function loadExecutionHistory(
 export function manualExecutionHistoryItem(
   execution: AutomationExecution,
 ): AutomationExecutionHistoryItem {
+  const presentation = getUserExecutionPresentation(execution.status)
+
   return {
     status: execution.status,
     requested_at: execution.requested_at,
     started_at: execution.started_at,
     finished_at: execution.finished_at,
     duration_seconds: null,
-    error_code: null,
+    user_status: presentation.user_status,
+    user_message: presentation.user_message,
+    error_category: presentation.error_category,
+    error_code: presentation.error_code,
     error_message: null,
   }
 }

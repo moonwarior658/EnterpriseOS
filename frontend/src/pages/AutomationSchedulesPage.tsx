@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getAutomationSchedules,
-  getLatestScheduleExecution,
+  getLatestScheduleExecutions,
   getScheduleExecutionHistory,
   runAutomationSchedule,
   updateAutomationScheduleEnabled,
-  type AutomationExecution,
   type AutomationExecutionHistoryPage,
   type AutomationExecutionStatus,
+  type AutomationLatestExecution,
   type AutomationSchedule,
   type AutomationScopeType,
   type ScheduleConfig,
@@ -21,8 +21,13 @@ import {
 import {
   canReuseHistory,
   loadExecutionHistory,
+  manualExecutionHistoryItem,
   updateHistoryAfterManualExecution,
 } from './automationExecutionHistoryLogic'
+import {
+  loadLatestExecutions,
+  noLatestExecution,
+} from './automationLatestExecutionsLogic'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
@@ -103,21 +108,6 @@ function getScopeKey(schedule: AutomationSchedule): string {
   return `${schedule.scope_type}:${schedule.scope_id ?? ''}`
 }
 
-function getStatusLabel(status: AutomationExecutionStatus): string {
-  const labels: Record<AutomationExecutionStatus, string> = {
-    pending: 'Ожидает',
-    dispatching: 'Отправляется',
-    running: 'Выполняется',
-    retrying: 'Повтор',
-    succeeded: 'Успешно',
-    failed: 'Ошибка',
-    timed_out: 'Тайм-аут',
-    cancelled: 'Отменён',
-  }
-
-  return labels[status]
-}
-
 function getStatusClass(status: AutomationExecutionStatus): string {
   if (status === 'succeeded') {
     return 'execution-badge execution-badge-success'
@@ -137,10 +127,11 @@ function getStatusClass(status: AutomationExecutionStatus): string {
 function AutomationSchedulesPage() {
   const [schedules, setSchedules] = useState<AutomationSchedule[]>([])
   const [latestExecutions, setLatestExecutions] = useState<
-    Map<number, AutomationExecution | null>
+    Map<number, AutomationLatestExecution>
   >(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [latestLoadFailed, setLatestLoadFailed] = useState(false)
   const [error, setError] = useState('')
   const [updatingIds, setUpdatingIds] = useState<Set<number>>(new Set())
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
@@ -173,44 +164,21 @@ function AutomationSchedulesPage() {
     async function loadSchedules() {
       try {
         const loadedSchedules = await getAutomationSchedules()
-        const executionResults = await Promise.allSettled(
-          loadedSchedules.map((schedule) =>
-            getLatestScheduleExecution(schedule.id),
-          ),
+        const latestResult = await loadLatestExecutions(
+          loadedSchedules.map((schedule) => schedule.id),
+          getLatestScheduleExecutions,
         )
 
         if (!isMounted) {
           return
         }
 
-        const loadedExecutions = new Map<
-          number,
-          AutomationExecution | null
-        >()
-        let failedExecutionRequests = 0
-
-        executionResults.forEach((result, index) => {
-          const schedule = loadedSchedules[index]
-
-          if (!schedule) {
-            return
-          }
-
-          if (result.status === 'fulfilled') {
-            loadedExecutions.set(schedule.id, result.value)
-          } else {
-            loadedExecutions.set(schedule.id, null)
-            failedExecutionRequests += 1
-          }
-        })
-
         setSchedules(loadedSchedules)
-        setLatestExecutions(loadedExecutions)
-
-        if (failedExecutionRequests > 0) {
-          setError(
-            `Не удалось загрузить последние статусы для ${failedExecutionRequests} задач`,
-          )
+        if (latestResult.status === 'success') {
+          setLatestExecutions(latestResult.executions)
+        } else {
+          setLatestLoadFailed(true)
+          setError(latestResult.message)
         }
       } catch (requestError) {
         if (!isMounted) {
@@ -345,7 +313,7 @@ function AutomationSchedulesPage() {
     if (isCreated) {
       setLatestExecutions((current) => {
         const next = new Map(current)
-        next.set(savedSchedule.id, null)
+        next.set(savedSchedule.id, noLatestExecution(savedSchedule.id))
         return next
       })
     }
@@ -443,17 +411,7 @@ function AutomationSchedulesPage() {
           }
         } else {
           setHistoryPage({
-            items: [
-              {
-                status: result.execution.status,
-                requested_at: result.execution.requested_at,
-                started_at: result.execution.started_at,
-                finished_at: result.execution.finished_at,
-                duration_seconds: null,
-                error_code: null,
-                error_message: null,
-              },
-            ],
+            items: [manualExecutionHistoryItem(result.execution)],
             total: 1,
             limit: HISTORY_PAGE_SIZE,
             offset: 0,
@@ -736,23 +694,31 @@ function AutomationSchedulesPage() {
                           </td>
                           <td>
                             <div className="execution-status-cell">
-                              {latestExecution ? (
+                              {latestExecution?.status ? (
                                 <span
                                   className={getStatusClass(
                                     latestExecution.status,
                                   )}
                                 >
-                                  {getStatusLabel(latestExecution.status)}
+                                  {latestExecution.user_status}
+                                </span>
+                              ) : latestLoadFailed && !latestExecution ? (
+                                <span className="execution-badge">
+                                  Статус недоступен
                                 </span>
                               ) : (
                                 <span className="execution-badge">
-                                  Нет запусков
+                                  {latestExecution?.user_status ?? 'Нет запусков'}
                                 </span>
                               )}
-                              <span>
-                                {formatDate(
-                                  latestExecution?.requested_at ?? null,
-                                )}
+                              <span
+                                title={latestExecution?.user_message}
+                              >
+                                {latestExecution?.error_code
+                                  ? `${formatDate(latestExecution.requested_at)} · ${latestExecution.user_message}`
+                                  : formatDate(
+                                      latestExecution?.requested_at ?? null,
+                                    )}
                               </span>
                             </div>
                           </td>
@@ -959,7 +925,7 @@ function AutomationSchedulesPage() {
                               <span
                                 className={getStatusClass(execution.status)}
                               >
-                                {getStatusLabel(execution.status)}
+                                {execution.user_status}
                               </span>
                             </td>
                             <td>{formatDate(execution.requested_at)}</td>
@@ -969,7 +935,9 @@ function AutomationSchedulesPage() {
                               {formatDuration(execution.duration_seconds)}
                             </td>
                             <td className="automation-history-error-cell">
-                              {execution.error_message ?? '—'}
+                              {execution.error_code
+                                ? execution.user_message
+                                : '—'}
                             </td>
                           </tr>
                         ))}

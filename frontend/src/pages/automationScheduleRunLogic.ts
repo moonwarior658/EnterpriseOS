@@ -1,4 +1,8 @@
-import type { AutomationExecution } from '../services/automation'
+import type {
+  AutomationExecution,
+  AutomationLatestExecution,
+} from '../services/automation'
+import { latestExecutionFromManualRun } from './automationLatestExecutionsLogic.ts'
 
 export type ManualRunApi = (
   scheduleId: number,
@@ -62,11 +66,11 @@ export async function runScheduleNow(
 }
 
 export function updateLatestExecution(
-  current: Map<number, AutomationExecution | null>,
+  current: Map<number, AutomationLatestExecution>,
   scheduleId: number,
   execution: AutomationExecution,
-): Map<number, AutomationExecution | null> {
+): Map<number, AutomationLatestExecution> {
   const next = new Map(current)
-  next.set(scheduleId, execution)
+  next.set(scheduleId, latestExecutionFromManualRun(scheduleId, execution))
   return next
 }

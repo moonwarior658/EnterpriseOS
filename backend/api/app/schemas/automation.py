@@ -287,8 +287,24 @@ class AutomationExecutionHistoryItem(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     duration_seconds: float | None = Field(ge=0)
+    user_status: str
+    user_message: str
+    error_category: str | None
     error_code: str | None
     error_message: str | None
+
+
+class AutomationLatestExecutionItem(BaseModel):
+    schedule_id: int
+    status: AutomationCallbackStatus | None
+    requested_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_seconds: float | None = Field(ge=0)
+    user_status: str
+    user_message: str
+    error_category: str | None
+    error_code: str | None
 
 
 class AutomationExecutionHistoryPage(BaseModel):
