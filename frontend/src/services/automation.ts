@@ -87,6 +87,23 @@ export type AutomationExecution = {
   updated_at: string
 }
 
+export type AutomationExecutionHistoryItem = {
+  status: AutomationExecutionStatus
+  requested_at: string
+  started_at: string | null
+  finished_at: string | null
+  duration_seconds: number | null
+  error_code: string | null
+  error_message: string | null
+}
+
+export type AutomationExecutionHistoryPage = {
+  items: AutomationExecutionHistoryItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -202,6 +219,22 @@ export function getLatestScheduleExecution(
   return authorizedRequest<AutomationExecution>(
     `/automation/schedules/${scheduleId}/executions/latest`,
   )
+}
+
+export async function getScheduleExecutionHistory(
+  scheduleId: number,
+  limit: number,
+  offset: number,
+): Promise<AutomationExecutionHistoryPage> {
+  const page = await authorizedRequest<AutomationExecutionHistoryPage>(
+    `/automation/schedules/${scheduleId}/executions?limit=${limit}&offset=${offset}`,
+  )
+
+  if (!page) {
+    throw new Error('Не удалось загрузить историю запусков')
+  }
+
+  return page
 }
 
 export async function runAutomationSchedule(

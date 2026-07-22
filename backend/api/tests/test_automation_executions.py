@@ -1,7 +1,7 @@
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from uuid import UUID
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -15,6 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 from app.api.dependencies import get_current_admin
 from app.automation.executions import (
+    count_executions,
     get_execution,
     get_latest_schedule_execution,
     list_executions,
@@ -106,7 +107,7 @@ class FakeSession:
         self,
         *,
         values: list[AutomationExecution] | None = None,
-        scalar: AutomationExecution | None = None,
+        scalar: AutomationExecution | int | None = None,
     ) -> None:
         self.values = values or []
         self.scalar_value = scalar
@@ -116,7 +117,10 @@ class FakeSession:
         self.statement = statement
         return ScalarCollection(self.values)
 
-    def scalar(self, statement: object) -> AutomationExecution | None:
+    def scalar(
+        self,
+        statement: object,
+    ) -> AutomationExecution | int | None:
         self.statement = statement
         return self.scalar_value
 
@@ -160,6 +164,21 @@ class ExecutionServiceTests(unittest.TestCase):
 
         self.assertIs(result, expected)
         self.assertIn(str(EXECUTION_ID), compiled)
+
+    def test_count_filters_by_schedule(self) -> None:
+        session = FakeSession(scalar=7)
+
+        result = count_executions(session, schedule_id=42)
+        compiled = str(
+            session.statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+        self.assertEqual(result, 7)
+        self.assertIn("count(automation_executions.id)", compiled)
+        self.assertIn("schedule_id = 42", compiled)
 
     def test_latest_orders_newest_first_and_limits_one(self) -> None:
         session = FakeSession(scalar=make_execution())
@@ -277,7 +296,75 @@ class ExecutionHistoryApiTests(unittest.TestCase):
         self.assertEqual(existing.status_code, 200)
         self.assertEqual(missing.status_code, 404)
 
-    def test_schedule_history_and_missing_schedule(self) -> None:
+    def test_schedule_history_is_safe_and_paginated(self) -> None:
+        self.authorize_admin()
+
+        execution = make_execution()
+        execution.error_code = "SECRET_PROVIDER_FAILURE"
+        execution.error_message = "webhook https://secret.invalid/token"
+        execution.status = ExecutionStatus.FAILED
+
+        with (
+            patch(
+                "app.api.routes.automation.get_schedule",
+                return_value=make_schedule(),
+            ),
+            patch(
+                "app.api.routes.automation.list_executions",
+                return_value=[execution],
+            ) as service,
+            patch(
+                "app.api.routes.automation.count_executions",
+                return_value=13,
+            ) as count_service,
+        ):
+            response = self.client.get(
+                "/automation/schedules/42/executions?limit=10&offset=2"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total"], 13)
+        self.assertEqual(body["limit"], 10)
+        self.assertEqual(body["offset"], 2)
+        self.assertEqual(len(body["items"]), 1)
+        self.assertEqual(body["items"][0]["status"], "failed")
+        self.assertEqual(body["items"][0]["duration_seconds"], 59.0)
+        self.assertEqual(
+            body["items"][0]["error_code"],
+            "AUTOMATION_FAILED",
+        )
+        self.assertEqual(
+            body["items"][0]["error_message"],
+            "Не удалось выполнить регламент",
+        )
+        internal_fields = {
+            "id",
+            "execution_id",
+            "schedule_id",
+            "automation_type",
+            "scope_type",
+            "scope_id",
+            "recipients",
+            "provider",
+            "attempt_count",
+            "max_attempts",
+            "payload",
+            "result",
+            "created_at",
+            "updated_at",
+            "outbox_events",
+        }
+        self.assertTrue(internal_fields.isdisjoint(body["items"][0]))
+        self.assertEqual(service.call_args.kwargs["schedule_id"], 42)
+        self.assertEqual(service.call_args.kwargs["limit"], 10)
+        self.assertEqual(service.call_args.kwargs["offset"], 2)
+        count_service.assert_called_once_with(
+            ANY,
+            schedule_id=42,
+        )
+
+    def test_schedule_history_empty(self) -> None:
         self.authorize_admin()
 
         with (
@@ -287,17 +374,23 @@ class ExecutionHistoryApiTests(unittest.TestCase):
             ),
             patch(
                 "app.api.routes.automation.list_executions",
-                return_value=[make_execution()],
-            ) as service,
+                return_value=[],
+            ),
+            patch(
+                "app.api.routes.automation.count_executions",
+                return_value=0,
+            ),
         ):
             response = self.client.get(
-                "/automation/schedules/42/executions?limit=10&offset=2"
+                "/automation/schedules/42/executions"
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(service.call_args.kwargs["schedule_id"], 42)
-        self.assertEqual(service.call_args.kwargs["limit"], 10)
-        self.assertEqual(service.call_args.kwargs["offset"], 2)
+        self.assertEqual(response.json()["items"], [])
+        self.assertEqual(response.json()["total"], 0)
+
+    def test_schedule_history_returns_404_for_missing_schedule(self) -> None:
+        self.authorize_admin()
 
         with patch(
             "app.api.routes.automation.get_schedule",

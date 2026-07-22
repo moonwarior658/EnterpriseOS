@@ -23,6 +23,7 @@ from app.automation.schedules import (
 )
 from app.automation.executions import (
     DEFAULT_EXECUTION_LIMIT,
+    count_executions,
     get_execution,
     get_latest_schedule_execution,
     list_executions,
@@ -39,6 +40,8 @@ from app.schemas.automation import (
     AutomationCallbackResult,
     AutomationCallbackStatus,
     AutomationExecutionRead,
+    AutomationExecutionHistoryItem,
+    AutomationExecutionHistoryPage,
     AutomationScheduleCreate,
     AutomationScheduleRead,
     AutomationScheduleUpdate,
@@ -231,7 +234,7 @@ def read_latest_schedule_execution(
 
 @router.get(
     "/schedules/{schedule_id}/executions",
-    response_model=list[AutomationExecutionRead],
+    response_model=AutomationExecutionHistoryPage,
 )
 def read_schedule_executions(
     schedule_id: int,
@@ -239,14 +242,54 @@ def read_schedule_executions(
     _: Annotated[User, Depends(get_current_admin)],
     limit: Annotated[int, Query(ge=1, le=100)] = DEFAULT_EXECUTION_LIMIT,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[AutomationExecution]:
+) -> AutomationExecutionHistoryPage:
     if get_schedule(db, schedule_id) is None:
         raise schedule_not_found()
-    return list_executions(
+
+    executions = list_executions(
         db,
         schedule_id=schedule_id,
         limit=limit,
         offset=offset,
+    )
+    return AutomationExecutionHistoryPage(
+        items=[public_history_item(item) for item in executions],
+        total=count_executions(db, schedule_id=schedule_id),
+        limit=limit,
+        offset=offset,
+    )
+
+
+def public_history_item(
+    execution: AutomationExecution,
+) -> AutomationExecutionHistoryItem:
+    duration_seconds = None
+    if execution.started_at is not None and execution.finished_at is not None:
+        duration_seconds = max(
+            0.0,
+            (execution.finished_at - execution.started_at).total_seconds(),
+        )
+
+    error_code = None
+    error_message = None
+    if execution.status == ExecutionStatus.TIMED_OUT:
+        error_code = "AUTOMATION_TIMED_OUT"
+        error_message = "Регламент не завершился за отведённое время"
+    elif execution.status == ExecutionStatus.CANCELLED:
+        error_code = "AUTOMATION_CANCELLED"
+        error_message = "Запуск регламента отменён"
+    elif execution.status == ExecutionStatus.FAILED:
+        error_code = "AUTOMATION_FAILED"
+        error_message = "Не удалось выполнить регламент"
+
+    return AutomationExecutionHistoryItem(
+        status=AutomationCallbackStatus(execution.status.value),
+        requested_at=execution.requested_at,
+        started_at=execution.started_at,
+        finished_at=execution.finished_at,
+        duration_seconds=duration_seconds,
+        error_code=error_code,
+        error_message=error_message,
     )
 
 

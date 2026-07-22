@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.automation import AutomationExecution, ExecutionStatus
@@ -49,6 +49,17 @@ def list_executions(
         .offset(offset)
     )
     return session.scalars(statement).all()
+
+
+def count_executions(
+    session: Session,
+    *,
+    schedule_id: int,
+) -> int:
+    statement = select(func.count(AutomationExecution.id)).where(
+        AutomationExecution.schedule_id == schedule_id
+    )
+    return session.scalar(statement) or 0
 
 
 def get_execution(

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getAutomationSchedules,
   getLatestScheduleExecution,
+  getScheduleExecutionHistory,
   runAutomationSchedule,
   updateAutomationScheduleEnabled,
   type AutomationExecution,
+  type AutomationExecutionHistoryPage,
   type AutomationExecutionStatus,
   type AutomationSchedule,
   type AutomationScopeType,
@@ -16,9 +18,15 @@ import {
   runScheduleNow,
   updateLatestExecution,
 } from './automationScheduleRunLogic'
+import {
+  canReuseHistory,
+  loadExecutionHistory,
+  updateHistoryAfterManualExecution,
+} from './automationExecutionHistoryLogic'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
+const HISTORY_PAGE_SIZE = 6
 const WEEKDAY_LABELS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
 
 type StateFilter =
@@ -46,6 +54,18 @@ function formatDate(value: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
+}
+
+function formatDuration(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return '—'
+  }
+
+  const totalSeconds = Math.round(value)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  return minutes > 0 ? `${minutes} мин ${seconds} сек` : `${seconds} сек`
 }
 
 function formatSchedule(config: ScheduleConfig): string {
@@ -134,6 +154,18 @@ function AutomationSchedulesPage() {
     useState<AutomationSchedule | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  const [historyScheduleId, setHistoryScheduleId] = useState<number | null>(
+    null,
+  )
+  const [loadedHistoryScheduleId, setLoadedHistoryScheduleId] = useState<
+    number | null
+  >(null)
+  const [historyPageNumber, setHistoryPageNumber] = useState(1)
+  const [historyPage, setHistoryPage] =
+    useState<AutomationExecutionHistoryPage | null>(null)
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const historyRequestId = useRef(0)
 
   useEffect(() => {
     let isMounted = true
@@ -382,6 +414,53 @@ function AutomationSchedulesPage() {
         updateLatestExecution(current, schedule.id, result.execution),
       )
       setNotice(`Регламент «${schedule.name}» поставлен в очередь`)
+      if (historyScheduleId === schedule.id) {
+        if (historyPage) {
+          const shouldReloadFirstPage = historyPage.offset > 0
+          const requestId = historyRequestId.current + 1
+          historyRequestId.current = requestId
+          setHistoryPageNumber(1)
+          setHistoryError('')
+          setIsHistoryLoading(shouldReloadFirstPage)
+
+          const historyResult = await updateHistoryAfterManualExecution(
+            historyPage,
+            result.execution,
+            schedule.id,
+            HISTORY_PAGE_SIZE,
+            getScheduleExecutionHistory,
+          )
+
+          if (historyRequestId.current === requestId) {
+            if (historyResult.status === 'success') {
+              setHistoryPage(historyResult.page)
+              setLoadedHistoryScheduleId(schedule.id)
+            } else {
+              setHistoryPage(null)
+              setHistoryError(historyResult.message)
+            }
+            setIsHistoryLoading(false)
+          }
+        } else {
+          setHistoryPage({
+            items: [
+              {
+                status: result.execution.status,
+                requested_at: result.execution.requested_at,
+                started_at: result.execution.started_at,
+                finished_at: result.execution.finished_at,
+                duration_seconds: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            total: 1,
+            limit: HISTORY_PAGE_SIZE,
+            offset: 0,
+          })
+          setHistoryPageNumber(1)
+        }
+      }
     } else if (result.status === 'error') {
       setError(result.message)
     }
@@ -392,6 +471,59 @@ function AutomationSchedulesPage() {
       return next
     })
   }
+
+  async function loadHistory(scheduleId: number, pageNumber: number) {
+    const requestId = historyRequestId.current + 1
+    historyRequestId.current = requestId
+    setHistoryScheduleId(scheduleId)
+    setHistoryPageNumber(pageNumber)
+    setIsHistoryLoading(true)
+    setHistoryError('')
+
+    const result = await loadExecutionHistory(
+      scheduleId,
+      pageNumber,
+      HISTORY_PAGE_SIZE,
+      getScheduleExecutionHistory,
+    )
+
+    if (historyRequestId.current !== requestId) {
+      return
+    }
+
+    if (result.status === 'success') {
+      setHistoryPage(result.page)
+      setLoadedHistoryScheduleId(scheduleId)
+    } else {
+      setHistoryPage(null)
+      setHistoryError(result.message)
+    }
+    setIsHistoryLoading(false)
+  }
+
+  function handleHistoryToggle(scheduleId: number) {
+    if (historyScheduleId === scheduleId) {
+      setHistoryScheduleId(null)
+      return
+    }
+
+    if (
+      canReuseHistory(loadedHistoryScheduleId, scheduleId, historyPage)
+    ) {
+      setHistoryScheduleId(scheduleId)
+      return
+    }
+
+    void loadHistory(scheduleId, 1)
+  }
+
+  const historySchedule = schedules.find(
+    (schedule) => schedule.id === historyScheduleId,
+  )
+  const historyTotalPages = Math.max(
+    1,
+    Math.ceil((historyPage?.total ?? 0) / HISTORY_PAGE_SIZE),
+  )
 
   return (
     <main className="app-page automation-page">
@@ -666,6 +798,21 @@ function AutomationSchedulesPage() {
                                 className="automation-row-actions"
                                 type="button"
                                 disabled={isFormOpen || isRunning}
+                                aria-expanded={
+                                  historyScheduleId === schedule.id
+                                }
+                                aria-controls="automation-execution-history"
+                                title="Открыть историю запусков"
+                                onClick={() =>
+                                  handleHistoryToggle(schedule.id)
+                                }
+                              >
+                                История
+                              </button>
+                              <button
+                                className="automation-row-actions"
+                                type="button"
+                                disabled={isFormOpen || isRunning}
                                 title="Редактировать регламент"
                                 aria-label={`Редактировать задачу ${schedule.name}`}
                                 onClick={() => openEditForm(schedule)}
@@ -731,6 +878,144 @@ function AutomationSchedulesPage() {
                 </button>
               </nav>
             </div>
+          )}
+
+          {historySchedule && (
+            <section
+              className="automation-history"
+              id="automation-execution-history"
+              aria-labelledby="automation-history-title"
+            >
+              <div className="automation-history-heading">
+                <div>
+                  <p className="eyebrow">ИСТОРИЯ ЗАПУСКОВ</p>
+                  <h2 id="automation-history-title">
+                    {historySchedule.name}
+                  </h2>
+                </div>
+                <button
+                  className="automation-history-close"
+                  type="button"
+                  aria-label="Закрыть историю запусков"
+                  onClick={() => setHistoryScheduleId(null)}
+                >
+                  ×
+                </button>
+              </div>
+
+              {isHistoryLoading && (
+                <p className="automation-history-state" role="status">
+                  Загружаем историю запусков…
+                </p>
+              )}
+
+              {!isHistoryLoading && historyError && (
+                <div className="automation-history-error" role="alert">
+                  <span>{historyError}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadHistory(
+                        historySchedule.id,
+                        historyPageNumber,
+                      )
+                    }
+                  >
+                    Повторить
+                  </button>
+                </div>
+              )}
+
+              {!isHistoryLoading &&
+                !historyError &&
+                historyPage?.items.length === 0 && (
+                  <p className="automation-history-state">
+                    У этого регламента пока нет запусков
+                  </p>
+                )}
+
+              {!isHistoryLoading &&
+                !historyError &&
+                historyPage &&
+                historyPage.items.length > 0 && (
+                  <div className="automation-history-table-wrap">
+                    <table className="automation-history-table">
+                      <thead>
+                        <tr>
+                          <th>Статус</th>
+                          <th>Запрошен</th>
+                          <th>Старт</th>
+                          <th>Завершён</th>
+                          <th>Длительность</th>
+                          <th>Причина ошибки</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historyPage.items.map((execution, index) => (
+                          <tr
+                            key={`${execution.requested_at}-${index}`}
+                          >
+                            <td>
+                              <span
+                                className={getStatusClass(execution.status)}
+                              >
+                                {getStatusLabel(execution.status)}
+                              </span>
+                            </td>
+                            <td>{formatDate(execution.requested_at)}</td>
+                            <td>{formatDate(execution.started_at)}</td>
+                            <td>{formatDate(execution.finished_at)}</td>
+                            <td>
+                              {formatDuration(execution.duration_seconds)}
+                            </td>
+                            <td className="automation-history-error-cell">
+                              {execution.error_message ?? '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              {!isHistoryLoading &&
+                !historyError &&
+                historyPage &&
+                historyPage.total > 0 && (
+                  <div className="automation-history-pagination">
+                    <span>
+                      Страница {historyPageNumber} из {historyTotalPages} ·{' '}
+                      запусков: {historyPage.total}
+                    </span>
+                    <nav aria-label="Пагинация истории запусков">
+                      <button
+                        type="button"
+                        disabled={historyPageNumber === 1}
+                        onClick={() =>
+                          void loadHistory(
+                            historySchedule.id,
+                            historyPageNumber - 1,
+                          )
+                        }
+                      >
+                        ← Назад
+                      </button>
+                      <button
+                        type="button"
+                        disabled={historyPageNumber >= historyTotalPages}
+                        onClick={() =>
+                          void loadHistory(
+                            historySchedule.id,
+                            historyPageNumber + 1,
+                          )
+                        }
+                      >
+                        Вперёд →
+                      </button>
+                    </nav>
+                  </div>
+                )}
+            </section>
           )}
         </section>
       </div>

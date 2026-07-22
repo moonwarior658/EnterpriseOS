@@ -281,6 +281,23 @@ class AutomationExecutionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AutomationExecutionHistoryItem(BaseModel):
+    status: AutomationCallbackStatus
+    requested_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_seconds: float | None = Field(ge=0)
+    error_code: str | None
+    error_message: str | None
+
+
+class AutomationExecutionHistoryPage(BaseModel):
+    items: list[AutomationExecutionHistoryItem]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
 class AutomationCommand(BaseModel):
     contract_version: ContractVersion = AUTOMATION_CONTRACT_VERSION
     execution_id: UUID
