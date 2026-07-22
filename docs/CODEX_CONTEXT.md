@@ -2,7 +2,23 @@
 
 ## Current stage
 
-Stage 2 — Automation Core.
+Stage 2 — Automation Core — completed (100%).
+
+The next stage must be taken strictly from the current roadmap. At the current
+roadmap version, this is Stage 3 — Supply.
+
+## Current state
+
+- Roadmap: `docs/ROADMAP_v0.12.0.md`.
+- Branch and HEAD: `main`, `de3dfd43c3196f560f1a00bda2690bb0e43c8323`.
+- Server, GitHub, and Mac checkouts are synchronized at this HEAD.
+- Database migrations are at `20260722_0004`.
+- Backend suite: 307/307 passed.
+- Frontend tests: 36/36 passed.
+- Frontend production build passed.
+- The end-to-end `smoke_test` through n8n reaches `SUCCEEDED`.
+- n8n and n8n-postgres are healthy.
+- An n8n backup was created and validated; restore tooling and a retention policy are in place.
 
 ## Architecture
 
@@ -24,51 +40,28 @@ Rules:
 - Reuse the existing dispatch and transactional outbox flow.
 - Do not duplicate scheduler, dispatch, outbox, retry, worker, or callback logic.
 
-## Implemented
+## Automation Core completion
 
 - Automation schedule CRUD.
 - Scheduler and timing engine.
 - Automation execution model.
 - Transactional outbox.
 - Persistent automation worker.
-- n8n provider and callback flow.
-- Schedule list UI.
-- Create and edit schedule UI.
-- Enable and disable schedule.
-- Manual schedule execution.
-- Safe Russian user-facing errors.
-- Relevant backend and frontend tests.
-
-## Current task
-
-Implement full automation execution history.
-
-Expected result:
-
-- List executions for a selected schedule.
-- Show status, start time, finish time, duration, and safe error text.
-- Do not expose raw payloads, execution IDs, webhook URLs, or n8n internals.
-- Reuse existing backend models and contracts where possible.
-- Do not add audit log, diagnostics, or notification delivery in the same task.
-
-## Next tasks
-
-1. Batch endpoint for latest executions.
-2. User-facing execution status classification.
-3. External side-effect deduplication.
-4. Audit log.
-5. Platform-admin diagnostics.
-6. n8n backup and monitoring.
-7. Automation type catalog.
-8. Test notification flow.
+- Retry, timeout recovery, and protected idempotent callback flow.
+- Idempotency-key protection for external side effects.
+- Execution history and safe user-facing statuses and errors.
+- Audit log and platform-admin diagnostics.
+- Automation type catalog.
+- End-to-end `smoke_test` through the importable n8n workflow.
+- Health checks for n8n and n8n-postgres.
+- n8n backup/restore tooling and retention.
 
 ## Known limitations
 
-- The only confirmed automation type is `smoke_test`.
-- There is no automation type catalog yet.
-- Latest execution status is not polled after manual launch.
-- Full execution history is not implemented yet.
 - Two pre-existing ESLint errors remain in `frontend/src/contexts/AuthContext.tsx`.
+- Visual polish for tables and selects and broader responsive UI work are
+  intentionally assigned to the future design stage and are not Automation
+  Core debt.
 
 ## Deferred
 
@@ -76,7 +69,7 @@ Expected result:
 - Web Push.
 - Notification center.
 - Apple Calendar.
-- UI polish.
+- Table, select, and responsive UI polish (roadmap design stage).
 - Mascots.
 - Light and dark theme.
 
