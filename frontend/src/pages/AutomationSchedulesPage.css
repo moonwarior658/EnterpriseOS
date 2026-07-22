@@ -273,10 +273,36 @@
 
 .automation-table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1040px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12px;
+}
+
+.automation-column-name {
+  width: 20%;
+}
+
+.automation-column-type {
+  width: 9%;
+}
+
+.automation-column-scope,
+.automation-column-schedule,
+.automation-column-status {
+  width: 13%;
+}
+
+.automation-column-next-run {
+  width: 12%;
+}
+
+.automation-column-enabled {
+  width: 60px;
+}
+
+.automation-column-actions {
+  width: 148px;
 }
 
 .automation-table th,
@@ -309,41 +335,10 @@
   background: rgb(247 248 249 / 72%);
 }
 
-.automation-table th:nth-child(1) {
-  width: 15%;
-}
-
-.automation-table th:nth-child(2) {
-  width: 12%;
-}
-
-.automation-table th:nth-child(3) {
-  width: 14%;
-}
-
-.automation-table th:nth-child(4) {
-  width: 15%;
-}
-
-.automation-table th:nth-child(5) {
-  width: 13%;
-}
-
-.automation-table th:nth-child(6) {
-  width: 16%;
-}
-
-.automation-table th:nth-child(7) {
-  width: 7%;
-}
-
-.automation-table th:nth-child(8) {
-  width: 8%;
-}
-
 .automation-name-cell,
 .execution-status-cell {
   display: grid;
+  max-width: 100%;
   min-width: 0;
   gap: 4px;
 }
@@ -365,6 +360,14 @@
 .execution-status-cell > span:last-child {
   color: var(--color-text-tertiary);
   font-size: 10px;
+}
+
+.execution-status-cell > span:last-child {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .automation-type-badge,
@@ -404,7 +407,9 @@
 }
 
 .automation-date-cell {
+  overflow: hidden;
   color: #555860;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -446,13 +451,14 @@
 }
 
 .automation-row-actions {
-  min-width: 32px;
+  min-width: 0;
   height: 28px;
+  flex: 0 0 auto;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: white;
   color: #555860;
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: 10px;
   font-weight: 650;
   cursor: pointer;
@@ -460,9 +466,17 @@
 
 .automation-row-action-list {
   display: flex;
+  width: 100%;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   white-space: nowrap;
+}
+
+.automation-table th:last-child,
+.automation-table td:last-child {
+  padding-right: 8px;
+  padding-left: 8px;
 }
 
 .automation-run-action {

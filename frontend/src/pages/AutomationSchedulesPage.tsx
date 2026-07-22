@@ -504,6 +504,16 @@ function AutomationSchedulesPage() {
           {!loadFailed && (
             <div className="automation-table-wrap">
               <table className="automation-table">
+                <colgroup>
+                  <col className="automation-column-name" />
+                  <col className="automation-column-type" />
+                  <col className="automation-column-scope" />
+                  <col className="automation-column-schedule" />
+                  <col className="automation-column-next-run" />
+                  <col className="automation-column-status" />
+                  <col className="automation-column-enabled" />
+                  <col className="automation-column-actions" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Название</th>
@@ -650,7 +660,7 @@ function AutomationSchedulesPage() {
                                 aria-label={`Запустить сейчас задачу ${schedule.name}`}
                                 onClick={() => void handleManualRun(schedule)}
                               >
-                                {isRunning ? 'Запускаем…' : 'Запустить сейчас'}
+                                {isRunning ? 'Запускаем…' : 'Запустить'}
                               </button>
                               <button
                                 className="automation-row-actions"
