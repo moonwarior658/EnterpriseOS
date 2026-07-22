@@ -1,6 +1,7 @@
 ﻿import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppLayout from './layouts/AppLayout'
+import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import UsersPage from './pages/UsersPage'
@@ -31,6 +32,15 @@ function App() {
           element={
             <ProtectedRoute adminOnly>
               <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/automation/schedules"
+          element={
+            <ProtectedRoute adminOnly>
+              <AutomationSchedulesPage />
             </ProtectedRoute>
           }
         />
