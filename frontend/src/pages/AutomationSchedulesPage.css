@@ -280,29 +280,29 @@
 }
 
 .automation-column-name {
-  width: 20%;
+  width: 18%;
 }
 
 .automation-column-type {
-  width: 9%;
+  width: 8%;
 }
 
 .automation-column-scope,
 .automation-column-schedule,
 .automation-column-status {
-  width: 13%;
+  width: 11%;
 }
 
 .automation-column-next-run {
-  width: 12%;
+  width: 11%;
 }
 
 .automation-column-enabled {
-  width: 60px;
+  width: 72px;
 }
 
 .automation-column-actions {
-  width: 210px;
+  width: 240px;
 }
 
 .automation-table th,
