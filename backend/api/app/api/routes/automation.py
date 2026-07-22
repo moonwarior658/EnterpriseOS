@@ -8,6 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
+from app.automation.dispatch import (
+    AutomationScheduleNotFoundError,
+    DisabledAutomationScheduleError,
+    dispatch_schedule_now,
+)
 from app.automation.schedules import (
     InvalidScheduleScopeError,
     create_schedule,
@@ -139,6 +144,32 @@ def delete_automation_schedule(
         raise schedule_not_found()
 
     delete_schedule(db, schedule)
+
+
+@router.post(
+    "/schedules/{schedule_id}/run",
+    response_model=AutomationExecutionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_automation_schedule(
+    schedule_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> AutomationExecution:
+    try:
+        return dispatch_schedule_now(db, schedule_id)
+    except AutomationScheduleNotFoundError as error:
+        raise schedule_not_found() from error
+    except DisabledAutomationScheduleError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Disabled automation schedule cannot be started",
+        ) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start automation schedule",
+        ) from error
 
 
 def execution_not_found() -> HTTPException:

@@ -13,12 +13,20 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.dependencies import get_current_admin
+from app.automation.dispatch import (
+    AutomationScheduleNotFoundError,
+    DisabledAutomationScheduleError,
+)
 from app.automation.schedules import InvalidScheduleScopeError
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_db
 from app.main import app
-from app.models.automation import AutomationSchedule
+from app.models.automation import (
+    AutomationExecution,
+    AutomationSchedule,
+    ExecutionStatus,
+)
 from app.models.user import User
 
 
@@ -64,6 +72,34 @@ def make_schedule(
     )
 
 
+def make_execution(schedule_id: int = 42) -> AutomationExecution:
+    return AutomationExecution(
+        id=101,
+        execution_id=EXECUTION_ID,
+        schedule_id=schedule_id,
+        contract_version="1.0",
+        automation_type="daily_report",
+        tenant_id="eclair",
+        scope_type="company",
+        scope_id=None,
+        recipients=[{"user_id": 7}],
+        provider=None,
+        status=ExecutionStatus.PENDING,
+        requested_at=NOW,
+        started_at=None,
+        finished_at=None,
+        payload={"report": "sales"},
+        result=None,
+        error_code=None,
+        error_message=None,
+        attempt_count=0,
+        max_attempts=3,
+        next_retry_at=None,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
 def valid_create_body() -> dict[str, object]:
     return {
         "name": "Daily report",
@@ -96,6 +132,8 @@ class FakeSession:
         self.current_user: User | None = None
         self.execution = None
         self.commit_count = 0
+        self.rollback_count = 0
+        self.refreshed: list[object] = []
 
     def get(self, model, identity):
         if model is User:
@@ -113,6 +151,12 @@ class FakeSession:
 
     def commit(self) -> None:
         self.commit_count += 1
+
+    def rollback(self) -> None:
+        self.rollback_count += 1
+
+    def refresh(self, instance: object) -> None:
+        self.refreshed.append(instance)
 
 
 class AutomationSchedulesApiTestCase(unittest.TestCase):
@@ -171,6 +215,11 @@ class AutomationScheduleAuthorizationTests(AutomationSchedulesApiTestCase):
 
     def test_delete_without_jwt_returns_401(self) -> None:
         response = self.client.delete("/automation/schedules/42")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_manual_run_without_jwt_returns_401(self) -> None:
+        response = self.client.post("/automation/schedules/42/run")
 
         self.assertEqual(response.status_code, 401)
 
@@ -596,6 +645,77 @@ class AutomationScheduleDeleteApiTests(AutomationSchedulesApiTestCase):
         self.assertEqual(first.status_code, 204)
         self.assertEqual(second.status_code, 404)
         service.assert_called_once_with(self.session, schedule)
+
+
+class AutomationScheduleManualRunApiTests(AutomationSchedulesApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.authorize_as_admin()
+
+    def test_successful_manual_run_returns_created_execution(self) -> None:
+        execution = make_execution()
+
+        with (
+            patch(
+                "app.api.routes.automation.dispatch_schedule_now",
+                return_value=execution,
+            ) as dispatch,
+        ):
+            response = self.client.post("/automation/schedules/42/run")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], "pending")
+        self.assertEqual(response.json()["schedule_id"], 42)
+        dispatch.assert_called_once_with(self.session, 42)
+
+    def test_missing_schedule_service_error_returns_404(self) -> None:
+        with (
+            patch(
+                "app.api.routes.automation.dispatch_schedule_now",
+                side_effect=AutomationScheduleNotFoundError,
+            ) as dispatch,
+        ):
+            response = self.client.post("/automation/schedules/404/run")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Automation schedule not found"},
+        )
+        dispatch.assert_called_once_with(self.session, 404)
+
+    def test_disabled_schedule_service_error_returns_409(self) -> None:
+        with (
+            patch(
+                "app.api.routes.automation.dispatch_schedule_now",
+                side_effect=DisabledAutomationScheduleError,
+            ) as dispatch,
+        ):
+            response = self.client.post("/automation/schedules/42/run")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Disabled automation schedule cannot be started"},
+        )
+        dispatch.assert_called_once_with(self.session, 42)
+
+    def test_dispatch_failure_returns_safe_error(self) -> None:
+        with (
+            patch(
+                "app.api.routes.automation.dispatch_schedule_now",
+                side_effect=RuntimeError("database secret details"),
+            ),
+        ):
+            response = self.client.post("/automation/schedules/42/run")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Failed to start automation schedule"},
+        )
+        self.assertEqual(self.session.commit_count, 0)
+        self.assertNotIn("secret", response.text)
 
 
 class AutomationScheduleCrudRegressionTests(AutomationSchedulesApiTestCase):

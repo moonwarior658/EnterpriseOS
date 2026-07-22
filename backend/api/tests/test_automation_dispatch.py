@@ -2,10 +2,14 @@ import unittest
 
 from app.automation.dispatch import (
     AUTOMATION_COMMAND_EVENT_TYPE,
+    AutomationScheduleNotFoundError,
+    DisabledAutomationScheduleError,
     create_automation_execution,
+    dispatch_schedule_now,
 )
 from app.models.automation import (
     AutomationExecution,
+    AutomationSchedule,
     ExecutionStatus,
     OutboxEvent,
     OutboxStatus,
@@ -57,8 +61,14 @@ class FakeNestedTransaction:
 
 
 class FakeSession:
-    def __init__(self, *, fail_on_flush: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_on_flush: bool = False,
+        schedule: AutomationSchedule | None = None,
+    ) -> None:
         self.fail_on_flush = fail_on_flush
+        self.schedule = schedule
         self.transaction_open = False
         self.staged: list[object] = []
         self.committed: list[object] = []
@@ -70,6 +80,7 @@ class FakeSession:
         return self.transaction_open
 
     def begin(self) -> FakeTransaction:
+        self.transaction_open = True
         return FakeTransaction(self)
 
     def begin_nested(self) -> FakeNestedTransaction:
@@ -87,6 +98,47 @@ class FakeSession:
         if self.fail_on_flush:
             raise RuntimeError("database write failed")
 
+    def get(self, model: object, identity: int) -> AutomationSchedule | None:
+        self.transaction_open = True
+        if (
+            model is AutomationSchedule
+            and self.schedule is not None
+            and self.schedule.id == identity
+        ):
+            return self.schedule
+        return None
+
+    def refresh(self, instance: object) -> None:
+        if instance not in self.staged:
+            raise AssertionError("Only staged records can be refreshed")
+
+    def commit(self) -> None:
+        if not self.transaction_open:
+            raise AssertionError("Commit requires an outer transaction")
+        self.committed.extend(self.staged)
+        self.staged.clear()
+        self.commit_count += 1
+        self.transaction_open = False
+
+    def rollback(self) -> None:
+        self.staged.clear()
+        self.rollback_count += 1
+        self.transaction_open = False
+
+
+def make_schedule(*, is_enabled: bool = True) -> AutomationSchedule:
+    return AutomationSchedule(
+        id=42,
+        automation_type="daily_sales_report",
+        contract_version="1.0",
+        tenant_id="tenant-42",
+        scope_type="department",
+        scope_id="department-7",
+        recipients=[{"user_id": 10}],
+        payload={"location_ids": [10, 20]},
+        is_enabled=is_enabled,
+    )
+
 
 class AutomationDispatchTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -101,6 +153,7 @@ class AutomationDispatchTests(unittest.TestCase):
             scope_id="department-7",
             recipients=[{"user_id": 10}],
             payload={"location_ids": [10, 20]},
+            schedule_id=42,
         )
 
     def test_creates_linked_execution_and_outbox_event(self) -> None:
@@ -126,6 +179,7 @@ class AutomationDispatchTests(unittest.TestCase):
         self.assertEqual(execution.tenant_id, "tenant-42")
         self.assertEqual(execution.scope_type, "department")
         self.assertEqual(execution.scope_id, "department-7")
+        self.assertEqual(execution.schedule_id, 42)
         self.assertEqual(execution.recipients, [{"user_id": 10}])
         self.assertEqual(
             execution.payload,
@@ -220,6 +274,52 @@ class AutomationDispatchTests(unittest.TestCase):
         recipients[0]["user_id"] = 99
 
         self.assertEqual(execution.recipients, [{"user_id": 10}])
+
+
+class ManualScheduleDispatchTests(unittest.TestCase):
+    def test_creates_execution_and_outbox_atomically(self) -> None:
+        session = FakeSession(schedule=make_schedule())
+
+        execution = dispatch_schedule_now(session, 42)
+
+        self.assertEqual(len(session.committed), 2)
+        self.assertIs(session.committed[0], execution)
+        self.assertIsInstance(session.committed[1], OutboxEvent)
+        self.assertEqual(execution.schedule_id, 42)
+        self.assertEqual(session.commit_count, 1)
+        self.assertEqual(session.rollback_count, 0)
+
+    def test_missing_schedule_is_rejected(self) -> None:
+        session = FakeSession()
+
+        with self.assertRaises(AutomationScheduleNotFoundError):
+            dispatch_schedule_now(session, 404)
+
+        self.assertEqual(session.committed, [])
+        self.assertEqual(session.rollback_count, 1)
+
+    def test_disabled_schedule_is_rejected(self) -> None:
+        session = FakeSession(schedule=make_schedule(is_enabled=False))
+
+        with self.assertRaises(DisabledAutomationScheduleError):
+            dispatch_schedule_now(session, 42)
+
+        self.assertEqual(session.committed, [])
+        self.assertEqual(session.rollback_count, 1)
+
+    def test_dispatch_error_rolls_back_execution_and_outbox(self) -> None:
+        session = FakeSession(
+            schedule=make_schedule(),
+            fail_on_flush=True,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "database write failed"):
+            dispatch_schedule_now(session, 42)
+
+        self.assertEqual(session.committed, [])
+        self.assertEqual(session.staged, [])
+        self.assertEqual(session.commit_count, 0)
+        self.assertEqual(session.rollback_count, 1)
 
 
 if __name__ == "__main__":

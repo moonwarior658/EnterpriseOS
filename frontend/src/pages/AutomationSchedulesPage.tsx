@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getAutomationSchedules,
   getLatestScheduleExecution,
+  runAutomationSchedule,
   updateAutomationScheduleEnabled,
   type AutomationExecution,
   type AutomationExecutionStatus,
@@ -10,6 +11,11 @@ import {
   type ScheduleConfig,
 } from '../services/automation'
 import AutomationScheduleForm from './AutomationScheduleForm'
+import {
+  createManualRunGuard,
+  runScheduleNow,
+  updateLatestExecution,
+} from './automationScheduleRunLogic'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
@@ -117,6 +123,8 @@ function AutomationSchedulesPage() {
   const [loadFailed, setLoadFailed] = useState(false)
   const [error, setError] = useState('')
   const [updatingIds, setUpdatingIds] = useState<Set<number>>(new Set())
+  const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
+  const manualRunGuard = useRef(createManualRunGuard())
   const [search, setSearch] = useState('')
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [scopeFilter, setScopeFilter] = useState('all')
@@ -354,6 +362,37 @@ function AutomationSchedulesPage() {
     }
   }
 
+  async function handleManualRun(schedule: AutomationSchedule) {
+    if (manualRunGuard.current.runningIds.has(schedule.id)) {
+      return
+    }
+
+    setError('')
+    setNotice('')
+    setRunningIds((current) => new Set(current).add(schedule.id))
+
+    const result = await runScheduleNow(
+      schedule.id,
+      runAutomationSchedule,
+      manualRunGuard.current,
+    )
+
+    if (result.status === 'success') {
+      setLatestExecutions((current) =>
+        updateLatestExecution(current, schedule.id, result.execution),
+      )
+      setNotice(`Регламент «${schedule.name}» поставлен в очередь`)
+    } else if (result.status === 'error') {
+      setError(result.message)
+    }
+
+    setRunningIds((current) => {
+      const next = new Set(current)
+      next.delete(schedule.id)
+      return next
+    })
+  }
+
   return (
     <main className="app-page automation-page">
       <div className="page-shell automation-page-shell">
@@ -508,6 +547,7 @@ function AutomationSchedulesPage() {
                     pageSchedules.map((schedule) => {
                       const latestExecution = latestExecutions.get(schedule.id)
                       const isUpdating = updatingIds.has(schedule.id)
+                      const isRunning = runningIds.has(schedule.id)
 
                       return (
                         <tr key={schedule.id}>
@@ -593,16 +633,36 @@ function AutomationSchedulesPage() {
                             </button>
                           </td>
                           <td>
-                            <button
-                              className="automation-row-actions"
-                              type="button"
-                              disabled={isFormOpen}
-                              title="Редактировать регламент"
-                              aria-label={`Редактировать задачу ${schedule.name}`}
-                              onClick={() => openEditForm(schedule)}
-                            >
-                              Изменить
-                            </button>
+                            <div className="automation-row-action-list">
+                              <button
+                                className="automation-row-actions automation-run-action"
+                                type="button"
+                                disabled={
+                                  !schedule.is_enabled ||
+                                  isRunning ||
+                                  isFormOpen
+                                }
+                                title={
+                                  schedule.is_enabled
+                                    ? 'Запустить регламент сейчас'
+                                    : 'Сначала включите регламент'
+                                }
+                                aria-label={`Запустить сейчас задачу ${schedule.name}`}
+                                onClick={() => void handleManualRun(schedule)}
+                              >
+                                {isRunning ? 'Запускаем…' : 'Запустить сейчас'}
+                              </button>
+                              <button
+                                className="automation-row-actions"
+                                type="button"
+                                disabled={isFormOpen || isRunning}
+                                title="Редактировать регламент"
+                                aria-label={`Редактировать задачу ${schedule.name}`}
+                                onClick={() => openEditForm(schedule)}
+                              >
+                                Изменить
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )

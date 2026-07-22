@@ -204,6 +204,21 @@ export function getLatestScheduleExecution(
   )
 }
 
+export async function runAutomationSchedule(
+  scheduleId: number,
+): Promise<AutomationExecution> {
+  const execution = await authorizedRequest<AutomationExecution>(
+    `/automation/schedules/${scheduleId}/run`,
+    { method: 'POST' },
+  )
+
+  if (!execution) {
+    throw new Error('Не удалось запустить регламент')
+  }
+
+  return execution
+}
+
 export async function updateAutomationScheduleEnabled(
   scheduleId: number,
   isEnabled: boolean,

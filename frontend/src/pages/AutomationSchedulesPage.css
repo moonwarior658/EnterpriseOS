@@ -458,6 +458,17 @@
   cursor: pointer;
 }
 
+.automation-row-action-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.automation-run-action {
+  color: #191a1d;
+}
+
 .automation-row-actions:disabled {
   cursor: not-allowed;
   opacity: 0.45;

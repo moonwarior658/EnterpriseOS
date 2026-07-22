@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.automation import (
     AutomationExecution,
+    AutomationSchedule,
     ExecutionStatus,
     OutboxEvent,
     OutboxStatus,
@@ -14,6 +15,14 @@ from app.models.automation import (
 
 
 AUTOMATION_COMMAND_EVENT_TYPE = "automation.command.requested"
+
+
+class AutomationScheduleNotFoundError(LookupError):
+    pass
+
+
+class DisabledAutomationScheduleError(ValueError):
+    pass
 
 
 def create_automation_execution(
@@ -63,5 +72,42 @@ def create_automation_execution(
     with transaction:
         session.add_all([execution, outbox_event])
         session.flush()
+
+    return execution
+
+
+def dispatch_schedule_now(
+    session: Session,
+    schedule_id: int,
+) -> AutomationExecution:
+    try:
+        if not session.in_transaction():
+            session.begin()
+
+        schedule = session.get(AutomationSchedule, schedule_id)
+
+        if schedule is None:
+            raise AutomationScheduleNotFoundError
+
+        if not schedule.is_enabled:
+            raise DisabledAutomationScheduleError
+
+        scope_type = getattr(schedule.scope_type, "value", schedule.scope_type)
+        execution = create_automation_execution(
+            session,
+            automation_type=schedule.automation_type,
+            tenant_id=schedule.tenant_id,
+            scope_type=scope_type,
+            scope_id=schedule.scope_id,
+            recipients=schedule.recipients,
+            payload=schedule.payload,
+            contract_version=schedule.contract_version,
+            schedule_id=schedule.id,
+        )
+        session.refresh(execution)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     return execution
