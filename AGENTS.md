@@ -95,3 +95,102 @@ safe, no unrelated changes are included, and the final report clearly lists
 files, decisions, validation results, and remaining risks. Prefer a working,
 tested result over extra documents, speculative abstractions, or refactoring
 outside the requested scope.
+
+## Codex execution rules
+
+These rules apply to every Codex task in this repository unless the user explicitly overrides them.
+
+### Scope
+
+- Work only on the explicitly requested task.
+- Do not expand the task into adjacent features, refactoring, design polishing, documentation updates, or technical debt cleanup unless requested.
+- Prefer the smallest coherent implementation that fits the existing architecture.
+- Reuse existing services, schemas, components, utilities, and patterns instead of duplicating logic.
+- Inspect only the files relevant to the requested task and their direct dependencies.
+- Do not read the full roadmap for routine implementation tasks.
+- Read the roadmap only when:
+  - the task changes project scope;
+  - the task updates completion status;
+  - the user explicitly requests roadmap work.
+
+### Architecture
+
+- EnterpriseOS is the governing core and the single source of truth.
+- Business logic, validation, calculations, permissions, and state transitions must remain inside EnterpriseOS.
+- n8n is a hidden execution orchestrator only.
+- Preserve the `EnterpriseOS -> AutomationProvider -> n8n` boundary.
+- Do not give n8n direct access to the EnterpriseOS PostgreSQL database.
+- Do not create a separate n8n workflow for every user-created schedule unless explicitly required.
+- Reuse the existing transactional outbox and dispatch flow for automation execution.
+- Do not duplicate execution, outbox, retry, callback, or scheduling logic.
+
+### Safety and repository changes
+
+- Do not modify `.env`, secrets, credentials, production data, Docker volumes, or infrastructure access settings.
+- Do not expose secrets, tokens, passwords, webhook credentials, internal payloads, or stack traces.
+- Do not delete or reset databases, volumes, migrations, user data, or production configuration.
+- Never run destructive commands such as `git reset --hard`, `git clean -fd`, `docker compose down -v`, or equivalent unless the user explicitly requests them.
+- Do not modify project documents, roadmap files, ADRs, Blueprint, Project Charter, or `AGENTS.md` unless the task explicitly requires it.
+- Do not commit, push, merge, rebase, create pull requests, or change branches unless explicitly instructed.
+- Preserve the existing `Smoke test` / `smoke_test` technical artifact unless the task explicitly targets it.
+
+### Frontend
+
+- Follow the existing EnterpriseOS visual system and component patterns.
+- Prioritize working functionality over general design polishing.
+- Do not introduce a new UI library or dependency when the task can be completed with the existing stack.
+- Do not expose technical automation internals to ordinary users or administrators.
+- Translate expected backend errors into safe and understandable Russian messages.
+- Do not show stack traces, webhook URLs, provider internals, raw payloads, or execution identifiers in normal user-facing screens.
+- Keep API-derived values, such as `next_run_at`, authoritative on the backend.
+- Preserve keyboard navigation, loading states, disabled states, and protection from duplicate form submission.
+- Do not fix the two pre-existing ESLint errors in `frontend/src/contexts/AuthContext.tsx` unless the task explicitly targets them.
+
+### Backend
+
+- Use existing schemas and contracts whenever possible.
+- Do not change an API contract unless the task requires it.
+- Keep database mutations transactional.
+- Reuse existing service-layer functions instead of implementing business logic directly in API routes.
+- Add database migrations only when the data model genuinely changes.
+- Preserve callback idempotency and terminal execution-state protection.
+- Return safe, explicit HTTP errors without leaking implementation details.
+
+### Testing and verification
+
+During implementation, run only the tests directly related to the changed functionality.
+
+Before reporting completion, run:
+
+- relevant backend tests;
+- relevant frontend tests;
+- frontend production build when frontend code changed;
+- ESLint for changed frontend files;
+- `git diff --check`.
+
+Run the full backend test suite only when:
+
+- shared automation infrastructure changed;
+- database models or migrations changed;
+- dispatch, outbox, worker, callback, authentication, or permissions changed;
+- the user explicitly requests a full test run;
+- the task is being prepared for deployment or stage completion.
+
+Do not repeatedly run the same expensive test suite when no relevant code changed.
+
+### Final report
+
+Keep the final report compact and include:
+
+1. What was implemented.
+2. Changed files.
+3. API or database changes, if any.
+4. Tests and checks executed with results.
+5. `git status`.
+6. Known limitations or deferred work.
+
+Do not repeat the full task description in the report.
+Do not include large diffs unless requested.
+Clearly state when commit and push were not performed.
+
+Read `docs/CODEX_CONTEXT.md` before routine implementation tasks.
