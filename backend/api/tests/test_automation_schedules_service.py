@@ -65,7 +65,7 @@ def make_create_payload(
 ) -> AutomationScheduleCreate:
     return AutomationScheduleCreate(
         name="  Daily report  ",
-        automation_type="  daily_report  ",
+        automation_type="  smoke_test  ",
         scope_type="department",
         scope_id="  department-1  ",
         schedule_config=(
@@ -631,11 +631,11 @@ class UpdateScheduleTests(unittest.TestCase):
             FakeSession(),
             schedule,
             AutomationScheduleUpdate(
-                automation_type="updated_automation"
+                automation_type="smoke_test"
             ),
         )
 
-        self.assertEqual(schedule.automation_type, "updated_automation")
+        self.assertEqual(schedule.automation_type, "smoke_test")
         self.assertEqual(schedule.name, "Original name")
 
     def test_updates_schedule_config(self) -> None:
@@ -825,14 +825,14 @@ class UpdateScheduleTests(unittest.TestCase):
             schedule,
             AutomationScheduleUpdate(
                 name="Updated name",
-                automation_type="updated_automation",
+                automation_type="smoke_test",
                 timezone="Asia/Yekaterinburg",
                 is_enabled=True,
             ),
         )
 
         self.assertEqual(schedule.name, "Updated name")
-        self.assertEqual(schedule.automation_type, "updated_automation")
+        self.assertEqual(schedule.automation_type, "smoke_test")
         self.assertEqual(schedule.timezone, "Asia/Yekaterinburg")
         self.assertTrue(schedule.is_enabled)
 

@@ -1,9 +1,15 @@
 import unittest
+from unittest.mock import patch
 
+from app.automation.catalog import (
+    AUTOMATION_TYPES,
+    AutomationTypeDefinition,
+)
 from app.automation.dispatch import (
     AUTOMATION_COMMAND_EVENT_TYPE,
     AutomationScheduleNotFoundError,
     DisabledAutomationScheduleError,
+    ManualRunNotSupportedError,
     create_automation_execution,
     dispatch_schedule_now,
 )
@@ -136,7 +142,7 @@ class FakeSession:
 def make_schedule(*, is_enabled: bool = True) -> AutomationSchedule:
     return AutomationSchedule(
         id=42,
-        automation_type="daily_sales_report",
+        automation_type="smoke_test",
         contract_version="1.0",
         tenant_id="tenant-42",
         scope_type="department",
@@ -329,6 +335,30 @@ class ManualScheduleDispatchTests(unittest.TestCase):
 
         with self.assertRaises(DisabledAutomationScheduleError):
             dispatch_schedule_now(session, 42, actor_user_id=7)
+
+        self.assertEqual(session.committed, [])
+        self.assertEqual(session.rollback_count, 1)
+
+    def test_type_without_manual_run_support_is_rejected(self) -> None:
+        schedule = make_schedule()
+        schedule.automation_type = "manual_disabled_fixture"
+        definition = AutomationTypeDefinition(
+            key="manual_disabled_fixture",
+            display_name="Manual disabled fixture",
+            description="Test-only manual run fixture",
+            category="technical",
+            is_system=True,
+            is_available=True,
+            supports_manual_run=False,
+        )
+        session = FakeSession(schedule=schedule)
+
+        with patch(
+            "app.automation.catalog.AUTOMATION_TYPES",
+            AUTOMATION_TYPES + (definition,),
+        ):
+            with self.assertRaises(ManualRunNotSupportedError):
+                dispatch_schedule_now(session, 42, actor_user_id=7)
 
         self.assertEqual(session.committed, [])
         self.assertEqual(session.rollback_count, 1)

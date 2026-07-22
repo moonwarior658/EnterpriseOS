@@ -14,9 +14,11 @@ from app.automation.audit import (
     list_schedule_audit_events,
     safe_schedule_audit_metadata,
 )
+from app.automation.catalog import list_available_automation_types
 from app.automation.dispatch import (
     AutomationScheduleNotFoundError,
     DisabledAutomationScheduleError,
+    ManualRunNotSupportedError,
     dispatch_schedule_now,
 )
 from app.automation.diagnostics import build_diagnostics_snapshot
@@ -60,6 +62,7 @@ from app.schemas.automation import (
     AutomationScheduleRead,
     AutomationScheduleUpdate,
     AutomationDiagnosticsSnapshot,
+    AutomationTypeRead,
 )
 
 
@@ -72,6 +75,23 @@ TERMINAL_STATUSES = {
     ExecutionStatus.TIMED_OUT,
     ExecutionStatus.CANCELLED,
 }
+
+
+@router.get("/types", response_model=list[AutomationTypeRead])
+def read_automation_types(
+    _: Annotated[User, Depends(get_current_admin)],
+) -> list[AutomationTypeRead]:
+    return [
+        AutomationTypeRead(
+            key=item.key,
+            display_name=item.display_name,
+            description=item.description,
+            category=item.category,
+            is_system=item.is_system,
+            supports_manual_run=item.supports_manual_run,
+        )
+        for item in list_available_automation_types()
+    ]
 
 
 @router.get(
@@ -223,6 +243,11 @@ def run_automation_schedule(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Disabled automation schedule cannot be started",
+        ) from error
+    except ManualRunNotSupportedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Automation type does not support manual run",
         ) from error
     except Exception as error:
         raise HTTPException(

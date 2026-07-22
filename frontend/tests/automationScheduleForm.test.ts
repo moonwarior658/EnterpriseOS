@@ -8,6 +8,7 @@ import type {
 import {
   createSubmissionGuard,
   DEFAULT_SCHEDULE_FORM_VALUES,
+  scheduleToFormValues,
   submitScheduleForm,
   type ScheduleFormApi,
   type ScheduleFormValues,
@@ -16,7 +17,7 @@ import {
 const SCHEDULE: AutomationSchedule = {
   id: 42,
   name: 'Ежедневный отчёт',
-  automation_type: 'daily_report',
+  automation_type: 'smoke_test',
   contract_version: '1.0',
   tenant_id: 'eclair',
   scope_type: 'company',
@@ -35,7 +36,7 @@ const SCHEDULE: AutomationSchedule = {
 const VALID_VALUES: ScheduleFormValues = {
   ...DEFAULT_SCHEDULE_FORM_VALUES,
   name: 'Ежедневный отчёт',
-  automationType: 'daily_report',
+  automationType: 'smoke_test',
   isEnabled: true,
 }
 
@@ -58,12 +59,13 @@ test('успешно создаёт регламент с поддерживае
     VALID_VALUES,
     api,
     createSubmissionGuard(),
+    new Set(['smoke_test']),
   )
 
   assert.equal(result.status, 'success')
   assert.deepEqual(received, {
     name: 'Ежедневный отчёт',
-    automation_type: 'daily_report',
+    automation_type: 'smoke_test',
     scope_type: 'company',
     scope_id: null,
     schedule_config: { type: 'daily', time: '09:00' },
@@ -117,6 +119,7 @@ test('успешно редактирует регламент через PATCH-
     { ...VALID_VALUES, name: '  Обновлённый отчёт  ' },
     api,
     createSubmissionGuard(),
+    new Set(['smoke_test']),
   )
 
   assert.equal(result.status, 'success')
@@ -124,6 +127,40 @@ test('успешно редактирует регламент через PATCH-
   assert.equal(received?.name, 'Обновлённый отчёт')
   assert.equal('payload' in (received ?? {}), false)
   assert.equal('recipients' in (received ?? {}), false)
+})
+
+test('edit сохраняет выбранный key типа автоматизации', () => {
+  const values = scheduleToFormValues(SCHEDULE)
+
+  assert.equal(values.automationType, 'smoke_test')
+})
+
+test('не отправляет неизвестный legacy key вместо каталожного типа', async () => {
+  let calls = 0
+  const api: ScheduleFormApi = {
+    create: unusedApiMethod,
+    async update() {
+      calls += 1
+      return SCHEDULE
+    },
+  }
+
+  const result = await submitScheduleForm(
+    { type: 'edit', scheduleId: 42 },
+    { ...VALID_VALUES, automationType: 'legacy_unknown' },
+    api,
+    createSubmissionGuard(),
+    new Set(['smoke_test']),
+  )
+
+  assert.equal(result.status, 'validation')
+  assert.equal(calls, 0)
+  assert.equal(
+    result.status === 'validation'
+      ? result.errors.automationType
+      : undefined,
+    'Выберите поддерживаемый тип автоматизации',
+  )
 })
 
 test('переводит backend-ошибку без показа технического сообщения', async () => {

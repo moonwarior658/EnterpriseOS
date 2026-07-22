@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.automation.catalog import require_available_automation_type
+
 
 AUTOMATION_CONTRACT_VERSION = "1.0"
 ContractVersion = Literal["1.0"]
@@ -147,7 +149,11 @@ class AutomationScheduleBase(BaseModel):
 
 
 class AutomationScheduleCreate(AutomationScheduleBase):
-    pass
+    @field_validator("automation_type")
+    @classmethod
+    def validate_automation_type(cls, value: str) -> str:
+        require_available_automation_type(value)
+        return value
 
 
 class AutomationScheduleUpdate(BaseModel):
@@ -208,6 +214,13 @@ class AutomationScheduleUpdate(BaseModel):
 
         return strip_non_empty_string(value)
 
+    @field_validator("automation_type")
+    @classmethod
+    def validate_automation_type(cls, value: str | None) -> str | None:
+        if value is not None:
+            require_available_automation_type(value)
+        return value
+
     @field_validator("scope_id", mode="before")
     @classmethod
     def strip_present_scope_id(cls, value: Any) -> Any:
@@ -244,6 +257,15 @@ class AutomationCallbackStatus(StrEnum):
     FAILED = "failed"
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
+
+
+class AutomationTypeRead(BaseModel):
+    key: str
+    display_name: str
+    description: str
+    category: str
+    is_system: bool
+    supports_manual_run: bool
 
 
 class AutomationScheduleRead(AutomationScheduleBase):

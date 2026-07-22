@@ -42,7 +42,7 @@ NOW = datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc)
 def create_payload() -> AutomationScheduleCreate:
     return AutomationScheduleCreate(
         name="Daily report",
-        automation_type="daily_report",
+        automation_type="smoke_test",
         scope_type="company",
         scope_id=None,
         schedule_config={"type": "daily", "time": "08:30"},

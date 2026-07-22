@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.automation.audit import add_schedule_audit_event
+from app.automation.catalog import require_available_automation_type
 from app.models.automation import (
     AutomationExecution,
     AutomationSchedule,
@@ -24,6 +25,10 @@ class AutomationScheduleNotFoundError(LookupError):
 
 
 class DisabledAutomationScheduleError(ValueError):
+    pass
+
+
+class ManualRunNotSupportedError(ValueError):
     pass
 
 
@@ -96,10 +101,20 @@ def dispatch_schedule_now(
         if not schedule.is_enabled:
             raise DisabledAutomationScheduleError
 
+        try:
+            automation_type = require_available_automation_type(
+                schedule.automation_type
+            )
+        except ValueError as error:
+            raise ManualRunNotSupportedError from error
+
+        if not automation_type.supports_manual_run:
+            raise ManualRunNotSupportedError
+
         scope_type = getattr(schedule.scope_type, "value", schedule.scope_type)
         execution = create_automation_execution(
             session,
-            automation_type=schedule.automation_type,
+            automation_type=automation_type.key,
             tenant_id=schedule.tenant_id,
             scope_type=scope_type,
             scope_id=schedule.scope_id,

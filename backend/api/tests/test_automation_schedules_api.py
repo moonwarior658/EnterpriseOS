@@ -16,6 +16,7 @@ from app.api.dependencies import get_current_admin
 from app.automation.dispatch import (
     AutomationScheduleNotFoundError,
     DisabledAutomationScheduleError,
+    ManualRunNotSupportedError,
 )
 from app.automation.schedules import InvalidScheduleScopeError
 from app.core.config import settings
@@ -103,7 +104,7 @@ def make_execution(schedule_id: int = 42) -> AutomationExecution:
 def valid_create_body() -> dict[str, object]:
     return {
         "name": "Daily report",
-        "automation_type": "daily_report",
+        "automation_type": "smoke_test",
         "scope_type": "company",
         "scope_id": None,
         "schedule_config": {"type": "daily", "time": "08:30"},
@@ -192,6 +193,11 @@ class AutomationSchedulesApiTestCase(unittest.TestCase):
 
 
 class AutomationScheduleAuthorizationTests(AutomationSchedulesApiTestCase):
+    def test_types_without_jwt_returns_401(self) -> None:
+        response = self.client.get("/automation/types")
+
+        self.assertEqual(response.status_code, 401)
+
     def test_get_list_without_jwt_returns_401(self) -> None:
         response = self.client.get("/automation/schedules")
 
@@ -239,6 +245,14 @@ class AutomationScheduleAuthorizationTests(AutomationSchedulesApiTestCase):
 
         self.assertEqual(response.status_code, 403)
         service.assert_not_called()
+
+    def test_types_active_non_admin_returns_403(self) -> None:
+        response = self.client.get(
+            "/automation/types",
+            headers=self.auth_headers(self.employee),
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_admin_gets_access(self) -> None:
         with patch(
@@ -321,6 +335,34 @@ class AutomationScheduleListApiTests(AutomationSchedulesApiTestCase):
             self.client.get("/automation/schedules")
 
         service.assert_called_once_with(self.session)
+
+
+class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.authorize_as_admin()
+
+    def test_admin_receives_safe_available_catalog(self) -> None:
+        response = self.client.get("/automation/types")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["key"] for item in response.json()],
+            ["smoke_test"],
+        )
+        self.assertEqual(
+            response.json()[0]["display_name"],
+            "Проверка Automation Core",
+        )
+        forbidden_fields = {
+            "is_available",
+            "payload",
+            "handler",
+            "workflow_id",
+            "webhook_url",
+            "provider_config",
+        }
+        self.assertTrue(forbidden_fields.isdisjoint(response.json()[0]))
 
 
 class AutomationScheduleCreateApiTests(AutomationSchedulesApiTestCase):
@@ -413,6 +455,17 @@ class AutomationScheduleCreateApiTests(AutomationSchedulesApiTestCase):
             )
 
         self.assertEqual(response.status_code, 422)
+        service.assert_not_called()
+
+    def test_unknown_automation_type_returns_422(self) -> None:
+        body = valid_create_body()
+        body["automation_type"] = "unknown_type"
+
+        with patch("app.api.routes.automation.create_schedule") as service:
+            response = self.client.post("/automation/schedules", json=body)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertNotIn("catalog", response.text.lower())
         service.assert_not_called()
 
 
@@ -595,6 +648,18 @@ class AutomationScheduleUpdateApiTests(AutomationSchedulesApiTestCase):
                 self.assertEqual(response.status_code, 422)
                 get_service.assert_not_called()
 
+    def test_unknown_automation_type_returns_422(self) -> None:
+        with patch(
+            "app.api.routes.automation.get_schedule"
+        ) as get_service:
+            response = self.client.patch(
+                "/automation/schedules/42",
+                json={"automation_type": "unknown_type"},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        get_service.assert_not_called()
+
 
 class AutomationScheduleDeleteApiTests(AutomationSchedulesApiTestCase):
     def setUp(self) -> None:
@@ -711,6 +776,19 @@ class AutomationScheduleManualRunApiTests(AutomationSchedulesApiTestCase):
         )
         dispatch.assert_called_once_with(
             self.session, 42, actor_user_id=self.admin.id
+        )
+
+    def test_unsupported_manual_run_returns_422(self) -> None:
+        with patch(
+            "app.api.routes.automation.dispatch_schedule_now",
+            side_effect=ManualRunNotSupportedError,
+        ):
+            response = self.client.post("/automation/schedules/42/run")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Automation type does not support manual run"},
         )
 
     def test_dispatch_failure_returns_safe_error(self) -> None:

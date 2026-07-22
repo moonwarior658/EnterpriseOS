@@ -85,6 +85,7 @@ export function scheduleToFormValues(
 
 export function validateScheduleForm(
   values: ScheduleFormValues,
+  availableAutomationTypes?: ReadonlySet<string>,
 ): ScheduleFormErrors {
   const errors: ScheduleFormErrors = {}
   const name = values.name.trim()
@@ -102,6 +103,11 @@ export function validateScheduleForm(
     errors.automationType = 'Укажите тип автоматизации'
   } else if (automationType.length > 100) {
     errors.automationType = 'Тип должен быть не длиннее 100 символов'
+  } else if (
+    availableAutomationTypes &&
+    !availableAutomationTypes.has(automationType)
+  ) {
+    errors.automationType = 'Выберите поддерживаемый тип автоматизации'
   }
 
   if (values.scopeType !== 'company' && !scopeId) {
@@ -232,6 +238,10 @@ export function translateScheduleApiError(error: unknown): string {
     return 'Регламент не найден. Возможно, он уже был удалён'
   }
 
+  if (/unsupported automation type/i.test(message)) {
+    return 'Выберите поддерживаемый тип автоматизации'
+  }
+
   if (/сессия не найдена/i.test(message)) {
     return 'Сессия завершена. Войдите в систему снова'
   }
@@ -244,8 +254,9 @@ export async function submitScheduleForm(
   values: ScheduleFormValues,
   api: ScheduleFormApi,
   guard: SubmissionGuard,
+  availableAutomationTypes?: ReadonlySet<string>,
 ): Promise<ScheduleFormSubmitResult> {
-  const errors = validateScheduleForm(values)
+  const errors = validateScheduleForm(values, availableAutomationTypes)
 
   if (Object.keys(errors).length > 0) {
     return { status: 'validation', errors }

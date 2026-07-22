@@ -56,6 +56,15 @@ export type AutomationScheduleUpdateInput = Partial<
   AutomationScheduleCreateInput
 >
 
+export type AutomationType = {
+  key: string
+  display_name: string
+  description: string
+  category: string
+  is_system: boolean
+  supports_manual_run: boolean
+}
+
 export type AutomationExecutionStatus =
   | 'pending'
   | 'dispatching'
@@ -282,6 +291,14 @@ export async function getAutomationSchedules(): Promise<
   )
 
   return schedules ?? []
+}
+
+export async function getAutomationTypes(): Promise<AutomationType[]> {
+  const types = await authorizedRequest<AutomationType[]>(
+    '/automation/types',
+  )
+
+  return types ?? []
 }
 
 export async function getAutomationDiagnostics(): Promise<AutomationDiagnostics> {

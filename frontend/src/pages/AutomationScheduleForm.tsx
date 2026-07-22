@@ -10,6 +10,7 @@ import {
   updateAutomationSchedule,
   type AutomationSchedule,
   type AutomationScopeType,
+  type AutomationType,
 } from '../services/automation'
 import {
   createSubmissionGuard,
@@ -19,6 +20,7 @@ import {
   type ScheduleFormErrors,
   type ScheduleFormValues,
 } from './automationScheduleFormLogic'
+import { automationTypeOptions } from './automationTypeCatalogLogic'
 
 const WEEKDAYS = [
   { value: 0, label: 'Пн' },
@@ -42,7 +44,9 @@ const SCOPE_OPTIONS: Array<{
 
 type AutomationScheduleFormProps = {
   schedule: AutomationSchedule | null
-  automationTypes: string[]
+  automationTypes: AutomationType[]
+  automationTypesLoading: boolean
+  automationTypesError: string
   onCancel: () => void
   onSaved: (schedule: AutomationSchedule, isCreated: boolean) => void
 }
@@ -50,6 +54,8 @@ type AutomationScheduleFormProps = {
 function AutomationScheduleForm({
   schedule,
   automationTypes,
+  automationTypesLoading,
+  automationTypesError,
   onCancel,
   onSaved,
 }: AutomationScheduleFormProps) {
@@ -71,6 +77,21 @@ function AutomationScheduleForm({
   const guardRef = useRef(createSubmissionGuard())
   const nameInputRef = useRef<HTMLInputElement>(null)
   const isDirty = JSON.stringify(values) !== initialSnapshot
+  const typeOptions = automationTypeOptions(
+    automationTypes,
+    schedule?.automation_type,
+  )
+  const availableTypeKeys = useMemo(
+    () => new Set(automationTypes.map((item) => item.key)),
+    [automationTypes],
+  )
+  const selectedType = automationTypes.find(
+    (item) => item.key === values.automationType,
+  )
+  const catalogUnavailable =
+    automationTypesLoading ||
+    Boolean(automationTypesError) ||
+    automationTypes.length === 0
 
   useEffect(() => {
     nameInputRef.current?.focus()
@@ -152,6 +173,7 @@ function AutomationScheduleForm({
         update: updateAutomationSchedule,
       },
       guardRef.current,
+      availableTypeKeys,
     )
 
     if (result.status === 'success') {
@@ -223,24 +245,32 @@ function AutomationScheduleForm({
 
         <label className="automation-form-field automation-form-field-wide">
           <span>Тип автоматизации</span>
-          <input
+          <select
             value={values.automationType}
-            maxLength={100}
-            list="automation-type-options"
+            disabled={automationTypesLoading || Boolean(automationTypesError)}
             aria-invalid={Boolean(errors.automationType)}
             aria-describedby={
               errors.automationType ? 'automation-type-error' : undefined
             }
-            placeholder="Выберите существующий или укажите поддерживаемый тип"
             onChange={(event) =>
               updateValue('automationType', event.target.value)
             }
-          />
-          <datalist id="automation-type-options">
-            {automationTypes.map((automationType) => (
-              <option key={automationType} value={automationType} />
+          >
+            <option value="">
+              {automationTypesLoading
+                ? 'Загружаем типы…'
+                : 'Выберите тип автоматизации'}
+            </option>
+            {typeOptions.map((automationType) => (
+              <option
+                key={automationType.key}
+                value={automationType.key}
+                disabled={automationType.isLegacy}
+              >
+                {automationType.displayName}
+              </option>
             ))}
-          </datalist>
+          </select>
           {errors.automationType ? (
             <small
               id="automation-type-error"
@@ -248,8 +278,18 @@ function AutomationScheduleForm({
             >
               {errors.automationType}
             </small>
+          ) : automationTypesError ? (
+            <small className="automation-field-error">
+              {automationTypesError}
+            </small>
+          ) : !automationTypesLoading && automationTypes.length === 0 ? (
+            <small className="automation-field-error">
+              Доступные типы автоматизаций не настроены
+            </small>
+          ) : selectedType ? (
+            <small>{selectedType.description}</small>
           ) : (
-            <small>Тип должен поддерживаться подключённой автоматизацией.</small>
+            <small>Выберите поддерживаемый тип из каталога.</small>
           )}
         </label>
 
@@ -432,7 +472,7 @@ function AutomationScheduleForm({
         <button
           className="primary-action"
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || catalogUnavailable}
         >
           {isSubmitting
             ? 'Сохраняем…'

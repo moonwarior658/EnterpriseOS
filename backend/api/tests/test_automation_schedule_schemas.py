@@ -17,7 +17,7 @@ from app.schemas.automation import (
 def valid_create_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "name": "Daily report",
-        "automation_type": "daily_report",
+        "automation_type": "smoke_test",
         "scope_type": "company",
         "scope_id": None,
         "schedule_config": {"type": "daily", "time": "08:30"},
@@ -78,10 +78,10 @@ class AutomationScheduleCreateTests(unittest.TestCase):
 
     def test_strips_automation_type(self) -> None:
         schedule = AutomationScheduleCreate.model_validate(
-            valid_create_payload(automation_type="  daily_report  ")
+            valid_create_payload(automation_type="  smoke_test  ")
         )
 
-        self.assertEqual(schedule.automation_type, "daily_report")
+        self.assertEqual(schedule.automation_type, "smoke_test")
 
     def test_strips_scope_id(self) -> None:
         schedule = AutomationScheduleCreate.model_validate(

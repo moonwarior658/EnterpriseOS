@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getAutomationSchedules,
+  getAutomationTypes,
   getScheduleAudit,
   getLatestScheduleExecutions,
   getScheduleExecutionHistory,
@@ -12,6 +13,7 @@ import {
   type AutomationSchedule,
   type AutomationScheduleAuditPage,
   type AutomationScopeType,
+  type AutomationType,
   type ScheduleConfig,
 } from '../services/automation'
 import AutomationScheduleForm from './AutomationScheduleForm'
@@ -35,6 +37,11 @@ import {
   auditEventLabel,
   loadScheduleAudit,
 } from './automationScheduleAuditLogic'
+import {
+  automationTypeDisplayName,
+  loadAutomationTypeCatalog,
+  matchesAutomationType,
+} from './automationTypeCatalogLogic'
 import './AutomationSchedulesPage.css'
 
 const PAGE_SIZE = 8
@@ -140,6 +147,9 @@ function AutomationSchedulesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [latestLoadFailed, setLatestLoadFailed] = useState(false)
+  const [automationTypes, setAutomationTypes] = useState<AutomationType[]>([])
+  const [automationTypesLoading, setAutomationTypesLoading] = useState(true)
+  const [automationTypesError, setAutomationTypesError] = useState('')
   const [error, setError] = useState('')
   const [updatingIds, setUpdatingIds] = useState<Set<number>>(new Set())
   const [runningIds, setRunningIds] = useState<Set<number>>(new Set())
@@ -220,6 +230,29 @@ function AutomationSchedulesPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadTypes() {
+      const result = await loadAutomationTypeCatalog(getAutomationTypes)
+      if (!isMounted) {
+        return
+      }
+
+      if (result.status === 'success') {
+        setAutomationTypes(result.types)
+      } else {
+        setAutomationTypesError(result.message)
+      }
+      setAutomationTypesLoading(false)
+    }
+
+    void loadTypes()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const scopeOptions = useMemo(() => {
     const options = new Map<string, string>()
 
@@ -235,13 +268,6 @@ function AutomationSchedulesPage() {
     )
   }, [schedules])
 
-  const typeOptions = useMemo(
-    () =>
-      [...new Set(schedules.map((schedule) => schedule.automation_type))]
-        .sort((left, right) => left.localeCompare(right, 'ru')),
-    [schedules],
-  )
-
   const filteredSchedules = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase('ru')
 
@@ -252,8 +278,7 @@ function AutomationSchedulesPage() {
         .includes(normalizedSearch)
       const matchesScope =
         scopeFilter === 'all' || getScopeKey(schedule) === scopeFilter
-      const matchesType =
-        typeFilter === 'all' || schedule.automation_type === typeFilter
+      const matchesType = matchesAutomationType(schedule, typeFilter)
 
       let matchesState = true
 
@@ -578,7 +603,9 @@ function AutomationSchedulesPage() {
             <AutomationScheduleForm
               key={formSchedule?.id ?? 'create'}
               schedule={formSchedule}
-              automationTypes={typeOptions}
+              automationTypes={automationTypes}
+              automationTypesLoading={automationTypesLoading}
+              automationTypesError={automationTypesError}
               onCancel={closeForm}
               onSaved={handleScheduleSaved}
             />
@@ -637,15 +664,35 @@ function AutomationSchedulesPage() {
               <span>Тип автоматизации</span>
               <select
                 value={typeFilter}
+                disabled={
+                  automationTypesLoading || Boolean(automationTypesError)
+                }
                 onChange={(event) => {
                   setTypeFilter(event.target.value)
                   resetPage()
                 }}
               >
                 <option value="all">Все</option>
-                {typeOptions.map((automationType) => (
-                  <option key={automationType} value={automationType}>
-                    {automationType}
+                {automationTypesLoading && (
+                  <option value="" disabled>
+                    Загружаем типы…
+                  </option>
+                )}
+                {automationTypesError && (
+                  <option value="" disabled>
+                    Типы недоступны
+                  </option>
+                )}
+                {!automationTypesLoading &&
+                  !automationTypesError &&
+                  automationTypes.length === 0 && (
+                    <option value="" disabled>
+                      Нет доступных типов
+                    </option>
+                  )}
+                {automationTypes.map((automationType) => (
+                  <option key={automationType.key} value={automationType.key}>
+                    {automationType.display_name}
                   </option>
                 ))}
               </select>
@@ -732,7 +779,10 @@ function AutomationSchedulesPage() {
                               className="automation-type-badge"
                               title={schedule.automation_type}
                             >
-                              {schedule.automation_type}
+                              {automationTypeDisplayName(
+                                automationTypes,
+                                schedule.automation_type,
+                              )}
                             </span>
                           </td>
                           <td>

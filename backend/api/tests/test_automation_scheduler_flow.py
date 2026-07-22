@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.dependencies import get_current_admin
+from app.automation.dispatch import dispatch_schedule_now
 from app.automation.outbox import (
     ClaimedOutboxEvent,
     DeliveryStatus,
@@ -27,10 +28,19 @@ from app.automation.scheduler import run_scheduler_once
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
-from app.models.automation import ExecutionStatus, OutboxStatus
+from app.models.automation import (
+    AutomationExecution,
+    ExecutionStatus,
+    OutboxEvent,
+    OutboxStatus,
+)
 from app.models.user import User
 from app.schemas.automation import AutomationCommand
 from tests.test_automation_scheduler import NOW, Store, make_schedule
+from tests.test_automation_dispatch import (
+    FakeSession as DispatchSession,
+    make_schedule as make_dispatch_schedule,
+)
 
 
 class FlowProvider(AutomationProvider):
@@ -124,6 +134,131 @@ def make_admin() -> User:
 
 
 class AutomationSchedulerFlowTests(unittest.TestCase):
+    def test_manual_smoke_test_to_callback_and_history(self) -> None:
+        schedule = make_dispatch_schedule()
+        schedule.payload = {}
+        schedule.recipients = []
+        dispatch_session = DispatchSession(schedule=schedule)
+
+        execution = dispatch_schedule_now(
+            dispatch_session,
+            schedule.id,
+            actor_user_id=7,
+        )
+        executions = [
+            item
+            for item in dispatch_session.committed
+            if isinstance(item, AutomationExecution)
+        ]
+        events = [
+            item
+            for item in dispatch_session.committed
+            if isinstance(item, OutboxEvent)
+        ]
+
+        self.assertEqual(len(executions), 1)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(execution.automation_type, "smoke_test")
+        self.assertEqual(execution.recipients, [])
+        self.assertEqual(execution.payload, {})
+
+        event = events[0]
+        execution.id = 100
+        execution.attempt_count = 0
+        execution.max_attempts = 3
+        execution.created_at = NOW
+        execution.updated_at = NOW
+        event.id = 200
+        event.attempt_count = 0
+        event.max_attempts = 10
+        provider = FlowProvider()
+        worker = OutboxWorker(
+            store=FlowOutboxStore(event, execution),
+            provider=provider,
+            worker_id="smoke-worker",
+            callback_url="http://testserver/automation/callback",
+            clock=lambda: NOW + timedelta(seconds=1),
+        )
+
+        first_delivery = asyncio.run(worker.process_one())
+        retry_delivery = asyncio.run(worker.process_one())
+
+        self.assertEqual(first_delivery.status, DeliveryStatus.PUBLISHED)
+        self.assertEqual(retry_delivery.status, DeliveryStatus.NO_EVENT)
+        self.assertEqual(len(executions), 1)
+        self.assertEqual(len(provider.commands), 1)
+        command = provider.commands[0]
+        self.assertEqual(command.execution_id, execution.execution_id)
+        self.assertEqual(command.idempotency_key, execution.execution_id)
+        self.assertEqual(command.contract_version, "1.0")
+        self.assertEqual(command.payload, {})
+        serialized_command = command.model_dump(mode="json")
+        self.assertNotIn("recipients", serialized_command)
+        self.assertFalse(
+            {"secret", "token", "credentials"}
+            & set(serialized_command["payload"])
+        )
+
+        callback_session = CallbackSession(execution)
+        previous_token = settings.automation_callback_token
+        settings.automation_callback_token = SecretStr("flow-token")
+        app.dependency_overrides[get_db] = lambda: callback_session
+        client = TestClient(app)
+
+        callback_body = {
+            "contract_version": command.contract_version,
+            "execution_id": str(command.execution_id),
+            "status": "succeeded",
+            "started_at": (NOW + timedelta(seconds=1)).isoformat(),
+            "finished_at": (NOW + timedelta(seconds=2)).isoformat(),
+            "result": {"message": "Automation Core check completed"},
+            "error_code": None,
+            "error_message": None,
+        }
+
+        try:
+            callback = client.post(
+                "/automation/callback",
+                headers={"Authorization": "Bearer flow-token"},
+                json=callback_body,
+            )
+            repeated_callback = client.post(
+                "/automation/callback",
+                headers={"Authorization": "Bearer flow-token"},
+                json=callback_body,
+            )
+
+            self.assertEqual(callback.status_code, 200)
+            self.assertEqual(repeated_callback.status_code, 200)
+            self.assertEqual(execution.status, ExecutionStatus.SUCCEEDED)
+            self.assertEqual(execution.contract_version, "1.0")
+
+            app.dependency_overrides[get_current_admin] = make_admin
+            with (
+                patch(
+                    "app.api.routes.automation.get_schedule",
+                    return_value=schedule,
+                ),
+                patch(
+                    "app.api.routes.automation.list_executions",
+                    return_value=[execution],
+                ),
+                patch(
+                    "app.api.routes.automation.count_executions",
+                    return_value=1,
+                ),
+            ):
+                history = client.get(
+                    f"/automation/schedules/{schedule.id}/executions"
+                )
+
+            self.assertEqual(history.status_code, 200)
+            self.assertEqual(history.json()["total"], 1)
+            self.assertEqual(history.json()["items"][0]["status"], "succeeded")
+        finally:
+            settings.automation_callback_token = previous_token
+            app.dependency_overrides.clear()
+
     def test_schedule_to_callback_and_history(self) -> None:
         schedule = make_schedule(
             42,
