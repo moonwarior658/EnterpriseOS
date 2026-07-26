@@ -9,6 +9,8 @@
       - ../../.env
     depends_on:
       - postgres
+    volumes:
+      - work_request_uploads:/app/uploads/work-requests
     networks:
       - enterpriseos-network
 
@@ -137,6 +139,7 @@
 
 volumes:
   postgres_data:
+  work_request_uploads:
   n8n_postgres_data:
   n8n_data:
   npm_data:

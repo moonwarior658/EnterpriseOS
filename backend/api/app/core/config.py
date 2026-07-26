@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     default_tenant_id: str = "eclair"
     automation_callback_token: SecretStr | None = None
+    work_request_upload_dir: str = "/app/uploads/work-requests"
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

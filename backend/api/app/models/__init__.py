@@ -11,7 +11,11 @@
     ScheduleAuditEventType,
 )
 from app.models.user import User
-from app.models.work_request import WorkRequest
+from app.models.work_request import (
+    WorkRequest,
+    WorkRequestAttachment,
+    WorkRequestComment,
+)
 
 __all__ = [
     "AutomationExecution",
@@ -26,4 +30,6 @@ __all__ = [
     "ScheduleAuditEventType",
     "User",
     "WorkRequest",
+    "WorkRequestAttachment",
+    "WorkRequestComment",
 ]

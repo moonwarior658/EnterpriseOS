@@ -6,7 +6,9 @@ import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import UsersPage from './pages/UsersPage'
+import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
+import WorkRequestListPage from './pages/WorkRequestListPage'
 import './App.css'
 
 function App() {
@@ -15,6 +17,22 @@ function App() {
       <Route
         path="/login"
         element={<LoginPage />}
+      />
+      <Route
+        path="/public/requests/warehouse"
+        element={<WorkRequestFormPage requestType="warehouse" />}
+      />
+      <Route
+        path="/public/requests/repair"
+        element={<WorkRequestFormPage requestType="repair" />}
+      />
+      <Route
+        path="/request/warehouse"
+        element={<Navigate to="/public/requests/warehouse" replace />}
+      />
+      <Route
+        path="/request/repair"
+        element={<Navigate to="/public/requests/repair" replace />}
       />
 
       <Route
@@ -31,12 +49,27 @@ function App() {
 
         <Route
           path="/requests/warehouse/new"
-          element={<WorkRequestFormPage requestType="warehouse" />}
+          element={<Navigate to="/public/requests/warehouse" replace />}
         />
 
         <Route
           path="/requests/repair/new"
-          element={<WorkRequestFormPage requestType="repair" />}
+          element={<Navigate to="/public/requests/repair" replace />}
+        />
+
+        <Route
+          path="/requests/warehouse"
+          element={<WorkRequestListPage requestType="warehouse" />}
+        />
+
+        <Route
+          path="/requests/repair"
+          element={<WorkRequestListPage requestType="repair" />}
+        />
+
+        <Route
+          path="/requests/:requestId"
+          element={<WorkRequestDetailPage />}
         />
 
         <Route

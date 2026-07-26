@@ -85,8 +85,10 @@ function AppLayout() {
             <span>→</span>
           </NavLink>
 
+          <p className="menu-section-label">Создать заявку</p>
+
           <NavLink
-            to="/requests/warehouse/new"
+            to="/public/requests/warehouse"
             onClick={closeMenu}
             className={({ isActive }) =>
               isActive ? 'menu-link menu-link-active' : 'menu-link'
@@ -97,13 +99,37 @@ function AppLayout() {
           </NavLink>
 
           <NavLink
-            to="/requests/repair/new"
+            to="/public/requests/repair"
             onClick={closeMenu}
             className={({ isActive }) =>
               isActive ? 'menu-link menu-link-active' : 'menu-link'
             }
           >
             <span>Заявка на ремонт</span>
+            <span>→</span>
+          </NavLink>
+
+          <p className="menu-section-label">Работа с заявками</p>
+
+          <NavLink
+            to="/requests/warehouse"
+            onClick={closeMenu}
+            className={({ isActive }) =>
+              isActive ? 'menu-link menu-link-active' : 'menu-link'
+            }
+          >
+            <span>Заявки на склад</span>
+            <span>→</span>
+          </NavLink>
+
+          <NavLink
+            to="/requests/repair"
+            onClick={closeMenu}
+            className={({ isActive }) =>
+              isActive ? 'menu-link menu-link-active' : 'menu-link'
+            }
+          >
+            <span>Заявки на ремонт</span>
             <span>→</span>
           </NavLink>
 

@@ -1,5 +1,6 @@
 import type {
-  CreateWorkRequestInput,
+  PublicRepairRequestInput,
+  PublicWarehouseRequestInput,
   RepairPriority,
   WarehouseCategory,
   WorkRequest,
@@ -8,15 +9,13 @@ import type {
 } from '../services/requests.ts'
 
 export const DEPARTMENTS = [
-  'Производство',
-  'Кондитерский цех',
-  'Кафе',
   'М15',
-  'М6а',
   'М35',
-  'Снабжение',
-  'Администрация',
-  'Другое',
+  'М6А',
+  'Цех ГХ',
+  'Бар ГХ',
+  'Кухня',
+  'Авто',
 ] as const
 
 export const WAREHOUSE_CATEGORIES: Array<{
@@ -61,17 +60,19 @@ export const REQUEST_STATUSES: Array<{
 
 export type WorkRequestFormValues = {
   department: string
+  authorName: string
   category: string
   priority: string
   description: string
 }
 
 export type WorkRequestFormErrors = Partial<
-  Record<keyof WorkRequestFormValues, string>
+  Record<keyof WorkRequestFormValues | 'photos', string>
 >
 
 export const EMPTY_WORK_REQUEST_FORM: WorkRequestFormValues = {
   department: '',
+  authorName: '',
   category: '',
   priority: '',
   description: '',
@@ -83,10 +84,45 @@ export function createSubmissionGuard(): SubmissionGuard {
   return { active: false }
 }
 
-export async function submitWorkRequest(
+export const MAX_PHOTO_COUNT = 5
+export const MAX_PHOTO_SIZE = 8 * 1024 * 1024
+export const ALLOWED_PHOTO_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const
+
+export function validateRepairPhotos(files: File[]): string | null {
+  if (files.length > MAX_PHOTO_COUNT) {
+    return 'Можно прикрепить не более 5 фотографий'
+  }
+  if (
+    files.some(
+      (file) =>
+        !ALLOWED_PHOTO_TYPES.includes(
+          file.type as (typeof ALLOWED_PHOTO_TYPES)[number],
+        ),
+    )
+  ) {
+    return 'Допустимы только фотографии JPEG, PNG или WebP'
+  }
+  if (files.some((file) => file.size > MAX_PHOTO_SIZE)) {
+    return 'Размер одной фотографии не должен превышать 8 МБ'
+  }
+  return null
+}
+
+export async function submitPublicWorkRequest(
   requestType: WorkRequestType,
   values: WorkRequestFormValues,
-  create: (input: CreateWorkRequestInput) => Promise<WorkRequest>,
+  photos: File[],
+  createWarehouse: (
+    input: PublicWarehouseRequestInput,
+  ) => Promise<WorkRequest>,
+  createRepair: (
+    input: PublicRepairRequestInput,
+    photos: File[],
+  ) => Promise<WorkRequest>,
   guard: SubmissionGuard,
 ): Promise<
   | { status: 'success'; request: WorkRequest }
@@ -100,10 +136,10 @@ export async function submitWorkRequest(
 
   const errors: WorkRequestFormErrors = {}
   const description = values.description.trim()
+  const authorName = values.authorName.trim()
 
-  if (!values.department) {
-    errors.department = 'Выберите подразделение'
-  }
+  if (!values.department) errors.department = 'Выберите подразделение'
+  if (!authorName) errors.authorName = 'Укажите ваше имя'
   if (!values.category) {
     errors.category =
       requestType === 'warehouse'
@@ -119,27 +155,38 @@ export async function submitWorkRequest(
         ? 'Укажите содержание заявки'
         : 'Опишите проблему'
   }
+  if (requestType === 'repair') {
+    const photoError = validateRepairPhotos(photos)
+    if (photoError) errors.photos = photoError
+  }
 
   if (Object.keys(errors).length > 0) {
     return { status: 'validation', errors }
   }
 
-  const input: CreateWorkRequestInput = {
-    request_type: requestType,
-    department: values.department,
-    description,
-  }
-
-  if (requestType === 'warehouse') {
-    input.warehouse_category = values.category as WarehouseCategory
-  } else {
-    input.repair_category = values.category
-    input.priority = values.priority as RepairPriority
-  }
-
   guard.active = true
   try {
-    return { status: 'success', request: await create(input) }
+    const request =
+      requestType === 'warehouse'
+        ? await createWarehouse({
+            request_type: 'warehouse',
+            department: values.department,
+            author_name: authorName,
+            description,
+            warehouse_category: values.category as WarehouseCategory,
+          })
+        : await createRepair(
+            {
+              request_type: 'repair',
+              department: values.department,
+              author_name: authorName,
+              description,
+              repair_category: values.category,
+              priority: values.priority as RepairPriority,
+            },
+            photos,
+          )
+    return { status: 'success', request }
   } catch {
     return {
       status: 'error',
@@ -155,6 +202,10 @@ export function statusLabel(status: WorkRequestStatus): string {
     REQUEST_STATUSES.find((option) => option.value === status)?.label ??
     'Неизвестно'
   )
+}
+
+export function requestTypeLabel(type: WorkRequestType): string {
+  return type === 'warehouse' ? 'Заявка на склад' : 'Заявка на ремонт'
 }
 
 export function warehouseCategoryLabel(
@@ -173,15 +224,39 @@ export function priorityLabel(priority: RepairPriority | null): string {
   )
 }
 
+export function activeRequestCountLabel(count: number): string {
+  if (count === 0) return 'Нет активных заявок'
+  const mod100 = count % 100
+  const mod10 = count % 10
+  if (mod100 >= 11 && mod100 <= 14) {
+    return `${count} активных заявок`
+  }
+  if (mod10 === 1) return `${count} активная заявка`
+  if (mod10 >= 2 && mod10 <= 4) return `${count} активные заявки`
+  return `${count} активных заявок`
+}
+
+export function isActiveRequest(request: WorkRequest): boolean {
+  return request.status === 'new' || request.status === 'in_progress'
+}
+
+export function sortWorkRequests(requests: WorkRequest[]): WorkRequest[] {
+  return [...requests].sort((left, right) => {
+    const activityDifference =
+      Number(isActiveRequest(right)) - Number(isActiveRequest(left))
+    if (activityDifference !== 0) return activityDifference
+    return (
+      new Date(right.created_at).getTime() -
+      new Date(left.created_at).getTime()
+    )
+  })
+}
+
 export function activeRequestsByType(requests: WorkRequest[]): {
   warehouse: WorkRequest[]
   repair: WorkRequest[]
 } {
-  const active = requests.filter(
-    (request) =>
-      request.status === 'new' || request.status === 'in_progress',
-  )
-
+  const active = requests.filter(isActiveRequest)
   return {
     warehouse: active.filter(
       (request) => request.request_type === 'warehouse',
