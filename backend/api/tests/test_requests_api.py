@@ -250,6 +250,17 @@ class WorkRequestsApiTests(unittest.TestCase):
         self.assertEqual(body[0]["created_by_name"], "Администратор")
         self.assertEqual(body[1]["created_by_name"], "Иван")
 
+    def test_list_disables_cache_and_accepts_cache_buster(self) -> None:
+        request_id = self.create_warehouse_request()["id"]
+
+        response = self.client.get("/requests?_ts=123456789")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([item["id"] for item in response.json()], [request_id])
+        self.assertIn("no-store", response.headers["cache-control"])
+        self.assertEqual(response.headers["pragma"], "no-cache")
+        self.assertEqual(response.headers["expires"], "0")
+
     def test_gets_one_request_and_missing_returns_404(self) -> None:
         request_id = self.create_warehouse_request()["id"]
         found = self.client.get(f"/requests/{request_id}")

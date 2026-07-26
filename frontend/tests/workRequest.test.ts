@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   createPublicRepairRequest,
   createPublicWarehouseRequest,
+  getWorkRequests,
   type PublicRepairRequestInput,
   type PublicWarehouseRequestInput,
   type WorkRequest,
@@ -189,6 +190,65 @@ test('склоняет количество активных заявок', () =
 
 test('Dashboard обновляет заявки каждые 10 секунд', () => {
   assert.equal(DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS, 10_000)
+})
+
+test('getWorkRequests запрещает кэш и использует уникальный URL', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  const storage: Storage = {
+    length: 1,
+    clear() {},
+    getItem(key) {
+      return key === 'eos_access_token' ? 'test-token' : null
+    },
+    key() {
+      return null
+    },
+    removeItem() {},
+    setItem() {},
+  }
+
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: storage,
+  })
+  globalThis.fetch = async (input, options = {}) => {
+    calls.push({ url: String(input), options })
+    return new Response('[]', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    await getWorkRequests()
+    await getWorkRequests()
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(
+        globalThis,
+        'sessionStorage',
+        storageDescriptor,
+      )
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+
+  assert.equal(calls.length, 2)
+  assert.match(calls[0].url, /^\/api\/requests\?_ts=\d+$/)
+  assert.match(calls[1].url, /^\/api\/requests\?_ts=\d+$/)
+  assert.notEqual(calls[0].url, calls[1].url)
+  assert.equal(calls[0].options.method, 'GET')
+  assert.equal(calls[0].options.cache, 'no-store')
+  const headers = new Headers(calls[0].options.headers)
+  assert.equal(headers.get('Cache-Control'), 'no-cache')
+  assert.equal(headers.get('Authorization'), 'Bearer test-token')
 })
 
 test('сортирует активные заявки первыми и сохраняет порядок по дате', () => {

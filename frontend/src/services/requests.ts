@@ -73,6 +73,17 @@ export type WorkRequestComment = {
   author_name: string
 }
 
+let lastWorkRequestsCacheBuster = 0
+
+function nextWorkRequestsCacheBuster(): number {
+  const now = Date.now()
+  lastWorkRequestsCacheBuster = Math.max(
+    now,
+    lastWorkRequestsCacheBuster + 1,
+  )
+  return lastWorkRequestsCacheBuster
+}
+
 async function authorizedResponse(
   path: string,
   options: RequestInit = {},
@@ -82,16 +93,18 @@ async function authorizedResponse(
     throw new Error('Сессия не найдена')
   }
 
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json')
+  }
+  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const response = await fetch(`/api${path}`, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      ...(options.body instanceof FormData
-        ? {}
-        : { 'Content-Type': 'application/json' }),
-      ...options.headers,
-    },
+    headers,
   })
   if (!response.ok) {
     throw new Error('Не удалось выполнить запрос')
@@ -149,7 +162,17 @@ export function createPublicRepairRequest(
 }
 
 export function getWorkRequests(): Promise<WorkRequest[]> {
-  return authorizedRequest<WorkRequest[]>('/requests')
+  const cacheBuster = nextWorkRequestsCacheBuster()
+  return authorizedRequest<WorkRequest[]>(
+    `/requests?_ts=${cacheBuster}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache',
+      },
+    },
+  )
 }
 
 export function getWorkRequest(requestId: number): Promise<WorkRequest> {
