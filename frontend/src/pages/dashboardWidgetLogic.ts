@@ -1,0 +1,146 @@
+export type DashboardWidgetSize = '1x1' | '1x2' | '2x2'
+
+export type DashboardWidgetId = 'warehouse-requests' | 'repair-requests'
+
+export type DashboardWidgetConfig = {
+  id: DashboardWidgetId
+  size: DashboardWidgetSize
+  order: number
+  isVisible: boolean
+}
+
+export type DashboardWidgetLayoutItem = {
+  id: string
+  size: DashboardWidgetSize
+  column: number
+  row: number
+  columnSpan: number
+  rowSpan: number
+}
+
+export const DASHBOARD_GRID_MAX_COLUMNS = 9
+export const DASHBOARD_GRID_MAX_ROWS = 9
+export const DASHBOARD_AUTO_FLOW_ROWS = 3
+
+const SIZE_SPANS: Record<
+  DashboardWidgetSize,
+  { columnSpan: number; rowSpan: number }
+> = {
+  '1x1': { columnSpan: 1, rowSpan: 1 },
+  '1x2': { columnSpan: 1, rowSpan: 2 },
+  '2x2': { columnSpan: 2, rowSpan: 2 },
+}
+
+const DASHBOARD_WIDGET_CONFIG = [
+  {
+    id: 'warehouse-requests',
+    size: '1x1',
+    order: 10,
+  },
+  {
+    id: 'repair-requests',
+    size: '1x1',
+    order: 20,
+  },
+] as const satisfies ReadonlyArray<
+  Omit<DashboardWidgetConfig, 'isVisible'>
+>
+
+export function buildDashboardWidgetConfig(
+  warehouseCount: number,
+  repairCount: number,
+): DashboardWidgetConfig[] {
+  const visibility: Record<DashboardWidgetId, boolean> = {
+    'warehouse-requests': warehouseCount > 0,
+    'repair-requests': repairCount > 0,
+  }
+
+  return DASHBOARD_WIDGET_CONFIG.map((widget) => ({
+    ...widget,
+    isVisible: visibility[widget.id],
+  }))
+    .filter((widget) => widget.isVisible)
+    .sort((left, right) => left.order - right.order)
+}
+
+export function dashboardWidgetSpan(
+  size: DashboardWidgetSize,
+): { columnSpan: number; rowSpan: number } {
+  return SIZE_SPANS[size]
+}
+
+export function layoutDashboardWidgets(
+  widgets: ReadonlyArray<{ id: string; size: DashboardWidgetSize }>,
+  rowsPerColumn = DASHBOARD_AUTO_FLOW_ROWS,
+  maxColumns = DASHBOARD_GRID_MAX_COLUMNS,
+  maxRows = DASHBOARD_GRID_MAX_ROWS,
+): DashboardWidgetLayoutItem[] {
+  const occupied = new Set<string>()
+
+  return widgets.map((widget) => {
+    const span = dashboardWidgetSpan(widget.size)
+
+    for (
+      let bandStartRow = 1;
+      bandStartRow <= maxRows;
+      bandStartRow += rowsPerColumn
+    ) {
+      const bandEndRow = Math.min(
+        bandStartRow + rowsPerColumn - 1,
+        maxRows,
+      )
+      for (let column = 1; column <= maxColumns; column += 1) {
+        for (
+          let row = bandStartRow;
+          row <= bandEndRow;
+          row += 1
+        ) {
+          if (
+            row + span.rowSpan - 1 > bandEndRow ||
+            column + span.columnSpan - 1 > maxColumns
+          ) {
+            continue
+          }
+
+          const cells: string[] = []
+          for (
+            let columnOffset = 0;
+            columnOffset < span.columnSpan;
+            columnOffset += 1
+          ) {
+            for (
+              let rowOffset = 0;
+              rowOffset < span.rowSpan;
+              rowOffset += 1
+            ) {
+              cells.push(
+                `${column + columnOffset}:${row + rowOffset}`,
+              )
+            }
+          }
+
+          if (cells.some((cell) => occupied.has(cell))) {
+            continue
+          }
+
+          cells.forEach((cell) => occupied.add(cell))
+          return {
+            id: widget.id,
+            size: widget.size,
+            column,
+            row,
+            ...span,
+          }
+        }
+      }
+    }
+
+    throw new Error('Превышен логический предел Dashboard')
+  })
+}
+
+export function dashboardAnimationMode(
+  prefersReducedMotion: boolean,
+): 'full' | 'reduced' {
+  return prefersReducedMotion ? 'reduced' : 'full'
+}

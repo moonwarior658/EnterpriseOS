@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import DashboardGrid, {
+  type DashboardWidgetDefinition,
+} from '../components/dashboard/DashboardGrid'
+import DashboardMascots from '../components/dashboard/DashboardMascots'
 import { useAuth } from '../contexts/AuthContext'
 import { getApiHealth, type ApiHealth } from '../services/api'
 import {
@@ -7,10 +11,10 @@ import {
   type WorkRequest,
 } from '../services/requests'
 import {
-  activeRequestCountLabel,
   activeRequestsByType,
   DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
 } from './workRequestLogic'
+import { buildDashboardWidgetConfig } from './dashboardWidgetLogic'
 
 type ConnectionState = 'checking' | 'online' | 'offline'
 type RequestsState = 'loading' | 'ready' | 'error'
@@ -92,8 +96,41 @@ function DashboardPage() {
   }, [])
 
   const active = activeRequestsByType(requests)
-  const hasActiveRequests =
-    active.warehouse.length > 0 || active.repair.length > 0
+  const widgetConfig = buildDashboardWidgetConfig(
+    active.warehouse.length,
+    active.repair.length,
+  )
+  const widgetContent = {
+    'warehouse-requests': (
+      <>
+        <p className="eyebrow">СКЛАД</p>
+        <h2>Заявки на склад</h2>
+        <strong>{active.warehouse.length}</strong>
+        <Link className="dashboard-widget-action" to="/requests/warehouse">
+          Открыть
+        </Link>
+      </>
+    ),
+    'repair-requests': (
+      <>
+        <p className="eyebrow">РЕМОНТ</p>
+        <h2>Заявки на ремонт</h2>
+        <strong>{active.repair.length}</strong>
+        <Link className="dashboard-widget-action" to="/requests/repair">
+          Открыть
+        </Link>
+      </>
+    ),
+  }
+  const widgets: DashboardWidgetDefinition[] = widgetConfig.map(
+    (widget) => ({
+      id: widget.id,
+      size: widget.size,
+      order: widget.order,
+      content: widgetContent[widget.id],
+    }),
+  )
+  const hasActiveRequests = widgets.length > 0
 
   return (
     <section className="dashboard-view dashboard-view-active">
@@ -117,29 +154,10 @@ function DashboardPage() {
           </p>
         )}
 
-        <div className="dashboard-summary-grid">
-          <article className="dashboard-summary-card">
-            <p className="eyebrow">СКЛАД</p>
-            <h2>Заявки на склад</h2>
-            <strong>{active.warehouse.length}</strong>
-            <p>{activeRequestCountLabel(active.warehouse.length)}</p>
-            <Link className="primary-action" to="/requests/warehouse">
-              Посмотреть
-            </Link>
-          </article>
-
-          <article className="dashboard-summary-card">
-            <p className="eyebrow">РЕМОНТ</p>
-            <h2>Заявки на ремонт</h2>
-            <strong>{active.repair.length}</strong>
-            <p>{activeRequestCountLabel(active.repair.length)}</p>
-            <Link className="primary-action" to="/requests/repair">
-              Посмотреть
-            </Link>
-          </article>
-        </div>
+        <DashboardGrid widgets={widgets} />
       </div>
 
+      <DashboardMascots />
       <footer className="dashboard-system-state">
         <span
           className={
