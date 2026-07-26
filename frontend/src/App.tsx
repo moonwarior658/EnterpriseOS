@@ -6,6 +6,7 @@ import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import UsersPage from './pages/UsersPage'
+import WorkRequestFormPage from './pages/WorkRequestFormPage'
 import './App.css'
 
 function App() {
@@ -26,6 +27,16 @@ function App() {
         <Route
           path="/dashboard"
           element={<DashboardPage />}
+        />
+
+        <Route
+          path="/requests/warehouse/new"
+          element={<WorkRequestFormPage requestType="warehouse" />}
+        />
+
+        <Route
+          path="/requests/repair/new"
+          element={<WorkRequestFormPage requestType="repair" />}
         />
 
         <Route

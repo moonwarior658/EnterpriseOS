@@ -11,6 +11,7 @@
     ScheduleAuditEventType,
 )
 from app.models.user import User
+from app.models.work_request import WorkRequest
 
 __all__ = [
     "AutomationExecution",
@@ -24,4 +25,5 @@ __all__ = [
     "RuntimeComponent",
     "ScheduleAuditEventType",
     "User",
+    "WorkRequest",
 ]
