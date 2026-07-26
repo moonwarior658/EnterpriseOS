@@ -11,6 +11,7 @@ import {
   activeRequestCountLabel,
   activeRequestsByType,
   createSubmissionGuard,
+  DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
   DEPARTMENTS,
   priorityLabel,
   sortWorkRequests,
@@ -31,7 +32,7 @@ const CREATED: WorkRequest = {
   priority: null,
   created_at: '2026-07-26T10:00:00Z',
   updated_at: '2026-07-26T10:00:00Z',
-  created_by_name: 'Иван',
+  created_by_name: 'Подразделение: М15',
   attachment_count: 0,
   attachments: [],
 }
@@ -42,7 +43,6 @@ test('формирует публичный payload складской заяв�
     'warehouse',
     {
       department: 'М15',
-      authorName: '  Иван  ',
       category: 'products',
       priority: '',
       description: '  Картофель 10 кг  ',
@@ -60,7 +60,6 @@ test('формирует публичный payload складской заяв�
   assert.deepEqual(received, {
     request_type: 'warehouse',
     department: 'М15',
-    author_name: 'Иван',
     description: 'Картофель 10 кг',
     warehouse_category: 'products',
   })
@@ -75,7 +74,6 @@ test('формирует публичный payload ремонта и перед
     'repair',
     {
       department: 'Бар ГХ',
-      authorName: 'Мария',
       category: 'Кофемашина',
       priority: 'urgent',
       description: 'Не включается',
@@ -93,7 +91,6 @@ test('формирует публичный payload ремонта и перед
   assert.deepEqual(received, {
     request_type: 'repair',
     department: 'Бар ГХ',
-    author_name: 'Мария',
     description: 'Не включается',
     repair_category: 'Кофемашина',
     priority: 'urgent',
@@ -107,7 +104,6 @@ test('валидирует обязательные поля публичной 
     'repair',
     {
       department: '',
-      authorName: ' ',
       category: '',
       priority: '',
       description: '   ',
@@ -130,7 +126,6 @@ test('валидирует обязательные поля публичной 
     result.status === 'validation' ? result.errors : {},
     {
       department: 'Выберите подразделение',
-      authorName: 'Укажите ваше имя',
       category: 'Выберите категорию ремонта',
       priority: 'Выберите приоритет',
       description: 'Опишите проблему',
@@ -147,7 +142,6 @@ test('не допускает двойную отправку', async () => {
   const guard = createSubmissionGuard()
   const values = {
     department: 'М35',
-    authorName: 'Иван',
     category: 'packaging',
     priority: '',
     description: 'Коробки 2 уп',
@@ -191,6 +185,10 @@ test('склоняет количество активных заявок', () =
   assert.equal(activeRequestCountLabel(5), '5 активных заявок')
   assert.equal(activeRequestCountLabel(11), '11 активных заявок')
   assert.equal(activeRequestCountLabel(21), '21 активная заявка')
+})
+
+test('Dashboard обновляет заявки каждые 10 секунд', () => {
+  assert.equal(DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS, 10_000)
 })
 
 test('сортирует активные заявки первыми и сохраняет порядок по дате', () => {
@@ -263,7 +261,6 @@ test('публичные API-функции используют JSON для с�
     await createPublicWarehouseRequest({
       request_type: 'warehouse',
       department: 'Кухня',
-      author_name: 'Иван',
       description: 'Молоко',
       warehouse_category: 'products',
     })
@@ -271,7 +268,6 @@ test('публичные API-функции используют JSON для с�
       {
         request_type: 'repair',
         department: 'Авто',
-        author_name: 'Мария',
         description: 'Не заводится',
         repair_category: 'Другое',
         priority: 'important',
@@ -285,8 +281,12 @@ test('публичные API-функции используют JSON для с�
   assert.equal(calls[0].url, '/api/public/requests')
   assert.equal(calls[0].options.method, 'POST')
   assert.equal(typeof calls[0].options.body, 'string')
+  assert.equal(
+    JSON.parse(String(calls[0].options.body)).author_name,
+    undefined,
+  )
   assert.ok(calls[1].options.body instanceof FormData)
   const form = calls[1].options.body as FormData
-  assert.equal(form.get('author_name'), 'Мария')
+  assert.equal(form.has('author_name'), false)
   assert.equal(form.getAll('photos').length, 1)
 })

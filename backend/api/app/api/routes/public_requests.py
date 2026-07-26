@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.work_request import WorkRequest
 from app.requests.service import PendingAttachment, create_work_request
-from app.schemas.work_request import PublicWorkRequestCreate, WorkRequestRead
+from app.schemas.work_request import WorkRequestCreate, WorkRequestRead
 
 
 router = APIRouter(prefix="/public/requests", tags=["public-requests"])
@@ -22,7 +22,7 @@ MAX_ATTACHMENT_SIZE = 8 * 1024 * 1024
 
 async def _read_public_payload(
     request: Request,
-) -> tuple[PublicWorkRequestCreate, list[PendingAttachment]]:
+) -> tuple[WorkRequestCreate, list[PendingAttachment]]:
     content_type = request.headers.get("content-type", "")
     attachments: list[PendingAttachment] = []
 
@@ -36,7 +36,6 @@ async def _read_public_payload(
             data = {
                 "request_type": form.get("request_type"),
                 "department": form.get("department"),
-                "author_name": form.get("author_name"),
                 "description": form.get("description"),
                 "warehouse_category": form.get("warehouse_category") or None,
                 "repair_category": form.get("repair_category") or None,
@@ -86,7 +85,7 @@ async def _read_public_payload(
                 detail="Неподдерживаемый формат запроса",
             )
 
-        payload = PublicWorkRequestCreate.model_validate(data)
+        payload = WorkRequestCreate.model_validate(data)
     except ValidationError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -120,7 +119,6 @@ async def create_public_request(
         db,
         payload,
         created_by_user_id=None,
-        author_name=payload.author_name,
         attachments=attachments,
         upload_dir=Path(settings.work_request_upload_dir),
     )

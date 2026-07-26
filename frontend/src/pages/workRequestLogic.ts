@@ -8,6 +8,8 @@ import type {
   WorkRequestType,
 } from '../services/requests.ts'
 
+export const DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS = 10_000
+
 export const DEPARTMENTS = [
   'М15',
   'М35',
@@ -60,7 +62,6 @@ export const REQUEST_STATUSES: Array<{
 
 export type WorkRequestFormValues = {
   department: string
-  authorName: string
   category: string
   priority: string
   description: string
@@ -72,7 +73,6 @@ export type WorkRequestFormErrors = Partial<
 
 export const EMPTY_WORK_REQUEST_FORM: WorkRequestFormValues = {
   department: '',
-  authorName: '',
   category: '',
   priority: '',
   description: '',
@@ -136,10 +136,8 @@ export async function submitPublicWorkRequest(
 
   const errors: WorkRequestFormErrors = {}
   const description = values.description.trim()
-  const authorName = values.authorName.trim()
 
   if (!values.department) errors.department = 'Выберите подразделение'
-  if (!authorName) errors.authorName = 'Укажите ваше имя'
   if (!values.category) {
     errors.category =
       requestType === 'warehouse'
@@ -171,7 +169,6 @@ export async function submitPublicWorkRequest(
         ? await createWarehouse({
             request_type: 'warehouse',
             department: values.department,
-            author_name: authorName,
             description,
             warehouse_category: values.category as WarehouseCategory,
           })
@@ -179,7 +176,6 @@ export async function submitPublicWorkRequest(
             {
               request_type: 'repair',
               department: values.department,
-              author_name: authorName,
               description,
               repair_category: values.category,
               priority: values.priority as RepairPriority,

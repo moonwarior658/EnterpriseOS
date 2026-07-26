@@ -90,18 +90,6 @@ class WorkRequestCreate(BaseModel):
         return self
 
 
-class PublicWorkRequestCreate(WorkRequestCreate):
-    author_name: str = Field(min_length=1, max_length=128)
-
-    @field_validator("author_name")
-    @classmethod
-    def validate_author_name(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("Author name must not be empty")
-        return stripped
-
-
 class WorkRequestUpdate(BaseModel):
     department: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = Field(default=None, min_length=1, max_length=5000)

@@ -110,7 +110,7 @@ class WorkRequest(Base):
     def created_by_name(self) -> str:
         if self.created_by is not None:
             return self.created_by.display_name
-        return self.author_name or "Не указано"
+        return self.author_name or f"Подразделение: {self.department}"
 
     @property
     def attachment_count(self) -> int:

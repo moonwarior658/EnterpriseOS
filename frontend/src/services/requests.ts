@@ -45,7 +45,6 @@ export type CreateWorkRequestInput = {
 export type PublicWarehouseRequestInput = {
   request_type: 'warehouse'
   department: string
-  author_name: string
   description: string
   warehouse_category: WarehouseCategory
 }
@@ -53,7 +52,6 @@ export type PublicWarehouseRequestInput = {
 export type PublicRepairRequestInput = {
   request_type: 'repair'
   department: string
-  author_name: string
   description: string
   repair_category: string
   priority: RepairPriority

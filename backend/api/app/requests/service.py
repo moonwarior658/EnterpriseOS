@@ -11,7 +11,6 @@ from app.models.work_request import (
     WorkRequestComment,
 )
 from app.schemas.work_request import (
-    PublicWorkRequestCreate,
     WorkRequestCommentCreate,
     WorkRequestCreate,
     WorkRequestStatusUpdate,
@@ -68,10 +67,9 @@ def get_work_request(session: Session, request_id: int) -> WorkRequest:
 
 def create_work_request(
     session: Session,
-    payload: WorkRequestCreate | PublicWorkRequestCreate,
+    payload: WorkRequestCreate,
     *,
     created_by_user_id: int | None,
-    author_name: str | None = None,
     attachments: list[PendingAttachment] | None = None,
     upload_dir: Path | None = None,
 ) -> WorkRequest:
@@ -94,7 +92,7 @@ def create_work_request(
         repair_category=payload.repair_category,
         priority=payload.priority.value if payload.priority is not None else None,
         created_by_user_id=created_by_user_id,
-        author_name=author_name,
+        author_name=None,
     )
     written_paths: list[Path] = []
 

@@ -149,21 +149,6 @@ function WorkRequestFormPage({
             </label>
 
             <label className="request-field">
-              <span>Ваше имя</span>
-              <input
-                value={values.authorName}
-                maxLength={128}
-                aria-invalid={Boolean(errors.authorName)}
-                disabled={isSubmitting}
-                placeholder="Как к вам обращаться"
-                onChange={(event) =>
-                  updateValue('authorName', event.target.value)
-                }
-              />
-              {errors.authorName && <small>{errors.authorName}</small>}
-            </label>
-
-            <label className="request-field">
               <span>
                 {isWarehouse ? 'Категория склада' : 'Категория ремонта'}
               </span>

@@ -9,6 +9,7 @@ import {
 import {
   activeRequestCountLabel,
   activeRequestsByType,
+  DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
 } from './workRequestLogic'
 
 type ConnectionState = 'checking' | 'online' | 'offline'
@@ -24,19 +25,70 @@ function DashboardPage() {
   const [requests, setRequests] = useState<WorkRequest[]>([])
 
   useEffect(() => {
+    let isMounted = true
+    let requestInFlight = false
+    let hasLoadedRequests = false
+
+    async function loadRequests() {
+      if (!isMounted || requestInFlight) {
+        return
+      }
+
+      requestInFlight = true
+      try {
+        const items = await getWorkRequests()
+        if (!isMounted) {
+          return
+        }
+        setRequests(items)
+        setRequestsState('ready')
+        hasLoadedRequests = true
+      } catch {
+        if (isMounted && !hasLoadedRequests) {
+          setRequestsState('error')
+        }
+      } finally {
+        requestInFlight = false
+      }
+    }
+
     getApiHealth()
       .then((health) => {
+        if (!isMounted) {
+          return
+        }
         setApiHealth(health)
         setConnectionState('online')
       })
-      .catch(() => setConnectionState('offline'))
-
-    getWorkRequests()
-      .then((items) => {
-        setRequests(items)
-        setRequestsState('ready')
+      .catch(() => {
+        if (isMounted) {
+          setConnectionState('offline')
+        }
       })
-      .catch(() => setRequestsState('error'))
+
+    void loadRequests()
+
+    const refreshInterval = window.setInterval(
+      () => void loadRequests(),
+      DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
+    )
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        void loadRequests()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(refreshInterval)
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      )
+    }
   }, [])
 
   const active = activeRequestsByType(requests)

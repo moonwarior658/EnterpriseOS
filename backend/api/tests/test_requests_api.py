@@ -44,10 +44,7 @@ REPAIR_PAYLOAD = {
     "priority": "urgent",
 }
 
-PUBLIC_WAREHOUSE_PAYLOAD = {
-    **WAREHOUSE_PAYLOAD,
-    "author_name": "Иван",
-}
+PUBLIC_WAREHOUSE_PAYLOAD = {**WAREHOUSE_PAYLOAD}
 
 
 class WorkRequestsApiTests(unittest.TestCase):
@@ -123,10 +120,7 @@ class WorkRequestsApiTests(unittest.TestCase):
     def create_public_repair(self, files: list[tuple] | None = None) -> dict:
         response = self.client.post(
             "/public/requests",
-            data={
-                **REPAIR_PAYLOAD,
-                "author_name": "Мария",
-            },
+            data=REPAIR_PAYLOAD,
             files=files,
         )
         self.assertEqual(response.status_code, 201, response.text)
@@ -147,7 +141,7 @@ class WorkRequestsApiTests(unittest.TestCase):
         self.assertEqual(body["request_type"], "repair")
         self.assertEqual(body["priority"], "urgent")
 
-    def test_public_warehouse_creation_needs_no_jwt_and_uses_author_name(self) -> None:
+    def test_public_warehouse_creation_needs_no_jwt_or_author_name(self) -> None:
         app.dependency_overrides.pop(get_current_user)
         response = self.client.post(
             "/public/requests",
@@ -156,17 +150,20 @@ class WorkRequestsApiTests(unittest.TestCase):
         app.dependency_overrides[get_current_user] = self.override_current_user
 
         self.assertEqual(response.status_code, 201, response.text)
-        self.assertEqual(response.json()["created_by_name"], "Иван")
+        self.assertEqual(
+            response.json()["created_by_name"],
+            "Подразделение: М15",
+        )
         with self.session_factory() as session:
             stored = session.get(WorkRequest, response.json()["id"])
             self.assertIsNone(stored.created_by_user_id)
-            self.assertEqual(stored.author_name, "Иван")
+            self.assertIsNone(stored.author_name)
 
     def test_public_repair_creation_needs_no_jwt(self) -> None:
         app.dependency_overrides.pop(get_current_user)
         response = self.client.post(
             "/public/requests",
-            data={**REPAIR_PAYLOAD, "author_name": "Мария"},
+            data=REPAIR_PAYLOAD,
         )
         app.dependency_overrides[get_current_user] = self.override_current_user
         self.assertEqual(response.status_code, 201, response.text)
@@ -227,7 +224,7 @@ class WorkRequestsApiTests(unittest.TestCase):
                         status="new",
                         warehouse_category="packaging",
                         created_by_user_id=None,
-                        author_name=None,
+                        author_name="Иван",
                         created_at=datetime(2026, 7, 25, 8, tzinfo=timezone.utc),
                     ),
                     WorkRequest(
@@ -251,7 +248,7 @@ class WorkRequestsApiTests(unittest.TestCase):
             ["Новая заявка", "Старая заявка"],
         )
         self.assertEqual(body[0]["created_by_name"], "Администратор")
-        self.assertEqual(body[1]["created_by_name"], "Не указано")
+        self.assertEqual(body[1]["created_by_name"], "Иван")
 
     def test_gets_one_request_and_missing_returns_404(self) -> None:
         request_id = self.create_warehouse_request()["id"]
@@ -372,7 +369,7 @@ class WorkRequestsApiTests(unittest.TestCase):
     def test_rejects_invalid_mime_type(self) -> None:
         response = self.client.post(
             "/public/requests",
-            data={**REPAIR_PAYLOAD, "author_name": "Мария"},
+            data=REPAIR_PAYLOAD,
             files=[("photos", ("note.txt", b"text", "text/plain"))],
         )
         self.assertEqual(response.status_code, 422)
@@ -380,7 +377,7 @@ class WorkRequestsApiTests(unittest.TestCase):
     def test_rejects_oversized_photo(self) -> None:
         response = self.client.post(
             "/public/requests",
-            data={**REPAIR_PAYLOAD, "author_name": "Мария"},
+            data=REPAIR_PAYLOAD,
             files=[
                 (
                     "photos",
@@ -397,7 +394,7 @@ class WorkRequestsApiTests(unittest.TestCase):
         ]
         response = self.client.post(
             "/public/requests",
-            data={**REPAIR_PAYLOAD, "author_name": "Мария"},
+            data=REPAIR_PAYLOAD,
             files=files,
         )
         self.assertEqual(response.status_code, 422)
