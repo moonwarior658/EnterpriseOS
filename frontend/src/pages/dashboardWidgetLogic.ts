@@ -1,4 +1,12 @@
 export type DashboardWidgetSize = '1x1' | '1x2' | '2x2'
+export type DashboardConnectionState = 'checking' | 'online' | 'offline'
+export type DashboardIndicatorVariant =
+  | 'checking'
+  | 'healthy'
+  | 'attentionPulse'
+  | 'attentionStable'
+  | 'criticalPulse'
+  | 'unavailable'
 
 export type DashboardWidgetId = 'warehouse-requests' | 'repair-requests'
 
@@ -143,4 +151,53 @@ export function dashboardAnimationMode(
   prefersReducedMotion: boolean,
 ): 'full' | 'reduced' {
   return prefersReducedMotion ? 'reduced' : 'full'
+}
+
+export function activeDashboardDirectionCount(
+  widgets: ReadonlyArray<{ isVisible: boolean }>,
+): number {
+  return widgets.filter((widget) => widget.isVisible).length
+}
+
+export function dashboardIndicatorVariant(
+  connectionState: DashboardConnectionState,
+  activeDirectionCount: number,
+): DashboardIndicatorVariant {
+  if (connectionState === 'offline') {
+    return 'unavailable'
+  }
+  if (connectionState === 'checking') {
+    return 'checking'
+  }
+  if (activeDirectionCount === 0) {
+    return 'healthy'
+  }
+  if (activeDirectionCount <= 2) {
+    return 'attentionPulse'
+  }
+  if (activeDirectionCount <= 4) {
+    return 'attentionStable'
+  }
+  return 'criticalPulse'
+}
+
+export function activeDirectionNoun(count: number): string {
+  const mod100 = count % 100
+  const mod10 = count % 10
+
+  if (mod100 >= 11 && mod100 <= 14) {
+    return 'направлений'
+  }
+  if (mod10 === 1) {
+    return 'направление'
+  }
+  if (mod10 >= 2 && mod10 <= 4) {
+    return 'направления'
+  }
+  return 'направлений'
+}
+
+export function activeDirectionStatusText(count: number): string {
+  const verb = count === 1 ? 'Требует' : 'Требуют'
+  return `${verb} внимания ${count} ${activeDirectionNoun(count)}`
 }

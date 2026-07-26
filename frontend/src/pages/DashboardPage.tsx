@@ -4,8 +4,8 @@ import DashboardGrid, {
   type DashboardWidgetDefinition,
 } from '../components/dashboard/DashboardGrid'
 import DashboardMascots from '../components/dashboard/DashboardMascots'
-import { useAuth } from '../contexts/AuthContext'
-import { getApiHealth, type ApiHealth } from '../services/api'
+import DashboardSystemStatus from '../components/dashboard/DashboardSystemStatus'
+import { getApiHealth } from '../services/api'
 import {
   getWorkRequests,
   type WorkRequest,
@@ -14,16 +14,17 @@ import {
   activeRequestsByType,
   DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
 } from './workRequestLogic'
-import { buildDashboardWidgetConfig } from './dashboardWidgetLogic'
+import {
+  activeDashboardDirectionCount,
+  buildDashboardWidgetConfig,
+  type DashboardConnectionState,
+} from './dashboardWidgetLogic'
 
-type ConnectionState = 'checking' | 'online' | 'offline'
 type RequestsState = 'loading' | 'ready' | 'error'
 
 function DashboardPage() {
-  const { user } = useAuth()
   const [connectionState, setConnectionState] =
-    useState<ConnectionState>('checking')
-  const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null)
+    useState<DashboardConnectionState>('checking')
   const [requestsState, setRequestsState] =
     useState<RequestsState>('loading')
   const [requests, setRequests] = useState<WorkRequest[]>([])
@@ -57,11 +58,10 @@ function DashboardPage() {
     }
 
     getApiHealth()
-      .then((health) => {
+      .then(() => {
         if (!isMounted) {
           return
         }
-        setApiHealth(health)
         setConnectionState('online')
       })
       .catch(() => {
@@ -130,20 +130,16 @@ function DashboardPage() {
       content: widgetContent[widget.id],
     }),
   )
-  const hasActiveRequests = widgets.length > 0
+  const activeDirectionCount =
+    activeDashboardDirectionCount(widgetConfig)
 
   return (
     <section className="dashboard-view dashboard-view-active">
       <div className="dashboard-summary">
-        <div className="dashboard-requests-heading">
-          <p className="eyebrow">ENTERPRISEOS</p>
-          <h1>{hasActiveRequests ? 'Рабочий Dashboard' : 'Всё спокойно'}</h1>
-          <p className="request-intro">
-            {hasActiveRequests
-              ? 'Активные заявки подразделений'
-              : `${user?.display_name}, сейчас нет активных заявок`}
-          </p>
-        </div>
+        <DashboardSystemStatus
+          activeDirectionCount={activeDirectionCount}
+          connectionState={connectionState}
+        />
 
         {requestsState === 'loading' && (
           <p className="dashboard-loading">Загружаем заявки…</p>
@@ -158,19 +154,6 @@ function DashboardPage() {
       </div>
 
       <DashboardMascots />
-      <footer className="dashboard-system-state">
-        <span
-          className={
-            connectionState === 'offline'
-              ? 'status-dot status-dot-error'
-              : 'status-dot'
-          }
-        />
-        {connectionState === 'checking' && 'Проверяем состояние системы…'}
-        {connectionState === 'online' &&
-          `Система работает · ${apiHealth?.service} v${apiHealth?.version}`}
-        {connectionState === 'offline' && 'Нет соединения с ядром системы'}
-      </footer>
     </section>
   )
 }

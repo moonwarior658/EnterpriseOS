@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  activeDashboardDirectionCount,
+  activeDirectionNoun,
+  activeDirectionStatusText,
   buildDashboardWidgetConfig,
   dashboardAnimationMode,
+  dashboardIndicatorVariant,
   dashboardWidgetSpan,
   layoutDashboardWidgets,
   type DashboardWidgetSize,
@@ -122,4 +126,69 @@ test('крупные виджеты не пересекаются с сосед�
 test('prefers-reduced-motion отключает полный режим анимации', () => {
   assert.equal(dashboardAnimationMode(false), 'full')
   assert.equal(dashboardAnimationMode(true), 'reduced')
+})
+
+test('выбирает вариант индикатора по числу активных направлений', () => {
+  assert.equal(dashboardIndicatorVariant('online', 0), 'healthy')
+  assert.equal(
+    dashboardIndicatorVariant('online', 1),
+    'attentionPulse',
+  )
+  assert.equal(
+    dashboardIndicatorVariant('online', 2),
+    'attentionPulse',
+  )
+  assert.equal(
+    dashboardIndicatorVariant('online', 3),
+    'attentionStable',
+  )
+  assert.equal(
+    dashboardIndicatorVariant('online', 4),
+    'attentionStable',
+  )
+  assert.equal(
+    dashboardIndicatorVariant('online', 5),
+    'criticalPulse',
+  )
+  assert.equal(
+    dashboardIndicatorVariant('online', 10),
+    'criticalPulse',
+  )
+})
+
+test('offline имеет приоритет при любом количестве направлений', () => {
+  assert.equal(dashboardIndicatorVariant('offline', 0), 'unavailable')
+  assert.equal(dashboardIndicatorVariant('offline', 10), 'unavailable')
+})
+
+test('склоняет количество активных направлений', () => {
+  assert.equal(activeDirectionNoun(1), 'направление')
+  assert.equal(activeDirectionNoun(2), 'направления')
+  assert.equal(activeDirectionNoun(5), 'направлений')
+  assert.equal(activeDirectionNoun(11), 'направлений')
+  assert.equal(activeDirectionNoun(21), 'направление')
+  assert.equal(activeDirectionNoun(22), 'направления')
+  assert.equal(
+    activeDirectionStatusText(1),
+    'Требует внимания 1 направление',
+  )
+  assert.equal(
+    activeDirectionStatusText(22),
+    'Требуют внимания 22 направления',
+  )
+})
+
+test('число направлений равно числу видимых виджетов, а не заявок', () => {
+  const fiveWarehouseRequests = buildDashboardWidgetConfig(5, 0)
+  const warehouseAndRepairRequests =
+    buildDashboardWidgetConfig(5, 12)
+
+  assert.equal(
+    activeDashboardDirectionCount(fiveWarehouseRequests),
+    1,
+  )
+  assert.equal(
+    activeDashboardDirectionCount(warehouseAndRepairRequests),
+    2,
+  )
 })

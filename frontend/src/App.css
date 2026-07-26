@@ -1353,6 +1353,158 @@
   margin: 0;
 }
 
+.dashboard-system-status-position--centered {
+  position: absolute;
+  top: clamp(180px, 42%, 440px);
+  right: 24px;
+  left: 24px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.dashboard-system-status-position--workspace {
+  position: relative;
+}
+
+.dashboard-system-status {
+  display: flex;
+  max-width: min(820px, 100%);
+  flex-direction: column;
+  align-items: flex-start;
+  color: var(--color-text);
+  pointer-events: auto;
+}
+
+.dashboard-system-status--centered {
+  align-items: center;
+  text-align: center;
+}
+
+.dashboard-system-status h1 {
+  margin: 0;
+  font-weight: 760;
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+  transition:
+    font-size 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    letter-spacing 480ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboard-system-status--centered h1 {
+  font-size: clamp(42px, 6.4vw, 72px);
+}
+
+.dashboard-system-status--workspace h1 {
+  font-size: clamp(28px, 3.4vw, 40px);
+  letter-spacing: -0.04em;
+}
+
+.dashboard-system-indicator {
+  display: inline-flex;
+  min-height: 54px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24px;
+  border: 1px solid rgb(255 255 255 / 38%);
+  border-radius: 18px;
+  padding: 16px 26px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: 0.11em;
+  line-height: 1.1;
+  text-align: center;
+  transition:
+    min-height 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 480ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboard-system-status--workspace .dashboard-system-indicator {
+  min-height: 38px;
+  margin-top: 14px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 10px;
+}
+
+.dashboard-system-indicator--checking {
+  background: #4b765e;
+  box-shadow: 0 10px 30px rgb(55 119 79 / 22%);
+}
+
+.dashboard-system-indicator--healthy,
+.dashboard-system-indicator--attentionPulse,
+.dashboard-system-indicator--attentionStable {
+  background: linear-gradient(145deg, #238d50, #1c7743);
+}
+
+.dashboard-system-indicator--healthy {
+  box-shadow:
+    0 12px 34px rgb(39 153 86 / 32%),
+    0 0 24px rgb(53 173 100 / 20%);
+}
+
+.dashboard-system-indicator--attentionPulse {
+  animation: dashboard-status-attention-pulse 2.3s ease-in-out infinite;
+  box-shadow:
+    0 12px 34px rgb(39 153 86 / 34%),
+    0 0 28px rgb(53 173 100 / 24%);
+}
+
+.dashboard-system-indicator--attentionStable {
+  box-shadow:
+    0 13px 38px rgb(39 153 86 / 40%),
+    0 0 32px rgb(53 173 100 / 30%);
+}
+
+.dashboard-system-indicator--criticalPulse,
+.dashboard-system-indicator--unavailable {
+  background: linear-gradient(145deg, #d93434, #b51f25);
+  box-shadow:
+    0 13px 38px rgb(204 39 45 / 42%),
+    0 0 34px rgb(222 52 58 / 30%);
+}
+
+.dashboard-system-indicator--criticalPulse {
+  animation: dashboard-status-critical-pulse 850ms ease-in-out infinite;
+}
+
+@keyframes dashboard-status-attention-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 12px 34px rgb(39 153 86 / 30%),
+      0 0 24px rgb(53 173 100 / 20%);
+  }
+
+  50% {
+    box-shadow:
+      0 14px 40px rgb(39 153 86 / 44%),
+      0 0 38px rgb(53 173 100 / 34%);
+  }
+}
+
+@keyframes dashboard-status-critical-pulse {
+  0%,
+  100% {
+    filter: brightness(0.9);
+    box-shadow:
+      0 11px 32px rgb(204 39 45 / 34%),
+      0 0 24px rgb(222 52 58 / 24%);
+  }
+
+  50% {
+    filter: brightness(1.12);
+    box-shadow:
+      0 15px 42px rgb(204 39 45 / 50%),
+      0 0 40px rgb(222 52 58 / 36%);
+  }
+}
+
 .dashboard-widget-grid {
   --dashboard-cell-size: 176px;
   --dashboard-grid-gap: 18px;
@@ -1648,6 +1800,25 @@
     padding-inline: 0;
   }
 
+  .dashboard-system-status-position--centered {
+    top: 38%;
+    right: 18px;
+    left: 18px;
+  }
+
+  .dashboard-system-status--centered h1 {
+    font-size: clamp(38px, 12vw, 54px);
+  }
+
+  .dashboard-system-status--workspace h1 {
+    font-size: clamp(27px, 8.4vw, 34px);
+  }
+
+  .dashboard-system-indicator {
+    max-width: 100%;
+    padding-inline: 20px;
+  }
+
   .dashboard-widget {
     grid-column: 1 !important;
     grid-row: auto !important;
@@ -1679,6 +1850,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dashboard-system-status h1,
+  .dashboard-system-indicator {
+    transition: opacity 100ms linear;
+  }
+
+  .dashboard-system-indicator--attentionPulse,
+  .dashboard-system-indicator--criticalPulse {
+    animation: none;
+  }
+
   .dashboard-widget,
   .dashboard-widget-exiting {
     animation-duration: 100ms;
