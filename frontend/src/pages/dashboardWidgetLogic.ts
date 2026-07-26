@@ -1,5 +1,6 @@
 export type DashboardWidgetSize = '1x1' | '1x2' | '2x2'
 export type DashboardConnectionState = 'checking' | 'online' | 'offline'
+export type DashboardViewMode = 'empty' | 'active'
 export type DashboardIndicatorVariant =
   | 'checking'
   | 'healthy'
@@ -29,6 +30,7 @@ export type DashboardWidgetLayoutItem = {
 export const DASHBOARD_GRID_MAX_COLUMNS = 9
 export const DASHBOARD_GRID_MAX_ROWS = 9
 export const DASHBOARD_AUTO_FLOW_ROWS = 3
+export const DASHBOARD_EMPTY_TITLE = 'Всё спокойно'
 
 const SIZE_SPANS: Record<
   DashboardWidgetSize,
@@ -157,6 +159,25 @@ export function activeDashboardDirectionCount(
   widgets: ReadonlyArray<{ isVisible: boolean }>,
 ): number {
   return widgets.filter((widget) => widget.isVisible).length
+}
+
+export function dashboardViewMode(
+  activeDirectionCount: number,
+): DashboardViewMode {
+  return activeDirectionCount === 0 ? 'empty' : 'active'
+}
+
+export function dashboardEmptySystemStatusText(
+  connectionState: DashboardConnectionState,
+  apiHealth: { service: string; version: string } | null,
+): string {
+  if (connectionState === 'checking') {
+    return 'Проверяем состояние системы…'
+  }
+  if (connectionState === 'online' && apiHealth) {
+    return `Система работает · ${apiHealth.service} v${apiHealth.version}`
+  }
+  return 'Нет соединения с ядром системы'
 }
 
 export function dashboardIndicatorVariant(

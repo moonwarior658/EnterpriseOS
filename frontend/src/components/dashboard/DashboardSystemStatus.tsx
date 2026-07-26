@@ -85,9 +85,6 @@ function mainStatusText(
   if (connectionState === 'checking') {
     return 'ПРОВЕРЯЕМ СИСТЕМУ'
   }
-  if (activeDirectionCount === 0) {
-    return 'ВСЁ НАХУЙ ХОРОШО'
-  }
   return activeDirectionStatusText(activeDirectionCount)
 }
 

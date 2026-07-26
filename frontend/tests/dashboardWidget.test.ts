@@ -5,8 +5,11 @@ import {
   activeDirectionNoun,
   activeDirectionStatusText,
   buildDashboardWidgetConfig,
+  DASHBOARD_EMPTY_TITLE,
   dashboardAnimationMode,
+  dashboardEmptySystemStatusText,
   dashboardIndicatorVariant,
+  dashboardViewMode,
   dashboardWidgetSpan,
   layoutDashboardWidgets,
   type DashboardWidgetSize,
@@ -191,4 +194,33 @@ test('число направлений равно числу видимых в�
     activeDashboardDirectionCount(warehouseAndRepairRequests),
     2,
   )
+})
+
+test('при нуле видимых виджетов выбирается спокойное пустое состояние', () => {
+  assert.equal(dashboardViewMode(0), 'empty')
+  assert.equal(DASHBOARD_EMPTY_TITLE, 'Всё спокойно')
+  assert.notEqual(DASHBOARD_EMPTY_TITLE, 'ВСЁ НАХУЙ ХОРОШО')
+})
+
+test('нижний системный статус отражает проверку, работу и offline', () => {
+  assert.equal(
+    dashboardEmptySystemStatusText('checking', null),
+    'Проверяем состояние системы…',
+  )
+  assert.equal(
+    dashboardEmptySystemStatusText('online', {
+      service: 'enterpriseos-api',
+      version: '1.2.3',
+    }),
+    'Система работает · enterpriseos-api v1.2.3',
+  )
+  assert.equal(
+    dashboardEmptySystemStatusText('offline', null),
+    'Нет соединения с ядром системы',
+  )
+})
+
+test('при наличии виджетов сохраняется активное состояние', () => {
+  assert.equal(dashboardViewMode(1), 'active')
+  assert.equal(dashboardViewMode(2), 'active')
 })

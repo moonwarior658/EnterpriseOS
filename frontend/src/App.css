@@ -1353,6 +1353,83 @@
   margin: 0;
 }
 
+.dashboard-view-empty {
+  overflow: hidden;
+  padding: 40px 24px 90px;
+}
+
+.dashboard-view-empty .dashboard-empty {
+  max-width: 580px;
+  animation: dashboard-empty-enter 300ms ease both;
+}
+
+.dashboard-view-empty .dashboard-empty-leaving {
+  animation: dashboard-empty-exit 280ms ease both;
+  pointer-events: none;
+}
+
+.dashboard-view-empty .dashboard-status-mark {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 30px;
+  border-radius: 24px;
+}
+
+.dashboard-view-empty .dashboard-status-mark span {
+  width: 14px;
+  height: 14px;
+  box-shadow: 0 0 0 8px rgb(57 184 108 / 12%);
+}
+
+.dashboard-view-empty .dashboard-empty .eyebrow {
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.dashboard-view-empty .dashboard-empty h1 {
+  font-size: clamp(42px, 7vw, 68px);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1.08;
+}
+
+.dashboard-view-empty .dashboard-empty > p:last-child {
+  max-width: 580px;
+  margin-top: 18px;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.dashboard-view-empty .dashboard-system-state {
+  bottom: 30px;
+  gap: 10px;
+  font-size: 13px;
+}
+
+@keyframes dashboard-empty-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dashboard-empty-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
 .dashboard-system-status-position--centered {
   position: absolute;
   top: clamp(180px, 42%, 440px);
@@ -1819,6 +1896,25 @@
     padding-inline: 20px;
   }
 
+  .dashboard-view-empty {
+    padding-inline: 18px;
+  }
+
+  .dashboard-view-empty .dashboard-empty h1 {
+    font-size: clamp(38px, 12vw, 54px);
+  }
+
+  .dashboard-view-empty .dashboard-empty > p:last-child {
+    font-size: 15px;
+  }
+
+  .dashboard-view-empty .dashboard-system-state {
+    right: 18px;
+    left: 18px;
+    justify-content: center;
+    text-align: center;
+  }
+
   .dashboard-widget {
     grid-column: 1 !important;
     grid-row: auto !important;
@@ -1850,6 +1946,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dashboard-view-empty .dashboard-empty,
+  .dashboard-view-empty .dashboard-empty-leaving {
+    animation-duration: 100ms;
+    transform: none;
+  }
+
   .dashboard-system-status h1,
   .dashboard-system-indicator {
     transition: opacity 100ms linear;
