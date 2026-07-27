@@ -11,9 +11,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.user import User
@@ -25,6 +27,10 @@ from app.schemas.supply import (
     SupplyProductPage,
     SupplyProductRead,
     SupplyProductUpdate,
+    SupplyReferenceCreate,
+    SupplyReferencePage,
+    SupplyReferenceRead,
+    SupplyReferenceUpdate,
     SupplyLineManualMatch,
     SupplyRecognitionSummary,
     SupplyRequestCreate,
@@ -38,34 +44,52 @@ from app.supply.service import (
     DepartmentNotFoundError,
     DirectionNotFoundError,
     DuplicateSupplyProductAliasError,
+    DuplicateSupplyProductCategoryError,
     DuplicateSupplyProductError,
+    DuplicateSupplyProductIikoIdError,
+    DuplicateSupplyStorageZoneError,
     InactiveDepartmentError,
     InactiveDirectionError,
     InactiveSupplyProductError,
+    InactiveSupplyProductCategoryError,
+    InactiveSupplyStorageZoneError,
     InactiveSupplyUnitError,
     InvalidSupplyQuantityError,
     PublicNumberGenerationError,
     SupplyProductAliasNotFoundError,
+    SupplyProductCategoryNotFoundError,
     SupplyProductNotFoundError,
+    SupplyProductRestoreConflictError,
     SupplyRequestNotFoundError,
     SupplyRequestLineNotFoundError,
     SupplyRequestStateError,
     SupplyUnitNotFoundError,
+    SupplyStorageZoneNotFoundError,
+    archive_supply_product,
+    create_supply_product_category,
     create_supply_product,
     create_supply_product_alias,
+    create_supply_storage_zone,
     create_supply_request,
     delete_supply_product_alias,
+    get_supply_product_category,
     get_supply_product,
+    get_supply_storage_zone,
     get_supply_request,
     list_departments,
     list_request_directions,
+    list_supply_product_categories,
     list_supply_products,
+    list_supply_storage_zones,
     list_supply_requests,
     list_supply_units,
     manually_match_supply_request_line,
     recognize_supply_request,
+    restore_supply_product,
     submit_supply_request,
+    update_supply_product_category,
     update_supply_product,
+    update_supply_storage_zone,
 )
 
 
@@ -93,12 +117,180 @@ def _invalid_product_reference(detail: str) -> HTTPException:
     )
 
 
+def _reference_not_found(label: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"{label} не найдена",
+    )
+
+
+def _reference_conflict(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=detail,
+    )
+
+
 @router.get("/units", response_model=list[SupplyUnitRead])
 def read_supply_units(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
 ) -> list[SupplyUnit]:
     return list_supply_units(db)
+
+
+@router.get("/product-categories", response_model=SupplyReferencePage)
+def read_supply_product_categories(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    active: bool | None = None,
+    search: Annotated[str | None, Query(max_length=160)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SupplyReferencePage:
+    items, total = list_supply_product_categories(
+        db,
+        active=active,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return SupplyReferencePage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/product-categories",
+    response_model=SupplyReferenceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_product_category(
+    payload: SupplyReferenceCreate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductCategory:
+    try:
+        return create_supply_product_category(db, payload)
+    except DuplicateSupplyProductCategoryError as error:
+        raise _reference_conflict(
+            "Категория с таким кодом или названием уже существует"
+        ) from error
+
+
+@router.get(
+    "/product-categories/{category_id}",
+    response_model=SupplyReferenceRead,
+)
+def read_supply_product_category(
+    category_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductCategory:
+    try:
+        return get_supply_product_category(db, category_id)
+    except SupplyProductCategoryNotFoundError as error:
+        raise _reference_not_found("Категория") from error
+
+
+@router.patch(
+    "/product-categories/{category_id}",
+    response_model=SupplyReferenceRead,
+)
+def update_product_category(
+    category_id: UUID,
+    payload: SupplyReferenceUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductCategory:
+    try:
+        return update_supply_product_category(db, category_id, payload)
+    except SupplyProductCategoryNotFoundError as error:
+        raise _reference_not_found("Категория") from error
+    except DuplicateSupplyProductCategoryError as error:
+        raise _reference_conflict(
+            "Категория с таким кодом или названием уже существует"
+        ) from error
+
+
+@router.get("/storage-zones", response_model=SupplyReferencePage)
+def read_supply_storage_zones(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    active: bool | None = None,
+    search: Annotated[str | None, Query(max_length=160)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SupplyReferencePage:
+    items, total = list_supply_storage_zones(
+        db,
+        active=active,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return SupplyReferencePage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/storage-zones",
+    response_model=SupplyReferenceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_storage_zone(
+    payload: SupplyReferenceCreate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStorageZone:
+    try:
+        return create_supply_storage_zone(db, payload)
+    except DuplicateSupplyStorageZoneError as error:
+        raise _reference_conflict(
+            "Зона хранения с таким кодом или названием уже существует"
+        ) from error
+
+
+@router.get(
+    "/storage-zones/{zone_id}",
+    response_model=SupplyReferenceRead,
+)
+def read_supply_storage_zone(
+    zone_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStorageZone:
+    try:
+        return get_supply_storage_zone(db, zone_id)
+    except SupplyStorageZoneNotFoundError as error:
+        raise _reference_not_found("Зона хранения") from error
+
+
+@router.patch(
+    "/storage-zones/{zone_id}",
+    response_model=SupplyReferenceRead,
+)
+def update_storage_zone(
+    zone_id: UUID,
+    payload: SupplyReferenceUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStorageZone:
+    try:
+        return update_supply_storage_zone(db, zone_id, payload)
+    except SupplyStorageZoneNotFoundError as error:
+        raise _reference_not_found("Зона хранения") from error
+    except DuplicateSupplyStorageZoneError as error:
+        raise _reference_conflict(
+            "Зона хранения с таким кодом или названием уже существует"
+        ) from error
 
 
 @router.get("/products", response_model=SupplyProductPage)
@@ -142,6 +334,10 @@ def create_product(
             status_code=status.HTTP_409_CONFLICT,
             detail="Товар с таким нормализованным названием уже существует",
         ) from error
+    except DuplicateSupplyProductIikoIdError as error:
+        raise _reference_conflict(
+            "Товар с таким iiko_id уже существует"
+        ) from error
     except SupplyUnitNotFoundError as error:
         raise _invalid_product_reference("Единица измерения не найдена") from error
     except InactiveSupplyUnitError as error:
@@ -150,6 +346,14 @@ def create_product(
         raise _invalid_product_reference("Направление заявки не найдено") from error
     except InactiveDirectionError as error:
         raise _invalid_product_reference("Направление заявки неактивно") from error
+    except SupplyProductCategoryNotFoundError as error:
+        raise _reference_not_found("Категория") from error
+    except InactiveSupplyProductCategoryError as error:
+        raise _reference_conflict("Категория неактивна") from error
+    except SupplyStorageZoneNotFoundError as error:
+        raise _reference_not_found("Зона хранения") from error
+    except InactiveSupplyStorageZoneError as error:
+        raise _reference_conflict("Зона хранения неактивна") from error
 
 
 @router.get("/products/{product_id}", response_model=SupplyProductRead)
@@ -180,6 +384,10 @@ def update_product(
             status_code=status.HTTP_409_CONFLICT,
             detail="Товар с таким нормализованным названием уже существует",
         ) from error
+    except DuplicateSupplyProductIikoIdError as error:
+        raise _reference_conflict(
+            "Товар с таким iiko_id уже существует"
+        ) from error
     except SupplyUnitNotFoundError as error:
         raise _invalid_product_reference("Единица измерения не найдена") from error
     except InactiveSupplyUnitError as error:
@@ -188,6 +396,52 @@ def update_product(
         raise _invalid_product_reference("Направление заявки не найдено") from error
     except InactiveDirectionError as error:
         raise _invalid_product_reference("Направление заявки неактивно") from error
+    except SupplyProductCategoryNotFoundError as error:
+        raise _reference_not_found("Категория") from error
+    except InactiveSupplyProductCategoryError as error:
+        raise _reference_conflict("Категория неактивна") from error
+    except SupplyStorageZoneNotFoundError as error:
+        raise _reference_not_found("Зона хранения") from error
+    except InactiveSupplyStorageZoneError as error:
+        raise _reference_conflict("Зона хранения неактивна") from error
+
+
+@router.post(
+    "/products/{product_id}/archive",
+    response_model=SupplyProductRead,
+)
+def archive_product(
+    product_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProduct:
+    try:
+        return archive_supply_product(
+            db,
+            product_id,
+            archived_by_user_id=current_admin.id,
+        )
+    except SupplyProductNotFoundError as error:
+        raise _product_not_found() from error
+
+
+@router.post(
+    "/products/{product_id}/restore",
+    response_model=SupplyProductRead,
+)
+def restore_product(
+    product_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProduct:
+    try:
+        return restore_supply_product(db, product_id)
+    except SupplyProductNotFoundError as error:
+        raise _product_not_found() from error
+    except SupplyProductRestoreConflictError as error:
+        raise _reference_conflict(
+            "Товар нельзя восстановить: связанный справочник неактивен"
+        ) from error
 
 
 @router.post(

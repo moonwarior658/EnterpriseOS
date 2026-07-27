@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -21,9 +22,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.user import User
@@ -62,6 +65,8 @@ class SupplyMatchingApiTests(unittest.TestCase):
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
+        SupplyProductCategory.__table__.create(self.engine)
+        SupplyStorageZone.__table__.create(self.engine)
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
@@ -172,6 +177,8 @@ class SupplyMatchingApiTests(unittest.TestCase):
             default_unit=self.units[unit_code],
             request_direction=self.direction,
             is_active=is_active,
+            archived_at=None if is_active else datetime.now(timezone.utc),
+            archived_by_user_id=None if is_active else 2,
         )
         session.add(product)
         session.flush()
@@ -250,6 +257,48 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(inactive["parsed_name"], "Неактивный товар")
         self.assertIsNone(inactive["product"])
         self.assertEqual(detail["version"], 2)
+
+    def test_archive_preserves_old_match_and_restore_enables_new_matches(
+        self,
+    ) -> None:
+        existing = self.create_request("Молоко 1 л")
+        recognized = self.recognize(existing["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+
+        archived = self.client.post(
+            f"/supply/products/{self.milk.id}/archive"
+        )
+        self.assertEqual(archived.status_code, 200, archived.text)
+        preserved = self.client.get(
+            f"/supply/requests/{existing['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(preserved["match_status"], "MATCHED")
+        self.assertEqual(preserved["product_id"], str(self.milk.id))
+
+        fresh = self.create_request("Молоко 2 л")
+        fresh_recognition = self.recognize(fresh["id"])
+        self.assertEqual(fresh_recognition.status_code, 200)
+        self.assertEqual(fresh_recognition.json()["matched"], 0)
+        manual = self.match(
+            fresh["id"],
+            fresh["lines"][0]["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "2",
+            },
+        )
+        self.assertEqual(manual.status_code, 422)
+
+        restored = self.client.post(
+            f"/supply/products/{self.milk.id}/restore"
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        available_again = self.create_request("Молоко 3 л")
+        recognition = self.recognize(available_again["id"])
+        self.assertEqual(recognition.status_code, 200)
+        self.assertEqual(recognition.json()["matched"], 1)
 
     def test_fraction_policy_applies_to_recognition_and_manual_match(
         self,

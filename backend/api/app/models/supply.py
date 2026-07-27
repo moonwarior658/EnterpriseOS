@@ -15,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -169,6 +170,118 @@ class SupplyUnit(Base):
     )
 
 
+class SupplyProductCategory(Base):
+    __tablename__ = "supply_product_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "code",
+            name="uq_supply_product_categories_tenant_code",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "normalized_name",
+            name="uq_supply_product_categories_tenant_normalized_name",
+        ),
+        Index(
+            "ix_supply_product_categories_tenant_active_order",
+            "tenant_id",
+            "is_active",
+            "sort_order",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class SupplyStorageZone(Base):
+    __tablename__ = "supply_storage_zones"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "code",
+            name="uq_supply_storage_zones_tenant_code",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "normalized_name",
+            name="uq_supply_storage_zones_tenant_normalized_name",
+        ),
+        Index(
+            "ix_supply_storage_zones_tenant_active_order",
+            "tenant_id",
+            "is_active",
+            "sort_order",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class SupplyProduct(Base):
     __tablename__ = "supply_products"
     __table_args__ = (
@@ -183,6 +296,21 @@ class SupplyProduct(Base):
             "is_active",
             "normalized_name",
         ),
+        Index(
+            "uq_supply_products_tenant_iiko_id",
+            "tenant_id",
+            "iiko_id",
+            unique=True,
+            postgresql_where=text("iiko_id IS NOT NULL"),
+            sqlite_where=text("iiko_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "(is_active = true AND archived_at IS NULL AND "
+            "archived_by_user_id IS NULL) OR "
+            "(is_active = false AND archived_at IS NOT NULL AND "
+            "archived_by_user_id IS NOT NULL)",
+            name="ck_supply_products_archive_state",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -193,6 +321,7 @@ class SupplyProduct(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(240), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    iiko_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     default_unit_id: Mapped[UUID] = mapped_column(
         ForeignKey("supply_units.id", ondelete="RESTRICT"),
         nullable=False,
@@ -201,11 +330,27 @@ class SupplyProduct(Base):
         ForeignKey("supply_request_directions.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_product_categories.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    storage_zone_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_storage_zones.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default="true",
         nullable=False,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    archived_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -221,6 +366,8 @@ class SupplyProduct(Base):
 
     default_unit: Mapped[SupplyUnit] = relationship()
     request_direction: Mapped[SupplyRequestDirection | None] = relationship()
+    category: Mapped[SupplyProductCategory | None] = relationship()
+    storage_zone: Mapped[SupplyStorageZone | None] = relationship()
     aliases: Mapped[list["SupplyProductAlias"]] = relationship(
         back_populates="product",
         cascade="all, delete-orphan",

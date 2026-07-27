@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MAX_RAW_INPUT_LENGTH = 20_000
 MAX_LINE_LENGTH = 1_000
 MAX_PRODUCT_NAME_LENGTH = 240
+MAX_REFERENCE_NAME_LENGTH = 160
+MAX_REFERENCE_CODE_LENGTH = 64
+MAX_DESCRIPTION_LENGTH = 2_000
+MAX_IIKO_ID_LENGTH = 160
 
 
 class SupplyRequestStatus(StrEnum):
@@ -84,11 +88,131 @@ class SupplyProductAliasRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _strip_required(value: str, *, label: str, max_length: int) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{label} не может быть пустым")
+    if len(stripped) > max_length:
+        raise ValueError(f"{label} не может быть длиннее {max_length} символов")
+    return stripped
+
+
+def _strip_optional(value: str | None, *, max_length: int) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if len(stripped) > max_length:
+        raise ValueError(
+            f"Значение не может быть длиннее {max_length} символов"
+        )
+    return stripped
+
+
+class SupplyReferenceCreate(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+    is_active: bool = True
+    sort_order: int = 0
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        return _strip_required(
+            value,
+            label="Код",
+            max_length=MAX_REFERENCE_CODE_LENGTH,
+        )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _strip_required(
+            value,
+            label="Название",
+            max_length=MAX_REFERENCE_NAME_LENGTH,
+        )
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_DESCRIPTION_LENGTH)
+
+
+class SupplyReferenceUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    sort_order: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Код не может быть null")
+        return SupplyReferenceCreate.validate_code(value)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Название не может быть null")
+        return SupplyReferenceCreate.validate_name(value)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_DESCRIPTION_LENGTH)
+
+    @field_validator("is_active")
+    @classmethod
+    def validate_is_active(cls, value: bool | None) -> bool:
+        if value is None:
+            raise ValueError("Активность не может быть null")
+        return value
+
+    @field_validator("sort_order")
+    @classmethod
+    def validate_sort_order(cls, value: int | None) -> int:
+        if value is None:
+            raise ValueError("Порядок сортировки не может быть null")
+        return value
+
+
+class SupplyReferenceRead(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    description: str | None
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyReferencePage(BaseModel):
+    items: list[SupplyReferenceRead]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
 class SupplyProductCreate(BaseModel):
     name: str
     default_unit_id: UUID
     request_direction_id: UUID | None = None
-    is_active: bool = True
+    iiko_id: str | None = None
+    category_id: UUID | None = None
+    storage_zone_id: UUID | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -105,12 +229,19 @@ class SupplyProductCreate(BaseModel):
             )
         return stripped
 
+    @field_validator("iiko_id")
+    @classmethod
+    def validate_iiko_id(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_IIKO_ID_LENGTH)
+
 
 class SupplyProductUpdate(BaseModel):
     name: str | None = None
     default_unit_id: UUID | None = None
     request_direction_id: UUID | None = None
-    is_active: bool | None = None
+    iiko_id: str | None = None
+    category_id: UUID | None = None
+    storage_zone_id: UUID | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -128,12 +259,10 @@ class SupplyProductUpdate(BaseModel):
             raise ValueError("Базовая единица товара не может быть null")
         return value
 
-    @field_validator("is_active")
+    @field_validator("iiko_id")
     @classmethod
-    def validate_is_active(cls, value: bool | None) -> bool:
-        if value is None:
-            raise ValueError("Активность товара не может быть null")
-        return value
+    def validate_iiko_id(cls, value: str | None) -> str | None:
+        return SupplyProductCreate.validate_iiko_id(value)
 
 
 class SupplyProductAliasCreate(BaseModel):
@@ -158,9 +287,14 @@ class SupplyProductAliasCreate(BaseModel):
 class SupplyProductRead(BaseModel):
     id: UUID
     name: str
+    iiko_id: str | None
     default_unit: SupplyUnitRead
     request_direction: SupplyRequestDirectionRead | None
+    category: SupplyReferenceRead | None
+    storage_zone: SupplyReferenceRead | None
     is_active: bool
+    archived_at: datetime | None
+    archived_by_user_id: int | None
     aliases: list[SupplyProductAliasRead]
     created_at: datetime
     updated_at: datetime

@@ -24,9 +24,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.user import User
@@ -71,6 +73,8 @@ class SupplyApiTests(unittest.TestCase):
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
+        SupplyProductCategory.__table__.create(self.engine)
+        SupplyStorageZone.__table__.create(self.engine)
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)

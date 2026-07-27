@@ -12,9 +12,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.schemas.supply import (
@@ -23,6 +25,8 @@ from app.schemas.supply import (
     SupplyProductAliasCreate,
     SupplyProductCreate,
     SupplyProductUpdate,
+    SupplyReferenceCreate,
+    SupplyReferenceUpdate,
     SupplyRecognitionResult,
     SupplyRecognitionSummary,
     SupplyRequestCreate,
@@ -94,6 +98,38 @@ class SupplyProductAliasNotFoundError(LookupError):
     pass
 
 
+class SupplyProductCategoryNotFoundError(LookupError):
+    pass
+
+
+class SupplyStorageZoneNotFoundError(LookupError):
+    pass
+
+
+class InactiveSupplyProductCategoryError(ValueError):
+    pass
+
+
+class InactiveSupplyStorageZoneError(ValueError):
+    pass
+
+
+class DuplicateSupplyProductCategoryError(ValueError):
+    pass
+
+
+class DuplicateSupplyStorageZoneError(ValueError):
+    pass
+
+
+class DuplicateSupplyProductIikoIdError(ValueError):
+    pass
+
+
+class SupplyProductRestoreConflictError(ValueError):
+    pass
+
+
 class InvalidSupplyQuantityError(ValueError):
     pass
 
@@ -155,7 +191,285 @@ def _product_options():
     return (
         joinedload(SupplyProduct.default_unit),
         joinedload(SupplyProduct.request_direction),
+        joinedload(SupplyProduct.category),
+        joinedload(SupplyProduct.storage_zone),
         selectinload(SupplyProduct.aliases),
+    )
+
+
+def _list_reference_items(
+    session: Session,
+    model,
+    *,
+    active: bool | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+):
+    filters = [model.tenant_id == settings.default_tenant_id]
+    if active is not None:
+        filters.append(model.is_active == active)
+    if search is not None:
+        normalized_search = normalize_product_text(search)
+        if normalized_search:
+            filters.append(
+                or_(
+                    model.normalized_name.contains(normalized_search),
+                    model.code.contains(search.strip()),
+                )
+            )
+    total = session.scalar(
+        select(func.count()).select_from(model).where(*filters)
+    )
+    statement = (
+        select(model)
+        .where(*filters)
+        .order_by(
+            model.sort_order.asc(),
+            model.normalized_name.asc(),
+            model.id.asc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(session.scalars(statement).all()), int(total or 0)
+
+
+def list_supply_product_categories(
+    session: Session,
+    *,
+    active: bool | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[SupplyProductCategory], int]:
+    return _list_reference_items(
+        session,
+        SupplyProductCategory,
+        active=active,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def list_supply_storage_zones(
+    session: Session,
+    *,
+    active: bool | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[SupplyStorageZone], int]:
+    return _list_reference_items(
+        session,
+        SupplyStorageZone,
+        active=active,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _get_reference_item(
+    session: Session,
+    model,
+    item_id: UUID,
+    *,
+    not_found_error,
+    inactive_error=None,
+    require_active: bool = False,
+):
+    item = session.scalar(
+        select(model).where(
+            model.id == item_id,
+            model.tenant_id == settings.default_tenant_id,
+        )
+    )
+    if item is None:
+        raise not_found_error
+    if require_active and not item.is_active:
+        raise inactive_error
+    return item
+
+
+def get_supply_product_category(
+    session: Session,
+    category_id: UUID,
+    *,
+    require_active: bool = False,
+) -> SupplyProductCategory:
+    return _get_reference_item(
+        session,
+        SupplyProductCategory,
+        category_id,
+        not_found_error=SupplyProductCategoryNotFoundError,
+        inactive_error=InactiveSupplyProductCategoryError,
+        require_active=require_active,
+    )
+
+
+def get_supply_storage_zone(
+    session: Session,
+    zone_id: UUID,
+    *,
+    require_active: bool = False,
+) -> SupplyStorageZone:
+    return _get_reference_item(
+        session,
+        SupplyStorageZone,
+        zone_id,
+        not_found_error=SupplyStorageZoneNotFoundError,
+        inactive_error=InactiveSupplyStorageZoneError,
+        require_active=require_active,
+    )
+
+
+def _reference_conflict_exists(
+    session: Session,
+    model,
+    *,
+    code: str,
+    normalized_name: str,
+    exclude_id: UUID | None = None,
+) -> bool:
+    statement = select(model.id).where(
+        model.tenant_id == settings.default_tenant_id,
+        or_(
+            model.code == code,
+            model.normalized_name == normalized_name,
+        ),
+    )
+    if exclude_id is not None:
+        statement = statement.where(model.id != exclude_id)
+    return session.scalar(statement.limit(1)) is not None
+
+
+def _create_reference_item(
+    session: Session,
+    model,
+    payload: SupplyReferenceCreate,
+    *,
+    duplicate_error,
+):
+    normalized_name = normalize_product_text(payload.name)
+    if _reference_conflict_exists(
+        session,
+        model,
+        code=payload.code,
+        normalized_name=normalized_name,
+    ):
+        raise duplicate_error
+    item = model(
+        tenant_id=settings.default_tenant_id,
+        code=payload.code,
+        name=payload.name,
+        normalized_name=normalized_name,
+        description=payload.description,
+        is_active=payload.is_active,
+        sort_order=payload.sort_order,
+    )
+    try:
+        session.add(item)
+        session.flush()
+        session.commit()
+        session.refresh(item)
+    except IntegrityError as error:
+        session.rollback()
+        raise duplicate_error from error
+    except Exception:
+        session.rollback()
+        raise
+    return item
+
+
+def create_supply_product_category(
+    session: Session,
+    payload: SupplyReferenceCreate,
+) -> SupplyProductCategory:
+    return _create_reference_item(
+        session,
+        SupplyProductCategory,
+        payload,
+        duplicate_error=DuplicateSupplyProductCategoryError,
+    )
+
+
+def create_supply_storage_zone(
+    session: Session,
+    payload: SupplyReferenceCreate,
+) -> SupplyStorageZone:
+    return _create_reference_item(
+        session,
+        SupplyStorageZone,
+        payload,
+        duplicate_error=DuplicateSupplyStorageZoneError,
+    )
+
+
+def _update_reference_item(
+    session: Session,
+    item,
+    payload: SupplyReferenceUpdate,
+    *,
+    duplicate_error,
+):
+    fields = payload.model_fields_set
+    code = payload.code if "code" in fields else item.code
+    normalized_name = (
+        normalize_product_text(payload.name or "")
+        if "name" in fields
+        else item.normalized_name
+    )
+    if _reference_conflict_exists(
+        session,
+        type(item),
+        code=code,
+        normalized_name=normalized_name,
+        exclude_id=item.id,
+    ):
+        raise duplicate_error
+    for field in ("code", "name", "description", "is_active", "sort_order"):
+        if field in fields:
+            setattr(item, field, getattr(payload, field))
+    if "name" in fields:
+        item.normalized_name = normalized_name
+    try:
+        session.flush()
+        session.commit()
+        session.refresh(item)
+    except IntegrityError as error:
+        session.rollback()
+        raise duplicate_error from error
+    except Exception:
+        session.rollback()
+        raise
+    return item
+
+
+def update_supply_product_category(
+    session: Session,
+    category_id: UUID,
+    payload: SupplyReferenceUpdate,
+) -> SupplyProductCategory:
+    return _update_reference_item(
+        session,
+        get_supply_product_category(session, category_id),
+        payload,
+        duplicate_error=DuplicateSupplyProductCategoryError,
+    )
+
+
+def update_supply_storage_zone(
+    session: Session,
+    zone_id: UUID,
+    payload: SupplyReferenceUpdate,
+) -> SupplyStorageZone:
+    return _update_reference_item(
+        session,
+        get_supply_storage_zone(session, zone_id),
+        payload,
+        duplicate_error=DuplicateSupplyStorageZoneError,
     )
 
 
@@ -197,6 +511,7 @@ def list_supply_products(
             filters.append(
                 or_(
                     SupplyProduct.normalized_name.contains(normalized_search),
+                    SupplyProduct.iiko_id.contains(search.strip()),
                     exists().where(
                         SupplyProductAlias.product_id == SupplyProduct.id,
                         SupplyProductAlias.tenant_id
@@ -240,6 +555,23 @@ def _product_name_exists(
     return session.scalar(statement.limit(1)) is not None
 
 
+def _product_iiko_id_exists(
+    session: Session,
+    iiko_id: str | None,
+    *,
+    exclude_product_id: UUID | None = None,
+) -> bool:
+    if iiko_id is None:
+        return False
+    statement = select(SupplyProduct.id).where(
+        SupplyProduct.tenant_id == settings.default_tenant_id,
+        SupplyProduct.iiko_id == iiko_id,
+    )
+    if exclude_product_id is not None:
+        statement = statement.where(SupplyProduct.id != exclude_product_id)
+    return session.scalar(statement.limit(1)) is not None
+
+
 def create_supply_product(
     session: Session,
     payload: SupplyProductCreate,
@@ -247,19 +579,42 @@ def create_supply_product(
     normalized_name = normalize_product_text(payload.name)
     if _product_name_exists(session, normalized_name):
         raise DuplicateSupplyProductError
+    if _product_iiko_id_exists(session, payload.iiko_id):
+        raise DuplicateSupplyProductIikoIdError
     unit = _get_supply_unit(session, payload.default_unit_id)
     direction = (
         _get_direction(session, payload.request_direction_id)
         if payload.request_direction_id is not None
         else None
     )
+    category = (
+        get_supply_product_category(
+            session,
+            payload.category_id,
+            require_active=True,
+        )
+        if payload.category_id is not None
+        else None
+    )
+    storage_zone = (
+        get_supply_storage_zone(
+            session,
+            payload.storage_zone_id,
+            require_active=True,
+        )
+        if payload.storage_zone_id is not None
+        else None
+    )
     product = SupplyProduct(
         tenant_id=settings.default_tenant_id,
         name=payload.name,
         normalized_name=normalized_name,
+        iiko_id=payload.iiko_id,
         default_unit_id=unit.id,
         request_direction_id=direction.id if direction is not None else None,
-        is_active=payload.is_active,
+        category_id=category.id if category is not None else None,
+        storage_zone_id=storage_zone.id if storage_zone is not None else None,
+        is_active=True,
     )
     try:
         session.add(product)
@@ -292,6 +647,14 @@ def update_supply_product(
             raise DuplicateSupplyProductError
         product.name = payload.name or ""
         product.normalized_name = normalized_name
+    if "iiko_id" in fields:
+        if _product_iiko_id_exists(
+            session,
+            payload.iiko_id,
+            exclude_product_id=product.id,
+        ):
+            raise DuplicateSupplyProductIikoIdError
+        product.iiko_id = payload.iiko_id
     if "default_unit_id" in fields:
         unit = _get_supply_unit(session, payload.default_unit_id)
         product.default_unit_id = unit.id
@@ -304,8 +667,30 @@ def update_supply_product(
         product.request_direction_id = (
             direction.id if direction is not None else None
         )
-    if "is_active" in fields:
-        product.is_active = bool(payload.is_active)
+    if "category_id" in fields:
+        category = (
+            get_supply_product_category(
+                session,
+                payload.category_id,
+                require_active=True,
+            )
+            if payload.category_id is not None
+            else None
+        )
+        product.category_id = category.id if category is not None else None
+    if "storage_zone_id" in fields:
+        storage_zone = (
+            get_supply_storage_zone(
+                session,
+                payload.storage_zone_id,
+                require_active=True,
+            )
+            if payload.storage_zone_id is not None
+            else None
+        )
+        product.storage_zone_id = (
+            storage_zone.id if storage_zone is not None else None
+        )
 
     try:
         session.flush()
@@ -314,6 +699,72 @@ def update_supply_product(
     except IntegrityError as error:
         session.rollback()
         raise DuplicateSupplyProductError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product(session, product.id)
+
+
+def archive_supply_product(
+    session: Session,
+    product_id: UUID,
+    *,
+    archived_by_user_id: int,
+) -> SupplyProduct:
+    product = get_supply_product(session, product_id)
+    if not product.is_active:
+        return product
+    try:
+        product.is_active = False
+        product.archived_at = datetime.now(timezone.utc)
+        product.archived_by_user_id = archived_by_user_id
+        session.flush()
+        session.commit()
+        session.expire(product)
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product(session, product.id)
+
+
+def restore_supply_product(
+    session: Session,
+    product_id: UUID,
+) -> SupplyProduct:
+    product = get_supply_product(session, product_id)
+    if product.is_active:
+        return product
+    try:
+        _get_supply_unit(session, product.default_unit_id)
+        if product.category_id is not None:
+            get_supply_product_category(
+                session,
+                product.category_id,
+                require_active=True,
+            )
+        if product.storage_zone_id is not None:
+            get_supply_storage_zone(
+                session,
+                product.storage_zone_id,
+                require_active=True,
+            )
+    except (
+        InactiveSupplyUnitError,
+        InactiveSupplyProductCategoryError,
+        InactiveSupplyStorageZoneError,
+        SupplyUnitNotFoundError,
+        SupplyProductCategoryNotFoundError,
+        SupplyStorageZoneNotFoundError,
+    ) as error:
+        raise SupplyProductRestoreConflictError from error
+
+    try:
+        product.is_active = True
+        product.archived_at = None
+        product.archived_by_user_id = None
+        session.flush()
+        session.commit()
+        session.expire(product)
     except Exception:
         session.rollback()
         raise
@@ -406,6 +857,12 @@ def _request_options():
         selectinload(SupplyRequest.lines)
         .joinedload(SupplyRequestLine.product)
         .joinedload(SupplyProduct.request_direction),
+        selectinload(SupplyRequest.lines)
+        .joinedload(SupplyRequestLine.product)
+        .joinedload(SupplyProduct.category),
+        selectinload(SupplyRequest.lines)
+        .joinedload(SupplyRequestLine.product)
+        .joinedload(SupplyProduct.storage_zone),
         selectinload(SupplyRequest.lines)
         .joinedload(SupplyRequestLine.product)
         .selectinload(SupplyProduct.aliases),

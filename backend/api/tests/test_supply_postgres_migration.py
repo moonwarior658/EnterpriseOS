@@ -384,6 +384,88 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             <= checks
         )
 
+    def _assert_product_card_schema_and_seed(self) -> None:
+        inspector = inspect(self.engine)
+        self.assertTrue(
+            {
+                "supply_product_categories",
+                "supply_storage_zones",
+            }
+            <= set(inspector.get_table_names())
+        )
+        product_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_products")
+        }
+        self.assertTrue(
+            {
+                "iiko_id",
+                "category_id",
+                "storage_zone_id",
+                "archived_at",
+                "archived_by_user_id",
+            }
+            <= product_columns.keys()
+        )
+        product_foreign_keys = {
+            (
+                tuple(key["constrained_columns"]),
+                key["referred_table"],
+                key["options"].get("ondelete"),
+            )
+            for key in inspector.get_foreign_keys("supply_products")
+        }
+        self.assertTrue(
+            {
+                (("category_id",), "supply_product_categories", "RESTRICT"),
+                (("storage_zone_id",), "supply_storage_zones", "RESTRICT"),
+                (("archived_by_user_id",), "users", "RESTRICT"),
+            }
+            <= product_foreign_keys
+        )
+        self.assertIn(
+            "ck_supply_products_archive_state",
+            {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints(
+                    "supply_products"
+                )
+            },
+        )
+        iiko_index = next(
+            index
+            for index in inspector.get_indexes("supply_products")
+            if index["name"] == "uq_supply_products_tenant_iiko_id"
+        )
+        self.assertTrue(iiko_index["unique"])
+        self.assertEqual(
+            iiko_index["column_names"],
+            ["tenant_id", "iiko_id"],
+        )
+        with self.engine.connect() as connection:
+            zones = connection.execute(
+                text(
+                    "SELECT code, name FROM supply_storage_zones "
+                    "WHERE tenant_id = 'eclair' ORDER BY sort_order"
+                )
+            ).all()
+            category_count = connection.scalar(
+                text("SELECT count(*) FROM supply_product_categories")
+            )
+        self.assertEqual(
+            zones,
+            [
+                ("FREEZER", "Морозильник"),
+                ("REFRIGERATOR", "Холодильник"),
+                ("DRY_STORAGE", "Сухой склад"),
+                ("PACKAGING_STORAGE", "Склад упаковки"),
+                ("HOUSEHOLD_STORAGE", "Хозсклад"),
+                ("FIXED_ASSETS", "Основные средства"),
+                ("OTHER", "Другое"),
+            ],
+        )
+        self.assertEqual(category_count, 0)
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -501,6 +583,48 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 None,
             ),
         )
+
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO supply_products
+                        (id, tenant_id, name, normalized_name,
+                         default_unit_id, is_active)
+                    VALUES
+                        ('30000000-0000-0000-0000-000000000001', 'eclair',
+                         'Миграционный товар', 'миграционный товар',
+                         'b20cf0ae-cb8e-4b06-a3ea-a38057a02a01', true)
+                    """
+                )
+            )
+
+        command.upgrade(self.alembic_config, "20260727_0010")
+        self.assertEqual(self._current_revision(), "20260727_0010")
+        self._assert_product_card_schema_and_seed()
+        with self.engine.connect() as connection:
+            migrated_product = connection.execute(
+                text(
+                    "SELECT is_active, archived_at, archived_by_user_id "
+                    "FROM supply_products WHERE id = "
+                    "'30000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+        self.assertEqual(migrated_product, (True, None, None))
+
+        command.downgrade(self.alembic_config, "20260727_0009")
+        self.assertEqual(self._current_revision(), "20260727_0009")
+        self._assert_matching_schema()
+        self.assertTrue(
+            {
+                "supply_product_categories",
+                "supply_storage_zones",
+            }.isdisjoint(inspect(self.engine).get_table_names())
+        )
+
+        command.upgrade(self.alembic_config, "20260727_0010")
+        self.assertEqual(self._current_revision(), "20260727_0010")
+        self._assert_product_card_schema_and_seed()
 
         command.downgrade(self.alembic_config, "20260727_0008")
         self.assertEqual(self._current_revision(), "20260727_0008")

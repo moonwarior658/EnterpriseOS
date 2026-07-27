@@ -15,9 +15,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.work_request import (
@@ -40,9 +42,11 @@ __all__ = [
     "Department",
     "SupplyProduct",
     "SupplyProductAlias",
+    "SupplyProductCategory",
     "SupplyRequest",
     "SupplyRequestDirection",
     "SupplyRequestLine",
+    "SupplyStorageZone",
     "SupplyUnit",
     "User",
     "WorkRequest",

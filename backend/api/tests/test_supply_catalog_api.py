@@ -21,9 +21,11 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.user import User
@@ -66,6 +68,8 @@ class SupplyCatalogApiTests(unittest.TestCase):
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
+        SupplyProductCategory.__table__.create(self.engine)
+        SupplyStorageZone.__table__.create(self.engine)
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
@@ -161,6 +165,32 @@ class SupplyCatalogApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def create_category(self, **changes) -> dict:
+        payload = {
+            "code": "DAIRY",
+            "name": "Молочная продукция",
+            "description": "Основная категория",
+            "sort_order": 10,
+        }
+        payload.update(changes)
+        response = self.client.post(
+            "/supply/product-categories",
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    def create_zone(self, **changes) -> dict:
+        payload = {
+            "code": "REFRIGERATOR",
+            "name": "Холодильник",
+            "sort_order": 20,
+        }
+        payload.update(changes)
+        response = self.client.post("/supply/storage-zones", json=payload)
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
     def request_payload(self, line: dict) -> dict:
         return {
             "department_id": str(self.department.id),
@@ -223,7 +253,6 @@ class SupplyCatalogApiTests(unittest.TestCase):
                 "name": "Молоко питьевое",
                 "default_unit_id": str(self.units["KG"].id),
                 "request_direction_id": None,
-                "is_active": False,
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
@@ -231,7 +260,12 @@ class SupplyCatalogApiTests(unittest.TestCase):
         self.assertEqual(body["name"], "Молоко питьевое")
         self.assertEqual(body["default_unit"]["code"], "KG")
         self.assertIsNone(body["request_direction"])
-        self.assertFalse(body["is_active"])
+        self.assertTrue(body["is_active"])
+        archived = self.client.post(
+            f"/supply/products/{created['id']}/archive"
+        )
+        self.assertEqual(archived.status_code, 200, archived.text)
+        self.assertFalse(archived.json()["is_active"])
         self.assertEqual(
             self.client.get(f"/supply/products/{created['id']}").status_code,
             200,
@@ -271,10 +305,7 @@ class SupplyCatalogApiTests(unittest.TestCase):
             f"/supply/products/{milk['id']}/aliases",
             json={"alias": "Молочко"},
         )
-        self.client.patch(
-            f"/supply/products/{sugar['id']}",
-            json={"is_active": False},
-        )
+        self.client.post(f"/supply/products/{sugar['id']}/archive")
 
         page = self.client.get("/supply/products?limit=1&offset=1")
         self.assertEqual(page.status_code, 200, page.text)
@@ -432,10 +463,7 @@ class SupplyCatalogApiTests(unittest.TestCase):
             )
             self.assertEqual(accepted.status_code, 201, accepted.text)
 
-        self.client.patch(
-            f"/supply/products/{product['id']}",
-            json={"is_active": False},
-        )
+        self.client.post(f"/supply/products/{product['id']}/archive")
         inactive_product = self.client.post(
             "/supply/requests",
             json=self.request_payload(
@@ -470,6 +498,244 @@ class SupplyCatalogApiTests(unittest.TestCase):
         unauthorized = self.client.get("/supply/products")
         self.assertEqual(unauthorized.status_code, 401)
 
+    def test_reference_crud_normalization_pagination_and_tenant_scope(
+        self,
+    ) -> None:
+        category = self.create_category(name="  Молочная   продукция  ")
+        zone = self.create_zone()
+        self.assertEqual(category["name"], "Молочная   продукция")
+        self.assertEqual(zone["code"], "REFRIGERATOR")
+
+        with self.session_factory() as session:
+            stored = session.get(
+                SupplyProductCategory,
+                UUID(category["id"]),
+            )
+            self.assertEqual(
+                stored.normalized_name,
+                "молочная продукция",
+            )
+
+        duplicate_name = self.client.post(
+            "/supply/product-categories",
+            json={"code": "OTHER", "name": "МОЛОЧНАЯ продукция"},
+        )
+        duplicate_code = self.client.post(
+            "/supply/storage-zones",
+            json={"code": "REFRIGERATOR", "name": "Камера"},
+        )
+        self.assertEqual(duplicate_name.status_code, 409)
+        self.assertEqual(duplicate_code.status_code, 409)
+
+        updated = self.client.patch(
+            f"/supply/product-categories/{category['id']}",
+            json={"description": "  Обновлено  ", "sort_order": 5},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["description"], "Обновлено")
+        page = self.client.get(
+            "/supply/product-categories",
+            params={"search": "молоч", "limit": 1, "offset": 0},
+        )
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertEqual(page.json()["total"], 1)
+        self.assertEqual(page.json()["items"][0]["id"], category["id"])
+
+        with self.session_factory.begin() as session:
+            foreign = SupplyProductCategory(
+                tenant_id="other",
+                code="FOREIGN",
+                name="Чужая",
+                normalized_name="чужая",
+            )
+            session.add(foreign)
+            session.flush()
+            foreign_id = foreign.id
+        self.assertEqual(
+            self.client.get(
+                f"/supply/product-categories/{foreign_id}"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/supply/product-categories/{category['id']}"
+            ).status_code,
+            405,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/supply/storage-zones/{zone['id']}"
+            ).status_code,
+            405,
+        )
+
+        self.current_user_id = 1
+        self.assertEqual(
+            self.client.get("/supply/product-categories").status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get("/supply/storage-zones").status_code,
+            403,
+        )
+        app.dependency_overrides.pop(get_current_user)
+        self.assertEqual(
+            self.client.get("/supply/product-categories").status_code,
+            401,
+        )
+
+    def test_product_card_iiko_search_and_reference_validation(self) -> None:
+        category = self.create_category()
+        zone = self.create_zone()
+        created = self.create_product(
+            iiko_id="  IIKO-MILK-001  ",
+            category_id=category["id"],
+            storage_zone_id=zone["id"],
+        )
+        self.assertEqual(created["iiko_id"], "IIKO-MILK-001")
+        self.assertEqual(created["category"]["id"], category["id"])
+        self.assertEqual(created["storage_zone"]["id"], zone["id"])
+        self.assertIsNone(created["archived_at"])
+        self.assertIsNone(created["archived_by_user_id"])
+
+        search = self.client.get(
+            "/supply/products",
+            params={"search": "MILK-00"},
+        )
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertEqual(
+            [item["id"] for item in search.json()["items"]],
+            [created["id"]],
+        )
+        duplicate = self.client.post(
+            "/supply/products",
+            json=self.product_payload(
+                name="Другой товар",
+                iiko_id="IIKO-MILK-001",
+            ),
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+        blank = self.create_product(
+            name="Товар без iiko",
+            iiko_id="   ",
+            request_direction_id=None,
+        )
+        self.assertIsNone(blank["iiko_id"])
+        cleared = self.client.patch(
+            f"/supply/products/{created['id']}",
+            json={"iiko_id": ""},
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertIsNone(cleared.json()["iiko_id"])
+
+        self.client.patch(
+            f"/supply/product-categories/{category['id']}",
+            json={"is_active": False},
+        )
+        inactive = self.client.patch(
+            f"/supply/products/{created['id']}",
+            json={"category_id": category["id"]},
+        )
+        self.assertEqual(inactive.status_code, 409)
+        missing = self.client.patch(
+            f"/supply/products/{created['id']}",
+            json={"storage_zone_id": str(uuid4())},
+        )
+        self.assertEqual(missing.status_code, 404)
+        with self.session_factory.begin() as session:
+            foreign_category = SupplyProductCategory(
+                tenant_id="other",
+                code="DAIRY",
+                name="Чужая категория",
+                normalized_name="чужая категория",
+            )
+            foreign_zone = SupplyStorageZone(
+                tenant_id="other",
+                code="REFRIGERATOR",
+                name="Чужая зона",
+                normalized_name="чужая зона",
+            )
+            session.add_all([foreign_category, foreign_zone])
+            session.flush()
+            foreign_category_id = foreign_category.id
+            foreign_zone_id = foreign_zone.id
+        self.assertEqual(
+            self.client.patch(
+                f"/supply/products/{created['id']}",
+                json={"category_id": str(foreign_category_id)},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/supply/products/{created['id']}",
+                json={"storage_zone_id": str(foreign_zone_id)},
+            ).status_code,
+            404,
+        )
+
+    def test_archive_restore_is_idempotent_and_checks_references(self) -> None:
+        category = self.create_category()
+        zone = self.create_zone()
+        product = self.create_product(
+            category_id=category["id"],
+            storage_zone_id=zone["id"],
+        )
+        alias = self.client.post(
+            f"/supply/products/{product['id']}/aliases",
+            json={"alias": "Молочко"},
+        )
+        self.assertEqual(alias.status_code, 201, alias.text)
+
+        archived = self.client.post(
+            f"/supply/products/{product['id']}/archive"
+        )
+        self.assertEqual(archived.status_code, 200, archived.text)
+        first = archived.json()
+        self.assertFalse(first["is_active"])
+        self.assertIsNotNone(first["archived_at"])
+        self.assertEqual(first["archived_by_user_id"], 2)
+        self.assertEqual(len(first["aliases"]), 1)
+        repeated = self.client.post(
+            f"/supply/products/{product['id']}/archive"
+        )
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(
+            repeated.json()["archived_at"],
+            first["archived_at"],
+        )
+
+        self.client.patch(
+            f"/supply/storage-zones/{zone['id']}",
+            json={"is_active": False},
+        )
+        blocked = self.client.post(
+            f"/supply/products/{product['id']}/restore"
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+        self.assertFalse(
+            self.client.get(
+                f"/supply/products/{product['id']}"
+            ).json()["is_active"]
+        )
+        self.client.patch(
+            f"/supply/storage-zones/{zone['id']}",
+            json={"is_active": True},
+        )
+        restored = self.client.post(
+            f"/supply/products/{product['id']}/restore"
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertTrue(restored.json()["is_active"])
+        self.assertIsNone(restored.json()["archived_at"])
+        self.assertIsNone(restored.json()["archived_by_user_id"])
+        repeated_restore = self.client.post(
+            f"/supply/products/{product['id']}/restore"
+        )
+        self.assertEqual(repeated_restore.status_code, 200)
+
     def test_validation_statuses_are_strict(self) -> None:
         self.assertEqual(
             self.client.post(
@@ -487,6 +753,13 @@ class SupplyCatalogApiTests(unittest.TestCase):
             self.client.patch(
                 f"/supply/products/{product['id']}",
                 json={"default_unit_id": None},
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/supply/products/{product['id']}",
+                json={"is_active": False},
             ).status_code,
             422,
         )
