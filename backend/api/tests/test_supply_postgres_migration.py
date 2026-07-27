@@ -10,7 +10,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import Integer, create_engine, inspect, text
+from sqlalchemy import Integer, Numeric, create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from app.core.config import settings
@@ -237,6 +237,97 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             )
         )
 
+    def _assert_catalog_schema_and_seed(self) -> None:
+        inspector = inspect(self.engine)
+        table_names = set(inspector.get_table_names())
+        self.assertTrue(
+            {
+                "supply_units",
+                "supply_products",
+                "supply_product_aliases",
+            }
+            <= table_names
+        )
+        line_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_request_lines")
+        }
+        self.assertTrue(
+            {"product_id", "requested_unit_id", "quantity"} <= line_columns.keys()
+        )
+        self.assertIsInstance(line_columns["quantity"]["type"], Numeric)
+        self.assertTrue(line_columns["product_id"]["nullable"])
+        self.assertTrue(line_columns["requested_unit_id"]["nullable"])
+        self.assertTrue(line_columns["quantity"]["nullable"])
+
+        line_foreign_keys = {
+            (
+                tuple(key["constrained_columns"]),
+                key["referred_table"],
+                tuple(key["referred_columns"]),
+                key["options"].get("ondelete"),
+            )
+            for key in inspector.get_foreign_keys("supply_request_lines")
+        }
+        self.assertIn(
+            (("product_id",), "supply_products", ("id",), "RESTRICT"),
+            line_foreign_keys,
+        )
+        self.assertIn(
+            (
+                ("requested_unit_id",),
+                "supply_units",
+                ("id",),
+                "RESTRICT",
+            ),
+            line_foreign_keys,
+        )
+        unique_constraints = {
+            constraint["name"]
+            for table_name in (
+                "supply_units",
+                "supply_products",
+                "supply_product_aliases",
+            )
+            for constraint in inspector.get_unique_constraints(table_name)
+        }
+        self.assertTrue(
+            {
+                "uq_supply_units_tenant_code",
+                "uq_supply_products_tenant_normalized_name",
+                "uq_supply_product_aliases_tenant_normalized_alias",
+            }
+            <= unique_constraints
+        )
+        check_constraints = {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints(
+                "supply_request_lines"
+            )
+        }
+        self.assertIn(
+            "ck_supply_request_lines_quantity_positive",
+            check_constraints,
+        )
+        with self.engine.connect() as connection:
+            units = connection.execute(
+                text(
+                    "SELECT code, short_name_ru, allows_fraction "
+                    "FROM supply_units WHERE tenant_id = 'eclair' "
+                    "ORDER BY code"
+                )
+            ).all()
+        self.assertEqual(
+            units,
+            [
+                ("BOX", "кор", False),
+                ("KG", "кг", True),
+                ("L", "л", True),
+                ("PACK", "уп", False),
+                ("PCS", "шт", False),
+            ],
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -272,6 +363,86 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260727_0007")
         self.assertEqual(self._current_revision(), "20260727_0007")
         self._assert_supply_schema_and_seed()
+
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO supply_requests
+                        (id, tenant_id, public_number, department_id,
+                         direction_id, status, source_type, raw_input,
+                         version, created_by_user_id)
+                    VALUES
+                        ('10000000-0000-0000-0000-000000000001', 'eclair',
+                         'ЗАЯВКА-20260727-М15-MAIN-001',
+                         'a29ac646-322f-47ab-8d31-d3d41fe1a510',
+                         '377f8383-f21d-474a-bdf9-4d08edac669b',
+                         'DRAFT', 'INTERNAL', 'Свободная строка', 1, 91001)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO supply_request_lines
+                        (id, request_id, position, raw_text)
+                    VALUES
+                        ('20000000-0000-0000-0000-000000000001',
+                         '10000000-0000-0000-0000-000000000001',
+                         1, 'Свободная строка')
+                    """
+                )
+            )
+        foundation_line_signature = self._table_signature(
+            "supply_request_lines"
+        )
+
+        command.upgrade(self.alembic_config, "20260727_0008")
+        self.assertEqual(self._current_revision(), "20260727_0008")
+        self._assert_supply_schema_and_seed()
+        self._assert_catalog_schema_and_seed()
+        with self.engine.connect() as connection:
+            legacy_line = connection.execute(
+                text(
+                    "SELECT raw_text, product_id, requested_unit_id, quantity "
+                    "FROM supply_request_lines "
+                    "WHERE id = '20000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+        self.assertEqual(
+            legacy_line,
+            ("Свободная строка", None, None, None),
+        )
+
+        command.downgrade(self.alembic_config, "20260727_0007")
+        self.assertEqual(self._current_revision(), "20260727_0007")
+        table_names = set(inspect(self.engine).get_table_names())
+        self.assertTrue(
+            {
+                "supply_units",
+                "supply_products",
+                "supply_product_aliases",
+            }.isdisjoint(table_names)
+        )
+        self.assertEqual(
+            self._table_signature("supply_request_lines"),
+            foundation_line_signature,
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    text(
+                        "SELECT raw_text FROM supply_request_lines "
+                        "WHERE id = "
+                        "'20000000-0000-0000-0000-000000000001'"
+                    )
+                ),
+                "Свободная строка",
+            )
+
+        command.upgrade(self.alembic_config, "20260727_0008")
+        self.assertEqual(self._current_revision(), "20260727_0008")
+        self._assert_catalog_schema_and_seed()
         self.assertEqual(self._table_signature("users"), users_signature)
         self.assertEqual(
             self._table_signature("work_requests"),

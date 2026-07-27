@@ -22,9 +22,12 @@ from app.db.session import get_db
 from app.main import app
 from app.models.supply import (
     Department,
+    SupplyProduct,
+    SupplyProductAlias,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyUnit,
 )
 from app.models.user import User
 from app.models.work_request import WorkRequest
@@ -67,6 +70,9 @@ class SupplyApiTests(unittest.TestCase):
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
+        SupplyUnit.__table__.create(self.engine)
+        SupplyProduct.__table__.create(self.engine)
+        SupplyProductAlias.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)

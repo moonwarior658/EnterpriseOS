@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -8,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -115,6 +117,152 @@ class SupplyRequestDirection(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class SupplyUnit(Base):
+    __tablename__ = "supply_units"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "code",
+            name="uq_supply_units_tenant_code",
+        ),
+        Index(
+            "ix_supply_units_tenant_active_code",
+            "tenant_id",
+            "is_active",
+            "code",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name_ru: Mapped[str] = mapped_column(String(120), nullable=False)
+    short_name_ru: Mapped[str] = mapped_column(String(32), nullable=False)
+    allows_fraction: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class SupplyProduct(Base):
+    __tablename__ = "supply_products"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "normalized_name",
+            name="uq_supply_products_tenant_normalized_name",
+        ),
+        Index(
+            "ix_supply_products_tenant_active_name",
+            "tenant_id",
+            "is_active",
+            "normalized_name",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(240), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    default_unit_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    request_direction_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_request_directions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    default_unit: Mapped[SupplyUnit] = relationship()
+    request_direction: Mapped[SupplyRequestDirection | None] = relationship()
+    aliases: Mapped[list["SupplyProductAlias"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SupplyProductAlias.created_at",
+    )
+
+
+class SupplyProductAlias(Base):
+    __tablename__ = "supply_product_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "normalized_alias",
+            name="uq_supply_product_aliases_tenant_normalized_alias",
+        ),
+        Index(
+            "ix_supply_product_aliases_product",
+            "product_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_products.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    alias: Mapped[str] = mapped_column(String(240), nullable=False)
+    normalized_alias: Mapped[str] = mapped_column(String(240), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    product: Mapped[SupplyProduct] = relationship(back_populates="aliases")
 
 
 class SupplyRequest(Base):
@@ -247,6 +395,18 @@ class SupplyRequestLine(Base):
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    product_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_products.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    requested_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -260,3 +420,5 @@ class SupplyRequestLine(Base):
     )
 
     request: Mapped[SupplyRequest] = relationship(back_populates="lines")
+    product: Mapped[SupplyProduct | None] = relationship()
+    requested_unit: Mapped[SupplyUnit | None] = relationship()

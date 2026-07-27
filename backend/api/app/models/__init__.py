@@ -13,9 +13,12 @@
 from app.models.user import User
 from app.models.supply import (
     Department,
+    SupplyProduct,
+    SupplyProductAlias,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyUnit,
 )
 from app.models.work_request import (
     WorkRequest,
@@ -35,9 +38,12 @@ __all__ = [
     "RuntimeComponent",
     "ScheduleAuditEventType",
     "Department",
+    "SupplyProduct",
+    "SupplyProductAlias",
     "SupplyRequest",
     "SupplyRequestDirection",
     "SupplyRequestLine",
+    "SupplyUnit",
     "User",
     "WorkRequest",
     "WorkRequestAttachment",

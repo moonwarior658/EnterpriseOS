@@ -10,9 +10,12 @@ from app.models import (
     AutomationSchedule,
     Department,
     OutboxEvent,
+    SupplyProduct,
+    SupplyProductAlias,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyUnit,
     User,
 )
 
