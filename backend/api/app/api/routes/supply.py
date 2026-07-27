@@ -13,6 +13,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyRequest,
     SupplyRequestDirection,
+    SupplyRequestLine,
     SupplyUnit,
 )
 from app.models.user import User
@@ -24,8 +25,11 @@ from app.schemas.supply import (
     SupplyProductPage,
     SupplyProductRead,
     SupplyProductUpdate,
+    SupplyLineManualMatch,
+    SupplyRecognitionSummary,
     SupplyRequestCreate,
     SupplyRequestDirectionRead,
+    SupplyRequestLineRead,
     SupplyRequestListItem,
     SupplyRequestRead,
     SupplyUnitRead,
@@ -44,6 +48,7 @@ from app.supply.service import (
     SupplyProductAliasNotFoundError,
     SupplyProductNotFoundError,
     SupplyRequestNotFoundError,
+    SupplyRequestLineNotFoundError,
     SupplyRequestStateError,
     SupplyUnitNotFoundError,
     create_supply_product,
@@ -57,6 +62,8 @@ from app.supply.service import (
     list_supply_products,
     list_supply_requests,
     list_supply_units,
+    manually_match_supply_request_line,
+    recognize_supply_request,
     submit_supply_request,
     update_supply_product,
 )
@@ -335,4 +342,68 @@ def submit_request(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Заявку можно отправить только один раз из статуса DRAFT",
+        ) from error
+
+
+@router.post(
+    "/requests/{request_id}/recognize",
+    response_model=SupplyRecognitionSummary,
+)
+def recognize_request(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    force: bool = False,
+) -> SupplyRecognitionSummary:
+    try:
+        return recognize_supply_request(db, request_id, force=force)
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Отменённую заявку нельзя распознавать",
+        ) from error
+
+
+@router.post(
+    "/requests/{request_id}/lines/{line_id}/match",
+    response_model=SupplyRequestLineRead,
+)
+def match_request_line(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineManualMatch,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequestLine:
+    try:
+        return manually_match_supply_request_line(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            payload=payload,
+            matched_by_user_id=current_admin.id,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Строки отменённой заявки нельзя изменять",
+        ) from error
+    except SupplyProductNotFoundError as error:
+        raise _product_not_found() from error
+    except SupplyUnitNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Единица измерения не найдена",
+        ) from error
+    except InactiveSupplyProductError as error:
+        raise _invalid_product_reference("Товар неактивен") from error
+    except InactiveSupplyUnitError as error:
+        raise _invalid_product_reference("Единица измерения неактивна") from error
+    except InvalidSupplyQuantityError as error:
+        raise _invalid_product_reference(
+            "Для выбранной единицы допустимо только целое количество"
         ) from error

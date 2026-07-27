@@ -328,6 +328,62 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             ],
         )
 
+    def _assert_matching_schema(self) -> None:
+        inspector = inspect(self.engine)
+        columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_request_lines")
+        }
+        self.assertTrue(
+            {
+                "parsed_name",
+                "parsed_quantity",
+                "parsed_unit_id",
+                "match_status",
+                "match_method",
+                "matched_at",
+                "matched_by_user_id",
+                "match_confidence",
+                "match_notes",
+            }
+            <= columns.keys()
+        )
+        self.assertIsInstance(columns["parsed_quantity"]["type"], Numeric)
+        self.assertIsInstance(columns["match_confidence"]["type"], Numeric)
+        self.assertFalse(columns["match_status"]["nullable"])
+        foreign_keys = {
+            (
+                tuple(key["constrained_columns"]),
+                key["referred_table"],
+                tuple(key["referred_columns"]),
+                key["options"].get("ondelete"),
+            )
+            for key in inspector.get_foreign_keys("supply_request_lines")
+        }
+        self.assertIn(
+            (("parsed_unit_id",), "supply_units", ("id",), "RESTRICT"),
+            foreign_keys,
+        )
+        self.assertIn(
+            (("matched_by_user_id",), "users", ("id",), "RESTRICT"),
+            foreign_keys,
+        )
+        checks = {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints(
+                "supply_request_lines"
+            )
+        }
+        self.assertTrue(
+            {
+                "ck_supply_request_lines_match_status",
+                "ck_supply_request_lines_match_method",
+                "ck_supply_request_lines_parsed_quantity_positive",
+                "ck_supply_request_lines_match_confidence",
+            }
+            <= checks
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -413,6 +469,60 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             legacy_line,
             ("Свободная строка", None, None, None),
         )
+        catalog_line_signature = self._table_signature(
+            "supply_request_lines"
+        )
+
+        command.upgrade(self.alembic_config, "20260727_0009")
+        self.assertEqual(self._current_revision(), "20260727_0009")
+        self._assert_matching_schema()
+        with self.engine.connect() as connection:
+            legacy_matching = connection.execute(
+                text(
+                    "SELECT raw_text, parsed_name, parsed_quantity, "
+                    "parsed_unit_id, match_status, match_method, "
+                    "matched_at, matched_by_user_id, match_confidence, "
+                    "match_notes FROM supply_request_lines "
+                    "WHERE id = '20000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+        self.assertEqual(
+            legacy_matching,
+            (
+                "Свободная строка",
+                None,
+                None,
+                None,
+                "UNPROCESSED",
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        )
+
+        command.downgrade(self.alembic_config, "20260727_0008")
+        self.assertEqual(self._current_revision(), "20260727_0008")
+        self.assertEqual(
+            self._table_signature("supply_request_lines"),
+            catalog_line_signature,
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    text(
+                        "SELECT raw_text FROM supply_request_lines "
+                        "WHERE id = "
+                        "'20000000-0000-0000-0000-000000000001'"
+                    )
+                ),
+                "Свободная строка",
+            )
+
+        command.upgrade(self.alembic_config, "20260727_0009")
+        self.assertEqual(self._current_revision(), "20260727_0009")
+        self._assert_matching_schema()
 
         command.downgrade(self.alembic_config, "20260727_0007")
         self.assertEqual(self._current_revision(), "20260727_0007")

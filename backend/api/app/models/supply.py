@@ -382,6 +382,25 @@ class SupplyRequestLine(Base):
             "length(trim(raw_text)) > 0",
             name="ck_supply_request_lines_raw_text",
         ),
+        CheckConstraint(
+            "match_status IN ('UNPROCESSED', 'PARSED', 'MATCHED', "
+            "'NEEDS_REVIEW', 'REJECTED')",
+            name="ck_supply_request_lines_match_status",
+        ),
+        CheckConstraint(
+            "match_method IS NULL OR match_method IN "
+            "('EXACT_PRODUCT', 'EXACT_ALIAS', 'MANUAL')",
+            name="ck_supply_request_lines_match_method",
+        ),
+        CheckConstraint(
+            "parsed_quantity IS NULL OR parsed_quantity > 0",
+            name="ck_supply_request_lines_parsed_quantity_positive",
+        ),
+        CheckConstraint(
+            "match_confidence IS NULL OR "
+            "(match_confidence >= 0 AND match_confidence <= 1)",
+            name="ck_supply_request_lines_match_confidence",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -395,6 +414,15 @@ class SupplyRequestLine(Base):
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3),
+        nullable=True,
+    )
+    parsed_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     product_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("supply_products.id", ondelete="RESTRICT"),
         nullable=True,
@@ -407,6 +435,29 @@ class SupplyRequestLine(Base):
         Numeric(18, 3),
         nullable=True,
     )
+    match_status: Mapped[str] = mapped_column(
+        String(24),
+        default="UNPROCESSED",
+        server_default="UNPROCESSED",
+        nullable=False,
+    )
+    match_method: Mapped[str | None] = mapped_column(
+        String(24),
+        nullable=True,
+    )
+    matched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    matched_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    match_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4),
+        nullable=True,
+    )
+    match_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -420,5 +471,10 @@ class SupplyRequestLine(Base):
     )
 
     request: Mapped[SupplyRequest] = relationship(back_populates="lines")
+    parsed_unit: Mapped[SupplyUnit | None] = relationship(
+        foreign_keys=[parsed_unit_id]
+    )
     product: Mapped[SupplyProduct | None] = relationship()
-    requested_unit: Mapped[SupplyUnit | None] = relationship()
+    requested_unit: Mapped[SupplyUnit | None] = relationship(
+        foreign_keys=[requested_unit_id]
+    )

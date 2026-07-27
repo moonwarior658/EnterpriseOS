@@ -23,6 +23,26 @@ class SupplyRequestSourceType(StrEnum):
     WORK_REQUEST_MANUAL = "WORK_REQUEST_MANUAL"
 
 
+class SupplyLineMatchStatus(StrEnum):
+    UNPROCESSED = "UNPROCESSED"
+    PARSED = "PARSED"
+    MATCHED = "MATCHED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    REJECTED = "REJECTED"
+
+
+class SupplyLineMatchMethod(StrEnum):
+    EXACT_PRODUCT = "EXACT_PRODUCT"
+    EXACT_ALIAS = "EXACT_ALIAS"
+    MANUAL = "MANUAL"
+
+
+class SupplyLineMatchAction(StrEnum):
+    MATCH = "MATCH"
+    REJECT = "REJECT"
+    RESET = "RESET"
+
+
 class DepartmentRead(BaseModel):
     id: UUID
     code: str
@@ -193,13 +213,70 @@ class SupplyRequestLineRead(BaseModel):
     id: UUID
     position: int
     raw_text: str
+    parsed_name: str | None
+    parsed_quantity: Decimal | None
+    parsed_unit: SupplyUnitRead | None
+    product: SupplyProductRead | None
+    requested_unit: SupplyUnitRead | None
     product_id: UUID | None
     requested_unit_id: UUID | None
     quantity: Decimal | None
+    match_status: SupplyLineMatchStatus
+    match_method: SupplyLineMatchMethod | None
+    match_confidence: Decimal | None
+    matched_at: datetime | None
+    matched_by_user_id: int | None
+    match_notes: str | None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyLineManualMatch(BaseModel):
+    product_id: UUID | None = None
+    unit_id: UUID | None = None
+    quantity: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=18,
+        decimal_places=3,
+    )
+    action: SupplyLineMatchAction
+    notes: str | None = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_action_fields(self):
+        references = (self.product_id, self.unit_id, self.quantity)
+        if self.action == SupplyLineMatchAction.MATCH:
+            if any(value is None for value in references):
+                raise ValueError(
+                    "Для MATCH обязательны товар, единица и количество"
+                )
+        elif any(value is not None for value in references):
+            raise ValueError(
+                "Для REJECT и RESET товар, единица и количество не передаются"
+            )
+        return self
+
+
+class SupplyRecognitionResult(BaseModel):
+    line_id: UUID
+    position: int
+    match_status: SupplyLineMatchStatus
+    match_method: SupplyLineMatchMethod | None
+    skipped: bool = False
+
+
+class SupplyRecognitionSummary(BaseModel):
+    total: int
+    matched: int
+    needs_review: int
+    rejected: int
+    skipped: int
+    results: list[SupplyRecognitionResult]
 
 
 class SupplyRequestCreate(BaseModel):

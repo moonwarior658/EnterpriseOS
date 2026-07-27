@@ -18,18 +18,27 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.schemas.supply import (
+    SupplyLineManualMatch,
+    SupplyLineMatchAction,
     SupplyProductAliasCreate,
     SupplyProductCreate,
     SupplyProductUpdate,
+    SupplyRecognitionResult,
+    SupplyRecognitionSummary,
     SupplyRequestCreate,
 )
 from app.supply.normalization import normalize_product_text
+from app.supply.parser import parse_supply_line
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
 
 
 class SupplyRequestNotFoundError(LookupError):
+    pass
+
+
+class SupplyRequestLineNotFoundError(LookupError):
     pass
 
 
@@ -385,7 +394,21 @@ def _request_options():
     return (
         joinedload(SupplyRequest.department),
         joinedload(SupplyRequest.direction),
-        selectinload(SupplyRequest.lines),
+        selectinload(SupplyRequest.lines).joinedload(
+            SupplyRequestLine.parsed_unit
+        ),
+        selectinload(SupplyRequest.lines).joinedload(
+            SupplyRequestLine.requested_unit
+        ),
+        selectinload(SupplyRequest.lines)
+        .joinedload(SupplyRequestLine.product)
+        .joinedload(SupplyProduct.default_unit),
+        selectinload(SupplyRequest.lines)
+        .joinedload(SupplyRequestLine.product)
+        .joinedload(SupplyProduct.request_direction),
+        selectinload(SupplyRequest.lines)
+        .joinedload(SupplyRequestLine.product)
+        .selectinload(SupplyProduct.aliases),
     )
 
 
@@ -592,3 +615,254 @@ def submit_supply_request(
         raise
 
     return get_supply_request(session, request_id)
+
+
+def _get_supply_request_for_update(
+    session: Session,
+    request_id: UUID,
+) -> SupplyRequest:
+    supply_request = session.scalar(
+        select(SupplyRequest)
+        .where(
+            SupplyRequest.id == request_id,
+            SupplyRequest.tenant_id == settings.default_tenant_id,
+        )
+        .with_for_update()
+    )
+    if supply_request is None:
+        raise SupplyRequestNotFoundError
+    if supply_request.status == "CANCELLED":
+        raise SupplyRequestStateError
+    return supply_request
+
+
+def _get_request_line_for_update(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+) -> tuple[SupplyRequest, SupplyRequestLine]:
+    supply_request = _get_supply_request_for_update(session, request_id)
+    line = session.scalar(
+        select(SupplyRequestLine)
+        .where(
+            SupplyRequestLine.id == line_id,
+            SupplyRequestLine.request_id == supply_request.id,
+        )
+        .with_for_update()
+    )
+    if line is None:
+        raise SupplyRequestLineNotFoundError
+    return supply_request, line
+
+
+def _clear_confirmed_match(line: SupplyRequestLine) -> None:
+    line.product_id = None
+    line.requested_unit_id = None
+    line.quantity = None
+    line.match_method = None
+    line.match_confidence = None
+    line.matched_at = None
+    line.matched_by_user_id = None
+    line.match_notes = None
+
+
+def _find_exact_product(
+    session: Session,
+    normalized_name: str,
+) -> tuple[SupplyProduct | None, str | None]:
+    product = session.scalar(
+        select(SupplyProduct).where(
+            SupplyProduct.tenant_id == settings.default_tenant_id,
+            SupplyProduct.is_active.is_(True),
+            SupplyProduct.normalized_name == normalized_name,
+        )
+    )
+    if product is not None:
+        return product, "EXACT_PRODUCT"
+
+    products = list(
+        session.scalars(
+            select(SupplyProduct)
+            .join(
+                SupplyProductAlias,
+                SupplyProductAlias.product_id == SupplyProduct.id,
+            )
+            .where(
+                SupplyProduct.tenant_id == settings.default_tenant_id,
+                SupplyProduct.is_active.is_(True),
+                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.normalized_alias == normalized_name,
+            )
+            .limit(2)
+        ).all()
+    )
+    if len(products) == 1:
+        return products[0], "EXACT_ALIAS"
+    return None, None
+
+
+def _recognize_line(
+    session: Session,
+    line: SupplyRequestLine,
+    *,
+    now: datetime,
+) -> None:
+    parsed = parse_supply_line(line.raw_text)
+    _clear_confirmed_match(line)
+    if parsed is None:
+        line.parsed_name = None
+        line.parsed_quantity = None
+        line.parsed_unit_id = None
+        line.match_status = "NEEDS_REVIEW"
+        return
+
+    line.parsed_name = parsed.name
+    line.parsed_quantity = parsed.quantity
+    unit = session.scalar(
+        select(SupplyUnit).where(
+            SupplyUnit.tenant_id == settings.default_tenant_id,
+            SupplyUnit.code == parsed.unit_code,
+            SupplyUnit.is_active.is_(True),
+        )
+    )
+    if unit is None:
+        line.parsed_unit_id = None
+        line.match_status = "NEEDS_REVIEW"
+        return
+
+    line.parsed_unit_id = unit.id
+    product, method = _find_exact_product(
+        session,
+        normalize_product_text(parsed.name),
+    )
+    if product is None or method is None:
+        line.match_status = "NEEDS_REVIEW"
+        return
+
+    line.product_id = product.id
+    line.requested_unit_id = unit.id
+    line.quantity = parsed.quantity
+    line.match_status = "MATCHED"
+    line.match_method = method
+    line.match_confidence = Decimal("1.0000")
+    line.matched_at = now
+
+
+def recognize_supply_request(
+    session: Session,
+    request_id: UUID,
+    *,
+    force: bool = False,
+) -> SupplyRecognitionSummary:
+    supply_request = _get_supply_request_for_update(session, request_id)
+    lines = list(
+        session.scalars(
+            select(SupplyRequestLine)
+            .where(SupplyRequestLine.request_id == supply_request.id)
+            .order_by(SupplyRequestLine.position.asc())
+            .with_for_update()
+        ).all()
+    )
+    now = datetime.now(timezone.utc)
+    results: list[SupplyRecognitionResult] = []
+    changed = False
+    for line in lines:
+        skipped = not force and line.match_method == "MANUAL"
+        if not skipped:
+            _recognize_line(session, line, now=now)
+            changed = True
+        results.append(
+            SupplyRecognitionResult(
+                line_id=line.id,
+                position=line.position,
+                match_status=line.match_status,
+                match_method=line.match_method,
+                skipped=skipped,
+            )
+        )
+
+    if changed:
+        supply_request.version += 1
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return SupplyRecognitionSummary(
+        total=len(results),
+        matched=sum(
+            not result.skipped and result.match_status == "MATCHED"
+            for result in results
+        ),
+        needs_review=sum(
+            not result.skipped and result.match_status == "NEEDS_REVIEW"
+            for result in results
+        ),
+        rejected=sum(
+            not result.skipped and result.match_status == "REJECTED"
+            for result in results
+        ),
+        skipped=sum(result.skipped for result in results),
+        results=results,
+    )
+
+
+def manually_match_supply_request_line(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineManualMatch,
+    matched_by_user_id: int,
+) -> SupplyRequestLine:
+    supply_request, line = _get_request_line_for_update(
+        session,
+        request_id=request_id,
+        line_id=line_id,
+    )
+    now = datetime.now(timezone.utc)
+
+    if payload.action == SupplyLineMatchAction.MATCH:
+        product = get_supply_product(
+            session,
+            payload.product_id,
+            require_active=True,
+        )
+        unit = _get_supply_unit(session, payload.unit_id)
+        validate_quantity_for_unit(payload.quantity, unit)
+        line.product_id = product.id
+        line.requested_unit_id = unit.id
+        line.quantity = payload.quantity
+        line.match_status = "MATCHED"
+        line.match_method = "MANUAL"
+        line.match_confidence = Decimal("1.0000")
+        line.matched_at = now
+        line.matched_by_user_id = matched_by_user_id
+        line.match_notes = payload.notes
+    elif payload.action == SupplyLineMatchAction.REJECT:
+        _clear_confirmed_match(line)
+        line.match_status = "REJECTED"
+        line.match_method = "MANUAL"
+        line.matched_at = now
+        line.matched_by_user_id = matched_by_user_id
+        line.match_notes = payload.notes
+    else:
+        _clear_confirmed_match(line)
+        line.match_status = "UNPROCESSED"
+
+    supply_request.version += 1
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    refreshed_request = get_supply_request(session, request_id)
+    return next(
+        request_line
+        for request_line in refreshed_request.lines
+        if request_line.id == line_id
+    )
