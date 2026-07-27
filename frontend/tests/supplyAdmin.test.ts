@@ -49,6 +49,26 @@ test('карточка поддерживает факт, долги и readonly
   assert.match(debts, /История/)
 })
 
+test('несопоставленная позиция остаётся рабочей для плана и факта', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const registry = readFileSync(
+    new URL('../src/pages/SupplyRequestListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const debts = readFileSync(
+    new URL('../src/pages/SupplyDebtListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(detail, /Позиция не сопоставлена/)
+  assert.match(detail, /Планирование и факт доступны по исходному наименованию/)
+  assert.match(detail, /'MATCHED', 'NEEDS_REVIEW'/)
+  assert.match(registry, /Не сопоставлено:/)
+  assert.match(debts, /debt\.working_name/)
+})
+
 test('editable state сопоставления изолирован по двум line.id', () => {
   const detail = readFileSync(
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),

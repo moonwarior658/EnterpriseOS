@@ -288,6 +288,9 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(unknown["parsed_unit"]["code"], "PACK")
         self.assertIsNone(unknown["product"])
         self.assertEqual(unknown["match_status"], "NEEDS_REVIEW")
+        self.assertEqual(Decimal(unknown["quantity"]), Decimal("3"))
+        self.assertEqual(unknown["requested_unit"]["code"], "PACK")
+        self.assertEqual(unknown["working_name"], "Неизвестно")
         self.assertIsNone(invalid["parsed_name"])
         self.assertIsNone(invalid["parsed_quantity"])
         self.assertIsNone(invalid["parsed_unit"])
@@ -707,11 +710,10 @@ class SupplyMatchingApiTests(unittest.TestCase):
             f"/supply/requests/{created['id']}/lines/{unknown_line['id']}/allocations",
             json={"expected_version": submitted["version"], "allocations": []},
         )
-        self.assertEqual(unmatched.status_code, 409)
-        self.assertEqual(unmatched.json()["detail"]["code"], "SUPPLY_LINE_NOT_MATCHED")
+        self.assertEqual(unmatched.status_code, 200, unmatched.text)
 
         partial = self.client.put(base, json={
-            "expected_version": submitted["version"],
+            "expected_version": unmatched.json()["version"],
             "allocations": [{
                 "action": "PURCHASE", "planned_quantity": "6",
                 "unit_id": str(self.units["L"].id),
@@ -739,6 +741,115 @@ class SupplyMatchingApiTests(unittest.TestCase):
             blocked_plan.json()["detail"]["code"],
             "SUPPLY_REQUEST_PLANNING_INCOMPLETE",
         )
+
+    def test_unmatched_line_can_be_planned_fulfilled_indebted_and_late_matched(
+        self,
+    ) -> None:
+        created = self.create_request("Редкий ингредиент 10 кг")
+        recognized = self.recognize(created["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        line = detail["lines"][0]
+        self.assertEqual(line["match_status"], "NEEDS_REVIEW")
+        self.assertIsNone(line["product_id"])
+        self.assertEqual(line["working_name"], "Редкий ингредиент")
+        self.assertEqual(Decimal(line["quantity"]), Decimal("10"))
+        self.assertEqual(line["requested_unit"]["code"], "KG")
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+
+        allocated = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/allocations",
+            json={
+                "expected_version": submitted["version"],
+                "allocations": [
+                    {
+                        "action": "TRANSFER",
+                        "planned_quantity": "6",
+                        "unit_id": str(self.units["KG"].id),
+                    },
+                    {
+                        "action": "PURCHASE",
+                        "planned_quantity": "3",
+                        "unit_id": str(self.units["KG"].id),
+                    },
+                    {
+                        "action": "CANCEL",
+                        "planned_quantity": "1",
+                        "unit_id": str(self.units["KG"].id),
+                    },
+                ],
+            },
+        )
+        self.assertEqual(allocated.status_code, 200, allocated.text)
+        self.assertTrue(allocated.json()["can_plan"])
+        planned = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={"expected_version": allocated.json()["version"]},
+        )
+        self.assertEqual(planned.status_code, 200, planned.text)
+        planned_line = planned.json()["lines"][0]
+        physical = {
+            item["action"]: item["id"]
+            for item in planned_line["allocations"]
+            if item["action"] != "CANCEL"
+        }
+
+        fulfilled = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/fulfillment",
+            json={
+                "expected_version": planned.json()["version"],
+                "items": [
+                    {
+                        "allocation_id": physical["TRANSFER"],
+                        "fulfilled_quantity": "4",
+                        "comment": "частичная отправка",
+                    },
+                    {
+                        "allocation_id": physical["PURCHASE"],
+                        "fulfilled_quantity": "1",
+                        "comment": "частичная закупка",
+                    },
+                ],
+            },
+        )
+        self.assertEqual(fulfilled.status_code, 200, fulfilled.text)
+        fulfilled_body = fulfilled.json()
+        fulfilled_line = fulfilled_body["lines"][0]
+        self.assertEqual(fulfilled_body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(Decimal(fulfilled_line["fulfilled_total"]), Decimal("5"))
+        self.assertEqual(Decimal(fulfilled_line["unresolved_quantity"]), Decimal("4"))
+        debt_id = fulfilled_line["active_debt_id"]
+        self.assertIsNotNone(debt_id)
+        debt = self.client.get(f"/supply/debts/{debt_id}").json()
+        self.assertIsNone(debt["product"])
+        self.assertEqual(debt["working_name"], "Редкий ингредиент")
+        self.assertEqual(Decimal(debt["outstanding_quantity"]), Decimal("4"))
+        self.assertEqual([event["event_type"] for event in debt["events"]], ["CREATED"])
+
+        late_match = self.match(
+            created["id"],
+            line["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["KG"].id),
+                "quantity": "10",
+                "save_alias": False,
+            },
+        )
+        self.assertEqual(late_match.status_code, 200, late_match.text)
+        final = self.client.get(f"/supply/requests/{created['id']}").json()
+        final_line = final["lines"][0]
+        self.assertEqual(final_line["product_id"], str(self.milk.id))
+        self.assertEqual(final_line["planned_total"], "10.000")
+        self.assertEqual(final_line["fulfilled_total"], "5.000")
+        self.assertEqual(final_line["active_debt_id"], debt_id)
+        preserved_debt = self.client.get(f"/supply/debts/{debt_id}").json()
+        self.assertEqual(preserved_debt["working_name"], "Редкий ингредиент")
+        self.assertEqual(len(preserved_debt["events"]), 1)
 
     def test_registry_filters_summary_pagination_and_stable_status_order(self) -> None:
         submitted = self.create_request("неизвестная позиция 2 кг")

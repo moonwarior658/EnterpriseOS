@@ -463,6 +463,7 @@ class SupplyRequestLineRead(BaseModel):
     id: UUID
     position: int
     raw_text: str
+    working_name: str
     parsed_name: str | None
     parsed_quantity: Decimal | None
     parsed_unit: SupplyUnitRead | None
@@ -802,7 +803,8 @@ class SupplyDebtEventRead(BaseModel):
 class SupplyDebtRead(BaseModel):
     id: UUID
     department: DepartmentRead
-    product: SupplyProductRead
+    product: SupplyProductRead | None
+    working_name: str
     unit: SupplyUnitRead
     outstanding_quantity: Decimal
     original_quantity: Decimal

@@ -1920,6 +1920,8 @@ def _recognize_line(
         return
 
     line.parsed_unit_id = unit.id
+    line.requested_unit_id = unit.id
+    line.quantity = parsed.quantity
     product, method = _find_exact_product(
         session,
         normalize_product_text(parsed.name),
@@ -2017,9 +2019,12 @@ def manually_match_supply_request_line(
         line_id=line_id,
         expected_version=payload.expected_version,
     )
-    if supply_request.status == "PLANNED":
-        raise SupplyRequestAlreadyPlannedError
-    if supply_request.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
+    editable_statuses = {"DRAFT", "SUBMITTED", "IN_REVIEW"}
+    late_match_statuses = {"PLANNED", "PARTIALLY_FULFILLED", "FULFILLED"}
+    if supply_request.status not in editable_statuses | late_match_statuses:
+        raise SupplyRequestStateError
+    late_match = supply_request.status in late_match_statuses
+    if late_match and payload.action != SupplyLineMatchAction.MATCH:
         raise SupplyRequestStateError
     now = datetime.now(timezone.utc)
 
@@ -2031,6 +2036,12 @@ def manually_match_supply_request_line(
         )
         unit = _get_supply_unit(session, payload.unit_id)
         validate_quantity_for_unit(payload.quantity, unit)
+        if late_match and (
+            line.product_id is not None
+            or line.requested_unit_id != unit.id
+            or line.quantity != payload.quantity
+        ):
+            raise SupplyRequestStateError
         line.product_id = product.id
         line.requested_unit_id = unit.id
         line.quantity = payload.quantity
@@ -2108,7 +2119,15 @@ def replace_supply_line_allocations(
         raise SupplyRequestAlreadyPlannedError
     if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
         raise SupplyRequestStateError
-    if line.match_status != "MATCHED" or line.quantity is None:
+    operational_unmatched = (
+        line.match_status == "NEEDS_REVIEW"
+        and line.product_id is None
+        and line.quantity is not None
+        and line.requested_unit_id is not None
+    )
+    if (
+        line.match_status != "MATCHED" and not operational_unmatched
+    ) or line.quantity is None:
         raise SupplyLineNotMatchedError
     if line.duplicate_status in {"SUSPECTED", "CONFIRMED"}:
         raise SupplyRequestDuplicatesPresentError(
@@ -2165,8 +2184,11 @@ def plan_supply_request(
     if supply_request.status != "IN_REVIEW":
         raise SupplyRequestStateError
     refreshed = get_supply_request(session, request_id)
-    if refreshed.lines_needs_review or any(
-        line.match_status != "MATCHED" for line in refreshed.lines
+    if any(
+        line.match_status not in {"MATCHED", "NEEDS_REVIEW"}
+        or line.quantity is None
+        or line.requested_unit_id is None
+        for line in refreshed.lines
     ):
         raise SupplyRequestPlanningIncompleteError
     blocking = [
@@ -2224,8 +2246,19 @@ def _active_debt_for_line(
     supply_request: SupplyRequest,
     line: SupplyRequestLine,
 ) -> SupplyDepartmentDebt | None:
-    if line.product_id is None or line.requested_unit_id is None:
+    if line.requested_unit_id is None:
         return None
+    if line.product_id is None:
+        return session.scalar(
+            select(SupplyDepartmentDebt)
+            .where(
+                SupplyDepartmentDebt.tenant_id == settings.default_tenant_id,
+                SupplyDepartmentDebt.first_request_line_id == line.id,
+                SupplyDepartmentDebt.product_id.is_(None),
+                SupplyDepartmentDebt.status == "ACTIVE",
+            )
+            .with_for_update()
+        )
     return session.scalar(
         select(SupplyDepartmentDebt)
         .where(
@@ -2430,6 +2463,7 @@ def _apply_debt_for_line(
                 tenant_id=settings.default_tenant_id,
                 department_id=supply_request.department_id,
                 product_id=line.product_id,
+                working_name=line.working_name,
                 unit_id=line.requested_unit_id,
                 outstanding_quantity=contribution,
                 original_quantity=contribution,

@@ -181,7 +181,7 @@ function SupplyDebtListPage() {
                 key={debt.id}
                 onClick={() => setSelected(debt)}
               >
-                <strong>{debt.department.name} · {debt.product.name}</strong>
+                <strong>{debt.department.name} · {debt.working_name}</strong>
                 <span>{debt.outstanding_quantity} {debt.unit.short_name_ru}</span>
                 <span>{SEVERITY_LABELS[debt.severity]}</span>
                 <span>{formatDate(debt.opened_at)}</span>
@@ -195,7 +195,7 @@ function SupplyDebtListPage() {
             <header>
               <div>
                 <p className="eyebrow">{SEVERITY_LABELS[selected.severity]}</p>
-                <h2>{selected.department.name} · {selected.product.name}</h2>
+                <h2>{selected.department.name} · {selected.working_name}</h2>
               </div>
               <button type="button" onClick={() => setSelected(null)}>Закрыть карточку</button>
             </header>

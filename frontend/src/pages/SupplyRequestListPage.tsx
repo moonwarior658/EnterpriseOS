@@ -150,7 +150,7 @@ function SupplyRequestListPage() {
                 <span>{formatDate(item.submitted_at ?? item.created_at)}</span>
                 <span>Позиций: {item.lines_total}</span>
                 <span>Сопоставлено: {item.lines_matched}</span>
-                <span>Разобрать: {item.lines_needs_review}</span>
+                <span>Не сопоставлено: {item.lines_needs_review}</span>
                 <span>Дубли: {item.duplicate_groups}</span>
                 <span>{statusLabel(item.status)} · v{item.version}</span>
               </Link>

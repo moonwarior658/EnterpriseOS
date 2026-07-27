@@ -35,10 +35,12 @@ export type SupplyLine = {
   id: string
   position: number
   raw_text: string
+  working_name: string
   parsed_name: string | null
   parsed_quantity: string | null
   parsed_unit: SupplyUnit | null
   product: SupplyProduct | null
+  product_id: string | null
   requested_unit: SupplyUnit | null
   quantity: string | null
   match_status: string
@@ -111,7 +113,8 @@ export type SupplyDebtEvent = {
 export type SupplyDebt = {
   id: string
   department: SupplyReference
-  product: SupplyProduct
+  product: SupplyProduct | null
+  working_name: string
   unit: SupplyUnit
   outstanding_quantity: string
   original_quantity: string

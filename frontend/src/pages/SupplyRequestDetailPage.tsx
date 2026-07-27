@@ -448,14 +448,20 @@ function SupplyRequestDetailPage() {
               <article className="supply-line-card" key={line.id}>
                 <header>
                   <div>
-                    <strong>{line.product?.name ?? line.parsed_name ?? 'Неизвестная позиция'}</strong>
+                    <strong>{line.working_name}</strong>
                     <span>{line.quantity ?? line.parsed_quantity ?? '—'} {line.requested_unit?.short_name_ru ?? line.parsed_unit?.short_name_ru ?? ''}</span>
                   </div>
-                  <small>{line.match_status} · {line.match_method ?? 'без источника'} · дубли: {line.duplicate_status}</small>
+                  <small>
+                    {line.product_id ? 'Позиция сопоставлена' : 'Позиция не сопоставлена'}
+                    {' · '}дубли: {line.duplicate_status}
+                  </small>
                 </header>
                 <details><summary>Исходная строка</summary><p>{line.raw_text}</p></details>
                 {line.match_status === 'NEEDS_REVIEW' && (
                   <div className="supply-mapping">
+                    <p className="request-message request-message-warning">
+                      Позиция не сопоставлена. Планирование и факт доступны по исходному наименованию.
+                    </p>
                     <p>Разбор: {line.parsed_name ?? 'название не распознано'} · {line.parsed_quantity ?? '—'} {line.parsed_unit?.short_name_ru ?? 'единица не распознана'}</p>
                     <label><span>Поиск товара</span><input value={draft.searchQuery} onChange={(event) => updateDraft({ searchQuery: event.target.value, error: '', status: 'idle' })} /></label>
                     <label><span>Активный товар</span>
@@ -463,7 +469,9 @@ function SupplyRequestDetailPage() {
                         const product = products.find((item) => item.id === event.target.value)
                         updateDraft({
                           productId: event.target.value,
-                          unitId: product?.default_unit.id ?? draft.unitId,
+                          unitId: line.requested_unit?.id
+                            ?? product?.default_unit.id
+                            ?? draft.unitId,
                           error: '',
                           status: 'idle',
                         })
@@ -492,7 +500,9 @@ function SupplyRequestDetailPage() {
                     )}
                   </div>
                 )}
-                {line.match_status === 'MATCHED' && (
+                {line.quantity && line.requested_unit
+                  && ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)
+                  && ['SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
                   <AllocationEditor request={request} line={line} onSaved={setRequest} />
                 )}
                 {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (

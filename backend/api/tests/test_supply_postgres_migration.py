@@ -642,6 +642,17 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             ["tenant_id", "department_id", "product_id", "unit_id"],
         )
 
+    def _assert_unmatched_operations_schema(self) -> None:
+        columns = {
+            column["name"]: column
+            for column in inspect(self.engine).get_columns(
+                "supply_department_debts"
+            )
+        }
+        self.assertIn("working_name", columns)
+        self.assertFalse(columns["working_name"]["nullable"])
+        self.assertTrue(columns["product_id"]["nullable"])
+
     def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -862,6 +873,23 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         self.assertEqual(self._current_revision(), "20260727_0014")
         self._assert_fulfillment_debt_schema()
 
+        command.upgrade(self.alembic_config, "20260727_0015")
+        self.assertEqual(self._current_revision(), "20260727_0015")
+        self._assert_unmatched_operations_schema()
+        command.downgrade(self.alembic_config, "20260727_0014")
+        self.assertEqual(self._current_revision(), "20260727_0014")
+        debt_columns = {
+            column["name"]: column
+            for column in inspect(self.engine).get_columns(
+                "supply_department_debts"
+            )
+        }
+        self.assertNotIn("working_name", debt_columns)
+        self.assertFalse(debt_columns["product_id"]["nullable"])
+        command.upgrade(self.alembic_config, "20260727_0015")
+        self.assertEqual(self._current_revision(), "20260727_0015")
+        self._assert_unmatched_operations_schema()
+
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")
         self.assertNotIn(
@@ -998,7 +1026,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260727_0014")
+        self.assertEqual(self._current_revision(), "20260727_0015")
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"

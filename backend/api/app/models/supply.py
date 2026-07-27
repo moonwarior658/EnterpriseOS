@@ -710,7 +710,6 @@ class SupplyRequest(Base):
     def can_plan(self) -> bool:
         return (
             self.status == "IN_REVIEW"
-            and self.lines_needs_review == 0
             and self.duplicate_groups == 0
             and bool(self.lines)
             and self.planning_complete_lines == len(self.lines)
@@ -966,6 +965,10 @@ class SupplyRequestLine(Base):
     def planning_status(self) -> str:
         return "COMPLETE" if self.quantity is not None and self.unallocated_quantity == 0 else "INCOMPLETE"
 
+    @property
+    def working_name(self) -> str:
+        return self.product.name if self.product else (self.parsed_name or self.raw_text)
+
 
 class SupplyLineAllocation(Base):
     __tablename__ = "supply_line_allocations"
@@ -1065,9 +1068,10 @@ class SupplyDepartmentDebt(Base):
     department_id: Mapped[UUID] = mapped_column(
         ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False
     )
-    product_id: Mapped[UUID] = mapped_column(
-        ForeignKey("supply_products.id", ondelete="RESTRICT"), nullable=False
+    product_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_products.id", ondelete="RESTRICT"), nullable=True
     )
+    working_name: Mapped[str] = mapped_column(Text, nullable=False)
     unit_id: Mapped[UUID] = mapped_column(
         ForeignKey("supply_units.id", ondelete="RESTRICT"), nullable=False
     )
@@ -1112,7 +1116,7 @@ class SupplyDepartmentDebt(Base):
     )
 
     department: Mapped[Department] = relationship()
-    product: Mapped[SupplyProduct] = relationship()
+    product: Mapped[SupplyProduct | None] = relationship()
     unit: Mapped[SupplyUnit] = relationship()
     first_request: Mapped[SupplyRequest] = relationship(foreign_keys=[first_request_id])
     latest_request: Mapped[SupplyRequest] = relationship(foreign_keys=[latest_request_id])
