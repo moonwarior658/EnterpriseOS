@@ -45,6 +45,7 @@ UNIT_DATA = (
     ("PCS", "штука", "шт", False),
     ("PACK", "упаковка", "уп", False),
     ("BOX", "коробка", "кор", False),
+    ("ROLL", "рулон", "рул", False),
 )
 
 
@@ -850,6 +851,133 @@ class SupplyMatchingApiTests(unittest.TestCase):
         preserved_debt = self.client.get(f"/supply/debts/{debt_id}").json()
         self.assertEqual(preserved_debt["working_name"], "Редкий ингредиент")
         self.assertEqual(len(preserved_debt["events"]), 1)
+
+    def test_admin_corrects_unparsed_line_for_unmatched_planning(self) -> None:
+        raw_text = "мусорные пакеты 30л 3 рулона"
+        created = self.create_request(raw_text)
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        line = detail["lines"][0]
+        self.assertIsNone(line["quantity"])
+        self.assertIsNone(line["requested_unit"])
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        endpoint = (
+            f"/supply/requests/{created['id']}/lines/{line['id']}"
+            "/working-values"
+        )
+        payload = {
+            "request_version": submitted["version"],
+            "working_name": "  Мусорные пакеты 30 л  ",
+            "requested_quantity": "3",
+            "requested_unit_id": str(self.units["ROLL"].id),
+        }
+
+        self.current_user_id = 1
+        self.assertEqual(
+            self.client.patch(endpoint, json=payload).status_code,
+            403,
+        )
+        self.current_user_id = 2
+
+        missing_unit = self.client.patch(
+            endpoint,
+            json={**payload, "requested_unit_id": str(uuid4())},
+        )
+        self.assertEqual(missing_unit.status_code, 404)
+        with self.session_factory.begin() as session:
+            inactive_unit = SupplyUnit(
+                tenant_id="eclair",
+                code="INACTIVE_ROLL",
+                name_ru="неактивный рулон",
+                short_name_ru="нерул",
+                allows_fraction=False,
+                is_active=False,
+            )
+            session.add(inactive_unit)
+            session.flush()
+            inactive_unit_id = inactive_unit.id
+        inactive = self.client.patch(
+            endpoint,
+            json={**payload, "requested_unit_id": str(inactive_unit_id)},
+        )
+        self.assertEqual(inactive.status_code, 422)
+        self.assertEqual(
+            inactive.json()["detail"]["code"],
+            "SUPPLY_UNIT_INACTIVE",
+        )
+
+        with self.assertLogs("app.supply.service", level="INFO") as audit:
+            corrected = self.client.patch(endpoint, json=payload)
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        self.assertIn("actor_user_id=2", audit.output[0])
+        self.assertIn("changed_at=", audit.output[0])
+        self.assertIn(
+            "'working_name': 'мусорные пакеты 30л 3 рулона'",
+            audit.output[0],
+        )
+        self.assertIn(
+            "'working_name': 'Мусорные пакеты 30 л'",
+            audit.output[0],
+        )
+        body = corrected.json()
+        self.assertEqual(
+            body["request_version"],
+            submitted["version"] + 1,
+        )
+        self.assertEqual(body["line"]["raw_text"], raw_text)
+        self.assertEqual(body["line"]["working_name"], "Мусорные пакеты 30 л")
+        self.assertEqual(Decimal(body["line"]["quantity"]), Decimal("3"))
+        self.assertEqual(body["line"]["requested_unit"]["code"], "ROLL")
+        self.assertIsNone(body["line"]["product_id"])
+        self.assertEqual(body["line"]["match_status"], "NEEDS_REVIEW")
+
+        stale = self.client.patch(endpoint, json=payload)
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(
+            stale.json()["detail"]["code"],
+            "SUPPLY_REQUEST_VERSION_CONFLICT",
+        )
+
+        allocated = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/allocations",
+            json={
+                "expected_version": body["request_version"],
+                "allocations": [{
+                    "action": "PURCHASE",
+                    "planned_quantity": "3",
+                    "unit_id": str(self.units["ROLL"].id),
+                }],
+            },
+        )
+        self.assertEqual(allocated.status_code, 200, allocated.text)
+        self.assertTrue(allocated.json()["can_plan"])
+        planned = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={"expected_version": allocated.json()["version"]},
+        )
+        self.assertEqual(planned.status_code, 200, planned.text)
+        planned_body = planned.json()
+        planned_line = planned_body["lines"][0]
+        self.assertEqual(planned_body["status"], "PLANNED")
+        self.assertIsNone(planned_line["product_id"])
+        self.assertEqual(planned_line["planned_purchase"], "3.000")
+
+        after_plan = self.client.patch(
+            endpoint,
+            json={
+                **payload,
+                "request_version": planned_body["version"],
+                "requested_quantity": "4",
+            },
+        )
+        self.assertEqual(after_plan.status_code, 409)
+        self.assertEqual(
+            after_plan.json()["detail"]["code"],
+            "SUPPLY_REQUEST_NOT_EDITABLE",
+        )
 
     def test_registry_filters_summary_pagination_and_stable_status_order(self) -> None:
         submitted = self.create_request("неизвестная позиция 2 кг")

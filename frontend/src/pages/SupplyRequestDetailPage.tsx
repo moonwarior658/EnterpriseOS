@@ -7,20 +7,29 @@ import {
   fulfillSupplyAsPlanned,
   getSupplyProducts,
   getSupplyRequest,
+  getSupplyUnits,
   matchSupplyLine,
   planSupplyRequest,
   saveSupplyAllocations,
   saveSupplyFulfillment,
+  saveSupplyLineWorkingValues,
   SupplyApiError,
   type SupplyLine,
   type SupplyProduct,
   type SupplyRequest,
+  type SupplyUnit,
 } from '../services/supplyAdmin'
 import {
   clearSupplyLineMappingDraft,
+  clearSupplyLineWorkingDraft,
+  createSupplyLineWorkingDraft,
   getSupplyLineMappingDraft,
+  getSupplyLineWorkingDraft,
+  suggestSupplyWorkingName,
   updateSupplyLineMappingDraft,
+  updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
+  type SupplyLineWorkingState,
 } from './supplyRequestDetailLogic'
 
 function formatDate(value: string | null): string {
@@ -243,10 +252,12 @@ function SupplyRequestDetailPage() {
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
   const [products, setProducts] = useState<SupplyProduct[]>([])
+  const [units, setUnits] = useState<SupplyUnit[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
+  const [working, setWorking] = useState<SupplyLineWorkingState>({})
 
   async function reload() {
     const item = await getSupplyRequest(requestId)
@@ -255,14 +266,69 @@ function SupplyRequestDetailPage() {
   }
 
   useEffect(() => {
-    Promise.all([getSupplyRequest(requestId), getSupplyProducts()])
-      .then(([item, productPage]) => {
+    Promise.all([getSupplyRequest(requestId), getSupplyProducts(), getSupplyUnits()])
+      .then(([item, productPage, unitItems]) => {
         setRequest(item)
         setProducts(productPage.items)
+        setUnits(unitItems.filter((unit) => unit.is_active))
         setState('ready')
       })
       .catch(() => setState('error'))
   }, [requestId])
+
+  async function saveWorkingValues(
+    line: SupplyLine,
+    draft: ReturnType<typeof createSupplyLineWorkingDraft>,
+  ) {
+    if (
+      !request || draft.status === 'loading' || !draft.workingName.trim()
+      || Number(draft.quantity) <= 0 || !draft.unitId
+    ) return
+    setWorking((current) => updateSupplyLineWorkingDraft(
+      current,
+      line.id,
+      draft,
+      { status: 'loading', error: '' },
+    ))
+    setMessage('')
+    try {
+      const updated = await saveSupplyLineWorkingValues(
+        request.id,
+        line.id,
+        {
+          request_version: request.version,
+          working_name: draft.workingName.trim(),
+          requested_quantity: draft.quantity,
+          requested_unit_id: draft.unitId,
+        },
+      )
+      setRequest((current) => current && current.id === request.id
+        ? {
+            ...current,
+            version: updated.request_version,
+            lines: current.lines.map((item) => (
+              item.id === line.id ? updated.line : item
+            )),
+          }
+        : current)
+      setWorking((current) => clearSupplyLineWorkingDraft(current, line.id))
+      setMessage('Строка готова к планированию')
+    } catch (error) {
+      const errorMessage = error instanceof SupplyApiError
+        && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
+        ? 'Заявка изменилась. Обновите карточку и повторите.'
+        : error instanceof SupplyApiError
+        && ['SUPPLY_UNIT_NOT_FOUND', 'SUPPLY_UNIT_INACTIVE'].includes(error.code ?? '')
+        ? 'Единица измерения больше недоступна. Выберите другую.'
+        : 'Не удалось сохранить строку'
+      setWorking((current) => updateSupplyLineWorkingDraft(
+        current,
+        line.id,
+        draft,
+        { status: 'error', error: errorMessage },
+      ))
+    }
+  }
 
   async function mapLine(line: SupplyLine) {
     const draft = mapping[line.id]
@@ -433,8 +499,18 @@ function SupplyRequestDetailPage() {
             const draft = getSupplyLineMappingDraft(
               mapping,
               line.id,
-              line.parsed_unit?.id ?? '',
-              line.parsed_quantity ?? '',
+              line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
+              line.quantity ?? line.parsed_quantity ?? '',
+            )
+            const workingFallback = createSupplyLineWorkingDraft(
+              suggestSupplyWorkingName(line.parsed_name, line.raw_text),
+              line.quantity ?? line.parsed_quantity ?? '',
+              line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
+            )
+            const workingDraft = getSupplyLineWorkingDraft(
+              working,
+              line.id,
+              workingFallback,
             )
             const updateDraft = (
               changes: Parameters<typeof updateSupplyLineMappingDraft>[3],
@@ -457,10 +533,105 @@ function SupplyRequestDetailPage() {
                   </small>
                 </header>
                 <details><summary>Исходная строка</summary><p>{line.raw_text}</p></details>
-                {line.match_status === 'NEEDS_REVIEW' && (
+                {(!line.quantity || !line.requested_unit)
+                  && ['SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
                   <div className="supply-mapping">
+                    <h3>Уточните строку</h3>
+                    <label>
+                      <span>Рабочее название</span>
+                      <input
+                        value={workingDraft.workingName}
+                        disabled={workingDraft.status === 'loading'}
+                        onChange={(event) => setWorking((current) => (
+                          updateSupplyLineWorkingDraft(
+                            current,
+                            line.id,
+                            workingDraft,
+                            {
+                              workingName: event.target.value,
+                              status: 'idle',
+                              error: '',
+                            },
+                          )
+                        ))}
+                      />
+                    </label>
+                    <label>
+                      <span>Количество</span>
+                      <input
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        value={workingDraft.quantity}
+                        disabled={workingDraft.status === 'loading'}
+                        onChange={(event) => setWorking((current) => (
+                          updateSupplyLineWorkingDraft(
+                            current,
+                            line.id,
+                            workingDraft,
+                            {
+                              quantity: event.target.value,
+                              status: 'idle',
+                              error: '',
+                            },
+                          )
+                        ))}
+                      />
+                    </label>
+                    <label>
+                      <span>Единица измерения</span>
+                      <select
+                        value={workingDraft.unitId}
+                        disabled={workingDraft.status === 'loading'}
+                        onChange={(event) => setWorking((current) => (
+                          updateSupplyLineWorkingDraft(
+                            current,
+                            line.id,
+                            workingDraft,
+                            {
+                              unitId: event.target.value,
+                              status: 'idle',
+                              error: '',
+                            },
+                          )
+                        ))}
+                      >
+                        <option value="">Выберите единицу</option>
+                        {units.map((unit) => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.name_ru} ({unit.short_name_ru})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        workingDraft.status === 'loading'
+                        || !workingDraft.workingName.trim()
+                        || Number(workingDraft.quantity) <= 0
+                        || !workingDraft.unitId
+                      }
+                      onClick={() => void saveWorkingValues(line, workingDraft)}
+                    >
+                      {workingDraft.status === 'loading'
+                        ? 'Сохраняем…'
+                        : 'Сохранить строку'}
+                    </button>
+                    {workingDraft.error && (
+                      <small className="request-message-error">
+                        {workingDraft.error}
+                      </small>
+                    )}
+                  </div>
+                )}
+                {line.match_status === 'NEEDS_REVIEW' && (
+                  <details className="supply-mapping">
+                    <summary>Сопоставить с iiko позже</summary>
                     <p className="request-message request-message-warning">
-                      Позиция не сопоставлена. Планирование и факт доступны по исходному наименованию.
+                      {line.quantity && line.requested_unit
+                        ? 'Позиция не сопоставлена. Планирование и факт доступны по рабочему наименованию.'
+                        : 'Сначала уточните рабочее название, количество и единицу.'}
                     </p>
                     <p>Разбор: {line.parsed_name ?? 'название не распознано'} · {line.parsed_quantity ?? '—'} {line.parsed_unit?.short_name_ru ?? 'единица не распознана'}</p>
                     <label><span>Поиск товара</span><input value={draft.searchQuery} onChange={(event) => updateDraft({ searchQuery: event.target.value, error: '', status: 'idle' })} /></label>
@@ -498,7 +669,7 @@ function SupplyRequestDetailPage() {
                           ))}
                       </div>
                     )}
-                  </div>
+                  </details>
                 )}
                 {line.quantity && line.requested_unit
                   && ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)

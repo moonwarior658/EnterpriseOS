@@ -8,13 +8,20 @@ import {
   matchSupplyLine,
   saveSupplyAllocations,
   saveSupplyFulfillment,
+  saveSupplyLineWorkingValues,
 } from '../src/services/supplyAdmin.ts'
 import {
+  clearSupplyLineWorkingDraft,
+  createSupplyLineWorkingDraft,
   clearSupplyLineMappingDraft,
   createSupplyLineMappingDraft,
   getSupplyLineMappingDraft,
+  getSupplyLineWorkingDraft,
+  suggestSupplyWorkingName,
   updateSupplyLineMappingDraft,
+  updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
+  type SupplyLineWorkingState,
 } from '../src/pages/supplyRequestDetailLogic.ts'
 
 test('подключает защищённые маршруты реестра и карточки', () => {
@@ -63,10 +70,61 @@ test('несопоставленная позиция остаётся рабо�
     'utf8',
   )
   assert.match(detail, /Позиция не сопоставлена/)
-  assert.match(detail, /Планирование и факт доступны по исходному наименованию/)
+  assert.match(detail, /Планирование и факт доступны по рабочему наименованию/)
   assert.match(detail, /'MATCHED', 'NEEDS_REVIEW'/)
   assert.match(registry, /Не сопоставлено:/)
   assert.match(debts, /debt\.working_name/)
+})
+
+test('ручные значения двух неизвестных строк изолированы', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(detail, /Уточните строку/)
+  assert.match(detail, /Сохранить строку/)
+  assert.match(detail, /Строка готова к планированию/)
+  assert.match(detail, /Сопоставить с iiko позже/)
+  assert.match(detail, /item\.id === line\.id \? updated\.line : item/)
+  assert.match(
+    detail,
+    /clearSupplyLineWorkingDraft\(current, line\.id\)/,
+  )
+  assert.match(
+    detail,
+    /Заявка изменилась\. Обновите карточку и повторите\./,
+  )
+  assert.equal(
+    suggestSupplyWorkingName(null, 'мусорные пакеты 30л 3 рулона'),
+    'мусорные пакеты 30л',
+  )
+
+  const first = createSupplyLineWorkingDraft('Первая', '', '')
+  const second = createSupplyLineWorkingDraft('Вторая', '', '')
+  let state: SupplyLineWorkingState = {}
+  state = updateSupplyLineWorkingDraft(state, 'line-1', first, {
+    workingName: 'Мусорные пакеты 30 л',
+    quantity: '3',
+    unitId: 'roll',
+  })
+  state = updateSupplyLineWorkingDraft(state, 'line-2', second, {
+    workingName: 'Вторая строка',
+    quantity: '7',
+    unitId: 'piece',
+  })
+  state = clearSupplyLineWorkingDraft(state, 'line-1')
+
+  assert.equal(state['line-1'], undefined)
+  assert.deepEqual(
+    getSupplyLineWorkingDraft(state, 'line-2', second),
+    {
+      workingName: 'Вторая строка',
+      quantity: '7',
+      unitId: 'piece',
+      status: 'idle',
+      error: '',
+    },
+  )
 })
 
 test('editable state сопоставления изолирован по двум line.id', () => {
@@ -174,30 +232,40 @@ test('API-клиент передаёт фильтры, expected_version, али
       quantity: '2',
       save_alias: true,
     })
+    await saveSupplyLineWorkingValues('request', 'line', {
+      request_version: 5,
+      working_name: 'Мусорные пакеты 30 л',
+      requested_quantity: '3',
+      requested_unit_id: 'roll',
+    })
     await saveSupplyAllocations(
-      'request', 'line', 5,
+      'request', 'line', 6,
       { transfer: '1', purchase: '1', cancel: '0', comment: 'решение' },
       'unit',
     )
-    await saveSupplyFulfillment('request', 'line', 6, [{
+    await saveSupplyFulfillment('request', 'line', 7, [{
       allocation_id: 'allocation',
       fulfilled_quantity: '1.5',
       comment: 'факт',
     }])
-    await fulfillSupplyAsPlanned('request', 7)
+    await fulfillSupplyAsPlanned('request', 8)
     await getSupplyDebts(new URLSearchParams({ severity: 'CRITICAL' }))
   } finally {
     globalThis.fetch = originalFetch
   }
   assert.match(calls[0].url, /has_needs_review=true/)
   assert.equal(JSON.parse(String(calls[1].options.body)).save_alias, true)
-  const allocationBody = JSON.parse(String(calls[2].options.body))
-  assert.equal(allocationBody.expected_version, 5)
+  const workingBody = JSON.parse(String(calls[2].options.body))
+  assert.equal(workingBody.request_version, 5)
+  assert.equal(workingBody.requested_quantity, '3')
+  assert.equal(calls[2].options.method, 'PATCH')
+  const allocationBody = JSON.parse(String(calls[3].options.body))
+  assert.equal(allocationBody.expected_version, 6)
   assert.deepEqual(
     allocationBody.allocations.map((item: { action: string }) => item.action),
     ['TRANSFER', 'PURCHASE'],
   )
-  assert.equal(JSON.parse(String(calls[3].options.body)).expected_version, 6)
   assert.equal(JSON.parse(String(calls[4].options.body)).expected_version, 7)
-  assert.match(calls[5].url, /severity=CRITICAL/)
+  assert.equal(JSON.parse(String(calls[5].options.body)).expected_version, 8)
+  assert.match(calls[6].url, /severity=CRITICAL/)
 })

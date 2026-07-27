@@ -46,6 +46,8 @@ from app.schemas.supply import (
     SupplyReferenceRead,
     SupplyReferenceUpdate,
     SupplyLineManualMatch,
+    SupplyLineWorkingValuesRead,
+    SupplyLineWorkingValuesUpdate,
     SupplyLineAllocationsUpdate,
     SupplyAliasStatusUpdate,
     SupplyRecognitionSummary,
@@ -141,6 +143,7 @@ from app.supply.service import (
     plan_supply_request,
     cancel_supply_request,
     manually_match_supply_request_line,
+    update_supply_line_working_values,
     detect_supply_request_duplicates,
     recognize_supply_request,
     restore_supply_product,
@@ -1000,6 +1003,60 @@ def match_request_line(
     except InvalidSupplyQuantityError as error:
         raise _invalid_product_reference(
             "Для выбранной единицы допустимо только целое количество"
+        ) from error
+
+
+@router.patch(
+    "/requests/{request_id}/lines/{line_id}/working-values",
+    response_model=SupplyLineWorkingValuesRead,
+)
+def update_line_working_values(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineWorkingValuesUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyLineWorkingValuesRead:
+    try:
+        request_version, line = update_supply_line_working_values(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            payload=payload,
+            actor_user_id=current_admin.id,
+        )
+        return SupplyLineWorkingValuesRead(
+            request_version=request_version,
+            line=line,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SUPPLY_REQUEST_CANCELLED"},
+        ) from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"},
+        ) from error
+    except SupplyUnitNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SUPPLY_UNIT_NOT_FOUND"},
+        ) from error
+    except InactiveSupplyUnitError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_UNIT_INACTIVE"},
+        ) from error
+    except InvalidSupplyQuantityError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_QUANTITY_INVALID"},
         ) from error
 
 

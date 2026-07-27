@@ -535,6 +535,33 @@ class SupplyLineManualMatch(BaseModel):
         return self
 
 
+class SupplyLineWorkingValuesUpdate(BaseModel):
+    request_version: int = Field(ge=1)
+    working_name: str
+    requested_quantity: Decimal = Field(
+        gt=0,
+        max_digits=18,
+        decimal_places=3,
+    )
+    requested_unit_id: UUID
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("working_name")
+    @classmethod
+    def validate_working_name(cls, value: str) -> str:
+        return _strip_required(
+            value,
+            label="Рабочее название",
+            max_length=MAX_PRODUCT_NAME_LENGTH,
+        )
+
+
+class SupplyLineWorkingValuesRead(BaseModel):
+    request_version: int
+    line: SupplyRequestLineRead
+
+
 class SupplyRecognitionResult(BaseModel):
     line_id: UUID
     position: int

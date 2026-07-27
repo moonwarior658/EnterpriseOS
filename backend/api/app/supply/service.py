@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import logging
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
@@ -26,6 +27,7 @@ from app.models.supply import (
 )
 from app.schemas.supply import (
     SupplyLineManualMatch,
+    SupplyLineWorkingValuesUpdate,
     SupplyLineAllocationsUpdate,
     SupplyLineFulfillmentUpdate,
     SupplyDebtInclusionConfirm,
@@ -47,6 +49,7 @@ from app.supply.parser import parse_supply_line
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
+logger = logging.getLogger(__name__)
 
 
 class SupplyRequestNotFoundError(LookupError):
@@ -2099,6 +2102,78 @@ def manually_match_supply_request_line(
         for request_line in refreshed_request.lines
         if request_line.id == line_id
     )
+
+
+def update_supply_line_working_values(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineWorkingValuesUpdate,
+    actor_user_id: int,
+) -> tuple[int, SupplyRequestLine]:
+    supply_request, line = _get_request_line_for_update(
+        session,
+        request_id=request_id,
+        line_id=line_id,
+        expected_version=payload.request_version,
+    )
+    if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+
+    unit = _get_supply_unit(session, payload.requested_unit_id)
+    validate_quantity_for_unit(payload.requested_quantity, unit)
+    changed_at = datetime.now(timezone.utc)
+    old_values = {
+        "working_name": line.working_name,
+        "quantity": str(line.quantity) if line.quantity is not None else None,
+        "unit_id": (
+            str(line.requested_unit_id)
+            if line.requested_unit_id is not None
+            else None
+        ),
+    }
+
+    line.parsed_name = payload.working_name
+    line.quantity = payload.requested_quantity
+    line.requested_unit_id = unit.id
+    if line.product_id is None:
+        line.match_status = "NEEDS_REVIEW"
+        line.match_method = None
+        line.match_confidence = None
+        line.matched_at = None
+        line.matched_by_user_id = None
+        line.match_notes = None
+    supply_request.version += 1
+
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    logger.info(
+        "Supply line working values changed actor_user_id=%s "
+        "changed_at=%s request_id=%s line_id=%s old=%s new=%s",
+        actor_user_id,
+        changed_at.isoformat(),
+        request_id,
+        line_id,
+        old_values,
+        {
+            "working_name": payload.working_name,
+            "quantity": str(payload.requested_quantity),
+            "unit_id": str(unit.id),
+        },
+    )
+
+    refreshed_request = get_supply_request(session, request_id)
+    refreshed_line = next(
+        request_line
+        for request_line in refreshed_request.lines
+        if request_line.id == line_id
+    )
+    return refreshed_request.version, refreshed_line
 
 
 def replace_supply_line_allocations(

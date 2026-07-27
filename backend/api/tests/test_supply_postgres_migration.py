@@ -1026,7 +1026,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260727_0015")
+        self.assertEqual(self._current_revision(), "20260727_0016")
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"

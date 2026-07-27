@@ -207,6 +207,10 @@ export function getSupplyProducts(search = ''): Promise<{ items: SupplyProduct[]
   return request(`/supply/products?${query}`)
 }
 
+export function getSupplyUnits(): Promise<SupplyUnit[]> {
+  return request('/supply/units')
+}
+
 export function disableSupplyAlias(
   productId: string, aliasId: string,
 ): Promise<{ id: string; status: string }> {
@@ -231,6 +235,25 @@ export function matchSupplyLine(
     method: 'POST',
     body: JSON.stringify({ ...input, action: 'MATCH' }),
   })
+}
+
+export function saveSupplyLineWorkingValues(
+  requestId: string,
+  lineId: string,
+  input: {
+    request_version: number
+    working_name: string
+    requested_quantity: string
+    requested_unit_id: string
+  },
+): Promise<{ request_version: number; line: SupplyLine }> {
+  return request(
+    `/supply/requests/${requestId}/lines/${lineId}/working-values`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  )
 }
 
 export function saveSupplyAllocations(
