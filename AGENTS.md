@@ -12,12 +12,21 @@ Read project context in this priority order:
 1. `docs/PROJECT_CHARTER_v1.1.md` — mission and governing constraints.
 2. `docs/BLUEPRINT_v0.0.2.md` — business and product model.
 3. `docs/ROADMAP_v0.12.0.md` — current scope and delivery sequence.
-4. `docs/ADR-001_AUTOMATION_ARCHITECTURE.md` — accepted automation decision.
+4. `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md` — primary task source for the
+   current Stage 3 Supply.
+5. `docs/eOS_STAGE_3_SUPPLY.md` — approved product decisions for Stage 3.
+6. `docs/ADR-001_AUTOMATION_ARCHITECTURE.md` — accepted automation decision.
 
 Do not silently resolve contradictions between these documents. Report them
 and align documentation before implementing conflicting behavior. Do not skip
 Roadmap stages: finish the current stage as a working result before starting
 the next.
+
+When working on Stage 3, take tasks from the detailed
+`docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`, not from the short Stage 3 list in
+`docs/ROADMAP_v0.12.0.md`. The main roadmap remains the higher-level project
+scope and delivery sequence; it must not be expanded with the detailed Stage 3
+backlog.
 
 ## Repository map
 

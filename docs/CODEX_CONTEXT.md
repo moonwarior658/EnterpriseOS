@@ -2,23 +2,32 @@
 
 ## Current stage
 
-Stage 2 — Automation Core — completed (100%).
+Stage 3 Supply.
 
-The next stage must be taken strictly from the current roadmap. At the current
-roadmap version, this is Stage 3 — Supply.
+Automation Core is completed. Stage 3.0 — preparation and acceptance of the
+Supply domain model — completed at 100%. The next sub-stage is Stage 3.1A.
 
 ## Current state
 
-- Roadmap: `docs/ROADMAP_v0.12.0.md`.
-- Branch and HEAD: `main`, `de3dfd43c3196f560f1a00bda2690bb0e43c8323`.
-- Server, GitHub, and Mac checkouts are synchronized at this HEAD.
-- Database migrations are at `20260722_0004`.
-- Backend suite: 307/307 passed.
-- Frontend tests: 36/36 passed.
-- Frontend production build passed.
-- The end-to-end `smoke_test` through n8n reaches `SUCCEEDED`.
-- n8n and n8n-postgres are healthy.
-- An n8n backup was created and validated; restore tooling and a retention policy are in place.
+- Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.
+- Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
+- Эксплуатационный `WorkRequest` MVP развёрнут, но не закрывает этап 3.
+- ADR-002 принят владельцем проекта 27 июля 2026 года.
+- Реализация Stage 3.1A ещё не начата.
+- Первый планируемый вертикальный срез Stage 3.1A включает минимальный
+  фундамент заявок снабжения.
+- Перед реализацией необходимо утвердить первоначальный справочник
+  подразделений, минимальную привязку permissions и категории
+  `REQUIRES_DECISION` первого среза.
+- Фактический baseline HEAD до создаваемого документационного commit: `main`,
+  `8f205585dac8961c7a92ae8f13c852045f7f6a79` (`git log` показывает этот
+  HEAD). Будущий SHA заранее не фиксируется.
+- Миграции применены до `20260726_0006`.
+- В рамках принятия ADR код и база данных не изменялись.
+
+Результаты тестов и эксплуатационных проверок из предыдущих запусков здесь
+не считаются проверенными в текущем запуске и не должны использоваться как
+актуальное доказательство без отдельной проверки.
 
 ## Architecture
 
