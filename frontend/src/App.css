@@ -2232,9 +2232,113 @@
   color: #276b38;
 }
 
+.supply-fulfillment {
+  display: grid;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ececec;
+}
+
+.supply-line-totals,
+.public-supply-result {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.supply-line-totals div,
+.public-supply-result div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.supply-line-totals dt,
+.public-supply-result dt {
+  color: #686868;
+  font-size: 0.8rem;
+}
+
+.supply-line-totals dd,
+.public-supply-result dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.supply-fulfillment-editor,
+.supply-fulfillment-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.supply-fulfillment-row {
+  grid-template-columns: minmax(8rem, 1fr) repeat(3, minmax(10rem, 1fr));
+  align-items: end;
+  padding: 0.85rem;
+  border-radius: 0.75rem;
+  background: #f7f7f4;
+}
+
+.supply-fulfillment-row label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.supply-debt-list,
+.supply-debt-detail,
+.supply-debt-events {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.supply-debt-row {
+  display: grid;
+  grid-template-columns: minmax(15rem, 2fr) repeat(4, minmax(7rem, 1fr));
+  gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.9rem;
+  text-align: left;
+  border: 1px solid #e2e2dc;
+  border-left-width: 0.4rem;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.supply-debt-yellow { border-left-color: #d7a900; }
+.supply-debt-purple { border-left-color: #7547a8; }
+.supply-debt-red,
+.supply-debt-critical { border-left-color: #b52d2d; }
+
+.supply-debt-detail {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 0.9rem;
+}
+
+.supply-debt-detail header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.supply-debt-events {
+  padding-left: 1.5rem;
+}
+
+.supply-debt-events li {
+  display: grid;
+  grid-template-columns: 10rem 10rem 1fr auto;
+  gap: 0.75rem;
+}
+
 @media (max-width: 900px) {
   .supply-registry-row,
-  .supply-allocation-editor {
+  .supply-allocation-editor,
+  .supply-fulfillment-row,
+  .supply-debt-row,
+  .supply-debt-events li {
     grid-template-columns: 1fr;
   }
 }

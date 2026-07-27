@@ -59,6 +59,26 @@ test('порядок виджетов стабилен', () => {
   )
 })
 
+test('Supply-виджеты скрывают нули и ведут критические долги последними', () => {
+  const result = buildDashboardWidgetConfig(0, 0, {
+    newRequests: 2,
+    mappingRequired: 1,
+    requestsInProgress: 3,
+    activeDebts: 4,
+    criticalDebts: 1,
+  })
+  assert.deepEqual(
+    result.map((widget) => widget.id),
+    [
+      'supply-new',
+      'supply-mapping',
+      'supply-progress',
+      'supply-debts',
+      'supply-critical-debts',
+    ],
+  )
+})
+
 test('размер 1x1 занимает одну логическую ячейку', () => {
   assert.deepEqual(dashboardWidgetSpan('1x1'), {
     columnSpan: 1,

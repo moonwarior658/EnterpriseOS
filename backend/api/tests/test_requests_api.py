@@ -429,7 +429,7 @@ class WorkRequestsApiTests(unittest.TestCase):
     def test_migrations_have_single_head(self) -> None:
         config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
         script = ScriptDirectory.from_config(config)
-        self.assertEqual(script.get_heads(), ["20260727_0013"])
+        self.assertEqual(script.get_heads(), ["20260727_0014"])
 
 
 if __name__ == "__main__":

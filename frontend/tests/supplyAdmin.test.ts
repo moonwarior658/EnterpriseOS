@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   getSupplyRequests,
+  getSupplyDebts,
+  fulfillSupplyAsPlanned,
   matchSupplyLine,
   saveSupplyAllocations,
+  saveSupplyFulfillment,
 } from '../src/services/supplyAdmin.ts'
 
 test('подключает защищённые маршруты реестра и карточки', () => {
@@ -14,8 +17,29 @@ test('подключает защищённые маршруты реестра 
   )
   assert.match(app, /path="\/supply\/requests"/)
   assert.match(app, /path="\/supply\/requests\/:requestId"/)
+  assert.match(app, /path="\/supply\/debts"/)
   assert.match(app, /ProtectedRoute adminOnly/)
   assert.match(layout, /Заявки снабжения/)
+  assert.match(layout, /Долги подразделений/)
+})
+
+test('карточка поддерживает факт, долги и readonly исполненной заявки', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const debts = readFileSync(
+    new URL('../src/pages/SupplyDebtListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(detail, /Отправить как запланировано/)
+  assert.match(detail, /Сохранить факт/)
+  assert.match(detail, /Подтвердить включение/)
+  assert.match(detail, /request\.status === 'FULFILLED'/)
+  assert.match(debts, /Долги подразделений/)
+  assert.match(debts, /Закрыть частично или полностью/)
+  assert.match(debts, /Отменить долг/)
+  assert.match(debts, /История/)
 })
 
 test('реестр обновляется раз в 10 секунд и при возврате на вкладку', () => {
@@ -60,6 +84,13 @@ test('API-клиент передаёт фильтры, expected_version, али
       { transfer: '1', purchase: '1', cancel: '0', comment: 'решение' },
       'unit',
     )
+    await saveSupplyFulfillment('request', 'line', 6, [{
+      allocation_id: 'allocation',
+      fulfilled_quantity: '1.5',
+      comment: 'факт',
+    }])
+    await fulfillSupplyAsPlanned('request', 7)
+    await getSupplyDebts(new URLSearchParams({ severity: 'CRITICAL' }))
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -71,4 +102,7 @@ test('API-клиент передаёт фильтры, expected_version, али
     allocationBody.allocations.map((item: { action: string }) => item.action),
     ['TRANSFER', 'PURCHASE'],
   )
+  assert.equal(JSON.parse(String(calls[3].options.body)).expected_version, 6)
+  assert.equal(JSON.parse(String(calls[4].options.body)).expected_version, 7)
+  assert.match(calls[5].url, /severity=CRITICAL/)
 })

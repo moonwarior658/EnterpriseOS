@@ -5,7 +5,8 @@
 Stage 3 Supply.
 
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. The current sub-stage is Stage 3.1A.
+Supply domain model — completed at 100%. The manual end-to-end contour of
+Stage 3.1A is implemented locally; the next sub-stage is Stage 3.1B.
 
 ## Current state
 
@@ -13,22 +14,27 @@ Supply domain model — completed at 100%. The current sub-stage is Stage 3.1A.
 - Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
 - Эксплуатационный `WorkRequest` MVP развёрнут, но не закрывает этап 3.
 - ADR-002 принят владельцем проекта 27 июля 2026 года.
-- Stage 3.1A начат: первый backend-срез Supply Request Foundation завершён
-  и развёрнут.
-- Срез включает справочники подразделений и направлений, заявки и строки,
-  создание черновика, списки и карточки, отправку `DRAFT → SUBMITTED`,
-  серверную нумерацию, tenant isolation и административный доступ.
-- Production подтверждён: API health OK, database health OK,
-  `automation-worker` и scheduler работают.
-- Baseline: `main`, commit `12358a3` (`feat(supply): add request foundation`).
-- Миграции применены до `20260727_0007`.
-- PostgreSQL migration integration test прошёл цикл `0006 → 0007 → 0006 →
-  0007`; перед миграцией создан и проверен backup.
+- Stage 3.1A выполнен восемью срезами: foundation, базовый каталог,
+  сопоставление, карточка товара, циклы и дубли, публичная форма, ручное
+  планирование, факт исполнения и долги.
+- Ручной end-to-end сценарий закрыт: заявка сохраняется и разбирается,
+  снабжение сопоставляет товары, утверждает план и фиксирует отправленное,
+  система хранит requested/planned/fulfilled/unresolved и долг.
+- Локальный baseline: `main`, commit `46cc690`
+  (`feat(supply): add request planning workspace`) плюс незакоммиченные
+  изменения восьмого среза.
+- Локальный Alembic head: `20260727_0014`.
+- Последнее зафиксированное production-состояние: commit `46cc690`, миграции
+  до `20260727_0013`. Восьмой срез, миграция `0014` и deployment ещё не
+  применялись.
 - WorkRequest MVP и старые публичные URL сохранены без изменений.
-- Следующий срез: базовый товарный справочник и единицы измерения.
+- Следующий подэтап: Stage 3.1B.
 
-Перечисленные выше результаты отражают зафиксированное состояние production
-и migration-проверок для текущего backend-среза.
+Stage 3.1A остаётся ручным. В backlog/polish отложены таймеры, edit lock,
+пользовательское уточнение неизвестной единицы, очередь mapping candidates,
+настройка кодов подразделений и финальная UX-полировка. iiko, реальные
+остатки, supplier aliases, фасовки и альтернативные единицы, поставщики и
+закупочные документы относятся к последующим подэтапам.
 
 ## Architecture
 

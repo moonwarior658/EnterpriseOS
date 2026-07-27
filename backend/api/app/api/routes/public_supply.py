@@ -226,6 +226,13 @@ def _request_payload(
                     if line.requested_unit
                     else None
                 ),
+                "confirmed_quantity": line.planned_total,
+                "fulfilled_quantity": line.fulfilled_total,
+                "unresolved_quantity": line.unresolved_quantity,
+                "debt_quantity": (
+                    line.debt_link.contributed_quantity
+                    if line.debt_link else 0
+                ),
                 "match_status": line.match_status,
                 "duplicate_status": line.duplicate_status,
                 "public_message": _line_message(

@@ -484,6 +484,15 @@ class SupplyRequestLineRead(BaseModel):
     planned_purchase: Decimal
     planned_cancel: Decimal
     planned_total: Decimal
+    fulfilled_transfer: Decimal
+    fulfilled_purchase: Decimal
+    fulfilled_total: Decimal
+    unresolved_quantity: Decimal
+    active_debt_id: UUID | None
+    active_debt_quantity: Decimal
+    debt_inclusion_status: "SupplyDebtInclusionStatus"
+    debt_quantity_included: Decimal
+    requires_debt_confirmation: bool
     unallocated_quantity: Decimal
     planning_status: str
     created_at: datetime
@@ -567,6 +576,26 @@ class SupplyAllocationAction(StrEnum):
     CANCEL = "CANCEL"
 
 
+class SupplyDebtStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplyDebtSeverity(StrEnum):
+    YELLOW = "YELLOW"
+    PURPLE = "PURPLE"
+    RED = "RED"
+    CRITICAL = "CRITICAL"
+
+
+class SupplyDebtInclusionStatus(StrEnum):
+    NONE = "NONE"
+    COVERED_BY_REQUEST = "COVERED_BY_REQUEST"
+    REQUEST_BELOW_DEBT = "REQUEST_BELOW_DEBT"
+    CONFIRMED_PARTIAL = "CONFIRMED_PARTIAL"
+
+
 class SupplyLineAllocationInput(BaseModel):
     action: SupplyAllocationAction
     planned_quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
@@ -595,11 +624,74 @@ class SupplyLineAllocationRead(BaseModel):
     planned_quantity: Decimal
     unit_id: UUID
     comment: str | None
+    fulfilled_quantity: Decimal
+    fulfilled_at: datetime | None
+    fulfilled_by_user_id: int | None
+    fulfillment_comment: str | None
     created_by_user_id: int
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyFulfillmentItem(BaseModel):
+    allocation_id: UUID
+    fulfilled_quantity: Decimal = Field(
+        ge=0, max_digits=18, decimal_places=3
+    )
+    comment: str | None = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("comment")
+    @classmethod
+    def strip_comment(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=2000)
+
+
+class SupplyLineFulfillmentUpdate(SupplyExpectedVersion):
+    items: list[SupplyFulfillmentItem] = Field(min_length=1, max_length=2)
+
+    @field_validator("items")
+    @classmethod
+    def unique_allocations(
+        cls, value: list[SupplyFulfillmentItem]
+    ) -> list[SupplyFulfillmentItem]:
+        if len({item.allocation_id for item in value}) != len(value):
+            raise ValueError("Каждый allocation можно указать только один раз")
+        return value
+
+
+class SupplyDebtInclusionConfirm(SupplyExpectedVersion):
+    included_quantity: Decimal = Field(
+        ge=0, max_digits=18, decimal_places=3
+    )
+
+
+class SupplyDebtClose(BaseModel):
+    expected_version: int = Field(ge=1)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
+    comment: str = Field(min_length=1, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("comment")
+    @classmethod
+    def strip_comment(cls, value: str) -> str:
+        return _strip_required(value, label="Комментарий", max_length=2000)
+
+
+class SupplyDebtCancel(BaseModel):
+    expected_version: int = Field(ge=1)
+    comment: str = Field(min_length=1, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("comment")
+    @classmethod
+    def strip_comment(cls, value: str) -> str:
+        return _strip_required(value, label="Причина", max_length=2000)
 
 
 class SupplyRequestCancel(SupplyExpectedVersion):
@@ -673,6 +765,8 @@ class SupplyRequestRead(BaseModel):
     cancelled_at: datetime | None
     cancelled_by_user_id: int | None
     cancellation_reason: str | None
+    fulfilled_at: datetime | None
+    fulfilled_by_user_id: int | None
     lines_total: int
     lines_matched: int
     lines_needs_review: int
@@ -687,6 +781,63 @@ class SupplyRequestRead(BaseModel):
     lines: list[SupplyRequestLineRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyDebtEventRead(BaseModel):
+    id: UUID
+    event_type: str
+    quantity_delta: Decimal
+    quantity_before: Decimal
+    quantity_after: Decimal
+    request_id: UUID | None
+    request_line_id: UUID | None
+    cycle_id: UUID | None
+    actor_user_id: int | None
+    comment: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyDebtRead(BaseModel):
+    id: UUID
+    department: DepartmentRead
+    product: SupplyProductRead
+    unit: SupplyUnitRead
+    outstanding_quantity: Decimal
+    original_quantity: Decimal
+    status: SupplyDebtStatus
+    version: int
+    first_request_id: UUID
+    latest_request_id: UUID
+    first_request_line_id: UUID
+    latest_request_line_id: UUID
+    opened_at: datetime
+    updated_at: datetime
+    closed_at: datetime | None
+    cancelled_at: datetime | None
+    close_comment: str | None
+    cancel_comment: str | None
+    cycle_count: int
+    severity: SupplyDebtSeverity
+    events: list[SupplyDebtEventRead]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyDebtPage(BaseModel):
+    items: list[SupplyDebtRead]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
+class SupplyDashboardSummary(BaseModel):
+    new_requests: int = Field(ge=0)
+    mapping_required: int = Field(ge=0)
+    requests_in_progress: int = Field(ge=0)
+    active_debts: int = Field(ge=0)
+    critical_debts: int = Field(ge=0)
 
 
 class PublicSupplyDepartmentRead(BaseModel):
@@ -795,6 +946,10 @@ class PublicSupplyLineRead(BaseModel):
     matched_product_name: str | None
     requested_quantity: Decimal | None
     requested_unit: str | None
+    confirmed_quantity: Decimal
+    fulfilled_quantity: Decimal
+    unresolved_quantity: Decimal
+    debt_quantity: Decimal
     match_status: SupplyLineMatchStatus
     duplicate_status: SupplyDuplicateStatus
     public_message: str

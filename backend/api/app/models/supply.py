@@ -638,6 +638,12 @@ class SupplyRequest(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fulfilled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fulfilled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -844,6 +850,12 @@ class SupplyRequestLine(Base):
         passive_deletes=True,
         order_by="SupplyLineAllocation.created_at",
     )
+    debt_link: Mapped["SupplyRequestLineDebtLink | None"] = relationship(
+        back_populates="request_line",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def _planned_for(self, action: str) -> Decimal:
         return sum(
@@ -868,6 +880,84 @@ class SupplyRequestLine(Base):
     def planned_total(self) -> Decimal:
         return self.planned_transfer + self.planned_purchase + self.planned_cancel
 
+    def _fulfilled_for(self, action: str) -> Decimal:
+        return sum(
+            (allocation.fulfilled_quantity for allocation in self.allocations
+             if allocation.action == action),
+            Decimal("0"),
+        )
+
+    @property
+    def fulfilled_transfer(self) -> Decimal:
+        return self._fulfilled_for("TRANSFER")
+
+    @property
+    def fulfilled_purchase(self) -> Decimal:
+        return self._fulfilled_for("PURCHASE")
+
+    @property
+    def fulfilled_total(self) -> Decimal:
+        return self.fulfilled_transfer + self.fulfilled_purchase
+
+    @property
+    def unresolved_quantity(self) -> Decimal:
+        return max(
+            (self.quantity or Decimal("0"))
+            - self.fulfilled_total
+            - self.planned_cancel,
+            Decimal("0"),
+        )
+
+    @property
+    def active_debt(self) -> "SupplyDepartmentDebt | None":
+        transient = getattr(self, "_active_debt", None)
+        if transient is not None:
+            return transient
+        if self.debt_link is None:
+            return None
+        included = self.debt_link.included_debt
+        if included is not None and included.status == "ACTIVE":
+            return included
+        contributed = self.debt_link.debt
+        if contributed is not None and contributed.status == "ACTIVE":
+            return contributed
+        return None
+
+    @property
+    def active_debt_id(self) -> UUID | None:
+        return self.active_debt.id if self.active_debt else None
+
+    @property
+    def active_debt_quantity(self) -> Decimal:
+        return (
+            self.active_debt.outstanding_quantity
+            if self.active_debt else Decimal("0")
+        )
+
+    @property
+    def debt_quantity_included(self) -> Decimal:
+        return (
+            self.debt_link.included_quantity
+            if self.debt_link else Decimal("0")
+        )
+
+    @property
+    def debt_inclusion_status(self) -> str:
+        if self.debt_link and self.debt_link.included_quantity > 0:
+            if self.debt_link.inclusion_confirmed:
+                return "CONFIRMED_PARTIAL"
+            return "COVERED_BY_REQUEST"
+        debt = self.active_debt
+        if debt is None or self.quantity is None:
+            return "NONE"
+        if self.quantity >= debt.outstanding_quantity:
+            return "COVERED_BY_REQUEST"
+        return "REQUEST_BELOW_DEBT"
+
+    @property
+    def requires_debt_confirmation(self) -> bool:
+        return self.debt_inclusion_status == "REQUEST_BELOW_DEBT"
+
     @property
     def unallocated_quantity(self) -> Decimal:
         return max((self.quantity or Decimal("0")) - self.planned_total, Decimal("0"))
@@ -887,6 +977,11 @@ class SupplyLineAllocation(Base):
         CheckConstraint(
             "planned_quantity > 0",
             name="ck_supply_line_allocations_quantity_positive",
+        ),
+        CheckConstraint(
+            "fulfilled_quantity >= 0 AND "
+            "fulfilled_quantity <= planned_quantity",
+            name="ck_supply_line_allocations_fulfilled_quantity",
         ),
         UniqueConstraint(
             "request_line_id", "action",
@@ -912,6 +1007,16 @@ class SupplyLineAllocation(Base):
         ForeignKey("supply_units.id", ondelete="RESTRICT"), nullable=False
     )
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fulfilled_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), default=Decimal("0"), server_default="0", nullable=False
+    )
+    fulfilled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fulfilled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    fulfillment_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
@@ -925,3 +1030,191 @@ class SupplyLineAllocation(Base):
 
     request_line: Mapped[SupplyRequestLine] = relationship(back_populates="allocations")
     unit: Mapped[SupplyUnit] = relationship()
+
+
+class SupplyDepartmentDebt(Base):
+    __tablename__ = "supply_department_debts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ACTIVE', 'CLOSED', 'CANCELLED')",
+            name="ck_supply_department_debts_status",
+        ),
+        CheckConstraint(
+            "outstanding_quantity >= 0 AND original_quantity > 0",
+            name="ck_supply_department_debts_quantities",
+        ),
+        CheckConstraint(
+            "version >= 1 AND cycle_count >= 0",
+            name="ck_supply_department_debts_version_cycles",
+        ),
+        Index(
+            "uq_supply_department_debts_active",
+            "tenant_id", "department_id", "product_id", "unit_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+            sqlite_where=text("status = 'ACTIVE'"),
+        ),
+        Index(
+            "ix_supply_department_debts_tenant_status_updated",
+            "tenant_id", "status", "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    department_id: Mapped[UUID] = mapped_column(
+        ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_products.id", ondelete="RESTRICT"), nullable=False
+    )
+    unit_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"), nullable=False
+    )
+    outstanding_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    original_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="ACTIVE", server_default="ACTIVE", nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    first_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    latest_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    first_request_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="RESTRICT"), nullable=False
+    )
+    latest_request_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="RESTRICT"), nullable=False
+    )
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    close_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancel_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cycle_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    last_cycle_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_request_cycles.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    department: Mapped[Department] = relationship()
+    product: Mapped[SupplyProduct] = relationship()
+    unit: Mapped[SupplyUnit] = relationship()
+    first_request: Mapped[SupplyRequest] = relationship(foreign_keys=[first_request_id])
+    latest_request: Mapped[SupplyRequest] = relationship(foreign_keys=[latest_request_id])
+    events: Mapped[list["SupplyDepartmentDebtEvent"]] = relationship(
+        back_populates="debt", order_by="SupplyDepartmentDebtEvent.created_at",
+        cascade="all, delete-orphan", passive_deletes=True,
+    )
+
+    @property
+    def severity(self) -> str:
+        if self.cycle_count <= 0:
+            return "YELLOW"
+        if self.cycle_count == 1:
+            return "PURPLE"
+        if self.cycle_count == 2:
+            return "RED"
+        return "CRITICAL"
+
+
+class SupplyDepartmentDebtEvent(Base):
+    __tablename__ = "supply_department_debt_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('CREATED', 'INCREASED', 'INCLUDED_IN_REQUEST', "
+            "'PARTIALLY_CLOSED', 'CLOSED', 'CANCELLED', 'REOPENED', 'ADJUSTED')",
+            name="ck_supply_department_debt_events_type",
+        ),
+        Index("ix_supply_department_debt_events_debt_created", "debt_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    debt_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_department_debts.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_delta: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    quantity_before: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    quantity_after: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    request_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="RESTRICT"), nullable=True
+    )
+    request_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="RESTRICT"), nullable=True
+    )
+    cycle_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_request_cycles.id", ondelete="RESTRICT"), nullable=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    debt: Mapped[SupplyDepartmentDebt] = relationship(back_populates="events")
+
+
+class SupplyRequestLineDebtLink(Base):
+    __tablename__ = "supply_request_line_debt_links"
+    __table_args__ = (
+        CheckConstraint(
+            "contributed_quantity >= 0 AND included_quantity >= 0 AND "
+            "applied_included_quantity >= 0 AND "
+            "applied_included_quantity <= included_quantity",
+            name="ck_supply_request_line_debt_links_quantities",
+        ),
+        Index("ix_supply_request_line_debt_links_tenant_debt", "tenant_id", "debt_id"),
+    )
+
+    request_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="CASCADE"), primary_key=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    debt_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_department_debts.id", ondelete="RESTRICT"), nullable=True
+    )
+    contributed_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), default=Decimal("0"), server_default="0", nullable=False
+    )
+    included_debt_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_department_debts.id", ondelete="RESTRICT"), nullable=True
+    )
+    included_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), default=Decimal("0"), server_default="0", nullable=False
+    )
+    applied_included_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), default=Decimal("0"), server_default="0", nullable=False
+    )
+    inclusion_confirmed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    request_line: Mapped[SupplyRequestLine] = relationship(back_populates="debt_link")
+    debt: Mapped[SupplyDepartmentDebt | None] = relationship(foreign_keys=[debt_id])
+    included_debt: Mapped[SupplyDepartmentDebt | None] = relationship(
+        foreign_keys=[included_debt_id]
+    )

@@ -2,7 +2,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,12 +19,22 @@ from app.models.supply import (
     SupplyRequestLine,
     SupplyStorageZone,
     SupplyUnit,
+    SupplyDepartmentDebt,
 )
 from app.models.user import User
 from app.schemas.supply import (
     DepartmentRead,
     SupplyDuplicateGroupResolve,
     SupplyExpectedVersion,
+    SupplyLineFulfillmentUpdate,
+    SupplyDebtInclusionConfirm,
+    SupplyDebtClose,
+    SupplyDebtCancel,
+    SupplyDebtPage,
+    SupplyDebtRead,
+    SupplyDebtStatus,
+    SupplyDebtSeverity,
+    SupplyDashboardSummary,
     SupplyProductAliasCreate,
     SupplyProductAliasRead,
     SupplyProductCreate,
@@ -75,6 +85,17 @@ from app.supply.service import (
     SupplyAllocationUnitMismatchError,
     SupplyLineNotMatchedError,
     SupplyRequestPlanningIncompleteError,
+    SupplyRequestNotFulfillableError,
+    SupplyRequestAlreadyFulfilledError,
+    SupplyFulfillmentExceedsPlannedError,
+    SupplyFulfillmentInvalidActionError,
+    SupplyFulfillmentDecreaseCommentRequiredError,
+    SupplyDebtNotFoundError,
+    SupplyDebtVersionConflictError,
+    SupplyDebtNotActiveError,
+    SupplyDebtCloseExceedsOutstandingError,
+    SupplyDebtInclusionConfirmationRequiredError,
+    SupplyDebtInclusionInvalidError,
     SupplyRequestAlreadyPlannedError,
     SupplyRequestCancelledError,
     PublicNumberGenerationError,
@@ -129,6 +150,14 @@ from app.supply.service import (
     update_supply_product,
     update_supply_storage_zone,
     update_supply_request_cycle,
+    update_supply_line_fulfillment,
+    fulfill_supply_request_as_planned,
+    confirm_supply_debt_inclusion,
+    list_supply_debts,
+    get_supply_debt,
+    close_supply_debt,
+    cancel_supply_debt,
+    get_supply_dashboard_summary,
 )
 
 
@@ -177,6 +206,41 @@ def _version_conflict(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "code": "SUPPLY_REQUEST_VERSION_CONFLICT",
+            "current_version": error.current_version,
+            "expected_version": error.expected_version,
+        },
+    )
+
+
+def _fulfillment_error(error: Exception) -> HTTPException:
+    code = "SUPPLY_REQUEST_NOT_FULFILLABLE"
+    status_code = status.HTTP_409_CONFLICT
+    if isinstance(error, SupplyRequestAlreadyFulfilledError):
+        code = "SUPPLY_REQUEST_ALREADY_FULFILLED"
+    elif isinstance(error, SupplyFulfillmentExceedsPlannedError):
+        code = "SUPPLY_FULFILLMENT_EXCEEDS_PLANNED"
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(error, SupplyFulfillmentInvalidActionError):
+        code = "SUPPLY_FULFILLMENT_INVALID_ACTION"
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(error, SupplyFulfillmentDecreaseCommentRequiredError):
+        code = "SUPPLY_FULFILLMENT_DECREASE_COMMENT_REQUIRED"
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(error, SupplyDebtInclusionConfirmationRequiredError):
+        code = "SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED"
+    elif isinstance(error, SupplyDebtInclusionInvalidError):
+        code = "SUPPLY_DEBT_INCLUSION_INVALID"
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    return HTTPException(status_code=status_code, detail={"code": code})
+
+
+def _debt_version_conflict(
+    error: SupplyDebtVersionConflictError,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "SUPPLY_DEBT_VERSION_CONFLICT",
             "current_version": error.current_version,
             "expected_version": error.expected_version,
         },
@@ -1007,6 +1071,109 @@ def plan_request(
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
 
 
+@router.put(
+    "/requests/{request_id}/lines/{line_id}/fulfillment",
+    response_model=SupplyRequestRead,
+)
+def update_line_fulfillment(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineFulfillmentUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return update_supply_line_fulfillment(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            payload=payload,
+            user_id=current_admin.id,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}
+        ) from error
+    except (
+        SupplyRequestNotFulfillableError,
+        SupplyRequestAlreadyFulfilledError,
+        SupplyFulfillmentExceedsPlannedError,
+        SupplyFulfillmentInvalidActionError,
+        SupplyFulfillmentDecreaseCommentRequiredError,
+        SupplyDebtInclusionConfirmationRequiredError,
+        SupplyDebtInclusionInvalidError,
+    ) as error:
+        raise _fulfillment_error(error) from error
+
+
+@router.post(
+    "/requests/{request_id}/fulfill-as-planned",
+    response_model=SupplyRequestRead,
+)
+def fulfill_as_planned(
+    request_id: UUID,
+    payload: SupplyExpectedVersion,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return fulfill_supply_request_as_planned(
+            db,
+            request_id,
+            expected_version=payload.expected_version,
+            user_id=current_admin.id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}
+        ) from error
+    except (
+        SupplyRequestNotFulfillableError,
+        SupplyRequestAlreadyFulfilledError,
+        SupplyDebtInclusionConfirmationRequiredError,
+        SupplyDebtInclusionInvalidError,
+    ) as error:
+        raise _fulfillment_error(error) from error
+
+
+@router.post(
+    "/requests/{request_id}/lines/{line_id}/confirm-debt-inclusion",
+    response_model=SupplyRequestRead,
+)
+def confirm_debt_inclusion(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyDebtInclusionConfirm,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return confirm_supply_debt_inclusion(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            payload=payload,
+            user_id=current_admin.id,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except (
+        SupplyRequestNotFulfillableError,
+        SupplyDebtInclusionInvalidError,
+    ) as error:
+        raise _fulfillment_error(error) from error
+
+
 @router.post("/requests/{request_id}/cancel", response_model=SupplyRequestRead)
 def cancel_request(
     request_id: UUID,
@@ -1089,3 +1256,114 @@ def resolve_request_duplicate_group(
         ) from error
     except SupplyRequestVersionConflictError as error:
         raise _version_conflict(error) from error
+
+
+@router.get("/debts", response_model=SupplyDebtPage)
+def read_supply_debts(
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    department_id: UUID | None = None,
+    product_id: UUID | None = None,
+    debt_status: Annotated[
+        SupplyDebtStatus | None, Query(alias="status")
+    ] = None,
+    severity: SupplyDebtSeverity | None = None,
+    search: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SupplyDebtPage:
+    response.headers["Cache-Control"] = "no-store"
+    items, total = list_supply_debts(
+        db,
+        department_id=department_id,
+        product_id=product_id,
+        debt_status=debt_status,
+        severity=severity,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return SupplyDebtPage(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/debts/{debt_id}", response_model=SupplyDebtRead)
+def read_supply_debt(
+    debt_id: UUID,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyDepartmentDebt:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return get_supply_debt(db, debt_id)
+    except SupplyDebtNotFoundError as error:
+        raise HTTPException(
+            status_code=404, detail="Долг подразделения не найден"
+        ) from error
+
+
+@router.post("/debts/{debt_id}/close", response_model=SupplyDebtRead)
+def close_debt(
+    debt_id: UUID,
+    payload: SupplyDebtClose,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyDepartmentDebt:
+    try:
+        return close_supply_debt(
+            db,
+            debt_id,
+            expected_version=payload.expected_version,
+            quantity=payload.quantity,
+            comment=payload.comment,
+            user_id=current_admin.id,
+        )
+    except SupplyDebtNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Долг не найден") from error
+    except SupplyDebtVersionConflictError as error:
+        raise _debt_version_conflict(error) from error
+    except SupplyDebtNotActiveError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "SUPPLY_DEBT_NOT_ACTIVE"}
+        ) from error
+    except SupplyDebtCloseExceedsOutstandingError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_DEBT_CLOSE_EXCEEDS_OUTSTANDING"},
+        ) from error
+
+
+@router.post("/debts/{debt_id}/cancel", response_model=SupplyDebtRead)
+def cancel_debt(
+    debt_id: UUID,
+    payload: SupplyDebtCancel,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyDepartmentDebt:
+    try:
+        return cancel_supply_debt(
+            db,
+            debt_id,
+            expected_version=payload.expected_version,
+            comment=payload.comment,
+            user_id=current_admin.id,
+        )
+    except SupplyDebtNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Долг не найден") from error
+    except SupplyDebtVersionConflictError as error:
+        raise _debt_version_conflict(error) from error
+    except SupplyDebtNotActiveError as error:
+        raise HTTPException(
+            status_code=409, detail={"code": "SUPPLY_DEBT_NOT_ACTIVE"}
+        ) from error
+
+
+@router.get("/summary/dashboard", response_model=SupplyDashboardSummary)
+def read_supply_dashboard_summary(
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> dict[str, int]:
+    response.headers["Cache-Control"] = "no-store"
+    return get_supply_dashboard_summary(db)

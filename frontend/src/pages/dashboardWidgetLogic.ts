@@ -9,7 +9,10 @@ export type DashboardIndicatorVariant =
   | 'criticalPulse'
   | 'unavailable'
 
-export type DashboardWidgetId = 'warehouse-requests' | 'repair-requests'
+export type DashboardWidgetId =
+  | 'warehouse-requests' | 'repair-requests'
+  | 'supply-new' | 'supply-mapping' | 'supply-progress'
+  | 'supply-debts' | 'supply-critical-debts'
 
 export type DashboardWidgetConfig = {
   id: DashboardWidgetId
@@ -52,6 +55,11 @@ const DASHBOARD_WIDGET_CONFIG = [
     size: '1x1',
     order: 20,
   },
+  { id: 'supply-new', size: '1x1', order: 30 },
+  { id: 'supply-mapping', size: '1x1', order: 40 },
+  { id: 'supply-progress', size: '1x1', order: 50 },
+  { id: 'supply-debts', size: '1x1', order: 60 },
+  { id: 'supply-critical-debts', size: '1x1', order: 70 },
 ] as const satisfies ReadonlyArray<
   Omit<DashboardWidgetConfig, 'isVisible'>
 >
@@ -59,10 +67,22 @@ const DASHBOARD_WIDGET_CONFIG = [
 export function buildDashboardWidgetConfig(
   warehouseCount: number,
   repairCount: number,
+  supply = {
+    newRequests: 0,
+    mappingRequired: 0,
+    requestsInProgress: 0,
+    activeDebts: 0,
+    criticalDebts: 0,
+  },
 ): DashboardWidgetConfig[] {
   const visibility: Record<DashboardWidgetId, boolean> = {
     'warehouse-requests': warehouseCount > 0,
     'repair-requests': repairCount > 0,
+    'supply-new': supply.newRequests > 0,
+    'supply-mapping': supply.mappingRequired > 0,
+    'supply-progress': supply.requestsInProgress > 0,
+    'supply-debts': supply.activeDebts > 0,
+    'supply-critical-debts': supply.criticalDebts > 0,
   }
 
   return DASHBOARD_WIDGET_CONFIG.map((widget) => ({

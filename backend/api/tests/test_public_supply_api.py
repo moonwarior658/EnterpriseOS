@@ -22,11 +22,14 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyDepartmentDebt,
+    SupplyDepartmentDebtEvent,
     SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyRequestLineDebtLink,
     SupplyStorageZone,
     SupplyUnit,
 )
@@ -69,6 +72,9 @@ class PublicSupplyApiTests(unittest.TestCase):
             SupplyRequest.__table__,
             SupplyRequestLine.__table__,
             SupplyLineAllocation.__table__,
+            SupplyDepartmentDebt.__table__,
+            SupplyDepartmentDebtEvent.__table__,
+            SupplyRequestLineDebtLink.__table__,
         ):
             table.create(self.engine)
         self.session_factory = sessionmaker(

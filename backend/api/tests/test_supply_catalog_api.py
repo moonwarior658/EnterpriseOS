@@ -23,11 +23,14 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyDepartmentDebt,
+    SupplyDepartmentDebtEvent,
     SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyRequestLineDebtLink,
     SupplyStorageZone,
     SupplyUnit,
 )
@@ -80,6 +83,9 @@ class SupplyCatalogApiTests(unittest.TestCase):
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)
         SupplyLineAllocation.__table__.create(self.engine)
+        SupplyDepartmentDebt.__table__.create(self.engine)
+        SupplyDepartmentDebtEvent.__table__.create(self.engine)
+        SupplyRequestLineDebtLink.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
             expire_on_commit=False,

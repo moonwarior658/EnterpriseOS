@@ -32,6 +32,10 @@ export type PublicSupplyLine = {
   matched_product_name: string | null
   requested_quantity: string | null
   requested_unit: string | null
+  confirmed_quantity: string
+  fulfilled_quantity: string
+  unresolved_quantity: string
+  debt_quantity: string
   match_status: 'UNPROCESSED' | 'PARSED' | 'MATCHED' | 'NEEDS_REVIEW' | 'REJECTED'
   duplicate_status: 'NONE' | 'SUSPECTED' | 'CONFIRMED' | 'RESOLVED'
   public_message: string
@@ -42,7 +46,9 @@ export type PublicSupplyRequest = {
   department: PublicSupplyDepartment
   direction: PublicSupplyDirection
   cycle: PublicSupplyCycle
-  status: 'DRAFT' | 'SUBMITTED' | 'CANCELLED'
+  status:
+    | 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'PLANNED'
+    | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED'
   version: number
   author_name: string
   lines: PublicSupplyLine[]

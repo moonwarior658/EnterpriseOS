@@ -26,6 +26,9 @@ export type SupplyAllocation = {
   planned_quantity: string
   unit_id: string
   comment: string | null
+  fulfilled_quantity: string
+  fulfilled_at: string | null
+  fulfillment_comment: string | null
 }
 
 export type SupplyLine = {
@@ -46,6 +49,16 @@ export type SupplyLine = {
   planned_purchase: string
   planned_cancel: string
   planned_total: string
+  fulfilled_transfer: string
+  fulfilled_purchase: string
+  fulfilled_total: string
+  unresolved_quantity: string
+  active_debt_id: string | null
+  active_debt_quantity: string
+  debt_inclusion_status:
+    | 'NONE' | 'COVERED_BY_REQUEST' | 'REQUEST_BELOW_DEBT' | 'CONFIRMED_PARTIAL'
+  debt_quantity_included: string
+  requires_debt_confirmation: boolean
   unallocated_quantity: string
   planning_status: string
 }
@@ -79,8 +92,48 @@ export type SupplyRequest = SupplyRequestSummary & {
   updated_at: string
   planned_at: string | null
   cancelled_at: string | null
+  fulfilled_at: string | null
   cancellation_reason: string | null
   lines: SupplyLine[]
+}
+
+export type SupplyDebtEvent = {
+  id: string
+  event_type: string
+  quantity_delta: string
+  quantity_before: string
+  quantity_after: string
+  request_id: string | null
+  comment: string | null
+  created_at: string
+}
+
+export type SupplyDebt = {
+  id: string
+  department: SupplyReference
+  product: SupplyProduct
+  unit: SupplyUnit
+  outstanding_quantity: string
+  original_quantity: string
+  status: 'ACTIVE' | 'CLOSED' | 'CANCELLED'
+  version: number
+  first_request_id: string
+  latest_request_id: string
+  opened_at: string
+  updated_at: string
+  cycle_count: number
+  severity: 'YELLOW' | 'PURPLE' | 'RED' | 'CRITICAL'
+  close_comment: string | null
+  cancel_comment: string | null
+  events: SupplyDebtEvent[]
+}
+
+export type SupplyDashboardSummary = {
+  new_requests: number
+  mapping_required: number
+  requests_in_progress: number
+  active_debts: number
+  critical_debts: number
 }
 
 export type SupplyReference = { id: string; code: string; name: string }
@@ -214,4 +267,84 @@ export function cancelSupplyRequest(
     method: 'POST',
     body: JSON.stringify({ expected_version: version, reason }),
   })
+}
+
+export function saveSupplyFulfillment(
+  requestId: string,
+  lineId: string,
+  expectedVersion: number,
+  items: Array<{
+    allocation_id: string
+    fulfilled_quantity: string
+    comment: string | null
+  }>,
+): Promise<SupplyRequest> {
+  return request(`/supply/requests/${requestId}/lines/${lineId}/fulfillment`, {
+    method: 'PUT',
+    body: JSON.stringify({ expected_version: expectedVersion, items }),
+  })
+}
+
+export function fulfillSupplyAsPlanned(
+  requestId: string, expectedVersion: number,
+): Promise<SupplyRequest> {
+  return request(`/supply/requests/${requestId}/fulfill-as-planned`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version: expectedVersion }),
+  })
+}
+
+export function confirmSupplyDebtInclusion(
+  requestId: string,
+  lineId: string,
+  expectedVersion: number,
+  includedQuantity: string,
+): Promise<SupplyRequest> {
+  return request(
+    `/supply/requests/${requestId}/lines/${lineId}/confirm-debt-inclusion`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        expected_version: expectedVersion,
+        included_quantity: includedQuantity,
+      }),
+    },
+  )
+}
+
+export function getSupplyDebts(query: URLSearchParams): Promise<{
+  items: SupplyDebt[]
+  total: number
+  limit: number
+  offset: number
+}> {
+  return request(`/supply/debts?${query.toString()}`, { cache: 'no-store' })
+}
+
+export function getSupplyDebt(id: string): Promise<SupplyDebt> {
+  return request(`/supply/debts/${id}`, { cache: 'no-store' })
+}
+
+export function closeSupplyDebt(
+  id: string, version: number, quantity: string, comment: string,
+): Promise<SupplyDebt> {
+  return request(`/supply/debts/${id}/close`, {
+    method: 'POST',
+    body: JSON.stringify({
+      expected_version: version, quantity, comment,
+    }),
+  })
+}
+
+export function cancelSupplyDebt(
+  id: string, version: number, comment: string,
+): Promise<SupplyDebt> {
+  return request(`/supply/debts/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version: version, comment }),
+  })
+}
+
+export function getSupplyDashboardSummary(): Promise<SupplyDashboardSummary> {
+  return request('/supply/summary/dashboard', { cache: 'no-store' })
 }

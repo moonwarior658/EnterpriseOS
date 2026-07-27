@@ -402,6 +402,14 @@ function PublicSupplyRequestPage() {
                         </span>
                       </div>
                       <em>{line.public_message}</em>
+                      {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (
+                        <dl className="public-supply-result">
+                          <div><dt>Принято к отправке</dt><dd>{line.confirmed_quantity}</dd></div>
+                          <div><dt>Отправлено</dt><dd>{line.fulfilled_quantity}</dd></div>
+                          <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
+                          <div><dt>Перенесено в долг</dt><dd>{line.debt_quantity}</dd></div>
+                        </dl>
+                      )}
                     </li>
                   )
                 })}

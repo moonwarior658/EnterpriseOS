@@ -593,6 +593,41 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             },
         )
 
+    def _assert_fulfillment_debt_schema(self) -> None:
+        inspector = inspect(self.engine)
+        self.assertTrue({
+            "supply_department_debts",
+            "supply_department_debt_events",
+            "supply_request_line_debt_links",
+        } <= set(inspector.get_table_names()))
+        allocation_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_line_allocations")
+        }
+        self.assertTrue({
+            "fulfilled_quantity", "fulfilled_at",
+            "fulfilled_by_user_id", "fulfillment_comment",
+        } <= allocation_columns.keys())
+        self.assertIsInstance(
+            allocation_columns["fulfilled_quantity"]["type"], Numeric
+        )
+        request_columns = {
+            column["name"]
+            for column in inspector.get_columns("supply_requests")
+        }
+        self.assertTrue({
+            "fulfilled_at", "fulfilled_by_user_id",
+        } <= request_columns)
+        debt_indexes = {
+            index["name"]: index
+            for index in inspector.get_indexes("supply_department_debts")
+        }
+        self.assertTrue(debt_indexes["uq_supply_department_debts_active"]["unique"])
+        self.assertEqual(
+            debt_indexes["uq_supply_department_debts_active"]["column_names"],
+            ["tenant_id", "department_id", "product_id", "unit_id"],
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -800,6 +835,18 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260727_0013")
         self.assertEqual(self._current_revision(), "20260727_0013")
         self._assert_planning_schema()
+
+        command.upgrade(self.alembic_config, "20260727_0014")
+        self.assertEqual(self._current_revision(), "20260727_0014")
+        self._assert_fulfillment_debt_schema()
+        command.downgrade(self.alembic_config, "20260727_0013")
+        self.assertEqual(self._current_revision(), "20260727_0013")
+        self.assertNotIn(
+            "supply_department_debts", inspect(self.engine).get_table_names()
+        )
+        command.upgrade(self.alembic_config, "20260727_0014")
+        self.assertEqual(self._current_revision(), "20260727_0014")
+        self._assert_fulfillment_debt_schema()
 
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")

@@ -3,11 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import {
   cancelSupplyRequest,
   disableSupplyAlias,
+  confirmSupplyDebtInclusion,
+  fulfillSupplyAsPlanned,
   getSupplyProducts,
   getSupplyRequest,
   matchSupplyLine,
   planSupplyRequest,
   saveSupplyAllocations,
+  saveSupplyFulfillment,
   SupplyApiError,
   type SupplyLine,
   type SupplyProduct,
@@ -97,6 +100,139 @@ function AllocationEditor({
   )
 }
 
+function FulfillmentEditor({
+  request,
+  line,
+  onSaved,
+}: {
+  request: SupplyRequest
+  line: SupplyLine
+  onSaved: (request: SupplyRequest) => void
+}) {
+  const physical = useMemo(
+    () => line.allocations.filter(
+      (allocation) => allocation.action !== 'CANCEL',
+    ),
+    [line.allocations],
+  )
+  const initial = useMemo(() => Object.fromEntries(
+    physical.map((allocation) => [
+      allocation.id,
+      {
+        quantity: allocation.fulfilled_quantity,
+        comment: allocation.fulfillment_comment ?? '',
+      },
+    ]),
+  ), [physical])
+  const [values, setValues] = useState(initial)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial)
+
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
+  async function save() {
+    if (saving || !dirty) return
+    setSaving(true)
+    setMessage('')
+    try {
+      const updated = await saveSupplyFulfillment(
+        request.id,
+        line.id,
+        request.version,
+        physical.map((allocation) => ({
+          allocation_id: allocation.id,
+          fulfilled_quantity: values[allocation.id]?.quantity ?? '0',
+          comment: values[allocation.id]?.comment.trim() || null,
+        })),
+      )
+      onSaved(updated)
+      setMessage('Факт сохранён')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_REQUEST_VERSION_CONFLICT:
+          'Заявка изменилась. Обновите карточку.',
+        SUPPLY_FULFILLMENT_EXCEEDS_PLANNED:
+          'Отправленное количество не может превышать план.',
+        SUPPLY_FULFILLMENT_DECREASE_COMMENT_REQUIRED:
+          'При уменьшении факта обязателен комментарий.',
+        SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED:
+          'Сначала подтвердите включение старого долга.',
+      } as Record<string, string>)[code ?? ''] ?? 'Не удалось сохранить факт')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!physical.length) {
+    return <p className="supply-complete">Физическая отправка не запланирована</p>
+  }
+  return (
+    <div className="supply-fulfillment-editor">
+      {physical.map((allocation) => (
+        <div className="supply-fulfillment-row" key={allocation.id}>
+          <strong>{allocation.action === 'TRANSFER' ? 'Перемещение' : 'Закупка'}</strong>
+          <span>План: {allocation.planned_quantity}</span>
+          <label>
+            <span>Отправлено</span>
+            <input
+              type="number"
+              min="0"
+              max={allocation.planned_quantity}
+              step="0.001"
+              value={values[allocation.id]?.quantity ?? '0'}
+              disabled={saving || request.status === 'FULFILLED'}
+              onChange={(event) => setValues({
+                ...values,
+                [allocation.id]: {
+                  ...values[allocation.id],
+                  quantity: event.target.value,
+                },
+              })}
+            />
+          </label>
+          <label>
+            <span>Комментарий</span>
+            <input
+              value={values[allocation.id]?.comment ?? ''}
+              disabled={saving || request.status === 'FULFILLED'}
+              onChange={(event) => setValues({
+                ...values,
+                [allocation.id]: {
+                  ...values[allocation.id],
+                  comment: event.target.value,
+                },
+              })}
+            />
+          </label>
+          <span>
+            Осталось по allocation:{' '}
+            {Math.max(
+              Number(allocation.planned_quantity)
+              - Number(values[allocation.id]?.quantity ?? 0),
+              0,
+            ).toFixed(3)}
+          </span>
+        </div>
+      ))}
+      <button
+        type="button"
+        disabled={saving || !dirty || request.status === 'FULFILLED'}
+        onClick={() => void save()}
+      >
+        {saving ? 'Сохраняем…' : 'Сохранить факт'}
+      </button>
+      {message && <small>{message}</small>}
+    </div>
+  )
+}
+
 function SupplyRequestDetailPage() {
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
@@ -178,6 +314,49 @@ function SupplyRequestDetailPage() {
     }
   }
 
+  async function fulfillAsPlanned() {
+    if (!request || busy) return
+    setBusy(true)
+    setMessage('')
+    try {
+      setRequest(await fulfillSupplyAsPlanned(request.id, request.version))
+      setMessage('Факт отправки сохранён по плану')
+    } catch (error) {
+      setMessage(
+        error instanceof SupplyApiError
+        && error.code === 'SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED'
+          ? 'Для одной из строк сначала подтвердите включение старого долга'
+          : 'Не удалось сохранить факт по плану',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmDebt(line: SupplyLine) {
+    if (!request || busy) return
+    const maximum = Math.min(
+      Number(line.quantity ?? 0),
+      Number(line.active_debt_quantity),
+    )
+    const entered = window.prompt(
+      `Сколько старого долга включено в эту заявку? Максимум ${maximum}`,
+      String(maximum),
+    )
+    if (entered === null || entered.trim() === '') return
+    setBusy(true)
+    try {
+      setRequest(await confirmSupplyDebtInclusion(
+        request.id, line.id, request.version, entered,
+      ))
+      setMessage('Включение долга подтверждено')
+    } catch {
+      setMessage('Не удалось подтвердить включение долга')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function disableAlias(productId: string, aliasId: string) {
     if (busy) return
     setBusy(true)
@@ -215,6 +394,13 @@ function SupplyRequestDetailPage() {
         </dl>
         <div className="supply-card-actions">
           <button type="button" disabled={!request.can_plan || busy} onClick={() => void plan()}>Перевести в план</button>
+          <button
+            type="button"
+            disabled={request.status !== 'PLANNED' || busy}
+            onClick={() => void fulfillAsPlanned()}
+          >
+            Отправить как запланировано
+          </button>
           <button type="button" disabled={!['SUBMITTED', 'IN_REVIEW'].includes(request.status) || busy} onClick={() => void cancel()}>Отменить заявку</button>
           <button type="button" disabled={busy} onClick={() => void reload()}>Обновить</button>
           {message && <span>{message}</span>}
@@ -267,6 +453,43 @@ function SupplyRequestDetailPage() {
                 )}
                 {line.match_status === 'MATCHED' && (
                   <AllocationEditor request={request} line={line} onSaved={setRequest} />
+                )}
+                {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (
+                  <div className="supply-fulfillment">
+                    <dl className="supply-line-totals">
+                      <div><dt>Запросили</dt><dd>{line.quantity ?? '—'}</dd></div>
+                      <div><dt>Перемещение, план</dt><dd>{line.planned_transfer}</dd></div>
+                      <div><dt>Закупка, план</dt><dd>{line.planned_purchase}</dd></div>
+                      <div><dt>Отмена</dt><dd>{line.planned_cancel}</dd></div>
+                      <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
+                      <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
+                      <div><dt>Активный долг</dt><dd>{line.active_debt_quantity}</dd></div>
+                      <div><dt>Включено старого долга</dt><dd>{line.debt_quantity_included}</dd></div>
+                    </dl>
+                    {line.requires_debt_confirmation && request.status !== 'FULFILLED' && (
+                      <div className="request-message request-message-warning">
+                        Новая заявка меньше активного долга. Подтвердите,
+                        какая часть долга включена.
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void confirmDebt(line)}
+                        >
+                          Подтвердить включение
+                        </button>
+                      </div>
+                    )}
+                    {line.active_debt_id && (
+                      <Link to={`/supply/debts?open=${line.active_debt_id}`}>
+                        Открыть долг
+                      </Link>
+                    )}
+                    <FulfillmentEditor
+                      request={request}
+                      line={line}
+                      onSaved={setRequest}
+                    />
+                  </div>
                 )}
               </article>
             )

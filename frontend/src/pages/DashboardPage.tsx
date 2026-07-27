@@ -12,6 +12,10 @@ import {
   type WorkRequest,
 } from '../services/requests'
 import {
+  getSupplyDashboardSummary,
+  type SupplyDashboardSummary,
+} from '../services/supplyAdmin'
+import {
   activeRequestsByType,
   DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
 } from './workRequestLogic'
@@ -36,6 +40,8 @@ function DashboardPage() {
   const [requestsState, setRequestsState] =
     useState<RequestsState>('loading')
   const [requests, setRequests] = useState<WorkRequest[]>([])
+  const [supplySummary, setSupplySummary] =
+    useState<SupplyDashboardSummary | null>(null)
   const [displayedView, setDisplayedView] =
     useState<DashboardViewMode>('empty')
 
@@ -56,6 +62,13 @@ function DashboardPage() {
           return
         }
         setRequests(items)
+        if (user?.is_admin) {
+          try {
+            setSupplySummary(await getSupplyDashboardSummary())
+          } catch {
+            if (!hasLoadedRequests) setSupplySummary(null)
+          }
+        }
         setRequestsState('ready')
         hasLoadedRequests = true
       } catch {
@@ -104,12 +117,19 @@ function DashboardPage() {
         handleVisibilityChange,
       )
     }
-  }, [])
+  }, [user?.is_admin])
 
   const active = activeRequestsByType(requests)
   const widgetConfig = buildDashboardWidgetConfig(
     active.warehouse.length,
     active.repair.length,
+    {
+      newRequests: supplySummary?.new_requests ?? 0,
+      mappingRequired: supplySummary?.mapping_required ?? 0,
+      requestsInProgress: supplySummary?.requests_in_progress ?? 0,
+      activeDebts: supplySummary?.active_debts ?? 0,
+      criticalDebts: supplySummary?.critical_debts ?? 0,
+    },
   )
   const widgetContent = {
     'warehouse-requests': (
@@ -130,6 +150,46 @@ function DashboardPage() {
         <Link className="dashboard-widget-action" to="/requests/repair">
           Открыть
         </Link>
+      </>
+    ),
+    'supply-new': (
+      <>
+        <p className="eyebrow">СНАБЖЕНИЕ</p>
+        <h2>Новые заявки</h2>
+        <strong>{supplySummary?.new_requests ?? 0}</strong>
+        <Link className="dashboard-widget-action" to="/supply/requests?status=SUBMITTED">Открыть</Link>
+      </>
+    ),
+    'supply-mapping': (
+      <>
+        <p className="eyebrow">СНАБЖЕНИЕ</p>
+        <h2>Требуется сопоставление</h2>
+        <strong>{supplySummary?.mapping_required ?? 0}</strong>
+        <Link className="dashboard-widget-action" to="/supply/requests?has_needs_review=true">Открыть</Link>
+      </>
+    ),
+    'supply-progress': (
+      <>
+        <p className="eyebrow">СНАБЖЕНИЕ</p>
+        <h2>В обработке</h2>
+        <strong>{supplySummary?.requests_in_progress ?? 0}</strong>
+        <Link className="dashboard-widget-action" to="/supply/requests">Открыть</Link>
+      </>
+    ),
+    'supply-debts': (
+      <>
+        <p className="eyebrow">СНАБЖЕНИЕ</p>
+        <h2>Долги</h2>
+        <strong>{supplySummary?.active_debts ?? 0}</strong>
+        <Link className="dashboard-widget-action" to="/supply/debts?status=ACTIVE">Открыть</Link>
+      </>
+    ),
+    'supply-critical-debts': (
+      <>
+        <p className="eyebrow">КРИТИЧНО</p>
+        <h2>Критические долги</h2>
+        <strong>{supplySummary?.critical_debts ?? 0}</strong>
+        <Link className="dashboard-widget-action" to="/supply/debts?status=ACTIVE&severity=CRITICAL">Открыть</Link>
       </>
     ),
   }
