@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import exists, func, or_, select
@@ -14,6 +14,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
@@ -22,6 +23,7 @@ from app.models.supply import (
 from app.schemas.supply import (
     SupplyLineManualMatch,
     SupplyLineMatchAction,
+    SupplyDuplicateResolutionAction,
     SupplyProductAliasCreate,
     SupplyProductCreate,
     SupplyProductUpdate,
@@ -30,6 +32,8 @@ from app.schemas.supply import (
     SupplyRecognitionResult,
     SupplyRecognitionSummary,
     SupplyRequestCreate,
+    SupplyRequestCycleCreate,
+    SupplyRequestCycleUpdate,
 )
 from app.supply.normalization import normalize_product_text
 from app.supply.parser import parse_supply_line
@@ -63,6 +67,50 @@ class InactiveDirectionError(ValueError):
 
 
 class SupplyRequestStateError(ValueError):
+    pass
+
+
+class SupplyRequestCycleNotFoundError(LookupError):
+    pass
+
+
+class DuplicateSupplyRequestCycleError(ValueError):
+    pass
+
+
+class SupplyRequestCycleStateError(ValueError):
+    pass
+
+
+class SupplyRequestCycleHasRequestsError(ValueError):
+    pass
+
+
+class SupplyRequestCycleUnavailableError(ValueError):
+    pass
+
+
+class DuplicateSupplyRequestError(ValueError):
+    def __init__(self, request_id: UUID, request_number: str):
+        self.request_id = request_id
+        self.request_number = request_number
+        super().__init__("Supply request already exists")
+
+
+class SupplyRequestVersionConflictError(ValueError):
+    def __init__(self, current_version: int, expected_version: int):
+        self.current_version = current_version
+        self.expected_version = expected_version
+        super().__init__("Supply request version conflict")
+
+
+class SupplyRequestDuplicatesPresentError(ValueError):
+    def __init__(self, duplicate_groups: list[UUID]):
+        self.duplicate_groups = duplicate_groups
+        super().__init__("Supply request contains duplicates")
+
+
+class SupplyDuplicateGroupNotFoundError(LookupError):
     pass
 
 
@@ -157,6 +205,173 @@ def list_request_directions(
         )
     )
     return list(session.scalars(statement).all())
+
+
+def _cycle_options():
+    return (joinedload(SupplyRequestCycle.direction),)
+
+
+def list_supply_request_cycles(
+    session: Session,
+    *,
+    direction_id: UUID | None,
+    cycle_status: str | None,
+    date_from: date | None,
+    date_to: date | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[SupplyRequestCycle], int]:
+    filters = [SupplyRequestCycle.tenant_id == settings.default_tenant_id]
+    if direction_id is not None:
+        filters.append(SupplyRequestCycle.direction_id == direction_id)
+    if cycle_status is not None:
+        filters.append(SupplyRequestCycle.status == cycle_status)
+    if date_from is not None:
+        filters.append(SupplyRequestCycle.cycle_date >= date_from)
+    if date_to is not None:
+        filters.append(SupplyRequestCycle.cycle_date <= date_to)
+    total = session.scalar(
+        select(func.count()).select_from(SupplyRequestCycle).where(*filters)
+    )
+    statement = (
+        select(SupplyRequestCycle)
+        .where(*filters)
+        .options(*_cycle_options())
+        .order_by(
+            SupplyRequestCycle.cycle_date.desc(),
+            SupplyRequestCycle.id.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(session.scalars(statement).all()), int(total or 0)
+
+
+def get_supply_request_cycle(
+    session: Session,
+    cycle_id: UUID,
+) -> SupplyRequestCycle:
+    cycle = session.scalar(
+        select(SupplyRequestCycle)
+        .where(
+            SupplyRequestCycle.id == cycle_id,
+            SupplyRequestCycle.tenant_id == settings.default_tenant_id,
+        )
+        .options(*_cycle_options())
+    )
+    if cycle is None:
+        raise SupplyRequestCycleNotFoundError
+    return cycle
+
+
+def _validate_cycle_window(
+    opens_at: datetime,
+    closes_at: datetime,
+    hard_closes_at: datetime | None,
+) -> None:
+    normalized_opens_at = _as_aware_utc(opens_at)
+    normalized_closes_at = _as_aware_utc(closes_at)
+    if normalized_closes_at <= normalized_opens_at:
+        raise SupplyRequestCycleStateError
+    if (
+        hard_closes_at is not None
+        and _as_aware_utc(hard_closes_at) < normalized_closes_at
+    ):
+        raise SupplyRequestCycleStateError
+
+
+def create_supply_request_cycle(
+    session: Session,
+    payload: SupplyRequestCycleCreate,
+) -> SupplyRequestCycle:
+    direction = _get_direction(session, payload.direction_id)
+    cycle = SupplyRequestCycle(
+        tenant_id=settings.default_tenant_id,
+        direction_id=direction.id,
+        cycle_date=payload.cycle_date,
+        opens_at=payload.opens_at,
+        closes_at=payload.closes_at,
+        hard_closes_at=payload.hard_closes_at,
+        status=payload.status,
+    )
+    try:
+        session.add(cycle)
+        session.flush()
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateSupplyRequestCycleError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request_cycle(session, cycle.id)
+
+
+def update_supply_request_cycle(
+    session: Session,
+    cycle_id: UUID,
+    payload: SupplyRequestCycleUpdate,
+) -> SupplyRequestCycle:
+    cycle = get_supply_request_cycle(session, cycle_id)
+    fields = payload.model_fields_set
+    has_requests = session.scalar(
+        select(
+            exists().where(
+                SupplyRequest.tenant_id == settings.default_tenant_id,
+                SupplyRequest.cycle_id == cycle.id,
+            )
+        )
+    )
+    identity_changes = (
+        "direction_id" in fields
+        and payload.direction_id != cycle.direction_id
+    ) or (
+        "cycle_date" in fields
+        and payload.cycle_date != cycle.cycle_date
+    )
+    if has_requests and identity_changes:
+        raise SupplyRequestCycleHasRequestsError
+
+    if "direction_id" in fields:
+        direction = _get_direction(session, payload.direction_id)
+        cycle.direction_id = direction.id
+    if "cycle_date" in fields:
+        cycle.cycle_date = payload.cycle_date
+
+    opens_at = payload.opens_at if "opens_at" in fields else cycle.opens_at
+    closes_at = (
+        payload.closes_at if "closes_at" in fields else cycle.closes_at
+    )
+    hard_closes_at = (
+        payload.hard_closes_at
+        if "hard_closes_at" in fields
+        else cycle.hard_closes_at
+    )
+    _validate_cycle_window(opens_at, closes_at, hard_closes_at)
+
+    if "status" in fields:
+        allowed_transitions = {
+            "SCHEDULED": {"SCHEDULED", "OPEN", "CLOSED", "CANCELLED"},
+            "OPEN": {"OPEN", "CLOSED", "CANCELLED"},
+            "CLOSED": {"CLOSED"},
+            "CANCELLED": {"CANCELLED"},
+        }
+        if payload.status not in allowed_transitions[cycle.status]:
+            raise SupplyRequestCycleStateError
+        cycle.status = payload.status
+    cycle.opens_at = opens_at
+    cycle.closes_at = closes_at
+    cycle.hard_closes_at = hard_closes_at
+    try:
+        session.flush()
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateSupplyRequestCycleError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request_cycle(session, cycle.id)
 
 
 def list_supply_units(session: Session) -> list[SupplyUnit]:
@@ -845,6 +1060,9 @@ def _request_options():
     return (
         joinedload(SupplyRequest.department),
         joinedload(SupplyRequest.direction),
+        joinedload(SupplyRequest.cycle).joinedload(
+            SupplyRequestCycle.direction
+        ),
         selectinload(SupplyRequest.lines).joinedload(
             SupplyRequestLine.parsed_unit
         ),
@@ -928,6 +1146,45 @@ def _get_direction(
     return direction
 
 
+def _get_cycle(
+    session: Session,
+    cycle_id: UUID,
+) -> SupplyRequestCycle:
+    cycle = session.scalar(
+        select(SupplyRequestCycle).where(
+            SupplyRequestCycle.id == cycle_id,
+            SupplyRequestCycle.tenant_id == settings.default_tenant_id,
+        )
+    )
+    if cycle is None:
+        raise SupplyRequestCycleNotFoundError
+    return cycle
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _validate_cycle_for_new_request(
+    cycle: SupplyRequestCycle,
+    *,
+    direction_id: UUID,
+    now: datetime,
+) -> None:
+    if cycle.direction_id != direction_id or cycle.status != "OPEN":
+        raise SupplyRequestCycleUnavailableError
+    business_timezone = ZoneInfo(settings.business_timezone)
+    business_now = now.astimezone(business_timezone)
+    open_time = _as_aware_utc(cycle.opens_at).astimezone(business_timezone)
+    deadline = _as_aware_utc(
+        cycle.hard_closes_at or cycle.closes_at
+    ).astimezone(business_timezone)
+    if business_now < open_time or business_now > deadline:
+        raise SupplyRequestCycleUnavailableError
+
+
 def _next_public_number(
     session: Session,
     *,
@@ -973,6 +1230,46 @@ def _is_public_number_conflict(error: IntegrityError) -> bool:
     )
 
 
+def _is_request_uniqueness_conflict(error: IntegrityError) -> bool:
+    constraint_name = getattr(
+        getattr(error.orig, "diag", None),
+        "constraint_name",
+        None,
+    )
+    if (
+        constraint_name
+        == "uq_supply_requests_tenant_department_direction_cycle"
+    ):
+        return True
+    message = str(error.orig).lower()
+    return all(
+        column in message
+        for column in (
+            "supply_requests.tenant_id",
+            "supply_requests.department_id",
+            "supply_requests.direction_id",
+            "supply_requests.cycle_id",
+        )
+    )
+
+
+def _existing_request_for_cycle(
+    session: Session,
+    *,
+    department_id: UUID,
+    direction_id: UUID,
+    cycle_id: UUID,
+) -> SupplyRequest | None:
+    return session.scalar(
+        select(SupplyRequest).where(
+            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.department_id == department_id,
+            SupplyRequest.direction_id == direction_id,
+            SupplyRequest.cycle_id == cycle_id,
+        )
+    )
+
+
 def create_supply_request(
     session: Session,
     payload: SupplyRequestCreate,
@@ -986,6 +1283,12 @@ def create_supply_request(
         try:
             department = _get_department(session, payload.department_id)
             direction = _get_direction(session, payload.direction_id)
+            cycle = _get_cycle(session, payload.cycle_id)
+            _validate_cycle_for_new_request(
+                cycle,
+                direction_id=direction.id,
+                now=number_time,
+            )
             public_number = _next_public_number(
                 session,
                 department_code=department.code,
@@ -997,6 +1300,7 @@ def create_supply_request(
                 public_number=public_number,
                 department_id=department.id,
                 direction_id=direction.id,
+                cycle_id=cycle.id,
                 status="DRAFT",
                 source_type="INTERNAL",
                 source_work_request_id=source_work_request_id,
@@ -1038,6 +1342,18 @@ def create_supply_request(
             return get_supply_request(session, supply_request.id)
         except IntegrityError as error:
             session.rollback()
+            if _is_request_uniqueness_conflict(error):
+                existing = _existing_request_for_cycle(
+                    session,
+                    department_id=payload.department_id,
+                    direction_id=payload.direction_id,
+                    cycle_id=payload.cycle_id,
+                )
+                if existing is not None:
+                    raise DuplicateSupplyRequestError(
+                        existing.id,
+                        existing.public_number,
+                    ) from error
             if (
                 _is_public_number_conflict(error)
                 and attempt + 1 < PUBLIC_NUMBER_RETRY_LIMIT
@@ -1051,32 +1367,11 @@ def create_supply_request(
     raise PublicNumberGenerationError
 
 
-def submit_supply_request(
-    session: Session,
-    request_id: UUID,
-) -> SupplyRequest:
-    supply_request = get_supply_request(session, request_id)
-    if supply_request.status != "DRAFT":
-        raise SupplyRequestStateError
-    if not supply_request.lines:
-        raise SupplyRequestStateError
-
-    try:
-        supply_request.status = "SUBMITTED"
-        supply_request.submitted_at = datetime.now(timezone.utc)
-        supply_request.version += 1
-        session.flush()
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-
-    return get_supply_request(session, request_id)
-
-
 def _get_supply_request_for_update(
     session: Session,
     request_id: UUID,
+    *,
+    expected_version: int | None = None,
 ) -> SupplyRequest:
     supply_request = session.scalar(
         select(SupplyRequest)
@@ -1090,6 +1385,14 @@ def _get_supply_request_for_update(
         raise SupplyRequestNotFoundError
     if supply_request.status == "CANCELLED":
         raise SupplyRequestStateError
+    if (
+        expected_version is not None
+        and supply_request.version != expected_version
+    ):
+        raise SupplyRequestVersionConflictError(
+            supply_request.version,
+            expected_version,
+        )
     return supply_request
 
 
@@ -1098,8 +1401,13 @@ def _get_request_line_for_update(
     *,
     request_id: UUID,
     line_id: UUID,
+    expected_version: int,
 ) -> tuple[SupplyRequest, SupplyRequestLine]:
-    supply_request = _get_supply_request_for_update(session, request_id)
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+    )
     line = session.scalar(
         select(SupplyRequestLine)
         .where(
@@ -1111,6 +1419,195 @@ def _get_request_line_for_update(
     if line is None:
         raise SupplyRequestLineNotFoundError
     return supply_request, line
+
+
+def _duplicate_key(line: SupplyRequestLine) -> str | None:
+    if line.match_status == "MATCHED" and line.product_id is not None:
+        return f"product:{line.product_id}"
+    if line.parsed_name:
+        normalized_name = normalize_product_text(line.parsed_name)
+        if normalized_name:
+            return f"name:{normalized_name}"
+    return None
+
+
+def _apply_duplicate_detection(
+    supply_request: SupplyRequest,
+    lines: list[SupplyRequestLine],
+) -> tuple[list[UUID], bool]:
+    grouped: dict[str, list[SupplyRequestLine]] = {}
+    for line in lines:
+        key = _duplicate_key(line)
+        if key is not None:
+            grouped.setdefault(key, []).append(line)
+
+    duplicate_groups: list[UUID] = []
+    changed = False
+    duplicate_line_ids: set[UUID] = set()
+    for key, group_lines in grouped.items():
+        if len(group_lines) < 2:
+            continue
+        duplicate_line_ids.update(line.id for line in group_lines)
+        group_id = uuid5(
+            NAMESPACE_URL,
+            f"enterpriseos:supply:{supply_request.id}:{key}",
+        )
+        duplicate_groups.append(group_id)
+        preserved_statuses = {
+            line.duplicate_status
+            for line in group_lines
+            if line.duplicate_group_id == group_id
+        }
+        if (
+            len(preserved_statuses) == 1
+            and preserved_statuses <= {"CONFIRMED", "RESOLVED"}
+            and all(line.duplicate_group_id == group_id for line in group_lines)
+        ):
+            target_status = preserved_statuses.pop()
+        else:
+            target_status = "SUSPECTED"
+        for line in group_lines:
+            if (
+                line.duplicate_group_id != group_id
+                or line.duplicate_status != target_status
+            ):
+                line.duplicate_group_id = group_id
+                line.duplicate_status = target_status
+                changed = True
+
+    for line in lines:
+        if line.id not in duplicate_line_ids and (
+            line.duplicate_group_id is not None
+            or line.duplicate_status != "NONE"
+        ):
+            line.duplicate_group_id = None
+            line.duplicate_status = "NONE"
+            changed = True
+    return sorted(duplicate_groups, key=str), changed
+
+
+def detect_supply_request_duplicates(
+    session: Session,
+    request_id: UUID,
+    *,
+    expected_version: int,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+    )
+    lines = list(
+        session.scalars(
+            select(SupplyRequestLine)
+            .where(SupplyRequestLine.request_id == supply_request.id)
+            .order_by(SupplyRequestLine.position.asc())
+            .with_for_update()
+        ).all()
+    )
+    _, changed = _apply_duplicate_detection(supply_request, lines)
+    if changed:
+        supply_request.version += 1
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
+
+
+def resolve_supply_duplicate_group(
+    session: Session,
+    request_id: UUID,
+    group_id: UUID,
+    *,
+    expected_version: int,
+    action: SupplyDuplicateResolutionAction,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+    )
+    lines = list(
+        session.scalars(
+            select(SupplyRequestLine)
+            .where(
+                SupplyRequestLine.request_id == supply_request.id,
+                SupplyRequestLine.duplicate_group_id == group_id,
+            )
+            .with_for_update()
+        ).all()
+    )
+    if len(lines) < 2:
+        raise SupplyDuplicateGroupNotFoundError
+    target_status = (
+        "RESOLVED"
+        if action == SupplyDuplicateResolutionAction.KEEP_SEPARATE
+        else "CONFIRMED"
+    )
+    changed = any(line.duplicate_status != target_status for line in lines)
+    for line in lines:
+        line.duplicate_status = target_status
+    if changed:
+        supply_request.version += 1
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
+
+
+def submit_supply_request(
+    session: Session,
+    request_id: UUID,
+    *,
+    expected_version: int,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+    )
+    if supply_request.status != "DRAFT":
+        raise SupplyRequestStateError
+    lines = list(
+        session.scalars(
+            select(SupplyRequestLine)
+            .where(SupplyRequestLine.request_id == supply_request.id)
+            .order_by(SupplyRequestLine.position.asc())
+            .with_for_update()
+        ).all()
+    )
+    if not lines:
+        raise SupplyRequestStateError
+    _apply_duplicate_detection(supply_request, lines)
+    blocking_groups = sorted(
+        {
+            line.duplicate_group_id
+            for line in lines
+            if line.duplicate_group_id is not None
+            and line.duplicate_status in {"SUSPECTED", "CONFIRMED"}
+        },
+        key=str,
+    )
+    if blocking_groups:
+        session.rollback()
+        raise SupplyRequestDuplicatesPresentError(blocking_groups)
+
+    try:
+        supply_request.status = "SUBMITTED"
+        supply_request.submitted_at = datetime.now(timezone.utc)
+        supply_request.version += 1
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
 
 
 def _clear_confirmed_match(line: SupplyRequestLine) -> None:
@@ -1210,9 +1707,14 @@ def recognize_supply_request(
     session: Session,
     request_id: UUID,
     *,
+    expected_version: int,
     force: bool = False,
 ) -> SupplyRecognitionSummary:
-    supply_request = _get_supply_request_for_update(session, request_id)
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+    )
     lines = list(
         session.scalars(
             select(SupplyRequestLine)
@@ -1279,6 +1781,7 @@ def manually_match_supply_request_line(
         session,
         request_id=request_id,
         line_id=line_id,
+        expected_version=payload.expected_version,
     )
     now = datetime.now(timezone.utc)
 

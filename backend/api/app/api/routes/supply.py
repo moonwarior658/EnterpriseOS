@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
@@ -21,6 +23,8 @@ from app.models.supply import (
 from app.models.user import User
 from app.schemas.supply import (
     DepartmentRead,
+    SupplyDuplicateGroupResolve,
+    SupplyExpectedVersion,
     SupplyProductAliasCreate,
     SupplyProductAliasRead,
     SupplyProductCreate,
@@ -33,7 +37,13 @@ from app.schemas.supply import (
     SupplyReferenceUpdate,
     SupplyLineManualMatch,
     SupplyRecognitionSummary,
+    SupplyRecognitionRequest,
     SupplyRequestCreate,
+    SupplyRequestCycleCreate,
+    SupplyRequestCyclePage,
+    SupplyRequestCycleRead,
+    SupplyRequestCycleStatus,
+    SupplyRequestCycleUpdate,
     SupplyRequestDirectionRead,
     SupplyRequestLineRead,
     SupplyRequestListItem,
@@ -43,6 +53,8 @@ from app.schemas.supply import (
 from app.supply.service import (
     DepartmentNotFoundError,
     DirectionNotFoundError,
+    DuplicateSupplyRequestCycleError,
+    DuplicateSupplyRequestError,
     DuplicateSupplyProductAliasError,
     DuplicateSupplyProductCategoryError,
     DuplicateSupplyProductError,
@@ -56,19 +68,27 @@ from app.supply.service import (
     InactiveSupplyUnitError,
     InvalidSupplyQuantityError,
     PublicNumberGenerationError,
+    SupplyDuplicateGroupNotFoundError,
     SupplyProductAliasNotFoundError,
     SupplyProductCategoryNotFoundError,
     SupplyProductNotFoundError,
     SupplyProductRestoreConflictError,
     SupplyRequestNotFoundError,
     SupplyRequestLineNotFoundError,
+    SupplyRequestCycleHasRequestsError,
+    SupplyRequestCycleNotFoundError,
+    SupplyRequestCycleStateError,
+    SupplyRequestCycleUnavailableError,
+    SupplyRequestDuplicatesPresentError,
     SupplyRequestStateError,
+    SupplyRequestVersionConflictError,
     SupplyUnitNotFoundError,
     SupplyStorageZoneNotFoundError,
     archive_supply_product,
     create_supply_product_category,
     create_supply_product,
     create_supply_product_alias,
+    create_supply_request_cycle,
     create_supply_storage_zone,
     create_supply_request,
     delete_supply_product_alias,
@@ -76,20 +96,25 @@ from app.supply.service import (
     get_supply_product,
     get_supply_storage_zone,
     get_supply_request,
+    get_supply_request_cycle,
     list_departments,
     list_request_directions,
     list_supply_product_categories,
     list_supply_products,
     list_supply_storage_zones,
     list_supply_requests,
+    list_supply_request_cycles,
     list_supply_units,
     manually_match_supply_request_line,
+    detect_supply_request_duplicates,
     recognize_supply_request,
     restore_supply_product,
+    resolve_supply_duplicate_group,
     submit_supply_request,
     update_supply_product_category,
     update_supply_product,
     update_supply_storage_zone,
+    update_supply_request_cycle,
 )
 
 
@@ -129,6 +154,134 @@ def _reference_conflict(detail: str) -> HTTPException:
         status_code=status.HTTP_409_CONFLICT,
         detail=detail,
     )
+
+
+def _version_conflict(
+    error: SupplyRequestVersionConflictError,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "SUPPLY_REQUEST_VERSION_CONFLICT",
+            "current_version": error.current_version,
+            "expected_version": error.expected_version,
+        },
+    )
+
+
+@router.get(
+    "/request-cycles",
+    response_model=SupplyRequestCyclePage,
+)
+def read_supply_request_cycles(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+    direction_id: UUID | None = None,
+    cycle_status: Annotated[
+        SupplyRequestCycleStatus | None,
+        Query(alias="status"),
+    ] = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SupplyRequestCyclePage:
+    items, total = list_supply_request_cycles(
+        db,
+        direction_id=direction_id,
+        cycle_status=cycle_status,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+    return SupplyRequestCyclePage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/request-cycles",
+    response_model=SupplyRequestCycleRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_request_cycle(
+    payload: SupplyRequestCycleCreate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequestCycle:
+    try:
+        return create_supply_request_cycle(db, payload)
+    except DirectionNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Направление заявки не найдено",
+        ) from error
+    except InactiveDirectionError as error:
+        raise _reference_conflict("Направление заявки неактивно") from error
+    except DuplicateSupplyRequestCycleError as error:
+        raise _reference_conflict(
+            "Цикл для этого направления и даты уже существует"
+        ) from error
+
+
+@router.get(
+    "/request-cycles/{cycle_id}",
+    response_model=SupplyRequestCycleRead,
+)
+def read_supply_request_cycle(
+    cycle_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequestCycle:
+    try:
+        return get_supply_request_cycle(db, cycle_id)
+    except SupplyRequestCycleNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Цикл заявок не найден",
+        ) from error
+
+
+@router.patch(
+    "/request-cycles/{cycle_id}",
+    response_model=SupplyRequestCycleRead,
+)
+def update_request_cycle(
+    cycle_id: UUID,
+    payload: SupplyRequestCycleUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequestCycle:
+    try:
+        return update_supply_request_cycle(db, cycle_id, payload)
+    except SupplyRequestCycleNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Цикл заявок не найден",
+        ) from error
+    except DirectionNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Направление заявки не найдено",
+        ) from error
+    except InactiveDirectionError as error:
+        raise _reference_conflict("Направление заявки неактивно") from error
+    except DuplicateSupplyRequestCycleError as error:
+        raise _reference_conflict(
+            "Цикл для этого направления и даты уже существует"
+        ) from error
+    except SupplyRequestCycleHasRequestsError as error:
+        raise _reference_conflict(
+            "Нельзя изменить направление или дату цикла с заявками"
+        ) from error
+    except SupplyRequestCycleStateError as error:
+        raise _reference_conflict(
+            "Недопустимые границы времени или переход статуса цикла"
+        ) from error
 
 
 @router.get("/units", response_model=list[SupplyUnitRead])
@@ -540,6 +693,28 @@ def create_request(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Направление заявки неактивно",
         ) from error
+    except SupplyRequestCycleNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Цикл заявок не найден",
+        ) from error
+    except SupplyRequestCycleUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_REQUEST_CYCLE_UNAVAILABLE",
+                "message": "Цикл закрыт, отменён или ещё не открыт",
+            },
+        ) from error
+    except DuplicateSupplyRequestError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_REQUEST_ALREADY_EXISTS",
+                "request_id": str(error.request_id),
+                "request_number": error.request_number,
+            },
+        ) from error
     except SupplyProductNotFoundError as error:
         raise _invalid_product_reference("Товар не найден") from error
     except InactiveSupplyProductError as error:
@@ -585,17 +760,34 @@ def read_request(
 )
 def submit_request(
     request_id: UUID,
+    payload: SupplyExpectedVersion,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyRequest:
     try:
-        return submit_supply_request(db, request_id)
+        return submit_supply_request(
+            db,
+            request_id,
+            expected_version=payload.expected_version,
+        )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
     except SupplyRequestStateError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Заявку можно отправить только один раз из статуса DRAFT",
+        ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestDuplicatesPresentError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_REQUEST_DUPLICATES_PRESENT",
+                "duplicate_groups": [
+                    str(group_id) for group_id in error.duplicate_groups
+                ],
+            },
         ) from error
 
 
@@ -605,12 +797,17 @@ def submit_request(
 )
 def recognize_request(
     request_id: UUID,
+    payload: SupplyRecognitionRequest,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
-    force: bool = False,
 ) -> SupplyRecognitionSummary:
     try:
-        return recognize_supply_request(db, request_id, force=force)
+        return recognize_supply_request(
+            db,
+            request_id,
+            expected_version=payload.expected_version,
+            force=payload.force,
+        )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
     except SupplyRequestStateError as error:
@@ -618,6 +815,8 @@ def recognize_request(
             status_code=status.HTTP_409_CONFLICT,
             detail="Отменённую заявку нельзя распознавать",
         ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
 
 
 @router.post(
@@ -646,6 +845,8 @@ def match_request_line(
             status_code=status.HTTP_409_CONFLICT,
             detail="Строки отменённой заявки нельзя изменять",
         ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
     except SupplyProductNotFoundError as error:
         raise _product_not_found() from error
     except SupplyUnitNotFoundError as error:
@@ -661,3 +862,63 @@ def match_request_line(
         raise _invalid_product_reference(
             "Для выбранной единицы допустимо только целое количество"
         ) from error
+
+
+@router.post(
+    "/requests/{request_id}/detect-duplicates",
+    response_model=SupplyRequestRead,
+)
+def detect_request_duplicates(
+    request_id: UUID,
+    payload: SupplyExpectedVersion,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return detect_supply_request_duplicates(
+            db,
+            request_id,
+            expected_version=payload.expected_version,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestStateError as error:
+        raise _reference_conflict(
+            "В отменённой заявке нельзя искать дубли"
+        ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+
+
+@router.post(
+    "/requests/{request_id}/duplicate-groups/{group_id}/resolve",
+    response_model=SupplyRequestRead,
+)
+def resolve_request_duplicate_group(
+    request_id: UUID,
+    group_id: UUID,
+    payload: SupplyDuplicateGroupResolve,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return resolve_supply_duplicate_group(
+            db,
+            request_id,
+            group_id,
+            expected_version=payload.expected_version,
+            action=payload.action,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyDuplicateGroupNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Группа дублей не найдена",
+        ) from error
+    except SupplyRequestStateError as error:
+        raise _reference_conflict(
+            "В отменённой заявке нельзя разрешать дубли"
+        ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error

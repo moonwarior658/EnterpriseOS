@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -24,6 +24,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
@@ -64,6 +65,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
+        SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
         SupplyProductCategory.__table__.create(self.engine)
         SupplyStorageZone.__table__.create(self.engine)
@@ -141,6 +143,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             )
 
         self.current_user_id = 2
+        self.cycle_counter = 0
 
         def override_get_db():
             with self.session_factory() as session:
@@ -185,11 +188,26 @@ class SupplyMatchingApiTests(unittest.TestCase):
         return product
 
     def create_request(self, *raw_lines: str) -> dict:
+        self.cycle_counter += 1
+        with self.session_factory.begin() as session:
+            cycle = SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=self.direction.id,
+                cycle_date=date(2026, 1, 1)
+                + timedelta(days=self.cycle_counter),
+                opens_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                closes_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                status="OPEN",
+            )
+            session.add(cycle)
+            session.flush()
+            cycle_id = cycle.id
         response = self.client.post(
             "/supply/requests",
             json={
                 "department_id": str(self.department.id),
                 "direction_id": str(self.direction.id),
+                "cycle_id": str(cycle_id),
                 "raw_input": "\n".join(raw_lines),
                 "lines": [{"raw_text": line} for line in raw_lines],
             },
@@ -198,15 +216,26 @@ class SupplyMatchingApiTests(unittest.TestCase):
         return response.json()
 
     def recognize(self, request_id: str, *, force: bool = False):
+        detail = self.client.get(f"/supply/requests/{request_id}")
+        expected_version = (
+            detail.json()["version"] if detail.status_code == 200 else 1
+        )
         return self.client.post(
             f"/supply/requests/{request_id}/recognize",
-            params={"force": str(force).lower()},
+            json={
+                "expected_version": expected_version,
+                "force": force,
+            },
         )
 
     def match(self, request_id: str, line_id: str, payload: dict):
+        detail = self.client.get(f"/supply/requests/{request_id}")
+        expected_version = (
+            detail.json()["version"] if detail.status_code == 200 else 1
+        )
         return self.client.post(
             f"/supply/requests/{request_id}/lines/{line_id}/match",
-            json=payload,
+            json={"expected_version": expected_version, **payload},
         )
 
     def test_recognition_matches_product_alias_and_keeps_unknown_for_review(

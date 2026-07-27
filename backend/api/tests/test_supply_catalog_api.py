@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -23,6 +24,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
@@ -67,6 +69,7 @@ class SupplyCatalogApiTests(unittest.TestCase):
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
+        SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
         SupplyProductCategory.__table__.create(self.engine)
         SupplyStorageZone.__table__.create(self.engine)
@@ -128,6 +131,7 @@ class SupplyCatalogApiTests(unittest.TestCase):
             session.flush()
 
         self.current_user_id = 2
+        self.cycle_counter = 0
 
         def override_get_db():
             with self.session_factory() as session:
@@ -192,9 +196,24 @@ class SupplyCatalogApiTests(unittest.TestCase):
         return response.json()
 
     def request_payload(self, line: dict) -> dict:
+        self.cycle_counter += 1
+        with self.session_factory.begin() as session:
+            cycle = SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=self.direction.id,
+                cycle_date=date(2026, 1, 1)
+                + timedelta(days=self.cycle_counter),
+                opens_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                closes_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                status="OPEN",
+            )
+            session.add(cycle)
+            session.flush()
+            cycle_id = cycle.id
         return {
             "department_id": str(self.department.id),
             "direction_id": str(self.direction.id),
+            "cycle_id": str(cycle_id),
             "raw_input": line["raw_text"],
             "lines": [line],
         }

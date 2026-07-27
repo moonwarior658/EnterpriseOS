@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -19,6 +19,25 @@ class SupplyRequestStatus(StrEnum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     CANCELLED = "CANCELLED"
+
+
+class SupplyRequestCycleStatus(StrEnum):
+    SCHEDULED = "SCHEDULED"
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplyDuplicateStatus(StrEnum):
+    NONE = "NONE"
+    SUSPECTED = "SUSPECTED"
+    CONFIRMED = "CONFIRMED"
+    RESOLVED = "RESOLVED"
+
+
+class SupplyDuplicateResolutionAction(StrEnum):
+    KEEP_SEPARATE = "KEEP_SEPARATE"
+    MARK_CONFIRMED = "MARK_CONFIRMED"
 
 
 class SupplyRequestSourceType(StrEnum):
@@ -65,6 +84,92 @@ class SupplyRequestDirectionRead(BaseModel):
     display_order: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def _require_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("Дата и время должны содержать часовой пояс")
+    return value
+
+
+class SupplyRequestCycleCreate(BaseModel):
+    direction_id: UUID
+    cycle_date: date
+    opens_at: datetime
+    closes_at: datetime
+    hard_closes_at: datetime | None = None
+    status: SupplyRequestCycleStatus = SupplyRequestCycleStatus.SCHEDULED
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("opens_at", "closes_at", "hard_closes_at")
+    @classmethod
+    def validate_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        return None if value is None else _require_aware_datetime(value)
+
+    @model_validator(mode="after")
+    def validate_window(self):
+        if self.closes_at <= self.opens_at:
+            raise ValueError("closes_at должен быть позже opens_at")
+        if (
+            self.hard_closes_at is not None
+            and self.hard_closes_at < self.closes_at
+        ):
+            raise ValueError(
+                "hard_closes_at должен быть не раньше closes_at"
+            )
+        return self
+
+
+class SupplyRequestCycleUpdate(BaseModel):
+    direction_id: UUID | None = None
+    cycle_date: date | None = None
+    opens_at: datetime | None = None
+    closes_at: datetime | None = None
+    hard_closes_at: datetime | None = None
+    status: SupplyRequestCycleStatus | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("direction_id", "cycle_date", "opens_at", "closes_at", "status")
+    @classmethod
+    def reject_null_required_fields(cls, value):
+        if value is None:
+            raise ValueError("Поле не может быть null")
+        return value
+
+    @field_validator("opens_at", "closes_at", "hard_closes_at")
+    @classmethod
+    def validate_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        return None if value is None else _require_aware_datetime(value)
+
+
+class SupplyRequestCycleRead(BaseModel):
+    id: UUID
+    direction_id: UUID
+    direction: SupplyRequestDirectionRead
+    cycle_date: date
+    opens_at: datetime
+    closes_at: datetime
+    hard_closes_at: datetime | None
+    status: SupplyRequestCycleStatus
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyRequestCyclePage(BaseModel):
+    items: list[SupplyRequestCycleRead]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
 
 
 class SupplyUnitRead(BaseModel):
@@ -361,6 +466,8 @@ class SupplyRequestLineRead(BaseModel):
     matched_at: datetime | None
     matched_by_user_id: int | None
     match_notes: str | None
+    duplicate_group_id: UUID | None
+    duplicate_status: SupplyDuplicateStatus
     created_at: datetime
     updated_at: datetime
 
@@ -368,6 +475,7 @@ class SupplyRequestLineRead(BaseModel):
 
 
 class SupplyLineManualMatch(BaseModel):
+    expected_version: int = Field(ge=1)
     product_id: UUID | None = None
     unit_id: UUID | None = None
     quantity: Decimal | None = Field(
@@ -413,9 +521,24 @@ class SupplyRecognitionSummary(BaseModel):
     results: list[SupplyRecognitionResult]
 
 
+class SupplyExpectedVersion(BaseModel):
+    expected_version: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyRecognitionRequest(SupplyExpectedVersion):
+    force: bool = False
+
+
+class SupplyDuplicateGroupResolve(SupplyExpectedVersion):
+    action: SupplyDuplicateResolutionAction
+
+
 class SupplyRequestCreate(BaseModel):
     department_id: UUID
     direction_id: UUID
+    cycle_id: UUID
     raw_input: str
     lines: list[SupplyRequestLineCreate]
 
@@ -452,6 +575,8 @@ class SupplyRequestRead(BaseModel):
     public_number: str
     department: DepartmentRead
     direction: SupplyRequestDirectionRead
+    cycle_id: UUID | None
+    cycle: SupplyRequestCycleRead | None
     status: SupplyRequestStatus
     source_type: SupplyRequestSourceType
     source_work_request_id: int | None
@@ -471,6 +596,8 @@ class SupplyRequestListItem(BaseModel):
     public_number: str
     department: DepartmentRead
     direction: SupplyRequestDirectionRead
+    cycle_id: UUID | None
+    cycle: SupplyRequestCycleRead | None
     status: SupplyRequestStatus
     source_type: SupplyRequestSourceType
     version: int

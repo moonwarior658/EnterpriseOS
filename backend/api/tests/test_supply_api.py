@@ -1,7 +1,7 @@
 import os
 import re
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 from unittest.mock import patch
 
@@ -26,6 +26,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
@@ -72,6 +73,7 @@ class SupplyApiTests(unittest.TestCase):
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
+        SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
         SupplyProductCategory.__table__.create(self.engine)
         SupplyStorageZone.__table__.create(self.engine)
@@ -130,6 +132,7 @@ class SupplyApiTests(unittest.TestCase):
             )
 
         self.current_user_id = 2
+        self.cycle_counter = 0
 
         def override_get_db():
             with self.session_factory() as session:
@@ -157,9 +160,21 @@ class SupplyApiTests(unittest.TestCase):
 
     def payload(self, **changes) -> dict:
         department_id, direction_id = self.reference_ids()
+        requested_direction_id = changes.get("direction_id", direction_id)
+        with self.session_factory() as session:
+            requested_direction_exists = session.get(
+                SupplyRequestDirection,
+                UUID(requested_direction_id),
+            )
+        cycle_id = self.create_cycle(
+            requested_direction_id
+            if requested_direction_exists is not None
+            else direction_id
+        )
         body = {
             "department_id": department_id,
             "direction_id": direction_id,
+            "cycle_id": cycle_id,
             "raw_input": "Молоко 10 л\nСахар 5 кг",
             "lines": [
                 {"raw_text": "Молоко 10 л"},
@@ -168,6 +183,22 @@ class SupplyApiTests(unittest.TestCase):
         }
         body.update(changes)
         return body
+
+    def create_cycle(self, direction_id: str) -> str:
+        self.cycle_counter += 1
+        with self.session_factory.begin() as session:
+            cycle = SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=UUID(direction_id),
+                cycle_date=date(2026, 1, 1)
+                + timedelta(days=self.cycle_counter),
+                opens_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                closes_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                status="OPEN",
+            )
+            session.add(cycle)
+            session.flush()
+            return str(cycle.id)
 
     def create_request(self, **changes) -> dict:
         response = self.client.post(
@@ -351,7 +382,7 @@ class SupplyApiTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 create_supply_request(
                     session,
-                    payload,
+                    SupplyRequestCreate.model_validate(self.payload()),
                     created_by_user_id=2,
                     source_work_request_id=999_999,
                 )
@@ -484,7 +515,8 @@ class SupplyApiTests(unittest.TestCase):
     def test_submit_is_one_way_sets_time_and_preserves_source(self) -> None:
         created = self.create_request()
         submitted = self.client.post(
-            f"/supply/requests/{created['id']}/submit"
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": 1},
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
         body = submitted.json()
@@ -495,9 +527,13 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(body["lines"], created["lines"])
 
         repeated = self.client.post(
-            f"/supply/requests/{created['id']}/submit"
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": 2},
         )
-        missing = self.client.post(f"/supply/requests/{uuid4()}/submit")
+        missing = self.client.post(
+            f"/supply/requests/{uuid4()}/submit",
+            json={"expected_version": 1},
+        )
         self.assertEqual(repeated.status_code, 409)
         self.assertEqual(missing.status_code, 404)
 

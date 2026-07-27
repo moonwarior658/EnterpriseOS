@@ -466,6 +466,53 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         )
         self.assertEqual(category_count, 0)
 
+    def _assert_cycles_and_duplicates_schema(self) -> None:
+        inspector = inspect(self.engine)
+        self.assertIn(
+            "supply_request_cycles",
+            inspector.get_table_names(),
+        )
+        request_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_requests")
+        }
+        line_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_request_lines")
+        }
+        self.assertTrue(request_columns["cycle_id"]["nullable"])
+        self.assertTrue(line_columns["duplicate_group_id"]["nullable"])
+        self.assertFalse(line_columns["duplicate_status"]["nullable"])
+        self.assertIn(
+            "uq_supply_requests_tenant_department_direction_cycle",
+            {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "supply_requests"
+                )
+            },
+        )
+        self.assertIn(
+            "uq_supply_request_cycles_tenant_direction_date",
+            {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "supply_request_cycles"
+                )
+            },
+        )
+        self.assertIn(
+            (("cycle_id",), "supply_request_cycles", "RESTRICT"),
+            {
+                (
+                    tuple(key["constrained_columns"]),
+                    key["referred_table"],
+                    key["options"].get("ondelete"),
+                )
+                for key in inspector.get_foreign_keys("supply_requests")
+            },
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -611,6 +658,36 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 )
             ).one()
         self.assertEqual(migrated_product, (True, None, None))
+
+        command.upgrade(self.alembic_config, "20260727_0011")
+        self.assertEqual(self._current_revision(), "20260727_0011")
+        self._assert_cycles_and_duplicates_schema()
+        with self.engine.connect() as connection:
+            legacy_request = connection.execute(
+                text(
+                    "SELECT cycle_id FROM supply_requests WHERE id = "
+                    "'10000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+            legacy_line = connection.execute(
+                text(
+                    "SELECT duplicate_group_id, duplicate_status "
+                    "FROM supply_request_lines WHERE id = "
+                    "'20000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+        self.assertEqual(legacy_request, (None,))
+        self.assertEqual(legacy_line, (None, "NONE"))
+
+        command.downgrade(self.alembic_config, "20260727_0010")
+        self.assertEqual(self._current_revision(), "20260727_0010")
+        self.assertNotIn(
+            "supply_request_cycles",
+            inspect(self.engine).get_table_names(),
+        )
+        command.upgrade(self.alembic_config, "20260727_0011")
+        self.assertEqual(self._current_revision(), "20260727_0011")
+        self._assert_cycles_and_duplicates_schema()
 
         command.downgrade(self.alembic_config, "20260727_0009")
         self.assertEqual(self._current_revision(), "20260727_0009")

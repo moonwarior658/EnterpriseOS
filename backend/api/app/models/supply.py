@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -118,6 +119,79 @@ class SupplyRequestDirection(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class SupplyRequestCycle(Base):
+    __tablename__ = "supply_request_cycles"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "direction_id",
+            "cycle_date",
+            name="uq_supply_request_cycles_tenant_direction_date",
+        ),
+        CheckConstraint(
+            "status IN ('SCHEDULED', 'OPEN', 'CLOSED', 'CANCELLED')",
+            name="ck_supply_request_cycles_status",
+        ),
+        CheckConstraint(
+            "closes_at > opens_at",
+            name="ck_supply_request_cycles_time_window",
+        ),
+        CheckConstraint(
+            "hard_closes_at IS NULL OR hard_closes_at >= closes_at",
+            name="ck_supply_request_cycles_hard_close",
+        ),
+        Index(
+            "ix_supply_request_cycles_tenant_date_status",
+            "tenant_id",
+            "cycle_date",
+            "status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_directions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    cycle_date: Mapped[date] = mapped_column(Date, nullable=False)
+    opens_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    closes_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    hard_closes_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="SCHEDULED",
+        server_default="SCHEDULED",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    direction: Mapped[SupplyRequestDirection] = relationship()
 
 
 class SupplyUnit(Base):
@@ -420,6 +494,13 @@ class SupplyRequest(Base):
             "public_number",
             name="uq_supply_requests_tenant_public_number",
         ),
+        UniqueConstraint(
+            "tenant_id",
+            "department_id",
+            "direction_id",
+            "cycle_id",
+            name="uq_supply_requests_tenant_department_direction_cycle",
+        ),
         CheckConstraint(
             "status IN ('DRAFT', 'SUBMITTED', 'CANCELLED')",
             name="ck_supply_requests_status",
@@ -455,6 +536,10 @@ class SupplyRequest(Base):
     direction_id: Mapped[UUID] = mapped_column(
         ForeignKey("supply_request_directions.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    cycle_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_request_cycles.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     status: Mapped[str] = mapped_column(
         String(24),
@@ -501,6 +586,7 @@ class SupplyRequest(Base):
 
     department: Mapped[Department] = relationship()
     direction: Mapped[SupplyRequestDirection] = relationship()
+    cycle: Mapped[SupplyRequestCycle | None] = relationship()
     lines: Mapped[list["SupplyRequestLine"]] = relationship(
         back_populates="request",
         cascade="all, delete-orphan",
@@ -547,6 +633,11 @@ class SupplyRequestLine(Base):
             "match_confidence IS NULL OR "
             "(match_confidence >= 0 AND match_confidence <= 1)",
             name="ck_supply_request_lines_match_confidence",
+        ),
+        CheckConstraint(
+            "duplicate_status IN ('NONE', 'SUSPECTED', 'CONFIRMED', "
+            "'RESOLVED')",
+            name="ck_supply_request_lines_duplicate_status",
         ),
     )
 
@@ -605,6 +696,16 @@ class SupplyRequestLine(Base):
         nullable=True,
     )
     match_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duplicate_group_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+    )
+    duplicate_status: Mapped[str] = mapped_column(
+        String(24),
+        default="NONE",
+        server_default="NONE",
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
