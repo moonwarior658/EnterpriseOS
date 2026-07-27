@@ -13,6 +13,9 @@ MAX_REFERENCE_NAME_LENGTH = 160
 MAX_REFERENCE_CODE_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 2_000
 MAX_IIKO_ID_LENGTH = 160
+MAX_PUBLIC_LINE_COUNT = 200
+MAX_PUBLIC_AUTHOR_NAME_LENGTH = 160
+MAX_PUBLIC_AUTHOR_PHONE_LENGTH = 40
 
 
 class SupplyRequestStatus(StrEnum):
@@ -589,6 +592,134 @@ class SupplyRequestRead(BaseModel):
     lines: list[SupplyRequestLineRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PublicSupplyDepartmentRead(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    display_order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicSupplyDirectionRead(BaseModel):
+    id: UUID
+    code: str
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicSupplyCycleRead(BaseModel):
+    id: UUID
+    direction: PublicSupplyDirectionRead
+    cycle_date: date
+    opens_at: datetime
+    closes_at: datetime
+    hard_closes_at: datetime | None
+    effective_closes_at: datetime
+    server_now: datetime
+    seconds_until_close: int = Field(ge=0)
+
+
+class PublicSupplyRequestCreate(BaseModel):
+    department_id: UUID
+    cycle_id: UUID
+    author_name: str
+    author_phone: str | None = None
+    multiline_text: str
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("author_name")
+    @classmethod
+    def validate_author_name(cls, value: str) -> str:
+        return _strip_required(
+            value,
+            label="Имя",
+            max_length=MAX_PUBLIC_AUTHOR_NAME_LENGTH,
+        )
+
+    @field_validator("author_phone")
+    @classmethod
+    def validate_author_phone(cls, value: str | None) -> str | None:
+        return _strip_optional(
+            value,
+            max_length=MAX_PUBLIC_AUTHOR_PHONE_LENGTH,
+        )
+
+    @field_validator("multiline_text")
+    @classmethod
+    def validate_multiline_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Добавьте хотя бы одну строку заявки")
+        if len(stripped) > MAX_RAW_INPUT_LENGTH:
+            raise ValueError(
+                "Текст заявки не может быть длиннее "
+                f"{MAX_RAW_INPUT_LENGTH} символов"
+            )
+        lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+        if len(lines) > MAX_PUBLIC_LINE_COUNT:
+            raise ValueError(
+                f"В заявке может быть не больше {MAX_PUBLIC_LINE_COUNT} строк"
+            )
+        if any(len(line) > MAX_LINE_LENGTH for line in lines):
+            raise ValueError(
+                f"Строка заявки не может быть длиннее {MAX_LINE_LENGTH} символов"
+            )
+        return "\n".join(lines)
+
+
+class PublicSupplyExpectedVersion(BaseModel):
+    expected_version: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PublicSupplySubmit(PublicSupplyExpectedVersion):
+    confirm_unrecognized: bool = False
+
+
+class PublicSupplyLinesUpdate(PublicSupplyExpectedVersion):
+    multiline_text: str
+
+    @field_validator("multiline_text")
+    @classmethod
+    def validate_multiline_text(cls, value: str) -> str:
+        return PublicSupplyRequestCreate.validate_multiline_text(value)
+
+
+class PublicSupplyLineRead(BaseModel):
+    id: UUID
+    raw_text: str
+    parsed_name: str | None
+    parsed_quantity: Decimal | None
+    parsed_unit: str | None
+    matched_product_name: str | None
+    requested_quantity: Decimal | None
+    requested_unit: str | None
+    match_status: SupplyLineMatchStatus
+    duplicate_status: SupplyDuplicateStatus
+    public_message: str
+
+
+class PublicSupplyRequestRead(BaseModel):
+    request_number: str
+    department: PublicSupplyDepartmentRead
+    direction: PublicSupplyDirectionRead
+    cycle: PublicSupplyCycleRead
+    status: SupplyRequestStatus
+    version: int
+    author_name: str
+    lines: list[PublicSupplyLineRead]
+    submitted_at: datetime | None
+    expires_at: datetime
+
+
+class PublicSupplyRequestCreated(PublicSupplyRequestRead):
+    public_token: str
 
 
 class SupplyRequestListItem(BaseModel):

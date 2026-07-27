@@ -1,0 +1,471 @@
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import secrets
+from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
+
+from app.core.config import settings
+from app.models.supply import (
+    Department,
+    SupplyRequest,
+    SupplyRequestCycle,
+    SupplyRequestDirection,
+    SupplyRequestLine,
+)
+from app.schemas.supply import (
+    PublicSupplyRequestCreate,
+    PublicSupplyLinesUpdate,
+)
+from app.supply.service import (
+    DuplicateSupplyRequestError,
+    PublicNumberGenerationError,
+    SupplyRequestCycleUnavailableError,
+    SupplyRequestDuplicatesPresentError,
+    SupplyRequestNotFoundError,
+    SupplyRequestStateError,
+    SupplyRequestVersionConflictError,
+    _apply_duplicate_detection,
+    _as_aware_utc,
+    _get_department,
+    _next_public_number,
+    _recognize_line,
+    _request_options,
+    _validate_cycle_for_new_request,
+)
+
+
+PUBLIC_TOKEN_TECHNICAL_GRACE = timedelta(hours=24)
+PUBLIC_CREATE_RATE_WINDOW = timedelta(minutes=10)
+PUBLIC_CREATE_RATE_LIMIT = 5
+
+
+class PublicSupplyUnrecognizedLinesError(ValueError):
+    def __init__(self, line_ids: list[UUID]):
+        self.line_ids = line_ids
+        super().__init__("Unrecognized supply lines require confirmation")
+
+
+class PublicSupplyRateLimitError(ValueError):
+    pass
+
+
+def hash_public_token(token: str) -> str:
+    secret = settings.jwt_secret_key.encode("utf-8")
+    return hmac.new(secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def hash_source_ip(client_host: str | None) -> str | None:
+    if not client_host:
+        return None
+    secret = settings.jwt_secret_key.encode("utf-8")
+    return hmac.new(
+        secret,
+        f"supply-ip:{client_host}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def list_public_departments(session: Session) -> list[Department]:
+    return list(
+        session.scalars(
+            select(Department)
+            .where(
+                Department.tenant_id == settings.default_tenant_id,
+                Department.is_active.is_(True),
+            )
+            .order_by(Department.display_order.asc(), Department.code.asc())
+        ).all()
+    )
+
+
+def list_public_cycles(
+    session: Session,
+    *,
+    department_id: UUID | None,
+    direction_id: UUID | None,
+    now: datetime,
+) -> list[SupplyRequestCycle]:
+    if department_id is not None:
+        department = session.scalar(
+            select(Department).where(
+                Department.id == department_id,
+                Department.tenant_id == settings.default_tenant_id,
+                Department.is_active.is_(True),
+            )
+        )
+        if department is None:
+            return []
+    filters = [
+        SupplyRequestCycle.tenant_id == settings.default_tenant_id,
+        SupplyRequestCycle.status == "OPEN",
+        SupplyRequestCycle.opens_at <= now,
+        SupplyRequestDirection.tenant_id == settings.default_tenant_id,
+        SupplyRequestDirection.is_active.is_(True),
+    ]
+    if direction_id is not None:
+        filters.append(SupplyRequestCycle.direction_id == direction_id)
+    cycles = session.scalars(
+        select(SupplyRequestCycle)
+        .join(SupplyRequestDirection)
+        .where(*filters)
+        .options(joinedload(SupplyRequestCycle.direction))
+        .order_by(
+            SupplyRequestCycle.cycle_date.asc(),
+            SupplyRequestDirection.display_order.asc(),
+        )
+    ).all()
+    return [
+        cycle
+        for cycle in cycles
+        if now <= _as_aware_utc(cycle.hard_closes_at or cycle.closes_at)
+    ]
+
+
+def _get_public_cycle_for_create(
+    session: Session,
+    cycle_id: UUID,
+    *,
+    now: datetime,
+) -> SupplyRequestCycle:
+    cycle = session.scalar(
+        select(SupplyRequestCycle)
+        .where(
+            SupplyRequestCycle.id == cycle_id,
+            SupplyRequestCycle.tenant_id == settings.default_tenant_id,
+        )
+        .options(joinedload(SupplyRequestCycle.direction))
+    )
+    if cycle is None or not cycle.direction.is_active:
+        raise SupplyRequestCycleUnavailableError
+    _validate_cycle_for_new_request(
+        cycle,
+        direction_id=cycle.direction_id,
+        now=now,
+    )
+    return cycle
+
+
+def _assert_draft_and_open(
+    supply_request: SupplyRequest,
+    *,
+    now: datetime,
+) -> None:
+    if supply_request.status != "DRAFT" or supply_request.cycle is None:
+        raise SupplyRequestStateError
+    _validate_cycle_for_new_request(
+        supply_request.cycle,
+        direction_id=supply_request.direction_id,
+        now=now,
+    )
+
+
+def _get_public_request_statement(token_hash: str):
+    return (
+        select(SupplyRequest)
+        .where(
+            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.public_token_hash == token_hash,
+        )
+        .options(*_request_options())
+    )
+
+
+def get_public_request(
+    session: Session,
+    token: str,
+    *,
+    now: datetime | None = None,
+) -> SupplyRequest:
+    current_time = now or datetime.now(timezone.utc)
+    supply_request = session.scalar(
+        _get_public_request_statement(hash_public_token(token))
+    )
+    if (
+        supply_request is None
+        or supply_request.public_token_expires_at is None
+        or _as_aware_utc(supply_request.public_token_expires_at) <= current_time
+    ):
+        raise SupplyRequestNotFoundError
+    return supply_request
+
+
+def _get_public_request_for_update(
+    session: Session,
+    token: str,
+    *,
+    expected_version: int,
+    now: datetime,
+) -> SupplyRequest:
+    supply_request = session.scalar(
+        _get_public_request_statement(hash_public_token(token)).with_for_update()
+    )
+    if (
+        supply_request is None
+        or supply_request.public_token_expires_at is None
+        or _as_aware_utc(supply_request.public_token_expires_at) <= now
+    ):
+        raise SupplyRequestNotFoundError
+    if supply_request.version != expected_version:
+        raise SupplyRequestVersionConflictError(
+            supply_request.version,
+            expected_version,
+        )
+    return supply_request
+
+
+def create_public_request(
+    session: Session,
+    payload: PublicSupplyRequestCreate,
+    *,
+    source_ip_hash: str | None,
+    now: datetime | None = None,
+) -> tuple[SupplyRequest, str]:
+    current_time = now or datetime.now(timezone.utc)
+    token = secrets.token_urlsafe(32)
+    token_hash = hash_public_token(token)
+    try:
+        if source_ip_hash is not None:
+            recent_count = session.scalar(
+                select(func.count())
+                .select_from(SupplyRequest)
+                .where(
+                    SupplyRequest.source_ip_hash == source_ip_hash,
+                    SupplyRequest.public_created_at
+                    >= current_time - PUBLIC_CREATE_RATE_WINDOW,
+                )
+            )
+            if int(recent_count or 0) >= PUBLIC_CREATE_RATE_LIMIT:
+                raise PublicSupplyRateLimitError
+        department = _get_department(session, payload.department_id)
+        cycle = _get_public_cycle_for_create(
+            session,
+            payload.cycle_id,
+            now=current_time,
+        )
+        existing = session.scalar(
+            select(SupplyRequest).where(
+                SupplyRequest.tenant_id == settings.default_tenant_id,
+                SupplyRequest.department_id == department.id,
+                SupplyRequest.direction_id == cycle.direction_id,
+                SupplyRequest.cycle_id == cycle.id,
+            )
+        )
+        if existing is not None:
+            raise DuplicateSupplyRequestError(
+                existing.id,
+                existing.public_number,
+            )
+        supply_request = SupplyRequest(
+            tenant_id=settings.default_tenant_id,
+            public_number=_next_public_number(
+                session,
+                department_code=department.code,
+                direction_code=cycle.direction.code,
+                now=current_time,
+            ),
+            department_id=department.id,
+            direction_id=cycle.direction_id,
+            cycle_id=cycle.id,
+            status="DRAFT",
+            source_type="PUBLIC_FORM",
+            raw_input=payload.multiline_text,
+            version=1,
+            created_by_user_id=None,
+            public_token_hash=token_hash,
+            public_token_expires_at=_as_aware_utc(
+                cycle.hard_closes_at or cycle.closes_at
+            )
+            + PUBLIC_TOKEN_TECHNICAL_GRACE,
+            public_author_name=payload.author_name,
+            public_author_phone=payload.author_phone,
+            source_ip_hash=source_ip_hash,
+            public_created_at=current_time,
+            lines=[
+                SupplyRequestLine(position=index, raw_text=line)
+                for index, line in enumerate(
+                    payload.multiline_text.splitlines(),
+                    start=1,
+                )
+            ],
+        )
+        session.add(supply_request)
+        session.flush()
+        for line in supply_request.lines:
+            _recognize_line(session, line, now=current_time)
+        _apply_duplicate_detection(supply_request, supply_request.lines)
+        session.flush()
+        session.commit()
+    except DuplicateSupplyRequestError:
+        session.rollback()
+        raise
+    except IntegrityError as error:
+        session.rollback()
+        message = str(error.orig).lower()
+        if "department" in message and "direction" in message and "cycle" in message:
+            raise DuplicateSupplyRequestError(UUID(int=0), "") from error
+        raise PublicNumberGenerationError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_public_request(session, token, now=current_time), token
+
+
+def recognize_public_request(
+    session: Session,
+    token: str,
+    *,
+    expected_version: int,
+    now: datetime | None = None,
+) -> SupplyRequest:
+    current_time = now or datetime.now(timezone.utc)
+    supply_request = _get_public_request_for_update(
+        session,
+        token,
+        expected_version=expected_version,
+        now=current_time,
+    )
+    _assert_draft_and_open(supply_request, now=current_time)
+    lines = list(supply_request.lines)
+    before = [
+        (
+            line.parsed_name,
+            line.parsed_quantity,
+            line.parsed_unit_id,
+            line.product_id,
+            line.requested_unit_id,
+            line.quantity,
+            line.match_status,
+            line.match_method,
+            line.match_confidence,
+            line.duplicate_group_id,
+            line.duplicate_status,
+        )
+        for line in lines
+    ]
+    previous_matched_at = [line.matched_at for line in lines]
+    for line in lines:
+        if line.match_method != "MANUAL":
+            _recognize_line(session, line, now=current_time)
+    _apply_duplicate_detection(supply_request, lines)
+    after = [
+        (
+            line.parsed_name,
+            line.parsed_quantity,
+            line.parsed_unit_id,
+            line.product_id,
+            line.requested_unit_id,
+            line.quantity,
+            line.match_status,
+            line.match_method,
+            line.match_confidence,
+            line.duplicate_group_id,
+            line.duplicate_status,
+        )
+        for line in lines
+    ]
+    changed = before != after
+    if changed:
+        supply_request.version += 1
+    else:
+        for line, matched_at in zip(lines, previous_matched_at, strict=True):
+            line.matched_at = matched_at
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_public_request(session, token, now=current_time)
+
+
+def replace_public_request_lines(
+    session: Session,
+    token: str,
+    payload: PublicSupplyLinesUpdate,
+    *,
+    now: datetime | None = None,
+) -> SupplyRequest:
+    current_time = now or datetime.now(timezone.utc)
+    supply_request = _get_public_request_for_update(
+        session,
+        token,
+        expected_version=payload.expected_version,
+        now=current_time,
+    )
+    _assert_draft_and_open(supply_request, now=current_time)
+    try:
+        supply_request.lines.clear()
+        session.flush()
+        supply_request.raw_input = payload.multiline_text
+        supply_request.lines = [
+            SupplyRequestLine(position=index, raw_text=line)
+            for index, line in enumerate(
+                payload.multiline_text.splitlines(),
+                start=1,
+            )
+        ]
+        session.flush()
+        for line in supply_request.lines:
+            _recognize_line(session, line, now=current_time)
+        _apply_duplicate_detection(supply_request, supply_request.lines)
+        supply_request.version += 1
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_public_request(session, token, now=current_time)
+
+
+def submit_public_request(
+    session: Session,
+    token: str,
+    *,
+    expected_version: int,
+    confirm_unrecognized: bool,
+    now: datetime | None = None,
+) -> SupplyRequest:
+    current_time = now or datetime.now(timezone.utc)
+    supply_request = _get_public_request_for_update(
+        session,
+        token,
+        expected_version=expected_version,
+        now=current_time,
+    )
+    _assert_draft_and_open(supply_request, now=current_time)
+    lines = list(supply_request.lines)
+    _apply_duplicate_detection(supply_request, lines)
+    duplicate_groups = sorted(
+        {
+            line.duplicate_group_id
+            for line in lines
+            if line.duplicate_group_id is not None
+            and line.duplicate_status in {"SUSPECTED", "CONFIRMED"}
+        },
+        key=str,
+    )
+    if duplicate_groups:
+        session.rollback()
+        raise SupplyRequestDuplicatesPresentError(duplicate_groups)
+    unrecognized = [
+        line.id
+        for line in lines
+        if line.match_status in {"NEEDS_REVIEW", "REJECTED", "UNPROCESSED"}
+    ]
+    if unrecognized and not confirm_unrecognized:
+        session.rollback()
+        raise PublicSupplyUnrecognizedLinesError(unrecognized)
+    try:
+        supply_request.status = "SUBMITTED"
+        supply_request.submitted_at = current_time
+        supply_request.version += 1
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_public_request(session, token, now=current_time)

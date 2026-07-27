@@ -520,6 +520,18 @@ class SupplyRequest(Base):
             "created_at",
             "id",
         ),
+        Index(
+            "ix_supply_requests_source_ip_created",
+            "source_ip_hash",
+            "public_created_at",
+        ),
+        Index(
+            "uq_supply_requests_public_token_hash",
+            "public_token_hash",
+            unique=True,
+            postgresql_where=text("public_token_hash IS NOT NULL"),
+            sqlite_where=text("public_token_hash IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -566,6 +578,30 @@ class SupplyRequest(Base):
     )
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    public_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    public_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    public_author_name: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+    )
+    public_author_phone: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+    )
+    source_ip_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    public_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
     submitted_at: Mapped[datetime | None] = mapped_column(

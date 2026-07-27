@@ -5,6 +5,7 @@ import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
 import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import PublicSupplyRequestPage from './pages/PublicSupplyRequestPage'
 import UsersPage from './pages/UsersPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
@@ -33,6 +34,10 @@ function App() {
       <Route
         path="/request/repair"
         element={<Navigate to="/public/requests/repair" replace />}
+      />
+      <Route
+        path="/request/supply"
+        element={<PublicSupplyRequestPage />}
       />
 
       <Route

@@ -513,6 +513,50 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             },
         )
 
+    def _assert_public_supply_schema(self) -> None:
+        inspector = inspect(self.engine)
+        request_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_requests")
+        }
+        self.assertTrue(
+            {
+                "public_token_hash",
+                "public_token_expires_at",
+                "public_author_name",
+                "public_author_phone",
+                "source_ip_hash",
+                "public_created_at",
+            }
+            <= request_columns.keys()
+        )
+        self.assertTrue(
+            all(
+                request_columns[name]["nullable"]
+                for name in (
+                    "public_token_hash",
+                    "public_token_expires_at",
+                    "public_author_name",
+                    "public_author_phone",
+                    "source_ip_hash",
+                    "public_created_at",
+                )
+            )
+        )
+        indexes = {
+            index["name"]: index
+            for index in inspector.get_indexes("supply_requests")
+        }
+        self.assertTrue(indexes["uq_supply_requests_public_token_hash"]["unique"])
+        self.assertEqual(
+            indexes["uq_supply_requests_public_token_hash"]["column_names"],
+            ["public_token_hash"],
+        )
+        self.assertEqual(
+            indexes["ix_supply_requests_source_ip_created"]["column_names"],
+            ["source_ip_hash", "public_created_at"],
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -678,6 +722,36 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             ).one()
         self.assertEqual(legacy_request, (None,))
         self.assertEqual(legacy_line, (None, "NONE"))
+
+        command.upgrade(self.alembic_config, "20260727_0012")
+        self.assertEqual(self._current_revision(), "20260727_0012")
+        self._assert_public_supply_schema()
+        with self.engine.connect() as connection:
+            public_metadata = connection.execute(
+                text(
+                    "SELECT public_token_hash, public_token_expires_at, "
+                    "public_author_name, public_author_phone, "
+                    "source_ip_hash, public_created_at "
+                    "FROM supply_requests WHERE id = "
+                    "'10000000-0000-0000-0000-000000000001'"
+                )
+            ).one()
+        self.assertEqual(public_metadata, (None, None, None, None, None, None))
+
+        command.downgrade(self.alembic_config, "20260727_0011")
+        self.assertEqual(self._current_revision(), "20260727_0011")
+        self.assertNotIn(
+            "public_token_hash",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns(
+                    "supply_requests"
+                )
+            },
+        )
+        command.upgrade(self.alembic_config, "20260727_0012")
+        self.assertEqual(self._current_revision(), "20260727_0012")
+        self._assert_public_supply_schema()
 
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")
