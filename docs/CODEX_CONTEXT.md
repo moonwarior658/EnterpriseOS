@@ -5,7 +5,7 @@
 Stage 3 Supply.
 
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. The next sub-stage is Stage 3.1A.
+Supply domain model — completed at 100%. The current sub-stage is Stage 3.1A.
 
 ## Current state
 
@@ -13,21 +13,22 @@ Supply domain model — completed at 100%. The next sub-stage is Stage 3.1A.
 - Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
 - Эксплуатационный `WorkRequest` MVP развёрнут, но не закрывает этап 3.
 - ADR-002 принят владельцем проекта 27 июля 2026 года.
-- Реализация Stage 3.1A ещё не начата.
-- Первый планируемый вертикальный срез Stage 3.1A включает минимальный
-  фундамент заявок снабжения.
-- Перед реализацией необходимо утвердить первоначальный справочник
-  подразделений, минимальную привязку permissions и категории
-  `REQUIRES_DECISION` первого среза.
-- Фактический baseline HEAD до создаваемого документационного commit: `main`,
-  `8f205585dac8961c7a92ae8f13c852045f7f6a79` (`git log` показывает этот
-  HEAD). Будущий SHA заранее не фиксируется.
-- Миграции применены до `20260726_0006`.
-- В рамках принятия ADR код и база данных не изменялись.
+- Stage 3.1A начат: первый backend-срез Supply Request Foundation завершён
+  и развёрнут.
+- Срез включает справочники подразделений и направлений, заявки и строки,
+  создание черновика, списки и карточки, отправку `DRAFT → SUBMITTED`,
+  серверную нумерацию, tenant isolation и административный доступ.
+- Production подтверждён: API health OK, database health OK,
+  `automation-worker` и scheduler работают.
+- Baseline: `main`, commit `12358a3` (`feat(supply): add request foundation`).
+- Миграции применены до `20260727_0007`.
+- PostgreSQL migration integration test прошёл цикл `0006 → 0007 → 0006 →
+  0007`; перед миграцией создан и проверен backup.
+- WorkRequest MVP и старые публичные URL сохранены без изменений.
+- Следующий срез: базовый товарный справочник и единицы измерения.
 
-Результаты тестов и эксплуатационных проверок из предыдущих запусков здесь
-не считаются проверенными в текущем запуске и не должны использоваться как
-актуальное доказательство без отдельной проверки.
+Перечисленные выше результаты отражают зафиксированное состояние production
+и migration-проверок для текущего backend-среза.
 
 ## Architecture
 
