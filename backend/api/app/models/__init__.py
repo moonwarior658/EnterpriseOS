@@ -11,6 +11,12 @@
     ScheduleAuditEventType,
 )
 from app.models.user import User
+from app.models.supply import (
+    Department,
+    SupplyRequest,
+    SupplyRequestDirection,
+    SupplyRequestLine,
+)
 from app.models.work_request import (
     WorkRequest,
     WorkRequestAttachment,
@@ -28,6 +34,10 @@ __all__ = [
     "OutboxStatus",
     "RuntimeComponent",
     "ScheduleAuditEventType",
+    "Department",
+    "SupplyRequest",
+    "SupplyRequestDirection",
+    "SupplyRequestLine",
     "User",
     "WorkRequest",
     "WorkRequestAttachment",

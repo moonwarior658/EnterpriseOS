@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
 
     default_tenant_id: str = "eclair"
+    business_timezone: str = "Asia/Yekaterinburg"
     automation_callback_token: SecretStr | None = None
     work_request_upload_dir: str = "/app/uploads/work-requests"
 

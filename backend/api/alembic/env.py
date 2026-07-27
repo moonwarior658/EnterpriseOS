@@ -5,7 +5,16 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models import AutomationExecution, AutomationSchedule, OutboxEvent, User
+from app.models import (
+    AutomationExecution,
+    AutomationSchedule,
+    Department,
+    OutboxEvent,
+    SupplyRequest,
+    SupplyRequestDirection,
+    SupplyRequestLine,
+    User,
+)
 
 config = context.config
 
