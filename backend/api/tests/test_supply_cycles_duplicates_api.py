@@ -23,6 +23,7 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
@@ -66,6 +67,7 @@ class SupplyCyclesAndDuplicatesApiTests(unittest.TestCase):
             WorkRequest.__table__,
             SupplyRequest.__table__,
             SupplyRequestLine.__table__,
+            SupplyLineAllocation.__table__,
         ):
             table.create(self.engine)
         self.session_factory = sessionmaker(

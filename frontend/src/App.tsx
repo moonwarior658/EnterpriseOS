@@ -6,6 +6,8 @@ import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import PublicSupplyRequestPage from './pages/PublicSupplyRequestPage'
+import SupplyRequestDetailPage from './pages/SupplyRequestDetailPage'
+import SupplyRequestListPage from './pages/SupplyRequestListPage'
 import UsersPage from './pages/UsersPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
@@ -75,6 +77,16 @@ function App() {
         <Route
           path="/requests/:requestId"
           element={<WorkRequestDetailPage />}
+        />
+
+        <Route
+          path="/supply/requests"
+          element={<ProtectedRoute adminOnly><SupplyRequestListPage /></ProtectedRoute>}
+        />
+
+        <Route
+          path="/supply/requests/:requestId"
+          element={<ProtectedRoute adminOnly><SupplyRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route

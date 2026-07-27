@@ -36,6 +36,8 @@ from app.schemas.supply import (
     SupplyReferenceRead,
     SupplyReferenceUpdate,
     SupplyLineManualMatch,
+    SupplyLineAllocationsUpdate,
+    SupplyAliasStatusUpdate,
     SupplyRecognitionSummary,
     SupplyRecognitionRequest,
     SupplyRequestCreate,
@@ -48,6 +50,8 @@ from app.schemas.supply import (
     SupplyRequestLineRead,
     SupplyRequestListItem,
     SupplyRequestRead,
+    SupplyRequestCancel,
+    SupplyRequestStatus,
     SupplyUnitRead,
 )
 from app.supply.service import (
@@ -67,6 +71,12 @@ from app.supply.service import (
     InactiveSupplyStorageZoneError,
     InactiveSupplyUnitError,
     InvalidSupplyQuantityError,
+    SupplyAllocationExceedsRequestedError,
+    SupplyAllocationUnitMismatchError,
+    SupplyLineNotMatchedError,
+    SupplyRequestPlanningIncompleteError,
+    SupplyRequestAlreadyPlannedError,
+    SupplyRequestCancelledError,
     PublicNumberGenerationError,
     SupplyDuplicateGroupNotFoundError,
     SupplyProductAliasNotFoundError,
@@ -92,6 +102,7 @@ from app.supply.service import (
     create_supply_storage_zone,
     create_supply_request,
     delete_supply_product_alias,
+    disable_supply_product_alias,
     get_supply_product_category,
     get_supply_product,
     get_supply_storage_zone,
@@ -105,6 +116,9 @@ from app.supply.service import (
     list_supply_requests,
     list_supply_request_cycles,
     list_supply_units,
+    replace_supply_line_allocations,
+    plan_supply_request,
+    cancel_supply_request,
     manually_match_supply_request_line,
     detect_supply_request_duplicates,
     recognize_supply_request,
@@ -615,7 +629,27 @@ def create_product_alias(
     except DuplicateSupplyProductAliasError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Такой нормализованный алиас уже существует",
+            detail={"code": "SUPPLY_ALIAS_CONFLICT"},
+        ) from error
+
+
+@router.patch(
+    "/products/{product_id}/aliases/{alias_id}",
+    response_model=SupplyProductAliasRead,
+)
+def update_product_alias_status(
+    product_id: UUID,
+    alias_id: UUID,
+    _: SupplyAliasStatusUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    __: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductAlias:
+    try:
+        return disable_supply_product_alias(db, product_id, alias_id)
+    except (SupplyProductNotFoundError, SupplyProductAliasNotFoundError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Товар или алиас не найден",
         ) from error
 
 
@@ -738,8 +772,34 @@ def create_request(
 def read_requests(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
+    search: Annotated[str | None, Query(max_length=240)] = None,
+    department_id: UUID | None = None,
+    direction_id: UUID | None = None,
+    cycle_id: UUID | None = None,
+    request_status: Annotated[
+        SupplyRequestStatus | None, Query(alias="status")
+    ] = None,
+    has_needs_review: bool | None = None,
+    has_duplicates: bool | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[SupplyRequest]:
-    return list_supply_requests(db)
+    return list_supply_requests(
+        db,
+        search=search,
+        department_id=department_id,
+        direction_id=direction_id,
+        cycle_id=cycle_id,
+        request_status=request_status,
+        has_needs_review=has_needs_review,
+        has_duplicates=has_duplicates,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/requests/{request_id}", response_model=SupplyRequestRead)
@@ -772,6 +832,10 @@ def submit_request(
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
+    except SupplyRequestAlreadyPlannedError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_ALREADY_PLANNED"}) from error
     except SupplyRequestStateError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -810,6 +874,8 @@ def recognize_request(
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
     except SupplyRequestStateError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -840,10 +906,19 @@ def match_request_line(
         )
     except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
         raise _not_found() from error
+    except SupplyRequestAlreadyPlannedError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_ALREADY_PLANNED"}) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
     except SupplyRequestStateError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Строки отменённой заявки нельзя изменять",
+            detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"},
+        ) from error
+    except DuplicateSupplyProductAliasError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_ALIAS_CONFLICT"},
         ) from error
     except SupplyRequestVersionConflictError as error:
         raise _version_conflict(error) from error
@@ -862,6 +937,98 @@ def match_request_line(
         raise _invalid_product_reference(
             "Для выбранной единицы допустимо только целое количество"
         ) from error
+
+
+@router.put(
+    "/requests/{request_id}/lines/{line_id}/allocations",
+    response_model=SupplyRequestRead,
+)
+def update_line_allocations(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineAllocationsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return replace_supply_line_allocations(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            payload=payload,
+            user_id=current_admin.id,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
+    except SupplyRequestAlreadyPlannedError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_ALREADY_PLANNED"}) from error
+    except SupplyLineNotMatchedError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_LINE_NOT_MATCHED"}) from error
+    except SupplyRequestDuplicatesPresentError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_DUPLICATES_PRESENT"}) from error
+    except SupplyAllocationExceedsRequestedError as error:
+        raise HTTPException(status_code=422, detail={"code": "SUPPLY_ALLOCATION_EXCEEDS_REQUESTED"}) from error
+    except SupplyAllocationUnitMismatchError as error:
+        raise HTTPException(status_code=422, detail={"code": "SUPPLY_ALLOCATION_UNIT_MISMATCH"}) from error
+    except (SupplyRequestStateError, InactiveSupplyUnitError) as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
+
+
+@router.post("/requests/{request_id}/plan", response_model=SupplyRequestRead)
+def plan_request(
+    request_id: UUID,
+    payload: SupplyExpectedVersion,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return plan_supply_request(
+            db, request_id,
+            expected_version=payload.expected_version,
+            user_id=current_admin.id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestAlreadyPlannedError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_ALREADY_PLANNED"}) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
+    except SupplyRequestDuplicatesPresentError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_DUPLICATES_PRESENT"}) from error
+    except SupplyRequestPlanningIncompleteError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_PLANNING_INCOMPLETE"}) from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
+
+
+@router.post("/requests/{request_id}/cancel", response_model=SupplyRequestRead)
+def cancel_request(
+    request_id: UUID,
+    payload: SupplyRequestCancel,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return cancel_supply_request(
+            db, request_id,
+            expected_version=payload.expected_version,
+            reason=payload.reason,
+            user_id=current_admin.id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestCancelledError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
 
 
 @router.post(

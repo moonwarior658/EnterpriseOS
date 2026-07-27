@@ -557,6 +557,42 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             ["source_ip_hash", "public_created_at"],
         )
 
+    def _assert_planning_schema(self) -> None:
+        inspector = inspect(self.engine)
+        self.assertIn("supply_line_allocations", inspector.get_table_names())
+        request_columns = {
+            column["name"]
+            for column in inspector.get_columns("supply_requests")
+        }
+        self.assertTrue({
+            "planned_at", "planned_by_user_id", "cancelled_at",
+            "cancelled_by_user_id", "cancellation_reason",
+        } <= request_columns)
+        alias_columns = {
+            column["name"]
+            for column in inspector.get_columns("supply_product_aliases")
+        }
+        self.assertTrue({
+            "status", "successful_application_count",
+            "last_applied_at", "created_by_user_id",
+        } <= alias_columns)
+        allocation_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("supply_line_allocations")
+        }
+        self.assertIsInstance(
+            allocation_columns["planned_quantity"]["type"], Numeric
+        )
+        self.assertIn(
+            "uq_supply_line_allocations_line_action",
+            {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "supply_line_allocations"
+                )
+            },
+        )
+
     def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -752,6 +788,18 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260727_0012")
         self.assertEqual(self._current_revision(), "20260727_0012")
         self._assert_public_supply_schema()
+
+        command.upgrade(self.alembic_config, "20260727_0013")
+        self.assertEqual(self._current_revision(), "20260727_0013")
+        self._assert_planning_schema()
+        command.downgrade(self.alembic_config, "20260727_0012")
+        self.assertEqual(self._current_revision(), "20260727_0012")
+        self.assertNotIn(
+            "supply_line_allocations", inspect(self.engine).get_table_names()
+        )
+        command.upgrade(self.alembic_config, "20260727_0013")
+        self.assertEqual(self._current_revision(), "20260727_0013")
+        self._assert_planning_schema()
 
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")

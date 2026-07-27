@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -13,6 +13,7 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
@@ -22,6 +23,7 @@ from app.models.supply import (
 )
 from app.schemas.supply import (
     SupplyLineManualMatch,
+    SupplyLineAllocationsUpdate,
     SupplyLineMatchAction,
     SupplyDuplicateResolutionAction,
     SupplyProductAliasCreate,
@@ -67,6 +69,14 @@ class InactiveDirectionError(ValueError):
 
 
 class SupplyRequestStateError(ValueError):
+    pass
+
+
+class SupplyRequestCancelledError(SupplyRequestStateError):
+    pass
+
+
+class SupplyRequestAlreadyPlannedError(SupplyRequestStateError):
     pass
 
 
@@ -179,6 +189,22 @@ class SupplyProductRestoreConflictError(ValueError):
 
 
 class InvalidSupplyQuantityError(ValueError):
+    pass
+
+
+class SupplyLineNotMatchedError(ValueError):
+    pass
+
+
+class SupplyAllocationExceedsRequestedError(ValueError):
+    pass
+
+
+class SupplyAllocationUnitMismatchError(ValueError):
+    pass
+
+
+class SupplyRequestPlanningIncompleteError(ValueError):
     pass
 
 
@@ -1084,6 +1110,9 @@ def _request_options():
         selectinload(SupplyRequest.lines)
         .joinedload(SupplyRequestLine.product)
         .selectinload(SupplyProduct.aliases),
+        selectinload(SupplyRequest.lines)
+        .selectinload(SupplyRequestLine.allocations)
+        .joinedload(SupplyLineAllocation.unit),
     )
 
 
@@ -1105,12 +1134,75 @@ def get_supply_request(
     return supply_request
 
 
-def list_supply_requests(session: Session) -> list[SupplyRequest]:
+def list_supply_requests(
+    session: Session,
+    *,
+    search: str | None = None,
+    department_id: UUID | None = None,
+    direction_id: UUID | None = None,
+    cycle_id: UUID | None = None,
+    request_status: str | None = None,
+    has_needs_review: bool | None = None,
+    has_duplicates: bool | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[SupplyRequest]:
+    filters = [SupplyRequest.tenant_id == settings.default_tenant_id]
+    if search:
+        term = f"%{search.strip()}%"
+        filters.append(or_(
+            SupplyRequest.public_number.ilike(term),
+            SupplyRequest.raw_input.ilike(term),
+            SupplyRequest.public_author_name.ilike(term),
+        ))
+    if department_id:
+        filters.append(SupplyRequest.department_id == department_id)
+    if direction_id:
+        filters.append(SupplyRequest.direction_id == direction_id)
+    if cycle_id:
+        filters.append(SupplyRequest.cycle_id == cycle_id)
+    if request_status:
+        filters.append(SupplyRequest.status == request_status)
+    if date_from:
+        filters.append(func.date(func.coalesce(
+            SupplyRequest.submitted_at, SupplyRequest.created_at
+        )) >= date_from)
+    if date_to:
+        filters.append(func.date(func.coalesce(
+            SupplyRequest.submitted_at, SupplyRequest.created_at
+        )) <= date_to)
+    if has_needs_review is not None:
+        predicate = exists().where(
+            SupplyRequestLine.request_id == SupplyRequest.id,
+            SupplyRequestLine.match_status == "NEEDS_REVIEW",
+        )
+        filters.append(predicate if has_needs_review else ~predicate)
+    if has_duplicates is not None:
+        predicate = exists().where(
+            SupplyRequestLine.request_id == SupplyRequest.id,
+            SupplyRequestLine.duplicate_status.in_({"SUSPECTED", "CONFIRMED"}),
+        )
+        filters.append(predicate if has_duplicates else ~predicate)
     statement = (
         select(SupplyRequest)
-        .where(SupplyRequest.tenant_id == settings.default_tenant_id)
+        .where(*filters)
         .options(*_request_options())
-        .order_by(SupplyRequest.created_at.desc(), SupplyRequest.id.desc())
+        .order_by(
+            case(
+                (SupplyRequest.status.in_(
+                    {"SUBMITTED", "IN_REVIEW"}
+                ), 0),
+                else_=1,
+            ),
+            func.coalesce(
+                SupplyRequest.submitted_at, SupplyRequest.created_at
+            ).desc(),
+            SupplyRequest.id.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
     )
     return list(session.scalars(statement).all())
 
@@ -1384,7 +1476,7 @@ def _get_supply_request_for_update(
     if supply_request is None:
         raise SupplyRequestNotFoundError
     if supply_request.status == "CANCELLED":
-        raise SupplyRequestStateError
+        raise SupplyRequestCancelledError
     if (
         expected_version is not None
         and supply_request.version != expected_version
@@ -1635,9 +1727,9 @@ def _find_exact_product(
     if product is not None:
         return product, "EXACT_PRODUCT"
 
-    products = list(
-        session.scalars(
-            select(SupplyProduct)
+    aliases = list(
+        session.execute(
+            select(SupplyProduct, SupplyProductAlias)
             .join(
                 SupplyProductAlias,
                 SupplyProductAlias.product_id == SupplyProduct.id,
@@ -1647,12 +1739,16 @@ def _find_exact_product(
                 SupplyProduct.is_active.is_(True),
                 SupplyProductAlias.tenant_id == settings.default_tenant_id,
                 SupplyProductAlias.normalized_alias == normalized_name,
+                SupplyProductAlias.status == "APPROVED",
             )
             .limit(2)
         ).all()
     )
-    if len(products) == 1:
-        return products[0], "EXACT_ALIAS"
+    if len(aliases) == 1:
+        product, alias = aliases[0]
+        alias.successful_application_count += 1
+        alias.last_applied_at = datetime.now(timezone.utc)
+        return product, "EXACT_ALIAS"
     return None, None
 
 
@@ -1783,6 +1879,10 @@ def manually_match_supply_request_line(
         line_id=line_id,
         expected_version=payload.expected_version,
     )
+    if supply_request.status == "PLANNED":
+        raise SupplyRequestAlreadyPlannedError
+    if supply_request.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
     now = datetime.now(timezone.utc)
 
     if payload.action == SupplyLineMatchAction.MATCH:
@@ -1802,6 +1902,28 @@ def manually_match_supply_request_line(
         line.matched_at = now
         line.matched_by_user_id = matched_by_user_id
         line.match_notes = payload.notes
+        if payload.save_alias:
+            alias_text = line.parsed_name or line.raw_text
+            normalized_alias = normalize_product_text(alias_text)
+            existing = session.scalar(
+                select(SupplyProductAlias).where(
+                    SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                    SupplyProductAlias.normalized_alias == normalized_alias,
+                )
+            )
+            if existing is not None:
+                if existing.product_id != product.id or existing.status != "APPROVED":
+                    session.rollback()
+                    raise DuplicateSupplyProductAliasError
+            else:
+                session.add(SupplyProductAlias(
+                    tenant_id=settings.default_tenant_id,
+                    product_id=product.id,
+                    alias=alias_text,
+                    normalized_alias=normalized_alias,
+                    status="APPROVED",
+                    created_by_user_id=matched_by_user_id,
+                ))
     elif payload.action == SupplyLineMatchAction.REJECT:
         _clear_confirmed_match(line)
         line.match_status = "REJECTED"
@@ -1813,6 +1935,8 @@ def manually_match_supply_request_line(
         _clear_confirmed_match(line)
         line.match_status = "UNPROCESSED"
 
+    if supply_request.status == "SUBMITTED":
+        supply_request.status = "IN_REVIEW"
     supply_request.version += 1
     try:
         session.flush()
@@ -1826,3 +1950,150 @@ def manually_match_supply_request_line(
         for request_line in refreshed_request.lines
         if request_line.id == line_id
     )
+
+
+def replace_supply_line_allocations(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyLineAllocationsUpdate,
+    user_id: int,
+) -> SupplyRequest:
+    supply_request, line = _get_request_line_for_update(
+        session,
+        request_id=request_id,
+        line_id=line_id,
+        expected_version=payload.expected_version,
+    )
+    if supply_request.status == "PLANNED":
+        raise SupplyRequestAlreadyPlannedError
+    if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+    if line.match_status != "MATCHED" or line.quantity is None:
+        raise SupplyLineNotMatchedError
+    if line.duplicate_status in {"SUSPECTED", "CONFIRMED"}:
+        raise SupplyRequestDuplicatesPresentError(
+            [line.duplicate_group_id] if line.duplicate_group_id else []
+        )
+    total = sum(
+        (item.planned_quantity for item in payload.allocations), Decimal("0")
+    )
+    if total > line.quantity:
+        raise SupplyAllocationExceedsRequestedError
+    for item in payload.allocations:
+        if item.unit_id != line.requested_unit_id:
+            raise SupplyAllocationUnitMismatchError
+        _get_supply_unit(session, item.unit_id)
+    try:
+        session.query(SupplyLineAllocation).filter(
+            SupplyLineAllocation.request_line_id == line.id,
+            SupplyLineAllocation.tenant_id == settings.default_tenant_id,
+        ).delete(synchronize_session=False)
+        for item in payload.allocations:
+            session.add(SupplyLineAllocation(
+                tenant_id=settings.default_tenant_id,
+                request_id=supply_request.id,
+                request_line_id=line.id,
+                action=item.action,
+                planned_quantity=item.planned_quantity,
+                unit_id=item.unit_id,
+                comment=item.comment,
+                created_by_user_id=user_id,
+            ))
+        if supply_request.status == "SUBMITTED":
+            supply_request.status = "IN_REVIEW"
+        supply_request.version += 1
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
+
+
+def plan_supply_request(
+    session: Session,
+    request_id: UUID,
+    *,
+    expected_version: int,
+    user_id: int,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session, request_id, expected_version=expected_version
+    )
+    if supply_request.status == "PLANNED":
+        raise SupplyRequestAlreadyPlannedError
+    if supply_request.status != "IN_REVIEW":
+        raise SupplyRequestStateError
+    refreshed = get_supply_request(session, request_id)
+    if refreshed.lines_needs_review or any(
+        line.match_status != "MATCHED" for line in refreshed.lines
+    ):
+        raise SupplyRequestPlanningIncompleteError
+    blocking = [
+        line.duplicate_group_id for line in refreshed.lines
+        if line.duplicate_status in {"SUSPECTED", "CONFIRMED"}
+        and line.duplicate_group_id is not None
+    ]
+    if blocking:
+        raise SupplyRequestDuplicatesPresentError(blocking)
+    if not refreshed.lines or any(
+        line.planning_status != "COMPLETE" for line in refreshed.lines
+    ):
+        raise SupplyRequestPlanningIncompleteError
+    try:
+        supply_request.status = "PLANNED"
+        supply_request.planned_at = datetime.now(timezone.utc)
+        supply_request.planned_by_user_id = user_id
+        supply_request.version += 1
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
+
+
+def cancel_supply_request(
+    session: Session,
+    request_id: UUID,
+    *,
+    expected_version: int,
+    reason: str,
+    user_id: int,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session, request_id, expected_version=expected_version
+    )
+    if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+    try:
+        supply_request.status = "CANCELLED"
+        supply_request.cancelled_at = datetime.now(timezone.utc)
+        supply_request.cancelled_by_user_id = user_id
+        supply_request.cancellation_reason = reason
+        supply_request.version += 1
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id)
+
+
+def disable_supply_product_alias(
+    session: Session,
+    product_id: UUID,
+    alias_id: UUID,
+) -> SupplyProductAlias:
+    get_supply_product(session, product_id)
+    alias = session.scalar(select(SupplyProductAlias).where(
+        SupplyProductAlias.id == alias_id,
+        SupplyProductAlias.product_id == product_id,
+        SupplyProductAlias.tenant_id == settings.default_tenant_id,
+    ))
+    if alias is None:
+        raise SupplyProductAliasNotFoundError
+    alias.status = "DISABLED"
+    session.commit()
+    session.refresh(alias)
+    return alias

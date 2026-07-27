@@ -23,6 +23,7 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
@@ -74,6 +75,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         WorkRequest.__table__.create(self.engine)
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)
+        SupplyLineAllocation.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
             expire_on_commit=False,
@@ -576,6 +578,192 @@ class SupplyMatchingApiTests(unittest.TestCase):
             self.recognize(str(uuid4())).status_code,
             404,
         )
+
+    def test_manual_alias_is_approved_and_applied_with_usage_counter(self) -> None:
+        first = self.create_request("молочко 2 л")
+        recognized = self.recognize(first["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        detail = self.client.get(f"/supply/requests/{first['id']}").json()
+        line = detail["lines"][0]
+        matched = self.match(
+            first["id"],
+            line["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "2",
+                "save_alias": True,
+            },
+        )
+        self.assertEqual(matched.status_code, 200, matched.text)
+        with self.session_factory() as session:
+            alias = session.query(SupplyProductAlias).filter_by(
+                normalized_alias="молочко"
+            ).one()
+            self.assertEqual(alias.status, "APPROVED")
+            self.assertEqual(alias.created_by_user_id, 2)
+            self.assertEqual(alias.successful_application_count, 0)
+
+        second = self.create_request("молочко 3 л")
+        self.assertEqual(self.recognize(second["id"]).status_code, 200)
+        second_detail = self.client.get(
+            f"/supply/requests/{second['id']}"
+        ).json()
+        self.assertEqual(second_detail["lines"][0]["match_method"], "EXACT_ALIAS")
+        with self.session_factory() as session:
+            alias = session.query(SupplyProductAlias).filter_by(
+                normalized_alias="молочко"
+            ).one()
+            self.assertEqual(alias.successful_application_count, 1)
+            self.assertIsNotNone(alias.last_applied_at)
+
+    def test_allocations_start_review_and_complete_request_plan(self) -> None:
+        created = self.create_request("Молоко 10 л")
+        recognized = self.recognize(created["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        line = submitted.json()["lines"][0]
+        split = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/allocations",
+            json={
+                "expected_version": submitted.json()["version"],
+                "allocations": [
+                    {"action": "TRANSFER", "planned_quantity": "4", "unit_id": str(self.units["L"].id)},
+                    {"action": "PURCHASE", "planned_quantity": "5", "unit_id": str(self.units["L"].id)},
+                    {"action": "CANCEL", "planned_quantity": "1", "unit_id": str(self.units["L"].id)},
+                ],
+            },
+        )
+        self.assertEqual(split.status_code, 200, split.text)
+        body = split.json()
+        self.assertEqual(body["status"], "IN_REVIEW")
+        self.assertEqual(body["version"], submitted.json()["version"] + 1)
+        self.assertEqual(body["lines"][0]["planning_status"], "COMPLETE")
+        self.assertEqual(body["lines"][0]["unallocated_quantity"], "0.000")
+        planned = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={"expected_version": body["version"]},
+        )
+        self.assertEqual(planned.status_code, 200, planned.text)
+        self.assertEqual(planned.json()["status"], "PLANNED")
+        immutable = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/allocations",
+            json={"expected_version": planned.json()["version"], "allocations": []},
+        )
+        self.assertEqual(immutable.status_code, 409)
+
+    def test_allocation_validation_partial_plan_and_version_conflict(self) -> None:
+        created = self.create_request("Молоко 10 л", "неизвестно 2 кг")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        matched_line, unknown_line = submitted["lines"]
+        base = f"/supply/requests/{created['id']}/lines/{matched_line['id']}/allocations"
+
+        exceeds = self.client.put(base, json={
+            "expected_version": submitted["version"],
+            "allocations": [{
+                "action": "TRANSFER", "planned_quantity": "11",
+                "unit_id": str(self.units["L"].id),
+            }],
+        })
+        self.assertEqual(exceeds.status_code, 422)
+        self.assertEqual(
+            exceeds.json()["detail"]["code"],
+            "SUPPLY_ALLOCATION_EXCEEDS_REQUESTED",
+        )
+        mismatch = self.client.put(base, json={
+            "expected_version": submitted["version"],
+            "allocations": [{
+                "action": "TRANSFER", "planned_quantity": "5",
+                "unit_id": str(self.units["KG"].id),
+            }],
+        })
+        self.assertEqual(mismatch.status_code, 422)
+        duplicate = self.client.put(base, json={
+            "expected_version": submitted["version"],
+            "allocations": [
+                {"action": "TRANSFER", "planned_quantity": "2", "unit_id": str(self.units["L"].id)},
+                {"action": "TRANSFER", "planned_quantity": "2", "unit_id": str(self.units["L"].id)},
+            ],
+        })
+        self.assertEqual(duplicate.status_code, 422)
+        unmatched = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{unknown_line['id']}/allocations",
+            json={"expected_version": submitted["version"], "allocations": []},
+        )
+        self.assertEqual(unmatched.status_code, 409)
+        self.assertEqual(unmatched.json()["detail"]["code"], "SUPPLY_LINE_NOT_MATCHED")
+
+        partial = self.client.put(base, json={
+            "expected_version": submitted["version"],
+            "allocations": [{
+                "action": "PURCHASE", "planned_quantity": "6",
+                "unit_id": str(self.units["L"].id),
+            }],
+        })
+        self.assertEqual(partial.status_code, 200, partial.text)
+        body = partial.json()
+        self.assertEqual(body["lines"][0]["planning_status"], "INCOMPLETE")
+        self.assertEqual(body["lines"][0]["unallocated_quantity"], "4.000")
+        stale = self.client.put(base, json={
+            "expected_version": submitted["version"],
+            "allocations": [],
+        })
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(
+            stale.json()["detail"]["code"],
+            "SUPPLY_REQUEST_VERSION_CONFLICT",
+        )
+        blocked_plan = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={"expected_version": body["version"]},
+        )
+        self.assertEqual(blocked_plan.status_code, 409)
+        self.assertEqual(
+            blocked_plan.json()["detail"]["code"],
+            "SUPPLY_REQUEST_PLANNING_INCOMPLETE",
+        )
+
+    def test_registry_filters_summary_pagination_and_stable_status_order(self) -> None:
+        submitted = self.create_request("неизвестная позиция 2 кг")
+        self.assertEqual(self.recognize(submitted["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{submitted['id']}").json()
+        self.assertEqual(
+            self.client.post(
+                f"/supply/requests/{submitted['id']}/submit",
+                json={"expected_version": detail["version"]},
+            ).status_code,
+            200,
+        )
+        draft = self.create_request("Молоко 1 л")
+        filtered = self.client.get(
+            "/supply/requests",
+            params={
+                "search": submitted["public_number"],
+                "department_id": str(self.department.id),
+                "direction_id": str(self.direction.id),
+                "status": "SUBMITTED",
+                "has_needs_review": "true",
+                "limit": 1,
+                "offset": 0,
+            },
+        )
+        self.assertEqual(filtered.status_code, 200, filtered.text)
+        self.assertEqual(len(filtered.json()), 1)
+        self.assertEqual(filtered.json()[0]["lines_needs_review"], 1)
+        ordered = self.client.get("/supply/requests?limit=100&offset=0").json()
+        self.assertEqual(ordered[0]["id"], submitted["id"])
+        self.assertIn(draft["id"], [item["id"] for item in ordered])
 
 
 if __name__ == "__main__":

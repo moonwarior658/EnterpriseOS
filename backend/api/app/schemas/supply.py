@@ -21,6 +21,10 @@ MAX_PUBLIC_AUTHOR_PHONE_LENGTH = 40
 class SupplyRequestStatus(StrEnum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
+    IN_REVIEW = "IN_REVIEW"
+    PLANNED = "PLANNED"
+    PARTIALLY_FULFILLED = "PARTIALLY_FULFILLED"
+    FULFILLED = "FULFILLED"
     CANCELLED = "CANCELLED"
 
 
@@ -191,6 +195,10 @@ class SupplyUnitRead(BaseModel):
 class SupplyProductAliasRead(BaseModel):
     id: UUID
     alias: str
+    status: str
+    successful_application_count: int
+    last_applied_at: datetime | None
+    created_by_user_id: int | None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -471,6 +479,13 @@ class SupplyRequestLineRead(BaseModel):
     match_notes: str | None
     duplicate_group_id: UUID | None
     duplicate_status: SupplyDuplicateStatus
+    allocations: list["SupplyLineAllocationRead"]
+    planned_transfer: Decimal
+    planned_purchase: Decimal
+    planned_cancel: Decimal
+    planned_total: Decimal
+    unallocated_quantity: Decimal
+    planning_status: str
     created_at: datetime
     updated_at: datetime
 
@@ -489,6 +504,7 @@ class SupplyLineManualMatch(BaseModel):
     )
     action: SupplyLineMatchAction
     notes: str | None = Field(default=None, max_length=2000)
+    save_alias: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -504,6 +520,8 @@ class SupplyLineManualMatch(BaseModel):
             raise ValueError(
                 "Для REJECT и RESET товар, единица и количество не передаются"
             )
+        if self.save_alias and self.action != SupplyLineMatchAction.MATCH:
+            raise ValueError("Алиас можно сохранить только при сопоставлении")
         return self
 
 
@@ -528,6 +546,69 @@ class SupplyExpectedVersion(BaseModel):
     expected_version: int = Field(ge=1)
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SupplyAliasStatusUpdate(BaseModel):
+    status: str
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value != "DISABLED":
+            raise ValueError("В этом срезе алиас можно только отключить")
+        return value
+
+
+class SupplyAllocationAction(StrEnum):
+    TRANSFER = "TRANSFER"
+    PURCHASE = "PURCHASE"
+    CANCEL = "CANCEL"
+
+
+class SupplyLineAllocationInput(BaseModel):
+    action: SupplyAllocationAction
+    planned_quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
+    unit_id: UUID
+    comment: str | None = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyLineAllocationsUpdate(SupplyExpectedVersion):
+    allocations: list[SupplyLineAllocationInput] = Field(max_length=3)
+
+    @field_validator("allocations")
+    @classmethod
+    def unique_actions(
+        cls, value: list[SupplyLineAllocationInput]
+    ) -> list[SupplyLineAllocationInput]:
+        if len({item.action for item in value}) != len(value):
+            raise ValueError("Каждое действие можно указать только один раз")
+        return value
+
+
+class SupplyLineAllocationRead(BaseModel):
+    id: UUID
+    action: SupplyAllocationAction
+    planned_quantity: Decimal
+    unit_id: UUID
+    comment: str | None
+    created_by_user_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyRequestCancel(SupplyExpectedVersion):
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        return value.strip()
 
 
 class SupplyRecognitionRequest(SupplyExpectedVersion):
@@ -587,6 +668,20 @@ class SupplyRequestRead(BaseModel):
     version: int
     created_by_user_id: int | None
     submitted_at: datetime | None
+    planned_at: datetime | None
+    planned_by_user_id: int | None
+    cancelled_at: datetime | None
+    cancelled_by_user_id: int | None
+    cancellation_reason: str | None
+    lines_total: int
+    lines_matched: int
+    lines_needs_review: int
+    duplicate_groups: int
+    planning_complete_lines: int
+    planning_incomplete_lines: int
+    total_unallocated_lines: int
+    can_start_review: bool
+    can_plan: bool
     created_at: datetime
     updated_at: datetime
     lines: list[SupplyRequestLineRead]
@@ -736,5 +831,15 @@ class SupplyRequestListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
     line_count: int
+    public_author_name: str | None
+    lines_total: int
+    lines_matched: int
+    lines_needs_review: int
+    duplicate_groups: int
+    planning_complete_lines: int
+    planning_incomplete_lines: int
+    total_unallocated_lines: int
+    can_start_review: bool
+    can_plan: bool
 
     model_config = ConfigDict(from_attributes=True)

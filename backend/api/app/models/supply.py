@@ -463,6 +463,10 @@ class SupplyProductAlias(Base):
             "product_id",
             "created_at",
         ),
+        CheckConstraint(
+            "status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'DISABLED')",
+            name="ck_supply_product_aliases_status",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -477,6 +481,18 @@ class SupplyProductAlias(Base):
     )
     alias: Mapped[str] = mapped_column(String(240), nullable=False)
     normalized_alias: Mapped[str] = mapped_column(String(240), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), default="APPROVED", server_default="APPROVED", nullable=False
+    )
+    successful_application_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    last_applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -502,7 +518,8 @@ class SupplyRequest(Base):
             name="uq_supply_requests_tenant_department_direction_cycle",
         ),
         CheckConstraint(
-            "status IN ('DRAFT', 'SUBMITTED', 'CANCELLED')",
+            "status IN ('DRAFT', 'SUBMITTED', 'IN_REVIEW', 'PLANNED', "
+            "'PARTIALLY_FULFILLED', 'FULFILLED', 'CANCELLED')",
             name="ck_supply_requests_status",
         ),
         CheckConstraint(
@@ -608,6 +625,19 @@ class SupplyRequest(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    planned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    planned_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -633,6 +663,52 @@ class SupplyRequest(Base):
     @property
     def line_count(self) -> int:
         return len(self.lines)
+
+    @property
+    def lines_total(self) -> int:
+        return len(self.lines)
+
+    @property
+    def lines_matched(self) -> int:
+        return sum(line.match_status == "MATCHED" for line in self.lines)
+
+    @property
+    def lines_needs_review(self) -> int:
+        return sum(line.match_status == "NEEDS_REVIEW" for line in self.lines)
+
+    @property
+    def duplicate_groups(self) -> int:
+        return len({
+            line.duplicate_group_id for line in self.lines
+            if line.duplicate_group_id is not None
+            and line.duplicate_status in {"SUSPECTED", "CONFIRMED"}
+        })
+
+    @property
+    def planning_complete_lines(self) -> int:
+        return sum(line.planning_status == "COMPLETE" for line in self.lines)
+
+    @property
+    def planning_incomplete_lines(self) -> int:
+        return sum(line.planning_status == "INCOMPLETE" for line in self.lines)
+
+    @property
+    def total_unallocated_lines(self) -> int:
+        return sum(line.unallocated_quantity > 0 for line in self.lines)
+
+    @property
+    def can_start_review(self) -> bool:
+        return self.status == "SUBMITTED"
+
+    @property
+    def can_plan(self) -> bool:
+        return (
+            self.status == "IN_REVIEW"
+            and self.lines_needs_review == 0
+            and self.duplicate_groups == 0
+            and bool(self.lines)
+            and self.planning_complete_lines == len(self.lines)
+        )
 
 
 class SupplyRequestLine(Base):
@@ -762,3 +838,90 @@ class SupplyRequestLine(Base):
     requested_unit: Mapped[SupplyUnit | None] = relationship(
         foreign_keys=[requested_unit_id]
     )
+    allocations: Mapped[list["SupplyLineAllocation"]] = relationship(
+        back_populates="request_line",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SupplyLineAllocation.created_at",
+    )
+
+    def _planned_for(self, action: str) -> Decimal:
+        return sum(
+            (allocation.planned_quantity for allocation in self.allocations
+             if allocation.action == action),
+            Decimal("0"),
+        )
+
+    @property
+    def planned_transfer(self) -> Decimal:
+        return self._planned_for("TRANSFER")
+
+    @property
+    def planned_purchase(self) -> Decimal:
+        return self._planned_for("PURCHASE")
+
+    @property
+    def planned_cancel(self) -> Decimal:
+        return self._planned_for("CANCEL")
+
+    @property
+    def planned_total(self) -> Decimal:
+        return self.planned_transfer + self.planned_purchase + self.planned_cancel
+
+    @property
+    def unallocated_quantity(self) -> Decimal:
+        return max((self.quantity or Decimal("0")) - self.planned_total, Decimal("0"))
+
+    @property
+    def planning_status(self) -> str:
+        return "COMPLETE" if self.quantity is not None and self.unallocated_quantity == 0 else "INCOMPLETE"
+
+
+class SupplyLineAllocation(Base):
+    __tablename__ = "supply_line_allocations"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('TRANSFER', 'PURCHASE', 'CANCEL')",
+            name="ck_supply_line_allocations_action",
+        ),
+        CheckConstraint(
+            "planned_quantity > 0",
+            name="ck_supply_line_allocations_quantity_positive",
+        ),
+        UniqueConstraint(
+            "request_line_id", "action",
+            name="uq_supply_line_allocations_line_action",
+        ),
+        Index(
+            "ix_supply_line_allocations_tenant_request",
+            "tenant_id", "request_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="CASCADE"), nullable=False
+    )
+    request_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    planned_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"), nullable=False
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False
+    )
+
+    request_line: Mapped[SupplyRequestLine] = relationship(back_populates="allocations")
+    unit: Mapped[SupplyUnit] = relationship()

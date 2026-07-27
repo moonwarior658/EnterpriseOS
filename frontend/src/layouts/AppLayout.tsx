@@ -136,6 +136,17 @@ function AppLayout() {
           {user?.is_admin && (
             <>
               <NavLink
+                to="/supply/requests"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Заявки снабжения</span>
+                <span>→</span>
+              </NavLink>
+
+              <NavLink
                 to="/users"
                 onClick={closeMenu}
                 className={({ isActive }) =>
