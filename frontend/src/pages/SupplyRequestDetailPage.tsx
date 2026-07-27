@@ -16,6 +16,12 @@ import {
   type SupplyProduct,
   type SupplyRequest,
 } from '../services/supplyAdmin'
+import {
+  clearSupplyLineMappingDraft,
+  getSupplyLineMappingDraft,
+  updateSupplyLineMappingDraft,
+  type SupplyLineMappingState,
+} from './supplyRequestDetailLogic'
 
 function formatDate(value: string | null): string {
   if (!value) return '—'
@@ -240,10 +246,7 @@ function SupplyRequestDetailPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [productSearch, setProductSearch] = useState('')
-  const [mapping, setMapping] = useState<Record<string, {
-    productId: string; unitId: string; quantity: string; saveAlias: boolean
-  }>>({})
+  const [mapping, setMapping] = useState<SupplyLineMappingState>({})
 
   async function reload() {
     const item = await getSupplyRequest(requestId)
@@ -262,11 +265,19 @@ function SupplyRequestDetailPage() {
   }, [requestId])
 
   async function mapLine(line: SupplyLine) {
-    if (!request) return
     const draft = mapping[line.id]
-    if (!draft?.productId || !draft.unitId || !draft.quantity) return
-    setBusy(true)
+    if (
+      !request || busy || draft?.status === 'loading'
+      || !draft?.productId || !draft.unitId || !draft.quantity
+    ) return
+    setMapping((current) => updateSupplyLineMappingDraft(
+      current,
+      line.id,
+      draft,
+      { status: 'loading', error: '' },
+    ))
     setMessage('')
+    let matched = false
     try {
       await matchSupplyLine(request.id, line.id, {
         expected_version: request.version,
@@ -275,14 +286,26 @@ function SupplyRequestDetailPage() {
         quantity: draft.quantity,
         save_alias: draft.saveAlias,
       })
+      matched = true
+      setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
       await reload()
       setMessage(draft.saveAlias ? 'Строка сопоставлена, алиас сохранён' : 'Строка сопоставлена')
     } catch (error) {
-      setMessage(error instanceof SupplyApiError && error.code === 'SUPPLY_ALIAS_CONFLICT'
+      const errorMessage = matched
+        ? 'Строка сопоставлена, но не удалось обновить карточку'
+        : error instanceof SupplyApiError && error.code === 'SUPPLY_ALIAS_CONFLICT'
         ? 'Такое наименование уже связано с другим товаром'
-        : 'Не удалось сопоставить строку. Обновите карточку и повторите.')
-    } finally {
-      setBusy(false)
+        : 'Не удалось сопоставить строку. Обновите карточку и повторите.'
+      if (matched) {
+        setMessage(errorMessage)
+      } else {
+        setMapping((current) => updateSupplyLineMappingDraft(
+          current,
+          line.id,
+          draft,
+          { status: 'error', error: errorMessage },
+        ))
+      }
     }
   }
 
@@ -407,10 +430,20 @@ function SupplyRequestDetailPage() {
         </div>
         <div className="supply-lines">
           {request.lines.map((line) => {
-            const draft = mapping[line.id] ?? {
-              productId: '', unitId: line.parsed_unit?.id ?? '',
-              quantity: line.parsed_quantity ?? '', saveAlias: false,
-            }
+            const draft = getSupplyLineMappingDraft(
+              mapping,
+              line.id,
+              line.parsed_unit?.id ?? '',
+              line.parsed_quantity ?? '',
+            )
+            const updateDraft = (
+              changes: Parameters<typeof updateSupplyLineMappingDraft>[3],
+            ) => setMapping((current) => updateSupplyLineMappingDraft(
+              current,
+              line.id,
+              draft,
+              changes,
+            ))
             return (
               <article className="supply-line-card" key={line.id}>
                 <header>
@@ -424,19 +457,27 @@ function SupplyRequestDetailPage() {
                 {line.match_status === 'NEEDS_REVIEW' && (
                   <div className="supply-mapping">
                     <p>Разбор: {line.parsed_name ?? 'название не распознано'} · {line.parsed_quantity ?? '—'} {line.parsed_unit?.short_name_ru ?? 'единица не распознана'}</p>
-                    <label><span>Поиск товара</span><input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} /></label>
+                    <label><span>Поиск товара</span><input value={draft.searchQuery} onChange={(event) => updateDraft({ searchQuery: event.target.value, error: '', status: 'idle' })} /></label>
                     <label><span>Активный товар</span>
-                      <select value={draft.productId} disabled={busy} onChange={(event) => {
+                      <select value={draft.productId} disabled={busy || draft.status === 'loading'} onChange={(event) => {
                         const product = products.find((item) => item.id === event.target.value)
-                        setMapping({ ...mapping, [line.id]: { ...draft, productId: event.target.value, unitId: product?.default_unit.id ?? draft.unitId } })
+                        updateDraft({
+                          productId: event.target.value,
+                          unitId: product?.default_unit.id ?? draft.unitId,
+                          error: '',
+                          status: 'idle',
+                        })
                       }}>
                         <option value="">Выберите товар</option>
-                        {products.filter((product) => product.name.toLocaleLowerCase('ru-RU').includes(productSearch.trim().toLocaleLowerCase('ru-RU'))).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                        {products.filter((product) => product.name.toLocaleLowerCase('ru-RU').includes(draft.searchQuery.trim().toLocaleLowerCase('ru-RU'))).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
                       </select>
                     </label>
-                    <label><span>Количество</span><input type="number" min="0.001" step="0.001" value={draft.quantity} onChange={(event) => setMapping({ ...mapping, [line.id]: { ...draft, quantity: event.target.value } })} /></label>
-                    <label><input type="checkbox" checked={draft.saveAlias} onChange={(event) => setMapping({ ...mapping, [line.id]: { ...draft, saveAlias: event.target.checked } })} /> Запомнить это наименование</label>
-                    <button type="button" disabled={busy || !draft.productId || !draft.unitId || !draft.quantity} onClick={() => void mapLine(line)}>Сопоставить</button>
+                    <label><span>Количество</span><input type="number" min="0.001" step="0.001" value={draft.quantity} disabled={draft.status === 'loading'} onChange={(event) => updateDraft({ quantity: event.target.value, error: '', status: 'idle' })} /></label>
+                    <label><input type="checkbox" checked={draft.saveAlias} disabled={draft.status === 'loading'} onChange={(event) => updateDraft({ saveAlias: event.target.checked, error: '', status: 'idle' })} /> Запомнить это наименование</label>
+                    <button type="button" disabled={busy || draft.status === 'loading' || !draft.productId || !draft.unitId || !draft.quantity} onClick={() => void mapLine(line)}>
+                      {draft.status === 'loading' ? 'Сопоставляем…' : 'Сопоставить'}
+                    </button>
+                    {draft.error && <small className="request-message-error">{draft.error}</small>}
                     {draft.productId && (
                       <div className="supply-aliases">
                         <span>Сохранённые алиасы:</span>

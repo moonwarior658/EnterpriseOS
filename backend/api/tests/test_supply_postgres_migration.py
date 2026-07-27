@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -10,10 +11,23 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import Integer, Numeric, create_engine, inspect, text
+from fastapi.testclient import TestClient
+from sqlalchemy import Integer, Numeric, create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
+from app.api.routes.public_supply import token_rate_guard
 from app.core.config import settings
+from app.db.session import get_db
+from app.main import app
+from app.models.supply import (
+    Department,
+    SupplyProduct,
+    SupplyRequestCycle,
+    SupplyRequestDirection,
+    SupplyUnit,
+)
+from app.supply.normalization import normalize_product_text
 
 
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
@@ -628,7 +642,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             ["tenant_id", "department_id", "product_id", "unit_id"],
         )
 
-    def test_upgrade_downgrade_and_repeat_upgrade(self) -> None:
+    def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
 
@@ -981,6 +995,168 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260727_0007")
         self.assertEqual(self._current_revision(), "20260727_0007")
         self._assert_supply_schema_and_seed()
+
+    def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
+        command.upgrade(self.alembic_config, "head")
+        self.assertEqual(self._current_revision(), "20260727_0014")
+
+        previous_tenant_id = settings.default_tenant_id
+        settings.default_tenant_id = "eclair"
+        token_rate_guard.clear()
+        session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
+        now = datetime.now(timezone.utc)
+        with session_factory.begin() as session:
+            department = session.query(Department).filter_by(
+                tenant_id="eclair", code="ATO"
+            ).one()
+            direction = session.query(SupplyRequestDirection).filter_by(
+                tenant_id="eclair", code="MAIN"
+            ).one()
+            unit = session.query(SupplyUnit).filter_by(
+                tenant_id="eclair", code="KG"
+            ).one()
+            cycle = SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=direction.id,
+                cycle_date=date.today() + timedelta(days=30),
+                opens_at=now - timedelta(hours=1),
+                closes_at=now + timedelta(hours=1),
+                hard_closes_at=now + timedelta(hours=2),
+                status="OPEN",
+            )
+            product_name = "PostgreSQL тестовый продукт"
+            session.add_all([
+                cycle,
+                SupplyProduct(
+                    tenant_id="eclair",
+                    name=product_name,
+                    normalized_name=normalize_product_text(product_name),
+                    default_unit_id=unit.id,
+                    request_direction_id=direction.id,
+                ),
+            ])
+            session.flush()
+            department_id = department.id
+            cycle_id = cycle.id
+
+        lock_statements: list[str] = []
+
+        def capture_lock_statement(
+            _connection,
+            _cursor,
+            statement,
+            _parameters,
+            _context,
+            _executemany,
+        ) -> None:
+            if "FOR UPDATE" in statement.upper():
+                lock_statements.append(statement)
+
+        def override_get_db():
+            with session_factory() as session:
+                yield session
+
+        event.listen(
+            self.engine, "before_cursor_execute", capture_lock_statement
+        )
+        app.dependency_overrides[get_db] = override_get_db
+        client = TestClient(app, client=("127.0.0.1", 50000))
+        try:
+            created_response = client.post(
+                "/public/supply/requests",
+                json={
+                    "department_id": str(department_id),
+                    "cycle_id": str(cycle_id),
+                    "author_name": "PostgreSQL test",
+                    "author_phone": None,
+                    "multiline_text": f"{product_name} 1 кг",
+                },
+            )
+            self.assertEqual(
+                created_response.status_code, 201, created_response.text
+            )
+            created = created_response.json()
+            token = created["public_token"]
+
+            first_edit_response = client.put(
+                f"/public/supply/requests/{token}/lines",
+                json={
+                    "expected_version": created["version"],
+                    "multiline_text": f"{product_name} 2 кг",
+                },
+            )
+            self.assertEqual(
+                first_edit_response.status_code, 200, first_edit_response.text
+            )
+            first_edit = first_edit_response.json()
+            self.assertEqual(first_edit["version"], 2)
+
+            recognize_response = client.post(
+                f"/public/supply/requests/{token}/recognize",
+                json={"expected_version": first_edit["version"]},
+            )
+            self.assertEqual(
+                recognize_response.status_code, 200, recognize_response.text
+            )
+            recognized = recognize_response.json()
+
+            second_edit_response = client.put(
+                f"/public/supply/requests/{token}/lines",
+                json={
+                    "expected_version": recognized["version"],
+                    "multiline_text": f"{product_name} 3 кг",
+                },
+            )
+            self.assertEqual(
+                second_edit_response.status_code,
+                200,
+                second_edit_response.text,
+            )
+            second_edit = second_edit_response.json()
+            self.assertEqual(
+                second_edit["version"], recognized["version"] + 1
+            )
+
+            stale_edit_response = client.put(
+                f"/public/supply/requests/{token}/lines",
+                json={
+                    "expected_version": recognized["version"],
+                    "multiline_text": f"{product_name} 4 кг",
+                },
+            )
+            self.assertEqual(stale_edit_response.status_code, 409)
+            self.assertEqual(
+                stale_edit_response.json()["detail"]["code"],
+                "SUPPLY_REQUEST_VERSION_CONFLICT",
+            )
+            self.assertEqual(
+                stale_edit_response.json()["detail"]["current_version"],
+                second_edit["version"],
+            )
+
+            submit_response = client.post(
+                f"/public/supply/requests/{token}/submit",
+                json={"expected_version": second_edit["version"]},
+            )
+            self.assertEqual(
+                submit_response.status_code, 200, submit_response.text
+            )
+            self.assertEqual(submit_response.json()["status"], "SUBMITTED")
+        finally:
+            app.dependency_overrides.clear()
+            token_rate_guard.clear()
+            event.remove(
+                self.engine,
+                "before_cursor_execute",
+                capture_lock_statement,
+            )
+            settings.default_tenant_id = previous_tenant_id
+
+        self.assertGreaterEqual(len(lock_statements), 5)
+        for statement in lock_statements:
+            normalized = " ".join(statement.upper().split())
+            self.assertNotIn(" JOIN ", normalized)
+            self.assertIn("FOR UPDATE OF SUPPLY_REQUESTS", normalized)
 
 
 if __name__ == "__main__":

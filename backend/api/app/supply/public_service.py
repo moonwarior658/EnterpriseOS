@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, lazyload
 
 from app.core.config import settings
 from app.models.supply import (
@@ -201,7 +201,13 @@ def _get_public_request_for_update(
     now: datetime,
 ) -> SupplyRequest:
     supply_request = session.scalar(
-        _get_public_request_statement(hash_public_token(token)).with_for_update()
+        select(SupplyRequest)
+        .where(
+            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.public_token_hash == hash_public_token(token),
+        )
+        .options(lazyload("*"))
+        .with_for_update(of=SupplyRequest)
     )
     if (
         supply_request is None
@@ -214,7 +220,12 @@ def _get_public_request_for_update(
             supply_request.version,
             expected_version,
         )
-    return supply_request
+    return session.scalar(
+        select(SupplyRequest)
+        .where(SupplyRequest.id == supply_request.id)
+        .options(*_request_options())
+        .execution_options(populate_existing=True)
+    )
 
 
 def create_public_request(
