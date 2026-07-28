@@ -6,6 +6,7 @@ import type {
   AutomationScheduleUpdateInput,
 } from '../src/services/automation.ts'
 import {
+  buildSupplyScheduleSummary,
   createSubmissionGuard,
   DEFAULT_SCHEDULE_FORM_VALUES,
   scheduleToFormValues,
@@ -218,4 +219,169 @@ test('не отправляет повторный запрос, пока пер
   assert.ok(resolveRequest)
   resolveRequest(SCHEDULE)
   assert.equal((await first).status, 'success')
+})
+
+test('создаёт weekly Supply action с direction code и typed payload', async () => {
+  let received: AutomationScheduleCreateInput | undefined
+  const api: ScheduleFormApi = {
+    async create(input) {
+      received = input
+      return {
+        ...SCHEDULE,
+        automation_type: 'supply.ensure_request_cycle',
+        schedule_config: {
+          type: 'weekly',
+          weekdays: [1, 4],
+          time: '00:00',
+        },
+        payload: input.payload,
+      }
+    },
+    update: unusedApiMethod,
+  }
+  const values: ScheduleFormValues = {
+    ...VALID_VALUES,
+    automationType: 'supply.ensure_request_cycle',
+    scheduleType: 'weekly',
+    weekdays: [4, 1],
+    time: '00:00',
+    directionCode: 'MAIN',
+    cycleDateOffsetDays: '0',
+    opensTime: '00:00',
+    closesTime: '23:59',
+    hardClosesTime: '00:10',
+    hardCloseNextDay: true,
+  }
+
+  const result = await submitScheduleForm(
+    { type: 'create' },
+    values,
+    api,
+    createSubmissionGuard(),
+    new Set(['supply.ensure_request_cycle']),
+  )
+
+  assert.equal(result.status, 'success')
+  assert.deepEqual(received?.schedule_config, {
+    type: 'weekly',
+    weekdays: [1, 4],
+    time: '00:00',
+  })
+  assert.deepEqual(received?.payload, {
+    direction_code: 'MAIN',
+    cycle_date_offset_days: 0,
+    opens_time: '00:00',
+    closes_time: '23:59',
+    hard_closes_time: '00:10',
+    hard_close_next_day: true,
+    timezone: 'Asia/Yekaterinburg',
+    initial_status: 'OPEN',
+  })
+  assert.equal('tenant_id' in (received?.payload ?? {}), false)
+})
+
+test('Supply action требует день недели и валидный период', async () => {
+  let calls = 0
+  const api: ScheduleFormApi = {
+    async create() {
+      calls += 1
+      return SCHEDULE
+    },
+    update: unusedApiMethod,
+  }
+  const result = await submitScheduleForm(
+    { type: 'create' },
+    {
+      ...VALID_VALUES,
+      automationType: 'supply.ensure_request_cycle',
+      scheduleType: 'weekly',
+      weekdays: [],
+      directionCode: 'MAIN',
+      opensTime: '12:00',
+      closesTime: '11:00',
+      hardCloseNextDay: false,
+      hardClosesTime: '10:00',
+    },
+    api,
+    createSubmissionGuard(),
+    new Set(['supply.ensure_request_cycle']),
+  )
+
+  assert.equal(result.status, 'validation')
+  assert.equal(calls, 0)
+  if (result.status === 'validation') {
+    assert.equal(result.errors.weekdays, 'Выберите хотя бы один день недели')
+    assert.equal(
+      result.errors.closesTime,
+      'Обычное закрытие должно быть позже открытия',
+    )
+    assert.equal(
+      result.errors.hardClosesTime,
+      'Окончательное закрытие должно быть позже обычного',
+    )
+  }
+})
+
+test('редактирование Supply action не теряет weekdays и payload', async () => {
+  const supplySchedule: AutomationSchedule = {
+    ...SCHEDULE,
+    automation_type: 'supply.ensure_request_cycle',
+    schedule_config: {
+      type: 'weekly',
+      weekdays: [1, 4],
+      time: '00:00',
+    },
+    payload: {
+      direction_code: 'HOUSEHOLD',
+      cycle_date_offset_days: 1,
+      opens_time: '01:00',
+      closes_time: '22:00',
+      hard_closes_time: '00:20',
+      hard_close_next_day: true,
+      timezone: 'Asia/Yekaterinburg',
+      initial_status: 'OPEN',
+    },
+  }
+  const values = scheduleToFormValues(supplySchedule)
+  let received: AutomationScheduleUpdateInput | undefined
+  const api: ScheduleFormApi = {
+    create: unusedApiMethod,
+    async update(_id, input) {
+      received = input
+      return supplySchedule
+    },
+  }
+
+  assert.deepEqual(values.weekdays, [1, 4])
+  assert.equal(values.directionCode, 'HOUSEHOLD')
+  assert.equal(values.cycleDateOffsetDays, '1')
+  const result = await submitScheduleForm(
+    { type: 'edit', scheduleId: 42 },
+    values,
+    api,
+    createSubmissionGuard(),
+    new Set(['supply.ensure_request_cycle']),
+  )
+  assert.equal(result.status, 'success')
+  assert.deepEqual(received?.schedule_config, supplySchedule.schedule_config)
+  assert.deepEqual(received?.payload, supplySchedule.payload)
+})
+
+test('строит русское summary из выбранных администратором значений', () => {
+  const summary = buildSupplyScheduleSummary(
+    {
+      ...VALID_VALUES,
+      automationType: 'supply.ensure_request_cycle',
+      scheduleType: 'weekly',
+      weekdays: [1, 4],
+      time: '00:00',
+      directionCode: 'MAIN',
+    },
+    'Основное',
+  )
+
+  assert.equal(
+    summary,
+    'Каждый вторник и пятницу в 00:00 система создаёт цикл направления «Основное» на день запуска. Приём заявок до 23:59, окончательное закрытие в 00:10 следующего дня. Часовой пояс: Екатеринбург.',
+  )
 })

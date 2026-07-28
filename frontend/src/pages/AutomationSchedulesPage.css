@@ -245,7 +245,8 @@
 }
 
 .automation-form-error,
-.automation-page-notice {
+.automation-page-notice,
+.automation-supply-summary {
   margin: 0;
   border-radius: 13px;
   padding: 11px 13px;
@@ -261,6 +262,14 @@
   margin-top: 18px;
   background: #e4f6eb;
   color: #247c47;
+}
+
+.automation-supply-summary {
+  margin: 0;
+  border: 1px solid #cbd9ef;
+  background: #edf4ff;
+  color: #34547e;
+  line-height: 1.55;
 }
 
 .automation-table-wrap {
@@ -723,5 +732,4 @@
     flex-direction: column;
   }
 }
-
 

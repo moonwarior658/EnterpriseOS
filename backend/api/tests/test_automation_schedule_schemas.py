@@ -505,6 +505,107 @@ class AutomationScheduleUpdateTests(unittest.TestCase):
         )
 
 
+class SupplyAutomationPayloadTests(unittest.TestCase):
+    def ensure_payload(self, **overrides: object) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "direction_code": "MAIN",
+            "cycle_date_offset_days": 0,
+            "opens_time": "00:00",
+            "closes_time": "23:59",
+            "hard_closes_time": "00:10",
+            "hard_close_next_day": True,
+            "timezone": "Asia/Yekaterinburg",
+            "initial_status": "OPEN",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_ensure_requires_weekly_and_normalizes_typed_payload(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                automation_type="supply.ensure_request_cycle",
+                schedule_config={
+                    "type": "weekly",
+                    "weekdays": [4, 1],
+                    "time": "00:00",
+                },
+                payload=self.ensure_payload(direction_code=" MAIN "),
+            )
+        )
+
+        self.assertEqual(schedule.schedule_config.weekdays, [1, 4])
+        self.assertEqual(schedule.payload["direction_code"], "MAIN")
+        self.assertNotIn("tenant_id", schedule.payload)
+
+    def test_ensure_rejects_non_weekly_and_invalid_period(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "weekly"):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    automation_type="supply.ensure_request_cycle",
+                    payload=self.ensure_payload(),
+                )
+            )
+        with self.assertRaises(ValidationError):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    automation_type="supply.ensure_request_cycle",
+                    schedule_config={
+                        "type": "weekly",
+                        "weekdays": [1],
+                        "time": "00:00",
+                    },
+                    payload=self.ensure_payload(
+                        hard_close_next_day=False,
+                        hard_closes_time="20:00",
+                    ),
+                )
+            )
+
+    def test_supply_payload_rejects_tenant_and_large_offset(self) -> None:
+        for payload in (
+            self.ensure_payload(tenant_id="other"),
+            self.ensure_payload(cycle_date_offset_days=32),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValidationError):
+                    AutomationScheduleCreate.model_validate(
+                        valid_create_payload(
+                            automation_type="supply.ensure_request_cycle",
+                            schedule_config={
+                                "type": "weekly",
+                                "weekdays": [1],
+                                "time": "00:00",
+                            },
+                            payload=payload,
+                        )
+                    )
+
+    def test_close_payload_is_strict_and_accepts_existing_schedules(self) -> None:
+        schedule = AutomationScheduleCreate.model_validate(
+            valid_create_payload(
+                automation_type="supply.close_expired_request_cycles",
+                schedule_config={"type": "daily", "time": "00:15"},
+                payload={"timezone": "Asia/Yekaterinburg"},
+            )
+        )
+        self.assertEqual(
+            schedule.payload,
+            {"timezone": "Asia/Yekaterinburg"},
+        )
+        with self.assertRaises(ValidationError):
+            AutomationScheduleCreate.model_validate(
+                valid_create_payload(
+                    automation_type=(
+                        "supply.close_expired_request_cycles"
+                    ),
+                    payload={
+                        "timezone": "Asia/Yekaterinburg",
+                        "tenant_id": "other",
+                    },
+                )
+            )
+
+
 class AutomationScheduleReadTests(unittest.TestCase):
     def make_schedule_object(self) -> SimpleNamespace:
         created_at = datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc)

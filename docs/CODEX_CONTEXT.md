@@ -5,8 +5,9 @@
 Stage 3 Supply.
 
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. The manual end-to-end contour of
-Stage 3.1A is implemented locally; the next sub-stage is Stage 3.1B.
+Supply domain model — completed at 100%. The manual processing contour of
+Stage 3.1A and operational automation of Supply cycles are implemented
+locally; the next sub-stage is Stage 3.1B.
 
 ## Current state
 
@@ -20,17 +21,20 @@ Stage 3.1A is implemented locally; the next sub-stage is Stage 3.1B.
 - Ручной end-to-end сценарий закрыт: заявка сохраняется и разбирается,
   снабжение сопоставляет товары, утверждает план и фиксирует отправленное,
   система хранит requested/planned/fulfilled/unresolved и долг.
-- Локальный baseline: `main`, commit `46cc690`
-  (`feat(supply): add request planning workspace`) плюс незакоммиченные
-  изменения восьмого среза.
-- Локальный Alembic head: `20260727_0014`.
-- Последнее зафиксированное production-состояние: commit `46cc690`, миграции
-  до `20260727_0013`. Восьмой срез, миграция `0014` и deployment ещё не
-  применялись.
+- Supply-циклы открываются и закрываются локальными actions Automation Core;
+  дни недели, время и параметры периода настраивает администратор.
+- Локальный baseline: `main`, commit `7040d51`
+  (`fix(supply): stabilize production request workflow`) плюс
+  незакоммиченный эксплуатационный срез автоматизации циклов.
+- Локальный Alembic head: `20260727_0016`; новая миграция для автоматизации
+  циклов не требуется.
+- Production-состояние в этой задаче не проверялось; commit, push и deployment
+  эксплуатационного среза не выполнялись.
 - WorkRequest MVP и старые публичные URL сохранены без изменений.
 - Следующий подэтап: Stage 3.1B.
 
-Stage 3.1A остаётся ручным. В backlog/polish отложены таймеры, edit lock,
+Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
+автоматизирован. В backlog/polish отложены таймеры, edit lock,
 пользовательское уточнение неизвестной единицы, очередь mapping candidates,
 настройка кодов подразделений и финальная UX-полировка. iiko, реальные
 остатки, supplier aliases, фасовки и альтернативные единицы, поставщики и
@@ -40,19 +44,19 @@ Stage 3.1A остаётся ручным. В backlog/polish отложены т�
 
 Execution flow:
 
-EnterpriseOS  
-→ AutomationProvider  
-→ transactional outbox  
-→ automation worker  
-→ n8n  
-→ callback  
-→ EnterpriseOS
+EnterpriseOS
+→ transactional outbox
+→ automation worker
+→ local EnterpriseOS handler для внутренних бизнес-действий
+или
+→ AutomationProvider → n8n → callback для технических интеграций
 
 Rules:
 
 - EnterpriseOS is the source of truth.
 - Business logic stays inside EnterpriseOS.
 - n8n is an execution orchestrator only.
+- Internal Supply state transitions run in EnterpriseOS and do not use n8n.
 - Reuse the existing dispatch and transactional outbox flow.
 - Do not duplicate scheduler, dispatch, outbox, retry, worker, or callback logic.
 
@@ -68,6 +72,7 @@ Rules:
 - Execution history and safe user-facing statuses and errors.
 - Audit log and platform-admin diagnostics.
 - Automation type catalog.
+- Local action handlers for idempotent internal business operations.
 - End-to-end `smoke_test` through the importable n8n workflow.
 - Health checks for n8n and n8n-postgres.
 - n8n backup/restore tooling and retention.

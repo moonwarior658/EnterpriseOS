@@ -16,6 +16,12 @@ export type ScheduleFormValues = {
   weekdays: number[]
   intervalMinutes: string
   timezone: string
+  directionCode: string
+  cycleDateOffsetDays: string
+  opensTime: string
+  closesTime: string
+  hardClosesTime: string
+  hardCloseNextDay: boolean
   isEnabled: boolean
 }
 
@@ -49,6 +55,10 @@ export type ScheduleFormSubmitResult =
   | { status: 'busy' }
 
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+export const SUPPLY_ENSURE_REQUEST_CYCLE =
+  'supply.ensure_request_cycle'
+export const SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES =
+  'supply.close_expired_request_cycles'
 
 export const DEFAULT_SCHEDULE_FORM_VALUES: ScheduleFormValues = {
   name: '',
@@ -60,7 +70,44 @@ export const DEFAULT_SCHEDULE_FORM_VALUES: ScheduleFormValues = {
   weekdays: [0, 1, 2, 3, 4],
   intervalMinutes: '60',
   timezone: 'Asia/Yekaterinburg',
+  directionCode: '',
+  cycleDateOffsetDays: '0',
+  opensTime: '00:00',
+  closesTime: '23:59',
+  hardClosesTime: '00:10',
+  hardCloseNextDay: true,
   isEnabled: false,
+}
+
+function payloadString(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string {
+  return typeof payload[key] === 'string'
+    ? payload[key]
+    : fallback
+}
+
+function payloadBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean {
+  return typeof payload[key] === 'boolean'
+    ? payload[key]
+    : fallback
+}
+
+function payloadIntegerString(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string {
+  const value = payload[key]
+  return typeof value === 'number' && Number.isInteger(value)
+    ? String(value)
+    : fallback
 }
 
 export function scheduleToFormValues(
@@ -79,6 +126,36 @@ export function scheduleToFormValues(
     intervalMinutes:
       config.type === 'interval' ? String(config.minutes) : '60',
     timezone: schedule.timezone,
+    directionCode: payloadString(
+      schedule.payload,
+      'direction_code',
+      '',
+    ),
+    cycleDateOffsetDays: payloadIntegerString(
+      schedule.payload,
+      'cycle_date_offset_days',
+      '0',
+    ),
+    opensTime: payloadString(
+      schedule.payload,
+      'opens_time',
+      '00:00',
+    ),
+    closesTime: payloadString(
+      schedule.payload,
+      'closes_time',
+      '23:59',
+    ),
+    hardClosesTime: payloadString(
+      schedule.payload,
+      'hard_closes_time',
+      '00:10',
+    ),
+    hardCloseNextDay: payloadBoolean(
+      schedule.payload,
+      'hard_close_next_day',
+      true,
+    ),
     isEnabled: schedule.is_enabled,
   }
 }
@@ -142,6 +219,50 @@ export function validateScheduleForm(
     }
   }
 
+  if (automationType === SUPPLY_ENSURE_REQUEST_CYCLE) {
+    if (values.scheduleType !== 'weekly') {
+      errors.scheduleType =
+        'Открытие циклов запускается по выбранным дням недели'
+    }
+    if (!values.directionCode.trim()) {
+      errors.directionCode = 'Выберите направление'
+    }
+
+    const offset = Number(values.cycleDateOffsetDays)
+    if (!Number.isInteger(offset) || offset < 0 || offset > 31) {
+      errors.cycleDateOffsetDays =
+        'Укажите целое смещение от 0 до 31 дня'
+    }
+
+    for (const [field, value] of [
+      ['opensTime', values.opensTime],
+      ['closesTime', values.closesTime],
+      ['hardClosesTime', values.hardClosesTime],
+    ] as const) {
+      if (!TIME_PATTERN.test(value)) {
+        errors[field] = 'Укажите время в формате ЧЧ:ММ'
+      }
+    }
+
+    if (
+      TIME_PATTERN.test(values.opensTime) &&
+      TIME_PATTERN.test(values.closesTime) &&
+      values.closesTime <= values.opensTime
+    ) {
+      errors.closesTime =
+        'Обычное закрытие должно быть позже открытия'
+    }
+    if (
+      !values.hardCloseNextDay &&
+      TIME_PATTERN.test(values.closesTime) &&
+      TIME_PATTERN.test(values.hardClosesTime) &&
+      values.hardClosesTime <= values.closesTime
+    ) {
+      errors.hardClosesTime =
+        'Окончательное закрытие должно быть позже обычного'
+    }
+  }
+
   return errors
 }
 
@@ -167,7 +288,7 @@ function buildScheduleConfig(values: ScheduleFormValues): ScheduleConfig {
 function buildEditableInput(
   values: ScheduleFormValues,
 ): AutomationScheduleUpdateInput {
-  return {
+  const input: AutomationScheduleUpdateInput = {
     name: values.name.trim(),
     automation_type: values.automationType.trim(),
     scope_type: values.scopeType,
@@ -177,6 +298,34 @@ function buildEditableInput(
     timezone: values.timezone.trim(),
     is_enabled: values.isEnabled,
   }
+  const actionPayload = buildActionPayload(values)
+  if (actionPayload !== null) {
+    input.payload = actionPayload
+  }
+  return input
+}
+
+function buildActionPayload(
+  values: ScheduleFormValues,
+): Record<string, unknown> | null {
+  if (values.automationType === SUPPLY_ENSURE_REQUEST_CYCLE) {
+    return {
+      direction_code: values.directionCode.trim(),
+      cycle_date_offset_days: Number(values.cycleDateOffsetDays),
+      opens_time: values.opensTime,
+      closes_time: values.closesTime,
+      hard_closes_time: values.hardClosesTime,
+      hard_close_next_day: values.hardCloseNextDay,
+      timezone: values.timezone.trim(),
+      initial_status: 'OPEN',
+    }
+  }
+  if (
+    values.automationType === SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES
+  ) {
+    return { timezone: values.timezone.trim() }
+  }
+  return null
 }
 
 export function buildCreateInput(
@@ -190,11 +339,60 @@ export function buildCreateInput(
     scope_id:
       values.scopeType === 'company' ? null : values.scopeId.trim(),
     schedule_config: buildScheduleConfig(values),
-    payload: {},
+    payload: buildActionPayload(values) ?? {},
     recipients: [],
     timezone: values.timezone.trim(),
     is_enabled: values.isEnabled,
   }
+}
+
+const WEEKDAY_SUMMARY_LABELS = [
+  'понедельник',
+  'вторник',
+  'среду',
+  'четверг',
+  'пятницу',
+  'субботу',
+  'воскресенье',
+]
+
+function joinRussian(items: string[]): string {
+  if (items.length <= 1) {
+    return items[0] ?? ''
+  }
+  return `${items.slice(0, -1).join(', ')} и ${items.at(-1)}`
+}
+
+export function buildSupplyScheduleSummary(
+  values: ScheduleFormValues,
+  directionName?: string,
+): string {
+  const timezoneLabel =
+    values.timezone.trim() === 'Asia/Yekaterinburg'
+      ? 'Екатеринбург'
+      : values.timezone.trim()
+
+  if (
+    values.automationType === SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES
+  ) {
+    return `Система закрывает истёкшие циклы по настроенному расписанию. Часовой пояс: ${timezoneLabel}.`
+  }
+  if (values.automationType !== SUPPLY_ENSURE_REQUEST_CYCLE) {
+    return ''
+  }
+
+  const weekdays = values.weekdays
+    .map((weekday) => WEEKDAY_SUMMARY_LABELS[weekday])
+    .filter((weekday): weekday is string => Boolean(weekday))
+  const cycleDate =
+    values.cycleDateOffsetDays === '0'
+      ? 'на день запуска'
+      : `со смещением на ${values.cycleDateOffsetDays} дн.`
+  const hardClose = values.hardCloseNextDay
+    ? `${values.hardClosesTime} следующего дня`
+    : values.hardClosesTime
+
+  return `Каждый ${joinRussian(weekdays)} в ${values.time} система создаёт цикл направления «${directionName ?? values.directionCode}» ${cycleDate}. Приём заявок до ${values.closesTime}, окончательное закрытие в ${hardClose}. Часовой пояс: ${timezoneLabel}.`
 }
 
 export function createSubmissionGuard(): SubmissionGuard {

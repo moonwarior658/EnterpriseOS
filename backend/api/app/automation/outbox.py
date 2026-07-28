@@ -106,6 +106,19 @@ class OutboxStore(Protocol):
         """Persist an error and either requeue or terminally fail the event."""
 
 
+class LocalAutomationExecutor(Protocol):
+    def supports(self, automation_type: str) -> bool:
+        """Return whether the action executes inside EnterpriseOS."""
+
+    def execute(
+        self,
+        claim: ClaimedOutboxEvent,
+        *,
+        executed_at: datetime,
+    ) -> dict[str, object]:
+        """Execute and atomically finalize one local action."""
+
+
 class SqlAlchemyOutboxStore:
     def __init__(
         self,
@@ -346,6 +359,7 @@ class OutboxWorker:
         retry_base_delay: timedelta = timedelta(seconds=30),
         retry_max_delay: timedelta = timedelta(minutes=15),
         clock: Callable[[], datetime] | None = None,
+        local_executor: LocalAutomationExecutor | None = None,
     ) -> None:
         if not worker_id.strip():
             raise ValueError("worker_id must not be empty")
@@ -365,6 +379,7 @@ class OutboxWorker:
         self._retry_base_delay = retry_base_delay
         self._retry_max_delay = retry_max_delay
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._local_executor = local_executor
 
     async def process_one(self) -> DeliveryResult:
         claim = self._store.claim_next(
@@ -376,6 +391,19 @@ class OutboxWorker:
             return DeliveryResult(status=DeliveryStatus.NO_EVENT)
 
         try:
+            if (
+                self._local_executor is not None
+                and self._local_executor.supports(claim.automation_type)
+            ):
+                self._local_executor.execute(
+                    claim,
+                    executed_at=self._now(),
+                )
+                return DeliveryResult(
+                    status=DeliveryStatus.PUBLISHED,
+                    event_id=claim.event_id,
+                )
+
             command = AutomationCommand(
                 contract_version=claim.contract_version,
                 execution_id=claim.execution_id,

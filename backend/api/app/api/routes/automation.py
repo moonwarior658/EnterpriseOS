@@ -23,6 +23,7 @@ from app.automation.dispatch import (
 )
 from app.automation.diagnostics import build_diagnostics_snapshot
 from app.automation.schedules import (
+    InvalidAutomationScheduleActionError,
     InvalidScheduleScopeError,
     create_schedule,
     delete_schedule,
@@ -33,6 +34,7 @@ from app.automation.schedules import (
 from app.automation.executions import (
     DEFAULT_EXECUTION_LIMIT,
     NO_EXECUTION_STATE,
+    classify_execution,
     classify_execution_status,
     count_executions,
     execution_duration_seconds,
@@ -151,11 +153,17 @@ def create_automation_schedule(
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> AutomationSchedule:
-    return create_schedule(
-        db,
-        payload,
-        created_by_user_id=current_admin.id,
-    )
+    try:
+        return create_schedule(
+            db,
+            payload,
+            created_by_user_id=current_admin.id,
+        )
+    except InvalidAutomationScheduleActionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
 
 
 @router.get(
@@ -197,7 +205,10 @@ def update_automation_schedule(
             payload,
             actor_user_id=current_admin.id,
         )
-    except InvalidScheduleScopeError as error:
+    except (
+        InvalidAutomationScheduleActionError,
+        InvalidScheduleScopeError,
+    ) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
@@ -385,7 +396,7 @@ def read_schedule_executions(
 def public_history_item(
     execution: AutomationExecution,
 ) -> AutomationExecutionHistoryItem:
-    public_state = classify_execution_status(execution.status)
+    public_state = classify_execution(execution)
 
     return AutomationExecutionHistoryItem(
         status=AutomationCallbackStatus(execution.status.value),
@@ -410,7 +421,7 @@ def public_latest_execution_item(
     execution: AutomationExecution | None,
 ) -> AutomationLatestExecutionItem:
     public_state = (
-        classify_execution_status(execution.status)
+        classify_execution(execution)
         if execution is not None
         else NO_EXECUTION_STATE
     )

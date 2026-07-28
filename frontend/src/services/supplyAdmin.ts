@@ -140,6 +140,7 @@ export type SupplyDashboardSummary = {
 }
 
 export type SupplyReference = { id: string; code: string; name: string }
+export type SupplyDirection = SupplyReference & { is_active: boolean }
 export type SupplyCycle = { id: string; cycle_date: string; direction_id: string }
 
 export class SupplyApiError extends Error {
@@ -201,7 +202,7 @@ export function getSupplyDepartments(): Promise<SupplyReference[]> {
   return request('/supply/departments')
 }
 
-export function getSupplyDirections(): Promise<SupplyReference[]> {
+export function getSupplyDirections(): Promise<SupplyDirection[]> {
   return request('/supply/request-directions')
 }
 

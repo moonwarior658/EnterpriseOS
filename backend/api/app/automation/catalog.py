@@ -14,6 +14,30 @@ class AutomationTypeDefinition:
 
 AUTOMATION_TYPES = (
     AutomationTypeDefinition(
+        key="supply.ensure_request_cycle",
+        display_name="Открыть цикл заявок снабжения",
+        description=(
+            "Создаёт цикл выбранного направления в настроенные дни "
+            "недели. Повторный запуск не создаёт дубль."
+        ),
+        category="supply",
+        is_system=False,
+        is_available=True,
+        supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
+        key="supply.close_expired_request_cycles",
+        display_name="Закрыть истёкшие циклы снабжения",
+        description=(
+            "Закрывает циклы текущей компании после окончательного "
+            "времени приёма заявок."
+        ),
+        category="supply",
+        is_system=False,
+        is_available=True,
+        supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
         key="smoke_test",
         display_name="Проверка Automation Core",
         description=(

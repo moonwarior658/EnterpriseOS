@@ -178,6 +178,27 @@ class BlockingProvider(RecordingProvider):
         return await super().send_command(command)
 
 
+class RecordingLocalExecutor:
+    def __init__(self, store: InMemoryOutboxStore) -> None:
+        self.store = store
+        self.claims: list[ClaimedOutboxEvent] = []
+
+    def supports(self, automation_type: str) -> bool:
+        return automation_type == "supply.ensure_request_cycle"
+
+    def execute(
+        self,
+        claim: ClaimedOutboxEvent,
+        *,
+        executed_at: datetime,
+    ) -> dict[str, object]:
+        self.store._assert_owner(claim)
+        self.claims.append(claim)
+        self.store.status = "published"
+        self.store.owner = None
+        return {"outcome": "created"}
+
+
 class LeakyProvider(AutomationProvider):
     async def send_command(
         self,
@@ -309,6 +330,29 @@ def make_database_event(
 
 
 class OutboxWorkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_supply_action_bypasses_provider(self) -> None:
+        store = InMemoryOutboxStore()
+        store._claim = replace(
+            store._claim,
+            automation_type="supply.ensure_request_cycle",
+        )
+        provider = RecordingProvider()
+        local_executor = RecordingLocalExecutor(store)
+        worker = OutboxWorker(
+            store=store,
+            provider=provider,
+            worker_id="worker-1",
+            callback_url=CALLBACK_URL,
+            clock=lambda: NOW,
+            local_executor=local_executor,
+        )
+
+        result = await worker.process_one()
+
+        self.assertEqual(result.status, DeliveryStatus.PUBLISHED)
+        self.assertEqual(len(local_executor.claims), 1)
+        self.assertEqual(provider.commands, [])
+
     async def test_successful_delivery_marks_event_published(self) -> None:
         store = InMemoryOutboxStore()
         provider = RecordingProvider()

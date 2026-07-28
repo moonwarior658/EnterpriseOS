@@ -69,11 +69,83 @@ NO_EXECUTION_STATE = PublicExecutionState(
     user_message="Регламент ещё не запускался",
 )
 
+SUPPLY_EXECUTION_ERROR_STATES = {
+    "SupplyDirectionNotFoundError": PublicExecutionState(
+        user_status="Ошибка выполнения",
+        user_message="Направление не найдено",
+        error_category="invalid_parameters",
+        error_code="SUPPLY_DIRECTION_NOT_FOUND",
+    ),
+    "SupplyDirectionInactiveError": PublicExecutionState(
+        user_status="Ошибка выполнения",
+        user_message="Направление отключено",
+        error_category="invalid_parameters",
+        error_code="SUPPLY_DIRECTION_INACTIVE",
+    ),
+    "SupplyTimezoneInvalidError": PublicExecutionState(
+        user_status="Ошибка выполнения",
+        user_message="Некорректный timezone",
+        error_category="invalid_parameters",
+        error_code="SUPPLY_TIMEZONE_INVALID",
+    ),
+    "SupplyCyclePeriodInvalidError": PublicExecutionState(
+        user_status="Ошибка выполнения",
+        user_message="Ошибка параметров периода",
+        error_category="invalid_parameters",
+        error_code="SUPPLY_CYCLE_PERIOD_INVALID",
+    ),
+    "SupplyActionPayloadInvalidError": PublicExecutionState(
+        user_status="Ошибка выполнения",
+        user_message="Ошибка параметров периода",
+        error_category="invalid_parameters",
+        error_code="SUPPLY_ACTION_PAYLOAD_INVALID",
+    ),
+}
+
 
 def classify_execution_status(
     status: ExecutionStatus | str,
 ) -> PublicExecutionState:
     return PUBLIC_EXECUTION_STATES[ExecutionStatus(status)]
+
+
+def classify_execution(
+    execution: AutomationExecution,
+) -> PublicExecutionState:
+    if execution.status == ExecutionStatus.SUCCEEDED:
+        result = execution.result or {}
+        if execution.automation_type == "supply.ensure_request_cycle":
+            if result.get("outcome") == "created":
+                return PublicExecutionState(
+                    user_status="Выполнено",
+                    user_message="Цикл создан",
+                )
+            if result.get("outcome") == "already_exists":
+                return PublicExecutionState(
+                    user_status="Выполнено",
+                    user_message="Цикл уже существовал",
+                )
+        if (
+            execution.automation_type
+            == "supply.close_expired_request_cycles"
+        ):
+            closed_count = result.get("closed_count")
+            if isinstance(closed_count, int) and not isinstance(
+                closed_count, bool
+            ):
+                return PublicExecutionState(
+                    user_status="Выполнено",
+                    user_message=f"Закрыто циклов: {closed_count}",
+                )
+
+    if execution.status == ExecutionStatus.FAILED:
+        action_error = SUPPLY_EXECUTION_ERROR_STATES.get(
+            execution.error_code or ""
+        )
+        if action_error is not None:
+            return action_error
+
+    return classify_execution_status(execution.status)
 
 
 def execution_duration_seconds(

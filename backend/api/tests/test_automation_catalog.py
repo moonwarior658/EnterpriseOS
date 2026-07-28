@@ -50,7 +50,34 @@ class AutomationCatalogTests(unittest.TestCase):
         second = list_available_automation_types()
 
         self.assertEqual(first, second)
-        self.assertEqual([item.key for item in first], ["smoke_test"])
+        self.assertEqual(
+            [item.key for item in first],
+            [
+                "supply.close_expired_request_cycles",
+                "supply.ensure_request_cycle",
+                "smoke_test",
+            ],
+        )
+
+    def test_catalog_contains_local_supply_actions(self) -> None:
+        ensure = get_automation_type("supply.ensure_request_cycle")
+        close = get_automation_type(
+            "supply.close_expired_request_cycles"
+        )
+
+        self.assertIsNotNone(ensure)
+        self.assertIsNotNone(close)
+        assert ensure is not None and close is not None
+        self.assertEqual(
+            ensure.display_name,
+            "Открыть цикл заявок снабжения",
+        )
+        self.assertEqual(
+            close.display_name,
+            "Закрыть истёкшие циклы снабжения",
+        )
+        self.assertTrue(ensure.supports_manual_run)
+        self.assertTrue(close.supports_manual_run)
 
     def test_unavailable_catalog_entries_are_not_listed(self) -> None:
         unavailable = AutomationTypeDefinition(

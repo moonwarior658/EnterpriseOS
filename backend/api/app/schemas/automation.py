@@ -68,6 +68,99 @@ ScheduleConfig = Annotated[
     Field(discriminator="type"),
 ]
 
+SUPPLY_ENSURE_REQUEST_CYCLE = "supply.ensure_request_cycle"
+SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES = (
+    "supply.close_expired_request_cycles"
+)
+
+
+class SupplyEnsureRequestCyclePayload(BaseModel):
+    direction_code: str = Field(min_length=1, max_length=64)
+    cycle_date_offset_days: Annotated[
+        StrictInt,
+        Field(ge=0, le=31),
+    ] = 0
+    opens_time: ScheduleTime = "00:00"
+    closes_time: ScheduleTime = "23:59"
+    hard_closes_time: ScheduleTime = "00:10"
+    hard_close_next_day: bool = True
+    timezone: str = Field(
+        default="Asia/Yekaterinburg",
+        max_length=64,
+    )
+    initial_status: Literal["OPEN"] = "OPEN"
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("direction_code", mode="before")
+    @classmethod
+    def normalize_direction_code(cls, value: Any) -> Any:
+        return strip_non_empty_string(value)
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def validate_timezone(cls, value: Any) -> Any:
+        return normalize_timezone(value)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "SupplyEnsureRequestCyclePayload":
+        if self.closes_time <= self.opens_time:
+            raise ValueError(
+                "closes_time must be later than opens_time"
+            )
+        if (
+            not self.hard_close_next_day
+            and self.hard_closes_time <= self.closes_time
+        ):
+            raise ValueError(
+                "hard_closes_time must be later than closes_time"
+            )
+        return self
+
+
+class SupplyCloseExpiredRequestCyclesPayload(BaseModel):
+    timezone: str = Field(
+        default="Asia/Yekaterinburg",
+        max_length=64,
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def validate_timezone(cls, value: Any) -> Any:
+        return normalize_timezone(value)
+
+
+def validate_automation_action_payload(
+    automation_type: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if automation_type == SUPPLY_ENSURE_REQUEST_CYCLE:
+        return SupplyEnsureRequestCyclePayload.model_validate(
+            payload
+        ).model_dump(mode="json")
+    if automation_type == SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES:
+        return SupplyCloseExpiredRequestCyclesPayload.model_validate(
+            payload
+        ).model_dump(mode="json")
+    return payload
+
+
+def validate_automation_schedule_contract(
+    automation_type: str,
+    schedule_config: ScheduleConfig,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if (
+        automation_type == SUPPLY_ENSURE_REQUEST_CYCLE
+        and not isinstance(schedule_config, WeeklyScheduleConfig)
+    ):
+        raise ValueError(
+            "supply.ensure_request_cycle requires a weekly schedule"
+        )
+    return validate_automation_action_payload(automation_type, payload)
+
 
 def strip_non_empty_string(value: Any) -> Any:
     if not isinstance(value, str):
@@ -145,6 +238,11 @@ class AutomationScheduleBase(BaseModel):
     @model_validator(mode="after")
     def validate_complete_scope(self) -> "AutomationScheduleBase":
         validate_scope_pair(self.scope_type, self.scope_id)
+        self.payload = validate_automation_schedule_contract(
+            self.automation_type,
+            self.schedule_config,
+            self.payload,
+        )
         return self
 
 

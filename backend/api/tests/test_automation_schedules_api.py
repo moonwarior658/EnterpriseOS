@@ -348,10 +348,19 @@ class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             [item["key"] for item in response.json()],
-            ["smoke_test"],
+            [
+                "supply.close_expired_request_cycles",
+                "supply.ensure_request_cycle",
+                "smoke_test",
+            ],
+        )
+        smoke_test = next(
+            item
+            for item in response.json()
+            if item["key"] == "smoke_test"
         )
         self.assertEqual(
-            response.json()[0]["display_name"],
+            smoke_test["display_name"],
             "Проверка Automation Core",
         )
         forbidden_fields = {
@@ -362,7 +371,7 @@ class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
             "webhook_url",
             "provider_config",
         }
-        self.assertTrue(forbidden_fields.isdisjoint(response.json()[0]))
+        self.assertTrue(forbidden_fields.isdisjoint(smoke_test))
 
 
 class AutomationScheduleCreateApiTests(AutomationSchedulesApiTestCase):

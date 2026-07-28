@@ -7,14 +7,21 @@ from app.automation.audit import (
     schedule_audit_snapshot,
 )
 from app.automation.schedule_time import calculate_next_run_at
+from app.automation.schedule_time import parse_schedule_config
+from app.automation.supply_actions import (
+    SupplyAutomationActionError,
+    require_active_supply_direction,
+)
 from app.core.config import settings
 from app.models.automation import (
     AutomationSchedule,
     ScheduleAuditEventType,
 )
 from app.schemas.automation import (
+    SUPPLY_ENSURE_REQUEST_CYCLE,
     AutomationScheduleCreate,
     AutomationScheduleUpdate,
+    validate_automation_schedule_contract,
 )
 
 
@@ -33,6 +40,37 @@ SCHEDULE_MUTABLE_FIELDS = (
 
 class InvalidScheduleScopeError(ValueError):
     pass
+
+
+class InvalidAutomationScheduleActionError(ValueError):
+    pass
+
+
+def _validated_action_payload(
+    session: Session,
+    *,
+    automation_type: str,
+    schedule_config: object,
+    payload: dict[str, object],
+    tenant_id: str,
+) -> dict[str, object]:
+    try:
+        normalized = validate_automation_schedule_contract(
+            automation_type,
+            parse_schedule_config(schedule_config),
+            payload,
+        )
+        if automation_type == SUPPLY_ENSURE_REQUEST_CYCLE:
+            require_active_supply_direction(
+                session,
+                tenant_id=tenant_id,
+                direction_code=str(normalized["direction_code"]),
+            )
+        return normalized
+    except (SupplyAutomationActionError, ValueError) as error:
+        raise InvalidAutomationScheduleActionError(
+            "Invalid automation action parameters"
+        ) from error
 
 
 def validate_schedule_scope(
@@ -82,6 +120,13 @@ def create_schedule(
 ) -> AutomationSchedule:
     try:
         schedule_config = payload.schedule_config.model_dump(mode="json")
+        action_payload = _validated_action_payload(
+            session,
+            automation_type=payload.automation_type,
+            schedule_config=schedule_config,
+            payload=payload.payload,
+            tenant_id=settings.default_tenant_id,
+        )
         next_run_at = (
             calculate_next_run_at(schedule_config, payload.timezone)
             if payload.is_enabled
@@ -94,7 +139,7 @@ def create_schedule(
             scope_type=payload.scope_type,
             scope_id=payload.scope_id,
             schedule_config=schedule_config,
-            payload=payload.payload,
+            payload=action_payload,
             recipients=payload.recipients,
             timezone=payload.timezone,
             is_enabled=payload.is_enabled,
@@ -150,6 +195,18 @@ def update_schedule(
         final_schedule_config = updates.get(
             "schedule_config",
             schedule.schedule_config,
+        )
+        final_automation_type = updates.get(
+            "automation_type",
+            schedule.automation_type,
+        )
+        final_payload = updates.get("payload", schedule.payload)
+        updates["payload"] = _validated_action_payload(
+            session,
+            automation_type=final_automation_type,
+            schedule_config=final_schedule_config,
+            payload=final_payload,
+            tenant_id=schedule.tenant_id,
         )
         final_timezone = updates.get("timezone", schedule.timezone)
         schedule_changed = (

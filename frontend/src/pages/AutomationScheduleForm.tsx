@@ -13,9 +13,16 @@ import {
   type AutomationType,
 } from '../services/automation'
 import {
+  getSupplyDirections,
+  type SupplyDirection,
+} from '../services/supplyAdmin'
+import {
+  buildSupplyScheduleSummary,
   createSubmissionGuard,
   DEFAULT_SCHEDULE_FORM_VALUES,
   scheduleToFormValues,
+  SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES,
+  SUPPLY_ENSURE_REQUEST_CYCLE,
   submitScheduleForm,
   type ScheduleFormErrors,
   type ScheduleFormValues,
@@ -74,6 +81,8 @@ function AutomationScheduleForm({
   const [errors, setErrors] = useState<ScheduleFormErrors>({})
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [directions, setDirections] = useState<SupplyDirection[]>([])
+  const [directionsError, setDirectionsError] = useState('')
   const guardRef = useRef(createSubmissionGuard())
   const nameInputRef = useRef<HTMLInputElement>(null)
   const isDirty = JSON.stringify(values) !== initialSnapshot
@@ -92,10 +101,56 @@ function AutomationScheduleForm({
     automationTypesLoading ||
     Boolean(automationTypesError) ||
     automationTypes.length === 0
+  const isEnsureCycle =
+    values.automationType === SUPPLY_ENSURE_REQUEST_CYCLE
+  const isCloseCycles =
+    values.automationType === SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES
+  const directionName = directions.find(
+    (direction) => direction.code === values.directionCode,
+  )?.name
+  const directionsLoading =
+    isEnsureCycle &&
+    directions.length === 0 &&
+    !directionsError
+  const supplySummary = buildSupplyScheduleSummary(
+    values,
+    directionName,
+  )
 
   useEffect(() => {
     nameInputRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    if (
+      !isEnsureCycle ||
+      directions.length > 0 ||
+      Boolean(directionsError)
+    ) {
+      return
+    }
+
+    let isMounted = true
+    void getSupplyDirections()
+      .then((items) => {
+        if (isMounted) {
+          setDirections(items)
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setDirectionsError('Не удалось загрузить направления')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [
+    directions.length,
+    directionsError,
+    isEnsureCycle,
+  ])
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -150,6 +205,27 @@ function AutomationScheduleForm({
       : [...values.weekdays, weekday]
 
     updateValue('weekdays', weekdays)
+  }
+
+  function selectAutomationType(automationType: string) {
+    setValues((current) => ({
+      ...current,
+      automationType,
+      scheduleType:
+        automationType === SUPPLY_ENSURE_REQUEST_CYCLE
+          ? 'weekly'
+          : current.automationType === SUPPLY_ENSURE_REQUEST_CYCLE
+            ? 'daily'
+            : current.scheduleType,
+      scopeType:
+        automationType.startsWith('supply.')
+          ? 'company'
+          : current.scopeType,
+      scopeId:
+        automationType.startsWith('supply.') ? '' : current.scopeId,
+    }))
+    setErrors({})
+    setSubmitError('')
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -252,9 +328,7 @@ function AutomationScheduleForm({
             aria-describedby={
               errors.automationType ? 'automation-type-error' : undefined
             }
-            onChange={(event) =>
-              updateValue('automationType', event.target.value)
-            }
+            onChange={(event) => selectAutomationType(event.target.value)}
           >
             <option value="">
               {automationTypesLoading
@@ -339,6 +413,7 @@ function AutomationScheduleForm({
           <span>Периодичность</span>
           <select
             value={values.scheduleType}
+            disabled={isEnsureCycle}
             onChange={(event) =>
               updateValue(
                 'scheduleType',
@@ -350,6 +425,11 @@ function AutomationScheduleForm({
             <option value="weekly">В выбранные дни недели</option>
             <option value="interval">Через равные интервалы</option>
           </select>
+          {errors.scheduleType && (
+            <small className="automation-field-error">
+              {errors.scheduleType}
+            </small>
+          )}
         </label>
 
         {values.scheduleType === 'interval' ? (
@@ -421,6 +501,137 @@ function AutomationScheduleForm({
           </fieldset>
         )}
 
+        {isEnsureCycle && (
+          <>
+            <label className="automation-form-field automation-form-field-wide">
+              <span>Направление</span>
+              <select
+                value={values.directionCode}
+                disabled={directionsLoading}
+                aria-invalid={Boolean(errors.directionCode)}
+                onChange={(event) =>
+                  updateValue('directionCode', event.target.value)
+                }
+              >
+                <option value="">
+                  {directionsLoading
+                    ? 'Загружаем направления…'
+                    : 'Выберите направление'}
+                </option>
+                {directions.map((direction) => (
+                  <option
+                    key={direction.code}
+                    value={direction.code}
+                    disabled={!direction.is_active}
+                  >
+                    {direction.code} — {direction.name}
+                  </option>
+                ))}
+              </select>
+              {errors.directionCode ? (
+                <small className="automation-field-error">
+                  {errors.directionCode}
+                </small>
+              ) : directionsError ? (
+                <small className="automation-field-error">
+                  {directionsError}
+                </small>
+              ) : (
+                <small>Используется стабильный код, UUID не сохраняется.</small>
+              )}
+            </label>
+
+            <label className="automation-form-field">
+              <span>Смещение даты цикла, дней</span>
+              <input
+                type="number"
+                min={0}
+                max={31}
+                step={1}
+                value={values.cycleDateOffsetDays}
+                aria-invalid={Boolean(errors.cycleDateOffsetDays)}
+                onChange={(event) =>
+                  updateValue('cycleDateOffsetDays', event.target.value)
+                }
+              />
+              {errors.cycleDateOffsetDays ? (
+                <small className="automation-field-error">
+                  {errors.cycleDateOffsetDays}
+                </small>
+              ) : (
+                <small>0 — цикл на день запуска, 1 — на следующий день.</small>
+              )}
+            </label>
+
+            <label className="automation-form-field">
+              <span>Время открытия цикла</span>
+              <input
+                type="time"
+                value={values.opensTime}
+                aria-invalid={Boolean(errors.opensTime)}
+                onChange={(event) =>
+                  updateValue('opensTime', event.target.value)
+                }
+              />
+              {errors.opensTime && (
+                <small className="automation-field-error">
+                  {errors.opensTime}
+                </small>
+              )}
+            </label>
+
+            <label className="automation-form-field">
+              <span>Время обычного закрытия</span>
+              <input
+                type="time"
+                value={values.closesTime}
+                aria-invalid={Boolean(errors.closesTime)}
+                onChange={(event) =>
+                  updateValue('closesTime', event.target.value)
+                }
+              />
+              {errors.closesTime && (
+                <small className="automation-field-error">
+                  {errors.closesTime}
+                </small>
+              )}
+            </label>
+
+            <label className="automation-form-field">
+              <span>Время окончательного закрытия</span>
+              <input
+                type="time"
+                value={values.hardClosesTime}
+                aria-invalid={Boolean(errors.hardClosesTime)}
+                onChange={(event) =>
+                  updateValue('hardClosesTime', event.target.value)
+                }
+              />
+              {errors.hardClosesTime && (
+                <small className="automation-field-error">
+                  {errors.hardClosesTime}
+                </small>
+              )}
+            </label>
+
+            <label className="automation-enabled-field">
+              <input
+                type="checkbox"
+                checked={values.hardCloseNextDay}
+                onChange={(event) =>
+                  updateValue('hardCloseNextDay', event.target.checked)
+                }
+              />
+              <span>
+                <strong>Окончательное закрытие на следующий день</strong>
+                <small>
+                  Например, 00:10 будет относиться к следующей дате.
+                </small>
+              </span>
+            </label>
+          </>
+        )}
+
         <label className="automation-form-field">
           <span>Часовой пояс</span>
           <input
@@ -461,6 +672,12 @@ function AutomationScheduleForm({
           </span>
         </label>
       </div>
+
+      {(isEnsureCycle || isCloseCycles) && supplySummary && (
+        <p className="automation-supply-summary" aria-live="polite">
+          {supplySummary}
+        </p>
+      )}
 
       {submitError && (
         <p className="automation-form-error" role="alert">

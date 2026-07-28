@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from app.automation.outbox import OutboxWorker, SqlAlchemyOutboxStore
+from app.automation.local_actions import LocalAutomationActionExecutor
 from app.automation.diagnostics import (
     WORKER_HEARTBEAT_INTERVAL_SECONDS,
     record_runtime_status_safely,
@@ -243,6 +244,7 @@ async def run_worker() -> None:
                 provider=provider,
                 worker_id=worker_id,
                 callback_url=callback_url,
+                local_executor=LocalAutomationActionExecutor(SessionLocal),
             )
 
             while not stop_event.is_set():

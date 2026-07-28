@@ -369,7 +369,7 @@ def _advance_debts_for_closed_cycle(
         select(SupplyDepartmentDebt)
         .join(SupplyProduct)
         .where(
-            SupplyDepartmentDebt.tenant_id == settings.default_tenant_id,
+            SupplyDepartmentDebt.tenant_id == cycle.tenant_id,
             SupplyDepartmentDebt.status == "ACTIVE",
             SupplyProduct.request_direction_id == cycle.direction_id,
             SupplyDepartmentDebt.opened_at < cycle.closes_at,

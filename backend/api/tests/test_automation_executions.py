@@ -15,6 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 from app.api.dependencies import get_current_admin
 from app.automation.executions import (
+    classify_execution,
     classify_execution_status,
     count_executions,
     get_execution,
@@ -272,6 +273,50 @@ class ExecutionServiceTests(unittest.TestCase):
                 self.assertEqual(public_state.user_status, user_status)
                 self.assertNotIn("http", public_state.user_message.lower())
                 self.assertNotIn("exception", public_state.user_message.lower())
+
+    def test_supply_results_and_errors_have_clear_user_messages(self) -> None:
+        execution = make_execution()
+        execution.automation_type = "supply.ensure_request_cycle"
+        execution.result = {"outcome": "created"}
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Цикл создан",
+        )
+        execution.result = {"outcome": "already_exists"}
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Цикл уже существовал",
+        )
+        execution.automation_type = (
+            "supply.close_expired_request_cycles"
+        )
+        execution.result = {"closed_count": 3}
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Закрыто циклов: 3",
+        )
+
+        execution.status = ExecutionStatus.FAILED
+        execution.error_code = "SupplyDirectionNotFoundError"
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Направление не найдено",
+        )
+        execution.error_code = "SupplyDirectionInactiveError"
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Направление отключено",
+        )
+        execution.error_code = "SupplyTimezoneInvalidError"
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Некорректный timezone",
+        )
+        execution.error_code = "SupplyCyclePeriodInvalidError"
+        self.assertEqual(
+            classify_execution(execution).user_message,
+            "Ошибка параметров периода",
+        )
 
 
 class ExecutionHistoryApiTests(unittest.TestCase):

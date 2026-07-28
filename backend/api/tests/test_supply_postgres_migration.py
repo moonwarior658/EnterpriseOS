@@ -1,7 +1,10 @@
 import os
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Barrier
+from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -12,11 +15,27 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
-from sqlalchemy import Integer, Numeric, create_engine, event, inspect, text
+from sqlalchemy import (
+    Integer,
+    Numeric,
+    create_engine,
+    event,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.public_supply import token_rate_guard
+from app.automation.supply_actions import (
+    SupplyAutomationContext,
+    ensure_request_cycle,
+)
+from app.automation.local_actions import LocalAutomationActionExecutor
+from app.automation.outbox import SqlAlchemyOutboxStore
+from app.automation.scheduler import process_due_schedule
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
@@ -26,6 +45,13 @@ from app.models.supply import (
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyUnit,
+)
+from app.models.automation import (
+    AutomationExecution,
+    AutomationSchedule,
+    ExecutionStatus,
+    OutboxEvent,
+    OutboxStatus,
 )
 from app.supply.normalization import normalize_product_text
 
@@ -1185,6 +1211,170 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             normalized = " ".join(statement.upper().split())
             self.assertNotIn(" JOIN ", normalized)
             self.assertIn("FOR UPDATE OF SUPPLY_REQUESTS", normalized)
+
+    def test_03_parallel_cycle_ensure_uses_unique_race_guard(self) -> None:
+        command.upgrade(self.alembic_config, "head")
+        session_factory = sessionmaker(
+            bind=self.engine,
+            expire_on_commit=False,
+        )
+        requested_at = datetime(
+            2027,
+            3,
+            15,
+            10,
+            0,
+            tzinfo=timezone.utc,
+        )
+        barrier = Barrier(2)
+        payload = {
+            "direction_code": "MAIN",
+            "cycle_date_offset_days": 0,
+            "opens_time": "00:00",
+            "closes_time": "23:59",
+            "hard_closes_time": "00:10",
+            "hard_close_next_day": True,
+            "timezone": "Asia/Yekaterinburg",
+            "initial_status": "OPEN",
+        }
+
+        def execute_once() -> dict[str, object]:
+            with session_factory.begin() as session:
+                return ensure_request_cycle(
+                    session,
+                    SupplyAutomationContext(
+                        execution_id=uuid4(),
+                        tenant_id="eclair",
+                        requested_at=requested_at,
+                        executed_at=requested_at,
+                    ),
+                    payload,
+                    before_insert=barrier.wait,
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: execute_once(), range(2)))
+
+        self.assertEqual(
+            {result["outcome"] for result in results},
+            {"created", "already_exists"},
+        )
+        self.assertEqual(
+            {result["cycle_id"] for result in results},
+            {results[0]["cycle_id"]},
+        )
+        with session_factory() as session:
+            direction = session.query(SupplyRequestDirection).filter_by(
+                tenant_id="eclair",
+                code="MAIN",
+            ).one()
+            count = session.scalar(
+                select(func.count())
+                .select_from(SupplyRequestCycle)
+                .where(
+                    SupplyRequestCycle.tenant_id == "eclair",
+                    SupplyRequestCycle.direction_id == direction.id,
+                    SupplyRequestCycle.cycle_date
+                    == date(2027, 3, 15),
+                )
+            )
+        self.assertEqual(count, 1)
+
+    def test_04_scheduler_outbox_local_handler_persists_result(self) -> None:
+        command.upgrade(self.alembic_config, "head")
+        session_factory = sessionmaker(
+            bind=self.engine,
+            expire_on_commit=False,
+        )
+        due_at = datetime(
+            2027,
+            4,
+            6,
+            19,
+            0,
+            tzinfo=timezone.utc,
+        )
+        with session_factory.begin() as session:
+            schedule = AutomationSchedule(
+                name="PostgreSQL Supply cycle action",
+                automation_type="supply.ensure_request_cycle",
+                tenant_id="eclair",
+                scope_type="company",
+                scope_id=None,
+                schedule_config={
+                    "type": "weekly",
+                    "weekdays": [1, 4],
+                    "time": "00:00",
+                },
+                payload={
+                    "direction_code": "MAIN",
+                    "cycle_date_offset_days": 0,
+                    "opens_time": "00:00",
+                    "closes_time": "23:59",
+                    "hard_closes_time": "00:10",
+                    "hard_close_next_day": True,
+                    "timezone": "Asia/Yekaterinburg",
+                    "initial_status": "OPEN",
+                },
+                recipients=[],
+                timezone="Asia/Yekaterinburg",
+                is_enabled=True,
+                next_run_at=due_at,
+                created_by_user_id=91001,
+            )
+            session.add(schedule)
+            session.flush()
+            schedule_id = schedule.id
+
+        with session_factory.begin() as session:
+            schedule = session.get(AutomationSchedule, schedule_id)
+            assert schedule is not None
+            execution = process_due_schedule(
+                session,
+                schedule,
+                now=due_at,
+            )
+            self.assertIsNotNone(execution)
+            assert execution is not None
+            execution_id = execution.execution_id
+
+        store = SqlAlchemyOutboxStore(session_factory)
+        claim = store.claim_next(
+            worker_id="postgres-supply-test",
+            claimed_at=due_at + timedelta(seconds=1),
+        )
+        self.assertIsNotNone(claim)
+        assert claim is not None
+        LocalAutomationActionExecutor(session_factory).execute(
+            claim,
+            executed_at=due_at + timedelta(seconds=1),
+        )
+
+        with session_factory() as session:
+            execution = session.scalar(
+                select(AutomationExecution).where(
+                    AutomationExecution.execution_id == execution_id
+                )
+            )
+            event_row = session.scalar(
+                select(OutboxEvent).where(
+                    OutboxEvent.execution_id == execution_id
+                )
+            )
+            self.assertIsNotNone(execution)
+            self.assertIsNotNone(event_row)
+            assert execution is not None and event_row is not None
+            self.assertEqual(
+                execution.status,
+                ExecutionStatus.SUCCEEDED,
+            )
+            self.assertEqual(execution.provider, "enterpriseos")
+            self.assertEqual(execution.result["outcome"], "created")
+            self.assertEqual(
+                execution.result["direction_code"],
+                "MAIN",
+            )
+            self.assertEqual(event_row.status, OutboxStatus.PUBLISHED)
 
 
 if __name__ == "__main__":
