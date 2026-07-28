@@ -3168,7 +3168,7 @@ def get_supply_dashboard_summary(session: Session) -> dict[str, int]:
         "mapping_required": mapping_required,
         "requests_in_progress": sum(
             int(request_counts.get(status, 0))
-            for status in ("IN_REVIEW", "PLANNED", "PARTIALLY_FULFILLED")
+            for status in ("SUBMITTED", "IN_REVIEW", "PLANNED")
         ),
         "active_debts": active_debts,
         "critical_debts": critical_debts,

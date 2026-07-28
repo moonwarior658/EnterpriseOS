@@ -1,3 +1,5 @@
+import type { SupplyDashboardSummary } from '../services/supplyAdmin'
+
 export type DashboardWidgetSize = '1x1' | '1x2' | '2x2'
 export type DashboardConnectionState = 'checking' | 'online' | 'offline'
 export type DashboardViewMode = 'empty' | 'active'
@@ -19,6 +21,14 @@ export type DashboardWidgetConfig = {
   size: DashboardWidgetSize
   order: number
   isVisible: boolean
+}
+
+export type DashboardSupplyWidgetCounts = {
+  newRequests: number
+  mappingRequired: number
+  requestsInProgress: number
+  activeDebts: number
+  criticalDebts: number
 }
 
 export type DashboardWidgetLayoutItem = {
@@ -67,7 +77,7 @@ const DASHBOARD_WIDGET_CONFIG = [
 export function buildDashboardWidgetConfig(
   warehouseCount: number,
   repairCount: number,
-  supply = {
+  supply: DashboardSupplyWidgetCounts = {
     newRequests: 0,
     mappingRequired: 0,
     requestsInProgress: 0,
@@ -91,6 +101,18 @@ export function buildDashboardWidgetConfig(
   }))
     .filter((widget) => widget.isVisible)
     .sort((left, right) => left.order - right.order)
+}
+
+export function supplySummaryToDashboardWidgetCounts(
+  summary: SupplyDashboardSummary | null,
+): DashboardSupplyWidgetCounts {
+  return {
+    newRequests: summary?.new_requests ?? 0,
+    mappingRequired: summary?.mapping_required ?? 0,
+    requestsInProgress: summary?.requests_in_progress ?? 0,
+    activeDebts: summary?.active_debts ?? 0,
+    criticalDebts: summary?.critical_debts ?? 0,
+  }
 }
 
 export function dashboardWidgetSpan(

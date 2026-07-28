@@ -25,6 +25,7 @@ import {
   DASHBOARD_EMPTY_TITLE,
   dashboardEmptySystemStatusText,
   dashboardViewMode,
+  supplySummaryToDashboardWidgetCounts,
   type DashboardConnectionState,
   type DashboardViewMode,
 } from './dashboardWidgetLogic'
@@ -132,13 +133,7 @@ function DashboardPage() {
   const widgetConfig = buildDashboardWidgetConfig(
     active.warehouse.length,
     active.repair.length,
-    {
-      newRequests: supplySummary?.new_requests ?? 0,
-      mappingRequired: supplySummary?.mapping_required ?? 0,
-      requestsInProgress: supplySummary?.requests_in_progress ?? 0,
-      activeDebts: supplySummary?.active_debts ?? 0,
-      criticalDebts: supplySummary?.critical_debts ?? 0,
-    },
+    supplySummaryToDashboardWidgetCounts(supplySummary),
   )
   const widgetContent = {
     'warehouse-requests': (

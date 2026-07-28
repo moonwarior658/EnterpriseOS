@@ -230,6 +230,33 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             json={"expected_version": request["version"], "items": items},
         )
 
+    def test_dashboard_in_progress_uses_only_actionable_request_statuses(
+        self,
+    ) -> None:
+        request = self.create_planned_request()
+        expected_by_status = {
+            "DRAFT": 0,
+            "SUBMITTED": 1,
+            "IN_REVIEW": 1,
+            "PLANNED": 1,
+            "PARTIALLY_FULFILLED": 0,
+            "FULFILLED": 0,
+            "CANCELLED": 0,
+        }
+
+        for status, expected in expected_by_status.items():
+            with self.subTest(status=status):
+                with self.session_factory.begin() as session:
+                    stored = session.get(SupplyRequest, UUID(request["id"]))
+                    stored.status = status
+
+                summary = self.client.get("/supply/summary/dashboard")
+                self.assertEqual(summary.status_code, 200, summary.text)
+                self.assertEqual(
+                    summary.json()["requests_in_progress"],
+                    expected,
+                )
+
     def test_partial_fulfillment_creates_idempotent_debt_and_history(self) -> None:
         request = self.create_planned_request()
         response = self.fulfill(request, TRANSFER="4", PURCHASE="1")
@@ -272,8 +299,17 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         )
         summary = self.client.get("/supply/summary/dashboard")
         self.assertEqual(summary.status_code, 200, summary.text)
-        self.assertEqual(summary.json()["active_debts"], 1)
-        self.assertEqual(summary.json()["requests_in_progress"], 1)
+        summary_body = summary.json()
+        self.assertEqual(summary_body["active_debts"], 1)
+        self.assertEqual(summary_body["requests_in_progress"], 0)
+        self.assertEqual(
+            {
+                key
+                for key, value in summary_body.items()
+                if value > 0
+            },
+            {"active_debts"},
+        )
 
     def test_validation_rollback_and_full_fulfillment(self) -> None:
         request = self.create_planned_request()

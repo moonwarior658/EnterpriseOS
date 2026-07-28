@@ -12,6 +12,7 @@ import {
   dashboardViewMode,
   dashboardWidgetSpan,
   layoutDashboardWidgets,
+  supplySummaryToDashboardWidgetCounts,
   type DashboardWidgetSize,
 } from '../src/pages/dashboardWidgetLogic.ts'
 
@@ -77,6 +78,41 @@ test('Supply-виджеты скрывают нули и ведут критич
       'supply-critical-debts',
     ],
   )
+})
+
+test('Dashboard без пересчёта переносит Supply summary из API в виджеты', () => {
+  const counts = supplySummaryToDashboardWidgetCounts({
+    new_requests: 2,
+    mapping_required: 1,
+    requests_in_progress: 3,
+    active_debts: 4,
+    critical_debts: 1,
+  })
+
+  assert.deepEqual(counts, {
+    newRequests: 2,
+    mappingRequired: 1,
+    requestsInProgress: 3,
+    activeDebts: 4,
+    criticalDebts: 1,
+  })
+})
+
+test('частичное исполнение с активным долгом даёт только debt-направление', () => {
+  const counts = supplySummaryToDashboardWidgetCounts({
+    new_requests: 0,
+    mapping_required: 0,
+    requests_in_progress: 0,
+    active_debts: 1,
+    critical_debts: 0,
+  })
+  const config = buildDashboardWidgetConfig(0, 0, counts)
+
+  assert.deepEqual(
+    config.map((widget) => widget.id),
+    ['supply-debts'],
+  )
+  assert.equal(activeDashboardDirectionCount(config), 1)
 })
 
 test('размер 1x1 занимает одну логическую ячейку', () => {
