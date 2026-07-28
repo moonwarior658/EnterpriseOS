@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from app.core.config import settings
+from app.models.automation import AutomationSchedule
 from app.models.supply import (
     Department,
     SupplyRequest,
@@ -50,6 +51,10 @@ class PublicSupplyUnrecognizedLinesError(ValueError):
 
 
 class PublicSupplyRateLimitError(ValueError):
+    pass
+
+
+class PublicSupplyCycleAmbiguousError(ValueError):
     pass
 
 
@@ -125,12 +130,92 @@ def list_public_cycles(
     ]
 
 
+_WEEKDAY_NAMES = (
+    "понедельник",
+    "вторник",
+    "среда",
+    "четверг",
+    "пятница",
+    "суббота",
+    "воскресенье",
+)
+
+
+def list_public_schedule_summaries(session: Session) -> list[str]:
+    schedules = session.scalars(
+        select(AutomationSchedule)
+        .where(
+            AutomationSchedule.tenant_id == settings.default_tenant_id,
+            AutomationSchedule.automation_type
+            == "supply.ensure_request_cycle",
+            AutomationSchedule.is_enabled.is_(True),
+        )
+        .order_by(AutomationSchedule.id.asc())
+    ).all()
+    direction_codes = {
+        str(schedule.payload.get("direction_code", "")).strip()
+        for schedule in schedules
+    }
+    directions = session.scalars(
+        select(SupplyRequestDirection).where(
+            SupplyRequestDirection.tenant_id == settings.default_tenant_id,
+            SupplyRequestDirection.code.in_(direction_codes),
+        )
+    ).all() if direction_codes else []
+    direction_names = {item.code: item.name for item in directions}
+    summaries: list[str] = []
+    for schedule in schedules:
+        config = schedule.schedule_config
+        payload = schedule.payload
+        if config.get("type") != "weekly":
+            continue
+        weekdays = [
+            _WEEKDAY_NAMES[value]
+            for value in config.get("weekdays", [])
+            if isinstance(value, int) and 0 <= value < len(_WEEKDAY_NAMES)
+        ]
+        if not weekdays:
+            continue
+        direction_code = str(payload.get("direction_code", "")).strip()
+        direction_name = direction_names.get(direction_code)
+        if not direction_name:
+            continue
+        close_time = str(payload.get("closes_time", "")).strip()
+        hard_close_time = str(payload.get("hard_closes_time", "")).strip()
+        if not close_time or not hard_close_time:
+            continue
+        hard_suffix = (
+            " следующего дня"
+            if payload.get("hard_close_next_day") is True
+            else ""
+        )
+        summaries.append(
+            f"{direction_name} — {' и '.join(weekdays)}; "
+            f"приём до {close_time}; окончательное закрытие до "
+            f"{hard_close_time}{hard_suffix}."
+        )
+    return summaries
+
+
 def _get_public_cycle_for_create(
     session: Session,
-    cycle_id: UUID,
+    cycle_id: UUID | None,
     *,
+    department_id: UUID,
     now: datetime,
 ) -> SupplyRequestCycle:
+    if cycle_id is None:
+        cycles = list_public_cycles(
+            session,
+            department_id=department_id,
+            direction_id=None,
+            now=now,
+        )
+        if not cycles:
+            raise SupplyRequestCycleUnavailableError
+        if len(cycles) > 1:
+            raise PublicSupplyCycleAmbiguousError
+        return cycles[0]
     cycle = session.scalar(
         select(SupplyRequestCycle)
         .where(
@@ -255,6 +340,7 @@ def create_public_request(
         cycle = _get_public_cycle_for_create(
             session,
             payload.cycle_id,
+            department_id=department.id,
             now=current_time,
         )
         existing = session.scalar(
@@ -291,7 +377,7 @@ def create_public_request(
                 cycle.hard_closes_at or cycle.closes_at
             )
             + PUBLIC_TOKEN_TECHNICAL_GRACE,
-            public_author_name=payload.author_name,
+            public_author_name=payload.author_name or None,
             public_author_phone=payload.author_phone,
             source_ip_hash=source_ip_hash,
             public_created_at=current_time,

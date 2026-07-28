@@ -28,6 +28,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
+from app.api.dependencies import get_current_user
 from app.api.routes.public_supply import token_rate_guard
 from app.automation.supply_actions import (
     SupplyAutomationContext,
@@ -41,11 +42,15 @@ from app.db.session import get_db
 from app.main import app
 from app.models.supply import (
     Department,
+    SupplyDepartmentDebt,
     SupplyProduct,
+    SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
+    SupplyRequestLine,
     SupplyUnit,
 )
+from app.models.user import User
 from app.models.automation import (
     AutomationExecution,
     AutomationSchedule,
@@ -54,6 +59,8 @@ from app.models.automation import (
     OutboxStatus,
 )
 from app.supply.normalization import normalize_product_text
+from app.supply.public_service import list_public_schedule_summaries
+from app.supply.service import plan_supply_request
 
 
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
@@ -1377,6 +1384,11 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             session.add(schedule)
             session.flush()
             schedule_id = schedule.id
+            summaries = list_public_schedule_summaries(session)
+            self.assertEqual(len(summaries), 1)
+            self.assertIn("Основной", summaries[0])
+            self.assertIn("приём до 23:59", summaries[0])
+            self.assertNotIn("MAIN", summaries[0])
 
         with session_factory.begin() as session:
             schedule = session.get(AutomationSchedule, schedule_id)
@@ -1427,6 +1439,119 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 "MAIN",
             )
             self.assertEqual(event_row.status, OutboxStatus.PUBLISHED)
+
+    def test_05_unmatched_simple_fulfillment_debt_full_flow(self) -> None:
+        command.upgrade(self.alembic_config, "head")
+        previous_tenant_id = settings.default_tenant_id
+        settings.default_tenant_id = "eclair"
+        session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
+        now = datetime.now(timezone.utc)
+        with session_factory.begin() as session:
+            department = session.query(Department).filter_by(
+                tenant_id="eclair", code="ATO"
+            ).one()
+            direction = session.query(SupplyRequestDirection).filter_by(
+                tenant_id="eclair", code="MAIN"
+            ).one()
+            unit = session.query(SupplyUnit).filter_by(
+                tenant_id="eclair", code="KG"
+            ).one()
+            cycle = SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=direction.id,
+                cycle_date=date.today() + timedelta(days=90),
+                opens_at=now - timedelta(hours=1),
+                closes_at=now + timedelta(hours=1),
+                status="OPEN",
+            )
+            session.add(cycle)
+            session.flush()
+            supply_request = SupplyRequest(
+                tenant_id="eclair",
+                public_number=f"ЗАЯВКА-PG-{uuid4().hex[:10]}",
+                department_id=department.id,
+                direction_id=direction.id,
+                cycle_id=cycle.id,
+                status="SUBMITTED",
+                source_type="INTERNAL",
+                raw_input="Редкий ингредиент 3 кг",
+                submitted_at=now,
+                version=1,
+            )
+            session.add(supply_request)
+            session.flush()
+            line = SupplyRequestLine(
+                request_id=supply_request.id,
+                position=1,
+                raw_text="Редкий ингредиент 3 кг",
+                parsed_name="Редкий ингредиент",
+                quantity=3,
+                send_quantity=2,
+                requested_unit_id=unit.id,
+                product_id=None,
+                match_status="NEEDS_REVIEW",
+            )
+            session.add(line)
+            session.flush()
+            request_id = supply_request.id
+            line_id = line.id
+
+        with session_factory() as session:
+            result = plan_supply_request(
+                session,
+                request_id,
+                expected_version=1,
+                user_id=91001,
+                simple_mode=True,
+            )
+            self.assertEqual(result.status, "PARTIALLY_FULFILLED")
+            self.assertEqual(result.lines[0].unresolved_quantity, 1)
+            self.assertIsNotNone(result.lines[0].active_debt_id)
+
+        def override_get_db():
+            with session_factory() as session:
+                yield session
+
+        def override_current_user():
+            with session_factory() as session:
+                return session.get(User, 91001)
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_current_user
+        client = TestClient(app)
+        try:
+            detail = client.get(f"/supply/requests/{request_id}")
+            debts = client.get(
+                "/supply/debts",
+                params={
+                    "status": "ACTIVE",
+                    "search": "Редкий ингредиент",
+                },
+            )
+            dashboard = client.get("/supply/summary/dashboard")
+            self.assertEqual(detail.status_code, 200, detail.text)
+            self.assertEqual(debts.status_code, 200, debts.text)
+            self.assertEqual(dashboard.status_code, 200, dashboard.text)
+            detail_line = detail.json()["lines"][0]
+            debt = debts.json()["items"][0]
+            self.assertEqual(detail_line["id"], str(line_id))
+            self.assertEqual(detail_line["unresolved_quantity"], "1.000")
+            self.assertEqual(detail_line["active_debt_quantity"], "1.000")
+            self.assertEqual(debts.json()["total"], 1)
+            self.assertIsNone(debt["product"])
+            self.assertEqual(debt["working_name"], "Редкий ингредиент")
+            self.assertEqual(debt["outstanding_quantity"], "1.000")
+            self.assertEqual(dashboard.json()["active_debts"], 1)
+            with session_factory() as session:
+                rows = session.scalars(
+                    select(SupplyDepartmentDebt).where(
+                        SupplyDepartmentDebt.first_request_line_id == line_id,
+                    )
+                ).all()
+                self.assertEqual(len(rows), 1)
+        finally:
+            app.dependency_overrides.clear()
+            settings.default_tenant_id = previous_tenant_id
 
 
 if __name__ == "__main__":

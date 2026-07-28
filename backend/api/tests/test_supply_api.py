@@ -552,10 +552,12 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()[0]["id"], created["id"])
         self.assertEqual(listed.json()[0]["line_count"], 2)
+        self.assertEqual(listed.headers["x-total-count"], "1")
+        self.assertIn("no-store", listed.headers["cache-control"])
         self.assertEqual(
             [line["position"] for line in detail.json()["lines"]],
             [1, 2],
-        )
+                )
 
         with self.session_factory.begin() as session:
             other_department = Department(
@@ -601,6 +603,23 @@ class SupplyApiTests(unittest.TestCase):
         app.dependency_overrides[get_current_user] = self.override_current_user
         self.assertEqual(unauthorized_list.status_code, 401)
         self.assertEqual(unauthorized_detail.status_code, 401)
+
+    def test_request_registry_page_size_is_fixed_at_twenty_five(self) -> None:
+        for _ in range(26):
+            self.create_request()
+        first_page = self.client.get(
+            "/supply/requests",
+            params={"limit": 100, "offset": 0},
+        )
+        second_page = self.client.get(
+            "/supply/requests",
+            params={"limit": 1, "offset": 25},
+        )
+        self.assertEqual(first_page.status_code, 200, first_page.text)
+        self.assertEqual(len(first_page.json()), 25)
+        self.assertEqual(first_page.headers["x-total-count"], "26")
+        self.assertEqual(len(second_page.json()), 1)
+        self.assertEqual(second_page.headers["x-total-count"], "26")
 
     def test_public_number_shape_supports_cyrillic_department(self) -> None:
         department = next(

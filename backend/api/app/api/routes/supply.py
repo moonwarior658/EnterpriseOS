@@ -159,6 +159,7 @@ from app.supply.service import (
     update_supply_line_fulfillment,
     fulfill_supply_request_as_planned,
     confirm_supply_debt_inclusion,
+    count_supply_requests,
     list_supply_debts,
     get_supply_debt,
     close_supply_debt,
@@ -840,6 +841,7 @@ def create_request(
 
 @router.get("/requests", response_model=list[SupplyRequestListItem])
 def read_requests(
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
     search: Annotated[str | None, Query(max_length=240)] = None,
@@ -853,21 +855,29 @@ def read_requests(
     has_duplicates: bool | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[SupplyRequest]:
+    filter_values = {
+        "search": search,
+        "department_id": department_id,
+        "direction_id": direction_id,
+        "cycle_id": cycle_id,
+        "request_status": request_status,
+        "has_needs_review": has_needs_review,
+        "has_duplicates": has_duplicates,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    response.headers["X-Total-Count"] = str(
+        count_supply_requests(db, **filter_values)
+    )
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
     return list_supply_requests(
         db,
-        search=search,
-        department_id=department_id,
-        direction_id=direction_id,
-        cycle_id=cycle_id,
-        request_status=request_status,
-        has_needs_review=has_needs_review,
-        has_duplicates=has_duplicates,
-        date_from=date_from,
-        date_to=date_to,
-        limit=limit,
+        **filter_values,
+        limit=25,
         offset=offset,
     )
 

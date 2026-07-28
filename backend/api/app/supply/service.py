@@ -1281,8 +1281,7 @@ def get_supply_request(
     return supply_request
 
 
-def list_supply_requests(
-    session: Session,
+def _supply_request_filters(
     *,
     search: str | None = None,
     department_id: UUID | None = None,
@@ -1293,9 +1292,7 @@ def list_supply_requests(
     has_duplicates: bool | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[SupplyRequest]:
+) -> list:
     filters = [SupplyRequest.tenant_id == settings.default_tenant_id]
     if search:
         term = f"%{search.strip()}%"
@@ -1332,6 +1329,45 @@ def list_supply_requests(
             SupplyRequestLine.duplicate_status.in_({"SUSPECTED", "CONFIRMED"}),
         )
         filters.append(predicate if has_duplicates else ~predicate)
+    return filters
+
+
+def count_supply_requests(
+    session: Session,
+    **filter_values,
+) -> int:
+    filters = _supply_request_filters(**filter_values)
+    return int(session.scalar(
+        select(func.count()).select_from(SupplyRequest).where(*filters)
+    ) or 0)
+
+
+def list_supply_requests(
+    session: Session,
+    *,
+    search: str | None = None,
+    department_id: UUID | None = None,
+    direction_id: UUID | None = None,
+    cycle_id: UUID | None = None,
+    request_status: str | None = None,
+    has_needs_review: bool | None = None,
+    has_duplicates: bool | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 25,
+    offset: int = 0,
+) -> list[SupplyRequest]:
+    filters = _supply_request_filters(
+        search=search,
+        department_id=department_id,
+        direction_id=direction_id,
+        cycle_id=cycle_id,
+        request_status=request_status,
+        has_needs_review=has_needs_review,
+        has_duplicates=has_duplicates,
+        date_from=date_from,
+        date_to=date_to,
+    )
     statement = (
         select(SupplyRequest)
         .where(*filters)

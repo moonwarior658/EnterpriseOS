@@ -8,13 +8,9 @@ export const PUBLIC_SUPPLY_MAX_TEXT_LENGTH = 20_000
 
 export function publicSupplyFormError(values: {
   departmentId: string
-  cycleId: string
-  authorName: string
   multilineText: string
 }): string {
   if (!values.departmentId) return 'Выберите подразделение'
-  if (!values.cycleId) return 'Выберите направление и цикл'
-  if (!values.authorName.trim()) return 'Укажите ваше имя'
   if (!values.multilineText.trim()) return 'Добавьте хотя бы одну строку заявки'
   if (values.multilineText.length > PUBLIC_SUPPLY_MAX_TEXT_LENGTH) {
     return 'Текст заявки слишком длинный'

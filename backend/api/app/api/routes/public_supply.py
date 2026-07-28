@@ -21,10 +21,12 @@ from app.schemas.supply import (
     PublicSupplyRequestCreate,
     PublicSupplyRequestCreated,
     PublicSupplyRequestRead,
+    PublicSupplyScheduleRead,
     PublicSupplySubmit,
 )
 from app.supply.public_service import (
     PublicSupplyRateLimitError,
+    PublicSupplyCycleAmbiguousError,
     PublicSupplyUnrecognizedLinesError,
     create_public_request,
     get_public_request,
@@ -32,6 +34,7 @@ from app.supply.public_service import (
     hash_source_ip,
     list_public_cycles,
     list_public_departments,
+    list_public_schedule_summaries,
     recognize_public_request,
     replace_public_request_lines,
     submit_public_request,
@@ -205,7 +208,7 @@ def _request_payload(
         "cycle": _cycle_payload(supply_request.cycle, now=now),
         "status": supply_request.status,
         "version": supply_request.version,
-        "author_name": supply_request.public_author_name or "",
+        "author_name": supply_request.public_author_name,
         "submitted_at": supply_request.submitted_at,
         "expires_at": supply_request.public_token_expires_at,
         "lines": [
@@ -308,6 +311,19 @@ def read_public_cycles(
     ]
 
 
+@router.get(
+    "/schedule",
+    response_model=list[PublicSupplyScheduleRead],
+)
+def read_public_schedule(
+    db: Annotated[Session, Depends(get_db)],
+):
+    return [
+        {"summary": summary}
+        for summary in list_public_schedule_summaries(db)
+    ]
+
+
 @router.post(
     "/requests",
     response_model=PublicSupplyRequestCreated,
@@ -352,6 +368,17 @@ def create_request(
         ) from error
     except SupplyRequestCycleUnavailableError as error:
         raise _mutating_error(error) from error
+    except PublicSupplyCycleAmbiguousError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_REQUEST_CYCLE_AMBIGUOUS",
+                "message": (
+                    "Сейчас доступно несколько направлений. "
+                    "Обратитесь к снабжению"
+                ),
+            },
+        ) from error
     except PublicNumberGenerationError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

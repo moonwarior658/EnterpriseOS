@@ -909,10 +909,14 @@ class PublicSupplyCycleRead(BaseModel):
     seconds_until_close: int = Field(ge=0)
 
 
+class PublicSupplyScheduleRead(BaseModel):
+    summary: str
+
+
 class PublicSupplyRequestCreate(BaseModel):
     department_id: UUID
-    cycle_id: UUID
-    author_name: str
+    cycle_id: UUID | None = None
+    author_name: str | None = None
     author_phone: str | None = None
     multiline_text: str
 
@@ -920,10 +924,9 @@ class PublicSupplyRequestCreate(BaseModel):
 
     @field_validator("author_name")
     @classmethod
-    def validate_author_name(cls, value: str) -> str:
-        return _strip_required(
+    def validate_author_name(cls, value: str | None) -> str | None:
+        return _strip_optional(
             value,
-            label="Имя",
             max_length=MAX_PUBLIC_AUTHOR_NAME_LENGTH,
         )
 
@@ -1002,7 +1005,7 @@ class PublicSupplyRequestRead(BaseModel):
     cycle: PublicSupplyCycleRead
     status: SupplyRequestStatus
     version: int
-    author_name: str
+    author_name: str | None
     lines: list[PublicSupplyLineRead]
     submitted_at: datetime | None
     expires_at: datetime

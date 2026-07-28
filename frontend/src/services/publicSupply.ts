@@ -50,11 +50,13 @@ export type PublicSupplyRequest = {
     | 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'PLANNED'
     | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED'
   version: number
-  author_name: string
+  author_name: string | null
   lines: PublicSupplyLine[]
   submitted_at: string | null
   expires_at: string
 }
+
+export type PublicSupplySchedule = { summary: string }
 
 export type PublicSupplyRequestCreated = PublicSupplyRequest & {
   public_token: string
@@ -118,11 +120,14 @@ export function getPublicSupplyCycles(
   return publicSupplyRequest(`/request-cycles${query}`)
 }
 
+export function getPublicSupplySchedule(): Promise<PublicSupplySchedule[]> {
+  return publicSupplyRequest('/schedule')
+}
+
 export function createPublicSupplyRequest(input: {
   department_id: string
-  cycle_id: string
-  author_name: string
-  author_phone: string | null
+  cycle_id?: string
+  author_name: string | null
   multiline_text: string
 }): Promise<PublicSupplyRequestCreated> {
   return publicSupplyRequest('/requests', {

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
+  EosCheckbox,
+  EosDateField,
+  EosSearchField,
+  EosSelect,
+} from '../components/EosFormControls'
+import {
   getSupplyRequests,
   getSupplyDepartments,
   getSupplyDirections,
@@ -13,24 +19,25 @@ import {
 function formatDate(value: string | null): string {
   if (!value) return '—'
   return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'short', timeStyle: 'short',
+    day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
   }).format(new Date(value))
 }
 
 function statusLabel(value: string): string {
   return ({
-    SUBMITTED: 'Отправлена',
-    IN_REVIEW: 'В обработке',
-    PLANNED: 'Спланирована',
+    SUBMITTED: 'Создана',
+    IN_REVIEW: 'Создана',
+    PLANNED: 'Сопоставлена',
     PARTIALLY_FULFILLED: 'Исполнена частично',
     FULFILLED: 'Исполнена',
     CANCELLED: 'Отменена',
-    DRAFT: 'Черновик',
+    DRAFT: 'Создана',
   } as Record<string, string>)[value] ?? value
 }
 
 function SupplyRequestListPage() {
-  const [routeParams] = useSearchParams()
+  const [routeParams, setRouteParams] = useSearchParams()
   const [items, setItems] = useState<SupplyRequestSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [search, setSearch] = useState(routeParams.get('search') ?? '')
@@ -50,8 +57,8 @@ function SupplyRequestListPage() {
   const [cycleId, setCycleId] = useState(routeParams.get('cycle_id') ?? '')
   const [dateFrom, setDateFrom] = useState(routeParams.get('date_from') ?? '')
   const [dateTo, setDateTo] = useState(routeParams.get('date_to') ?? '')
-  const [limit, setLimit] = useState(Number(routeParams.get('limit')) || 50)
   const [offset, setOffset] = useState(Number(routeParams.get('offset')) || 0)
+  const [total, setTotal] = useState(0)
   const [departments, setDepartments] = useState<SupplyReference[]>([])
   const [directions, setDirections] = useState<SupplyReference[]>([])
   const [cycles, setCycles] = useState<SupplyCycle[]>([])
@@ -66,7 +73,7 @@ function SupplyRequestListPage() {
     const sequence = requestSequence.current + 1
     requestSequence.current = sequence
     if (!background) setState('loading')
-    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    const query = new URLSearchParams({ offset: String(offset) })
     if (search.trim()) query.set('search', search.trim())
     if (status) query.set('status', status)
     if (needsReview) query.set('has_needs_review', 'true')
@@ -82,7 +89,8 @@ function SupplyRequestListPage() {
         controller.signal.aborted
         || sequence !== requestSequence.current
       ) return
-      setItems(result)
+      setItems(result.items)
+      setTotal(result.total)
       hasData.current = true
       setState('ready')
     } catch {
@@ -92,7 +100,25 @@ function SupplyRequestListPage() {
       ) return
       if (!background || !hasData.current) setState('error')
     }
-  }, [cycleId, dateFrom, dateTo, departmentId, directionId, duplicates, limit, needsReview, offset, search, status])
+  }, [cycleId, dateFrom, dateTo, departmentId, directionId, duplicates, needsReview, offset, search, status])
+
+  useEffect(() => {
+    const next = new URLSearchParams()
+    if (search.trim()) next.set('search', search.trim())
+    if (status) next.set('status', status)
+    if (departmentId) next.set('department_id', departmentId)
+    if (directionId) next.set('direction_id', directionId)
+    if (cycleId) next.set('cycle_id', cycleId)
+    if (dateFrom) next.set('date_from', dateFrom)
+    if (dateTo) next.set('date_to', dateTo)
+    if (needsReview) next.set('has_needs_review', 'true')
+    if (duplicates) next.set('has_duplicates', 'true')
+    if (offset) next.set('offset', String(offset))
+    setRouteParams(next, { replace: true })
+  }, [
+    cycleId, dateFrom, dateTo, departmentId, directionId, duplicates,
+    needsReview, offset, search, setRouteParams, status,
+  ])
 
   useEffect(() => {
     void Promise.all([
@@ -130,39 +156,45 @@ function SupplyRequestListPage() {
           </div>
           <Link className="request-back-link" to="/dashboard">← На Dashboard</Link>
         </div>
-        <div className="supply-filters">
-          <input
+        <div className="supply-request-filters">
+          <div className="supply-filter-row supply-filter-row-primary">
+          <EosSearchField
             aria-label="Номер или текст"
             placeholder="Номер или текст"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setOffset(0) }}
           />
-          <select aria-label="Статус" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <EosSelect aria-label="Статус" value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0) }}>
             <option value="">Все статусы</option>
-            <option value="SUBMITTED">Отправлена</option>
+            <option value="SUBMITTED">Создана</option>
             <option value="IN_REVIEW">В обработке</option>
-            <option value="PLANNED">Спланирована</option>
+            <option value="PLANNED">Сопоставлена</option>
             <option value="PARTIALLY_FULFILLED">Исполнена частично</option>
             <option value="FULFILLED">Исполнена</option>
             <option value="CANCELLED">Отменена</option>
-          </select>
-          <select aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>
+          </EosSelect>
+          <EosSelect aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>
             <option value="">Все подразделения</option>
             {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <select aria-label="Направление" value={directionId} onChange={(event) => { setDirectionId(event.target.value); setOffset(0) }}>
+          </EosSelect>
+          <EosSelect aria-label="Направление" value={directionId} onChange={(event) => { setDirectionId(event.target.value); setOffset(0) }}>
             <option value="">Все направления</option>
             {directions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <select aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
+          </EosSelect>
+          </div>
+          <div className="supply-filter-row supply-filter-row-secondary">
+          <EosSelect aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
             <option value="">Все циклы</option>
             {cycles.map((item) => <option key={item.id} value={item.id}>{item.cycle_date}</option>)}
-          </select>
-          <label>С <input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setOffset(0) }} /></label>
-          <label>По <input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setOffset(0) }} /></label>
-          <label><input type="checkbox" checked={needsReview} onChange={(event) => setNeedsReview(event.target.checked)} /> Требует сопоставления</label>
-          <label><input type="checkbox" checked={duplicates} onChange={(event) => setDuplicates(event.target.checked)} /> Есть дубли</label>
-          <button type="button" onClick={() => void load()}>Обновить</button>
+          </EosSelect>
+          <EosDateField label="С" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setOffset(0) }} />
+          <EosDateField label="По" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setOffset(0) }} />
+          <button className="secondary-action" type="button" onClick={() => void load()}>Обновить</button>
+          </div>
+          <div className="supply-filter-checks">
+            <EosCheckbox label="Требует сопоставления" checked={needsReview} onChange={(event) => { setNeedsReview(event.target.checked); setOffset(0) }} />
+            <EosCheckbox label="Есть дубли" checked={duplicates} onChange={(event) => { setDuplicates(event.target.checked); setOffset(0) }} />
+          </div>
         </div>
         {state === 'loading' && <p className="page-state">Загружаем заявки…</p>}
         {state === 'error' && <p className="request-message request-message-error">Не удалось загрузить заявки</p>}
@@ -170,28 +202,39 @@ function SupplyRequestListPage() {
         {items.length > 0 && (
           <div className="supply-registry">
             {items.map((item) => (
-              <Link to={`/supply/requests/${item.id}`} className="supply-registry-row" key={item.id}>
-                <strong>{item.public_number}</strong>
-                <span>{item.department.name} · {item.direction.name}</span>
-                <span>{item.cycle?.cycle_date ?? 'Без цикла'}</span>
-                <span>{item.public_author_name ?? 'Сотрудник EOS'}</span>
-                <span>{formatDate(item.submitted_at ?? item.created_at)}</span>
+              <Link
+                to={`/supply/requests/${item.id}`}
+                className="supply-registry-row"
+                key={item.id}
+                title={item.public_number}
+                aria-label={`${item.department.name}, ${item.direction.name}, ${statusLabel(item.status)}, ${item.public_number}`}
+              >
+                <div className="supply-registry-heading">
+                  <strong>{item.department.name}</strong>
+                  <span>{item.direction.name}</span>
+                  <time>{formatDate(item.submitted_at ?? item.created_at)}</time>
+                </div>
                 <span>Позиций: {item.lines_total}</span>
-                <span>Сопоставлено: {item.lines_matched}</span>
-                <span>Не сопоставлено: {item.lines_needs_review}</span>
-                <span>Дубли: {item.duplicate_groups}</span>
-                <span>{statusLabel(item.status)} · v{item.version}</span>
+                <strong className="supply-status">{statusLabel(item.status)}</strong>
+                {item.lines_needs_review > 0 && (
+                  <span className="supply-registry-warning">
+                    Требуется сопоставить {item.lines_needs_review} позиций
+                  </span>
+                )}
+                {item.duplicate_groups > 0 && (
+                  <span className="supply-registry-warning">
+                    Есть возможные дубли
+                  </span>
+                )}
               </Link>
             ))}
           </div>
         )}
         <div className="supply-card-actions">
-          <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button>
-          <span>Показано {items.length}, смещение {offset}</span>
-          <button type="button" disabled={items.length < limit} onClick={() => setOffset(offset + limit)}>Далее</button>
-          <select aria-label="Количество на странице" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0) }}>
-            <option value="25">25</option><option value="50">50</option><option value="100">100</option>
-          </select>
+          <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Назад</button>
+          <span>Страница {Math.floor(offset / 25) + 1}</span>
+          <button type="button" disabled={offset + items.length >= total} onClick={() => setOffset(offset + 25)}>Вперёд</button>
+          <span>{total === 0 ? '0 из 0' : `${offset + 1}–${offset + items.length} из ${total}`}</span>
         </div>
       </div>
     </section>

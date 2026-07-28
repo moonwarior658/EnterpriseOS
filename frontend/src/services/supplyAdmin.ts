@@ -192,10 +192,31 @@ function withFreshRequest(query: URLSearchParams): URLSearchParams {
 export function getSupplyRequests(
   query: URLSearchParams,
   signal?: AbortSignal,
-): Promise<SupplyRequestSummary[]> {
-  return request(`/supply/requests?${withFreshRequest(query).toString()}`, {
-    cache: 'no-store',
-    signal,
+): Promise<{ items: SupplyRequestSummary[]; total: number }> {
+  const token = getStoredToken()
+  if (!token) {
+    return Promise.reject(
+      new SupplyApiError('Сессия не найдена', null, null),
+    )
+  }
+  return fetch(
+    `/api/supply/requests?${withFreshRequest(query).toString()}`,
+    {
+      cache: 'no-store',
+      signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  ).then(async (response) => {
+    if (!response.ok) {
+      throw new SupplyApiError('Не удалось загрузить заявки', null, null)
+    }
+    return {
+      items: await response.json() as SupplyRequestSummary[],
+      total: Number(response.headers.get('X-Total-Count') ?? 0),
+    }
   })
 }
 

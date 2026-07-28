@@ -10,13 +10,19 @@ import {
   getPublicSupplyCycles,
   getPublicSupplyDepartments,
   getPublicSupplyRequest,
+  getPublicSupplySchedule,
   PublicSupplyApiError,
   submitPublicSupplyRequest,
   updatePublicSupplyLines,
   type PublicSupplyCycle,
   type PublicSupplyDepartment,
   type PublicSupplyRequest,
+  type PublicSupplySchedule,
 } from '../services/publicSupply'
+import {
+  EosCheckbox,
+  EosSelect,
+} from '../components/EosFormControls'
 import {
   formatRemainingTime,
   hasBlockingDuplicates,
@@ -43,10 +49,9 @@ function safeMessage(error: unknown): string {
 function PublicSupplyRequestPage() {
   const [departments, setDepartments] = useState<PublicSupplyDepartment[]>([])
   const [cycles, setCycles] = useState<PublicSupplyCycle[]>([])
+  const [schedule, setSchedule] = useState<PublicSupplySchedule[]>([])
   const [departmentId, setDepartmentId] = useState('')
-  const [cycleId, setCycleId] = useState('')
   const [authorName, setAuthorName] = useState('')
-  const [authorPhone, setAuthorPhone] = useState('')
   const [multilineText, setMultilineText] = useState('')
   const [request, setRequest] = useState<PublicSupplyRequest | null>(null)
   const [publicToken, setPublicToken] = useState('')
@@ -54,6 +59,7 @@ function PublicSupplyRequestPage() {
   const [confirmUnrecognized, setConfirmUnrecognized] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isCyclesLoading, setIsCyclesLoading] = useState(false)
   const [error, setError] = useState('')
   const [receivedAtMs, setReceivedAtMs] = useState(0)
   const [clockMs, setClockMs] = useState(0)
@@ -69,13 +75,17 @@ function PublicSupplyRequestPage() {
     const storedToken = sessionStorage.getItem(PUBLIC_SUPPLY_SESSION_KEY)
     Promise.allSettled([
       getPublicSupplyDepartments(),
+      getPublicSupplySchedule(),
       storedToken ? getPublicSupplyRequest(storedToken) : Promise.resolve(null),
-    ]).then(([departmentsResult, requestResult]) => {
+    ]).then(([departmentsResult, scheduleResult, requestResult]) => {
       if (!active) return
       if (departmentsResult.status === 'fulfilled') {
         setDepartments(departmentsResult.value)
       } else {
         setError('Не удалось загрузить форму. Обновите страницу')
+      }
+      if (scheduleResult.status === 'fulfilled') {
+        setSchedule(scheduleResult.value)
       }
       if (
         requestResult.status === 'fulfilled'
@@ -113,9 +123,13 @@ function PublicSupplyRequestPage() {
     if (!departmentId || request) return
     let active = true
     getPublicSupplyCycles(departmentId).then((loadedCycles) => {
-      if (active) setCycles(loadedCycles)
+      if (active) {
+        setCycles(loadedCycles)
+      }
     }).catch(() => {
       if (active) setError('Не удалось загрузить доступные циклы')
+    }).finally(() => {
+      if (active) setIsCyclesLoading(false)
     })
     return () => {
       active = false
@@ -172,8 +186,6 @@ function PublicSupplyRequestPage() {
     }
     const validationError = publicSupplyFormError({
       departmentId,
-      cycleId,
-      authorName,
       multilineText,
     })
     if (validationError) {
@@ -192,9 +204,7 @@ function PublicSupplyRequestPage() {
       } else {
         const created = await createPublicSupplyRequest({
           department_id: departmentId,
-          cycle_id: cycleId,
-          author_name: authorName.trim(),
-          author_phone: authorPhone.trim() || null,
+          author_name: authorName.trim() || null,
           multiline_text: multilineText,
         })
         sessionStorage.setItem(
@@ -216,8 +226,8 @@ function PublicSupplyRequestPage() {
   function startEditing() {
     if (!request || secondsLeft <= 0) return
     setDepartmentId(request.department.id)
-    setCycleId(request.cycle.id)
-    setAuthorName(request.author_name)
+    setIsCyclesLoading(false)
+    setAuthorName(request.author_name ?? '')
     setMultilineText(requestLinesAsText(request))
     setIsEditing(true)
     setError('')
@@ -293,12 +303,13 @@ function PublicSupplyRequestPage() {
             >
               <label className="request-field">
                 <span>Подразделение</span>
-                <select
+                <EosSelect
                   value={departmentId}
                   disabled={isBusy || isEditing}
                   onChange={(event) => {
-                    setDepartmentId(event.target.value)
-                    setCycleId('')
+                    const nextDepartmentId = event.target.value
+                    setDepartmentId(nextDepartmentId)
+                    setIsCyclesLoading(Boolean(nextDepartmentId))
                     setCycles([])
                     setError('')
                   }}
@@ -309,52 +320,20 @@ function PublicSupplyRequestPage() {
                       {department.name}
                     </option>
                   ))}
-                </select>
+                </EosSelect>
               </label>
 
+              {departmentId && !isCyclesLoading
+                && (cycles.length === 1 || isEditing) && (
+              <>
               <label className="request-field">
-                <span>Направление и цикл</span>
-                <select
-                  value={cycleId}
-                  disabled={!departmentId || isBusy || isEditing}
-                  onChange={(event) => {
-                    setCycleId(event.target.value)
-                    setError('')
-                  }}
-                >
-                  <option value="">
-                    {departmentId && cycles.length === 0
-                      ? 'Нет открытых циклов'
-                      : 'Выберите доступный цикл'}
-                  </option>
-                  {cycles.map((cycle) => (
-                    <option key={cycle.id} value={cycle.id}>
-                      {cycle.direction.name} · {cycle.cycle_date}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="request-field">
-                <span>Ваше имя</span>
+                <span>Ваше имя (необязательно)</span>
                 <input
                   value={authorName}
                   maxLength={160}
                   disabled={isBusy || isEditing}
                   autoComplete="name"
                   onChange={(event) => setAuthorName(event.target.value)}
-                />
-              </label>
-
-              <label className="request-field">
-                <span>Телефон (необязательно)</span>
-                <input
-                  value={authorPhone}
-                  maxLength={40}
-                  disabled={isBusy || isEditing}
-                  inputMode="tel"
-                  autoComplete="tel"
-                  onChange={(event) => setAuthorPhone(event.target.value)}
                 />
               </label>
 
@@ -394,10 +373,39 @@ function PublicSupplyRequestPage() {
               <button
                 className="primary-action request-submit"
                 type="submit"
-                disabled={isBusy || (!isEditing && cycles.length === 0)}
+                disabled={isBusy}
               >
                 {isBusy ? 'Проверяем…' : 'Проверить заявку'}
               </button>
+              </>
+              )}
+
+              {departmentId && isCyclesLoading && (
+                <p className="page-state">Проверяем приём заявок…</p>
+              )}
+
+              {departmentId && !isCyclesLoading && !isEditing
+                && cycles.length !== 1 && (
+                <div className="supply-closed-state">
+                  <h2>
+                    {cycles.length === 0
+                      ? 'Сегодня заявки не принимаем'
+                      : 'Сейчас доступно несколько направлений'}
+                  </h2>
+                  {cycles.length > 1 && (
+                    <p>Обратитесь к снабжению, чтобы выбрать нужное направление.</p>
+                  )}
+                  <div className="supply-public-schedule">
+                    {schedule.length > 0 ? (
+                      schedule.map((item) => (
+                        <p key={item.summary}>{item.summary}</p>
+                      ))
+                    ) : (
+                      <p>Расписание приёма заявок пока не настроено</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </form>
           ) : request && (
             <div className="supply-review">
@@ -461,18 +469,14 @@ function PublicSupplyRequestPage() {
               )}
 
               {unrecognizedPresent && !submitted && !duplicatesPresent && (
-                <label className="supply-confirm">
-                  <input
-                    type="checkbox"
+                <EosCheckbox
+                    className="supply-confirm"
+                    label="Отправить заявку вместе со строками, которые требуют проверки"
                     checked={confirmUnrecognized}
                     onChange={(event) =>
                       setConfirmUnrecognized(event.target.checked)
                     }
-                  />
-                  <span>
-                    Отправить заявку вместе со строками, которые требуют проверки
-                  </span>
-                </label>
+                />
               )}
 
               {submitted ? (

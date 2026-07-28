@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { EosSelect } from '../components/EosFormControls'
 import {
   cancelSupplyRequest,
   confirmSupplyDebtInclusion,
@@ -530,7 +531,7 @@ function SupplyRequestDetailPage() {
           </Link>
         </div>
         <div className="supply-request-meta">
-          <span>{request.public_author_name ?? 'Сотрудник EOS'}</span>
+          <span>{request.public_author_name ?? 'Не указано'}</span>
           <span>{formatDate(request.submitted_at ?? request.created_at)}</span>
           <details>
             <summary>Действия с заявкой</summary>
@@ -659,7 +660,7 @@ function SupplyRequestDetailPage() {
                 </div>
                 <div role="cell">
                   {editable ? (
-                    <select
+                    <EosSelect
                       aria-label={`Фасовка, строка ${line.position}`}
                       value={draft.unitId}
                       disabled={busy}
@@ -675,7 +676,7 @@ function SupplyRequestDetailPage() {
                           {unit.short_name_ru}
                         </option>
                       ))}
-                    </select>
+                    </EosSelect>
                   ) : (
                     <span>
                       {line.requested_unit?.short_name_ru
@@ -702,7 +703,7 @@ function SupplyRequestDetailPage() {
                             error: '',
                           })}
                         />
-                        <select
+                        <EosSelect
                           aria-label="Товар iiko"
                           value={mappingDraft.productId}
                           disabled={busy || hasDirty}
@@ -722,7 +723,7 @@ function SupplyRequestDetailPage() {
                                 {product.name}
                               </option>
                             ))}
-                        </select>
+                        </EosSelect>
                         <button
                           type="button"
                           disabled={
@@ -762,7 +763,12 @@ function SupplyRequestDetailPage() {
               <div><dt>Утверждено</dt><dd>{line.quantity ?? '—'}</dd></div>
               <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
               <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
-              <div><dt>Активный долг</dt><dd>{line.active_debt_quantity}</dd></div>
+              {line.active_debt_id && (
+                <div>
+                  <dt>Активный долг</dt>
+                  <dd>{line.active_debt_quantity}</dd>
+                </div>
+              )}
             </dl>
             {line.requires_debt_confirmation
               && request.status !== 'FULFILLED' && (

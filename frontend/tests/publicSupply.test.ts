@@ -6,6 +6,7 @@ import {
   getPublicSupplyCycles,
   getPublicSupplyDepartments,
   getPublicSupplyRequest,
+  getPublicSupplySchedule,
   submitPublicSupplyRequest,
   updatePublicSupplyLines,
   type PublicSupplyRequest,
@@ -77,7 +78,10 @@ test('маршрут Supply-формы подключён отдельно от 
   )
   assert.match(pageSource, /sessionStorage\.getItem\(PUBLIC_SUPPLY_SESSION_KEY\)/)
   assert.match(pageSource, /getPublicSupplyRequest\(storedToken\)/)
-  assert.match(pageSource, /Нет открытых циклов/)
+  assert.match(pageSource, /Сегодня заявки не принимаем/)
+  assert.match(pageSource, /getPublicSupplySchedule/)
+  assert.doesNotMatch(pageSource, /Телефон \(необязательно\)/)
+  assert.doesNotMatch(pageSource, /Направление и цикл/)
   assert.match(pageSource, /Восстановить сохранённую заявку/)
   assert.match(pageSource, /retryRestore/)
 })
@@ -86,8 +90,6 @@ test('валидирует первый экран и строки формы', 
   assert.equal(
     publicSupplyFormError({
       departmentId: '',
-      cycleId: '',
-      authorName: '',
       multilineText: '',
     }),
     'Выберите подразделение',
@@ -95,8 +97,6 @@ test('валидирует первый экран и строки формы', 
   assert.equal(
     publicSupplyFormError({
       departmentId: 'department-id',
-      cycleId: 'cycle-id',
-      authorName: 'Анна',
       multilineText: 'Картофель 10 кг',
     }),
     '',
@@ -140,6 +140,8 @@ test('API client использует только /api/public/supply и под�
     const url = String(input)
     const body = url.endsWith('/departments')
       ? [REQUEST.department]
+      : url.endsWith('/schedule')
+        ? [{ summary: 'Основной — понедельник и четверг' }]
       : url.includes('/request-cycles')
         ? [REQUEST.cycle]
         : url.endsWith('/requests')
@@ -152,12 +154,11 @@ test('API client использует только /api/public/supply и под�
   }
   try {
     await getPublicSupplyDepartments()
+    await getPublicSupplySchedule()
     await getPublicSupplyCycles('department-id')
     await createPublicSupplyRequest({
       department_id: 'department-id',
-      cycle_id: 'cycle-id',
-      author_name: 'Анна',
-      author_phone: null,
+      author_name: null,
       multiline_text: 'Картофель 10 кг',
     })
     await getPublicSupplyRequest('opaque-token')
@@ -173,14 +174,21 @@ test('API client использует только /api/public/supply и под�
     globalThis.fetch = originalFetch
   }
 
-  assert.equal(calls.length, 6)
+  assert.equal(calls.length, 7)
   assert.ok(calls.every((call) => call.url.startsWith('/api/public/supply')))
-  assert.match(calls[1].url, /department_id=department-id/)
-  assert.equal(calls[2].options.method, 'POST')
-  assert.equal(calls[4].options.method, 'PUT')
-  assert.equal(calls[5].options.method, 'POST')
+  assert.match(calls[2].url, /department_id=department-id/)
+  assert.equal(calls[3].options.method, 'POST')
   assert.equal(
-    JSON.parse(String(calls[5].options.body)).confirm_unrecognized,
+    Object.hasOwn(
+      JSON.parse(String(calls[3].options.body)) as object,
+      'author_phone',
+    ),
+    false,
+  )
+  assert.equal(calls[5].options.method, 'PUT')
+  assert.equal(calls[6].options.method, 'POST')
+  assert.equal(
+    JSON.parse(String(calls[6].options.body)).confirm_unrecognized,
     false,
   )
 })

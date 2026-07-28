@@ -1107,6 +1107,46 @@ class SupplyMatchingApiTests(unittest.TestCase):
         debts = self.client.get("/supply/debts?status=ACTIVE").json()
         self.assertEqual(debts["total"], 1)
 
+    def test_unmatched_simple_send_three_to_two_is_visible_everywhere(
+        self,
+    ) -> None:
+        body = self._simple_send("Редкий ингредиент 3 кг", "2")
+        line = body["lines"][0]
+        self.assertIsNone(line["product_id"])
+        self.assertEqual(body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(line["unresolved_quantity"], "1.000")
+        self.assertIsNotNone(line["active_debt_id"])
+        self.assertEqual(line["active_debt_quantity"], "1.000")
+
+        debts = self.client.get(
+            "/supply/debts",
+            params={
+                "status": "ACTIVE",
+                "search": "Редкий ингредиент",
+            },
+        )
+        self.assertEqual(debts.status_code, 200, debts.text)
+        self.assertEqual(debts.json()["total"], 1)
+        debt = debts.json()["items"][0]
+        self.assertIsNone(debt["product"])
+        self.assertEqual(debt["working_name"], "Редкий ингредиент")
+        self.assertEqual(debt["outstanding_quantity"], "1.000")
+        self.assertEqual(debt["department"]["id"], str(self.department.id))
+
+        dashboard = self.client.get("/supply/summary/dashboard")
+        self.assertEqual(dashboard.status_code, 200, dashboard.text)
+        self.assertEqual(dashboard.json()["active_debts"], 1)
+
+        repeated = self.client.post(
+            f"/supply/requests/{body['id']}/plan",
+            json={"expected_version": body["version"], "simple_mode": True},
+        )
+        self.assertEqual(repeated.status_code, 409)
+        self.assertEqual(
+            self.client.get("/supply/debts?status=ACTIVE").json()["total"],
+            1,
+        )
+
     def _simple_send(
         self,
         raw_text: str,

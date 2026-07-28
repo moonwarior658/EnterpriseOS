@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -271,6 +272,82 @@ class PublicSupplyApiTests(unittest.TestCase):
             "product_id",
         }
         self.assertTrue(forbidden.isdisjoint(restored.text))
+
+    def test_create_auto_selects_only_cycle_and_allows_empty_author(self) -> None:
+        payload = self.payload()
+        payload.pop("cycle_id")
+        payload.pop("author_phone")
+        payload["author_name"] = "   "
+        response = self.client.post("/public/supply/requests", json=payload)
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertIsNone(response.json()["author_name"])
+        with self.session_factory() as session:
+            stored = session.scalar(select(SupplyRequest))
+            self.assertEqual(stored.cycle_id, self.open_cycle.id)
+            self.assertIsNone(stored.public_author_name)
+            self.assertIsNone(stored.public_author_phone)
+
+    def test_create_without_open_cycle_is_rejected(self) -> None:
+        with self.session_factory.begin() as session:
+            cycle = session.get(SupplyRequestCycle, self.open_cycle.id)
+            cycle.status = "CLOSED"
+        payload = self.payload()
+        payload.pop("cycle_id")
+        response = self.client.post("/public/supply/requests", json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_REQUEST_CYCLE_CLOSED",
+        )
+
+    def test_multiple_open_cycles_are_not_guessed(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self.session_factory.begin() as session:
+            direction = SupplyRequestDirection(
+                tenant_id="eclair",
+                code="EXTRA",
+                name="Дополнительный",
+            )
+            session.add(direction)
+            session.flush()
+            session.add(SupplyRequestCycle(
+                tenant_id="eclair",
+                direction_id=direction.id,
+                cycle_date=date.today(),
+                opens_at=now - timedelta(hours=1),
+                closes_at=now + timedelta(hours=1),
+                status="OPEN",
+            ))
+        payload = self.payload()
+        payload.pop("cycle_id")
+        response = self.client.post("/public/supply/requests", json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_REQUEST_CYCLE_AMBIGUOUS",
+        )
+        self.assertNotIn(str(self.open_cycle.id), response.text)
+
+    @patch(
+        "app.api.routes.public_supply.list_public_schedule_summaries",
+        return_value=[
+            "Основной — понедельник и четверг; приём до 23:59; "
+            "окончательное закрытие до 00:10 следующего дня."
+        ],
+    )
+    def test_public_schedule_contains_only_safe_summary(self, _) -> None:
+        response = self.client.get("/public/supply/schedule")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            list(response.json()[0]),
+            ["summary"],
+        )
+        serialized = response.text
+        for technical in (
+            "automation_type", "payload", "timezone", "schedule_id",
+            "direction_code",
+        ):
+            self.assertNotIn(technical, serialized)
 
     def test_create_splits_crlf_without_losing_original_line_text(self) -> None:
         created = self.create_request(

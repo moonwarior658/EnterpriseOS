@@ -88,7 +88,11 @@ test('основной экран компактный и не требует р
   assert.match(detail, /Отправить в работу/)
   assert.doesNotMatch(detail, /AllocationEditor/)
   assert.doesNotMatch(detail, /Сохранить решение/)
-  assert.match(registry, /Не сопоставлено:/)
+  assert.match(registry, /Требуется сопоставить/)
+  assert.doesNotMatch(registry, /Количество на странице/)
+  assert.doesNotMatch(registry, /· v\{item\.version\}/)
+  assert.match(registry, /EosSelect/)
+  assert.match(registry, /EosCheckbox/)
   assert.match(debts, /debt\.working_name/)
 })
 
@@ -297,6 +301,7 @@ test('долги перезагружаются при route navigation и во�
     'utf8',
   )
   assert.match(debts, /visibilitychange/)
+  assert.match(debts, /10_000/)
   assert.match(debts, /activeRequest\.current\?\.abort\(\)/)
   assert.match(debts, /setState\('loading'\)/)
   assert.match(debts, /next\.set\('open', debtId\)/)

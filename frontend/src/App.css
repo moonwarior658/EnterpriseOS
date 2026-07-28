@@ -2141,6 +2141,170 @@
   margin: 1.5rem 0;
 }
 
+.eos-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.eos-select select,
+.eos-field input {
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid #d7d7d2;
+  border-radius: 0.65rem;
+  padding: 0.58rem 2.25rem 0.58rem 0.75rem;
+  background: #fff;
+  color: #242422;
+  font: inherit;
+}
+
+.eos-select select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.eos-select-arrow {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  pointer-events: none;
+  transform: translateY(-55%);
+  color: #686864;
+}
+
+.eos-select:hover select,
+.eos-field:hover input {
+  border-color: #aaa9a2;
+}
+
+.eos-select select:focus-visible,
+.eos-field input:focus-visible,
+.eos-checkbox input:focus-visible + .eos-checkbox-mark {
+  outline: 2px solid #2f6fdf;
+  outline-offset: 2px;
+  border-color: transparent;
+}
+
+.eos-select select:disabled,
+.eos-field input:disabled {
+  cursor: not-allowed;
+  background: #f3f3f0;
+  color: #8a8a84;
+}
+
+.eos-select select[aria-invalid="true"],
+.eos-field input[aria-invalid="true"] {
+  border-color: #b52d2d;
+}
+
+.request-field > .eos-select,
+.supply-simple-line .eos-select,
+.supply-optional-mapping .eos-select {
+  width: 100%;
+}
+
+.eos-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #62625e;
+}
+
+.eos-search-field {
+  width: min(100%, 16rem);
+}
+
+.eos-search-field input {
+  padding-right: 0.75rem;
+}
+
+.eos-checkbox {
+  display: inline-flex;
+  min-height: 2.25rem;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.55rem;
+  color: #444440;
+}
+
+.eos-checkbox input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.eos-checkbox-mark {
+  display: grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid #aaa9a2;
+  border-radius: 0.3rem;
+  background: #fff;
+}
+
+.eos-checkbox input:checked + .eos-checkbox-mark {
+  border-color: #242422;
+  background: #242422;
+}
+
+.eos-checkbox input:checked + .eos-checkbox-mark::after {
+  width: 0.28rem;
+  height: 0.55rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: "";
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.eos-checkbox input:disabled ~ * {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.supply-request-filters {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.supply-filter-row {
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.supply-filter-row-primary {
+  grid-template-columns: minmax(12rem, 16rem) repeat(3, minmax(10rem, 1fr));
+}
+
+.supply-filter-row-secondary {
+  grid-template-columns: minmax(10rem, 1fr) 10rem 10rem auto;
+  justify-content: start;
+}
+
+.supply-filter-checks,
+.supply-debt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+  align-items: end;
+}
+
+.supply-debt-filters {
+  justify-content: flex-start;
+  margin: 1.5rem 0;
+}
+
+.supply-debt-filters > .eos-field,
+.supply-debt-filters > label {
+  width: min(100%, 15rem);
+}
+
 .supply-filters input,
 .supply-filters select,
 .supply-mapping input,
@@ -2161,7 +2325,7 @@
 
 .supply-registry-row {
   display: grid;
-  grid-template-columns: 1.5fr repeat(4, minmax(7rem, 1fr));
+  grid-template-columns: minmax(12rem, 1.5fr) auto auto;
   gap: 0.45rem 1rem;
   padding: 1rem;
   border: 1px solid #e4e4e4;
@@ -2169,6 +2333,26 @@
   color: inherit;
   text-decoration: none;
   background: #fff;
+}
+
+.supply-registry-heading {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.supply-registry-heading time {
+  color: #70706b;
+  font-size: 0.82rem;
+}
+
+.supply-status {
+  justify-self: end;
+}
+
+.supply-registry-warning {
+  grid-column: 1 / -1;
+  color: #755516;
+  font-size: 0.86rem;
 }
 
 .supply-registry-row:hover {
@@ -2334,6 +2518,18 @@
 }
 
 @media (max-width: 900px) {
+  .supply-filter-row-primary,
+  .supply-filter-row-secondary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .supply-filter-row .eos-search-field,
+  .supply-filter-row .eos-select,
+  .supply-debt-filters > .eos-field,
+  .supply-debt-filters > label {
+    width: 100%;
+  }
+
   .supply-registry-row,
   .supply-allocation-editor,
   .supply-fulfillment-row,
@@ -2460,12 +2656,31 @@
 
 .supply-unmatched-badge {
   flex: none;
-  padding: 0.15rem 0.38rem;
+  padding: 0.32rem 0.625rem;
   border-radius: 1rem;
   background: #f2f0e9;
   color: #686868;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.supply-closed-state {
+  grid-column: 1 / -1;
+  padding: 1.25rem;
+  border: 1px solid #e0e0da;
+  border-radius: 0.85rem;
+  background: #f8f8f5;
+}
+
+.supply-closed-state h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+}
+
+.supply-public-schedule p {
+  margin: 0.35rem 0 0;
+  color: #62625e;
 }
 
 .supply-line-menu {
@@ -2604,7 +2819,7 @@
   }
 
   .supply-unmatched-badge {
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   .supply-line-menu {

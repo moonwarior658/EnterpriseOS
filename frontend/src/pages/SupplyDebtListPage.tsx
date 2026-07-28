@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
+  EosSearchField,
+  EosSelect,
+} from '../components/EosFormControls'
+import {
   cancelSupplyDebt,
   closeSupplyDebt,
   getSupplyDebt,
@@ -50,7 +54,7 @@ function SupplyDebtListPage() {
   const requestSequence = useRef(0)
   const searchKey = searchParams.toString()
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
     activeRequest.current?.abort()
     const controller = new AbortController()
     activeRequest.current = controller
@@ -62,7 +66,7 @@ function SupplyDebtListPage() {
     if (!query.has('status')) query.set('status', 'ACTIVE')
     query.set('limit', '100')
     query.set('offset', '0')
-    setState('loading')
+    if (!background) setState('loading')
     try {
       const openId = routeParams.get('open')
       const [page, openedDebt] = await Promise.all([
@@ -83,18 +87,20 @@ function SupplyDebtListPage() {
         controller.signal.aborted
         || sequence !== requestSequence.current
       ) return
-      setState('error')
+      if (!background) setState('error')
     }
   }, [searchKey])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void load(), 0)
+    const interval = window.setInterval(() => void load(true), 10_000)
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load()
+      if (document.visibilityState === 'visible') void load(true)
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.clearTimeout(timeout)
+      window.clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisibility)
       activeRequest.current?.abort()
     }
@@ -135,7 +141,7 @@ function SupplyDebtListPage() {
       )
       setSelected(updated)
       setMessage('Долг обновлён')
-      await load()
+      await load(true)
     } catch (error) {
       setMessage(
         error instanceof SupplyApiError
@@ -158,7 +164,7 @@ function SupplyDebtListPage() {
       )
       setSelected(updated)
       setMessage('Долг отменён')
-      await load()
+      await load(true)
     } catch (error) {
       setMessage(
         error instanceof SupplyApiError
@@ -169,15 +175,10 @@ function SupplyDebtListPage() {
       if (
         error instanceof SupplyApiError
         && error.code === 'SUPPLY_DEBT_VERSION_CONFLICT'
-      ) await load()
+      ) await load(true)
     } finally {
       setBusy(false)
     }
-  }
-
-  if (state === 'loading') return <p className="page-state">Загружаем долги…</p>
-  if (state === 'error') {
-    return <p className="request-message request-message-error">Не удалось загрузить долги</p>
   }
 
   return (
@@ -187,18 +188,16 @@ function SupplyDebtListPage() {
           <div><p className="eyebrow">СНАБЖЕНИЕ</p><h1>Долги подразделений</h1></div>
           <Link className="request-back-link" to="/supply/requests">К заявкам →</Link>
         </div>
-        <div className="supply-filters">
-          <label>
-            <span>Поиск</span>
-            <input
+        <div className="supply-debt-filters">
+          <EosSearchField
+              label="Поиск"
               value={searchParams.get('search') ?? ''}
               onChange={(event) => updateFilter('search', event.target.value)}
               placeholder="Товар или подразделение"
             />
-          </label>
-          <label>
+          <label className="eos-field">
             <span>Статус</span>
-            <select
+            <EosSelect
               value={searchParams.get('status') ?? 'ACTIVE'}
               onChange={(event) => updateFilter('status', event.target.value)}
             >
@@ -206,11 +205,11 @@ function SupplyDebtListPage() {
               <option value="ACTIVE">Активные</option>
               <option value="CLOSED">Закрытые</option>
               <option value="CANCELLED">Отменённые</option>
-            </select>
+            </EosSelect>
           </label>
-          <label>
+          <label className="eos-field">
             <span>Тревога</span>
-            <select
+            <EosSelect
               value={searchParams.get('severity') ?? ''}
               onChange={(event) => updateFilter('severity', event.target.value)}
             >
@@ -218,13 +217,21 @@ function SupplyDebtListPage() {
               {Object.entries(SEVERITY_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
-            </select>
+            </EosSelect>
           </label>
         </div>
         {message && <p className="request-message">{message}</p>}
-        {!items.length ? (
+        {state === 'loading' && (
+          <p className="page-state">Загружаем долги…</p>
+        )}
+        {state === 'error' && (
+          <p className="request-message request-message-error">
+            Не удалось загрузить долги
+          </p>
+        )}
+        {state === 'ready' && !items.length ? (
           <p className="page-state">Долгов по выбранным фильтрам нет</p>
-        ) : (
+        ) : items.length > 0 && (
           <div className="supply-debt-list">
             {items.map((debt) => (
               <button
