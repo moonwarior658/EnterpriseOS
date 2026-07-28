@@ -309,6 +309,44 @@ test('долги перезагружаются при route navigation и во�
   assert.match(registry, /routeParams\.get\('status'\)/)
   assert.match(registry, /routeParams\.get\('has_needs_review'\)/)
   assert.match(registry, /controller\.signal/)
+  assert.doesNotMatch(
+    debts,
+    /if \(!query\.has\('status'\)\) query\.set\('status', 'ACTIVE'\)/,
+  )
+  assert.match(debts, /searchParams\.get\('status'\) \?\? ''/)
+})
+
+test('пагинация EOS использует page size 25 и сохраняет URL-фильтры', () => {
+  const registry = readFileSync(
+    new URL('../src/pages/SupplyRequestListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const controls = readFileSync(
+    new URL('../src/components/EosFormControls.tsx', import.meta.url),
+    'utf8',
+  )
+  const styles = readFileSync(
+    new URL('../src/App.css', import.meta.url),
+    'utf8',
+  )
+  assert.match(registry, /SUPPLY_REQUEST_PAGE_SIZE = 25/)
+  assert.match(registry, /<EosPagination/)
+  assert.match(registry, /if \(search\.trim\(\)\) next\.set\('search'/)
+  assert.match(controls, /aria-label="Предыдущая страница"/)
+  assert.match(controls, /aria-label="Следующая страница"/)
+  assert.match(controls, /offset \+ itemCount >= total/)
+  assert.doesNotMatch(registry, /page size|Количество записей/i)
+  assert.match(styles, /\.eos-pagination/)
+})
+
+test('фильтры реестра выделяют ширину подразделению и направлению', () => {
+  const styles = readFileSync(
+    new URL('../src/App.css', import.meta.url),
+    'utf8',
+  )
+  assert.match(styles, /minmax\(13\.5rem, 1\.15fr\)/)
+  assert.match(styles, /minmax\(12\.5rem, 1\.1fr\)/)
+  assert.match(styles, /@media \(max-width: 900px\)/)
 })
 
 test('количества Supply сравниваются без float-ошибки', () => {

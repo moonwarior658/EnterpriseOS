@@ -270,6 +270,7 @@ function PublicSupplyRequestPage() {
 
   const showForm = !request || isEditing
   const submitted = request?.status === 'SUBMITTED'
+  const isInitialState = showForm && !departmentId && !isEditing
 
   return (
     <main className="public-request-page">
@@ -282,7 +283,7 @@ function PublicSupplyRequestPage() {
           </div>
         </div>
 
-        <div className="request-panel">
+        <div className={`request-panel${isInitialState ? ' supply-request-initial' : ''}`}>
           <div className="request-heading">
             <div>
               <p className="eyebrow">ПУБЛИЧНАЯ SUPPLY-ФОРМА</p>
@@ -297,7 +298,7 @@ function PublicSupplyRequestPage() {
 
           {showForm ? (
             <form
-              className="request-form"
+              className={`request-form${isInitialState ? ' supply-request-initial-form' : ''}`}
               noValidate
               onSubmit={(event) => void handleCheck(event)}
             >

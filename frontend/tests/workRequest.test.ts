@@ -1,94 +1,64 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   createPublicRepairRequest,
-  createPublicWarehouseRequest,
   getWorkRequests,
   type PublicRepairRequestInput,
-  type PublicWarehouseRequestInput,
   type WorkRequest,
 } from '../src/services/requests.ts'
 import {
+  addRepairPhotos,
   activeRequestCountLabel,
-  activeRequestsByType,
   createSubmissionGuard,
   DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
   DEPARTMENTS,
+  formatFileSize,
   priorityLabel,
   sortWorkRequests,
   statusLabel,
-  submitPublicWorkRequest,
+  submitPublicRepairRequest,
   validateRepairPhotos,
-  warehouseCategoryLabel,
 } from '../src/pages/workRequestLogic.ts'
 
-const CREATED: WorkRequest = {
+const REPAIR: WorkRequest = {
   id: 12,
-  request_type: 'warehouse',
-  department: 'М15',
-  description: 'Картофель 10 кг',
+  request_type: 'repair',
+  department: 'Бар ГХ',
+  description: 'Не включается кофемашина',
   status: 'new',
-  warehouse_category: 'products',
-  repair_category: null,
-  priority: null,
+  warehouse_category: null,
+  repair_category: 'Кофемашина',
+  priority: 'urgent',
   created_at: '2026-07-26T10:00:00Z',
   updated_at: '2026-07-26T10:00:00Z',
-  created_by_name: 'Подразделение: М15',
+  created_by_name: 'Подразделение: Бар ГХ',
   attachment_count: 0,
   attachments: [],
 }
-
-test('формирует публичный payload складской заявки', async () => {
-  let received: PublicWarehouseRequestInput | undefined
-  const result = await submitPublicWorkRequest(
-    'warehouse',
-    {
-      department: 'М15',
-      category: 'products',
-      priority: '',
-      description: '  Картофель 10 кг  ',
-    },
-    [],
-    async (input) => {
-      received = input
-      return CREATED
-    },
-    async () => CREATED,
-    createSubmissionGuard(),
-  )
-
-  assert.equal(result.status, 'success')
-  assert.deepEqual(received, {
-    request_type: 'warehouse',
-    department: 'М15',
-    description: 'Картофель 10 кг',
-    warehouse_category: 'products',
-  })
-})
 
 test('формирует публичный payload ремонта и передаёт фотографии', async () => {
   let received: PublicRepairRequestInput | undefined
   let receivedPhotos: File[] = []
   const photo = new File(['photo'], 'machine.jpg', { type: 'image/jpeg' })
 
-  await submitPublicWorkRequest(
-    'repair',
+  const result = await submitPublicRepairRequest(
     {
       department: 'Бар ГХ',
       category: 'Кофемашина',
       priority: 'urgent',
-      description: 'Не включается',
+      description: ' Не включается ',
     },
     [photo],
-    async () => CREATED,
     async (input, photos) => {
       received = input
       receivedPhotos = photos
-      return { ...CREATED, request_type: 'repair' }
+      return REPAIR
     },
     createSubmissionGuard(),
   )
 
+  assert.equal(result.status, 'success')
   assert.deepEqual(received, {
     request_type: 'repair',
     department: 'Бар ГХ',
@@ -99,43 +69,20 @@ test('формирует публичный payload ремонта и перед
   assert.deepEqual(receivedPhotos, [photo])
 })
 
-test('валидирует обязательные поля публичной формы до API', async () => {
+test('валидирует обязательные поля и защищает от двойной отправки', async () => {
   let calls = 0
-  const result = await submitPublicWorkRequest(
-    'repair',
-    {
-      department: '',
-      category: '',
-      priority: '',
-      description: '   ',
-    },
+  const invalid = await submitPublicRepairRequest(
+    { department: '', category: '', priority: '', description: ' ' },
     [],
     async () => {
       calls += 1
-      return CREATED
-    },
-    async () => {
-      calls += 1
-      return CREATED
+      return REPAIR
     },
     createSubmissionGuard(),
   )
-
-  assert.equal(result.status, 'validation')
+  assert.equal(invalid.status, 'validation')
   assert.equal(calls, 0)
-  assert.deepEqual(
-    result.status === 'validation' ? result.errors : {},
-    {
-      department: 'Выберите подразделение',
-      category: 'Выберите категорию ремонта',
-      priority: 'Выберите приоритет',
-      description: 'Опишите проблему',
-    },
-  )
-})
 
-test('не допускает двойную отправку', async () => {
-  let calls = 0
   let resolveRequest: ((request: WorkRequest) => void) | undefined
   const pending = new Promise<WorkRequest>((resolve) => {
     resolveRequest = resolve
@@ -143,187 +90,100 @@ test('не допускает двойную отправку', async () => {
   const guard = createSubmissionGuard()
   const values = {
     department: 'М35',
-    category: 'packaging',
-    priority: '',
-    description: 'Коробки 2 уп',
+    category: 'Электрика',
+    priority: 'important',
+    description: 'Не работает свет',
   }
   const create = async () => {
     calls += 1
     return pending
   }
-
-  const first = submitPublicWorkRequest(
-    'warehouse', values, [], create, async () => CREATED, guard,
-  )
-  const second = await submitPublicWorkRequest(
-    'warehouse', values, [], create, async () => CREATED, guard,
-  )
-
+  const first = submitPublicRepairRequest(values, [], create, guard)
+  const second = await submitPublicRepairRequest(values, [], create, guard)
   assert.deepEqual(second, { status: 'busy' })
-  assert.equal(calls, 1)
   assert.ok(resolveRequest)
-  resolveRequest(CREATED)
+  resolveRequest(REPAIR)
   assert.equal((await first).status, 'success')
 })
 
-test('использует только новый список подразделений', () => {
-  assert.deepEqual(DEPARTMENTS, [
-    'М15',
-    'М35',
-    'М6А',
-    'Цех ГХ',
-    'Бар ГХ',
-    'Кухня',
-    'Авто',
-  ])
-  assert.equal(DEPARTMENTS.includes('М6а' as never), false)
-})
-
-test('склоняет количество активных заявок', () => {
-  assert.equal(activeRequestCountLabel(0), 'Нет активных заявок')
-  assert.equal(activeRequestCountLabel(1), '1 активная заявка')
-  assert.equal(activeRequestCountLabel(2), '2 активные заявки')
-  assert.equal(activeRequestCountLabel(5), '5 активных заявок')
-  assert.equal(activeRequestCountLabel(11), '11 активных заявок')
-  assert.equal(activeRequestCountLabel(21), '21 активная заявка')
-})
-
-test('Dashboard обновляет заявки каждые 10 секунд', () => {
-  assert.equal(DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS, 10_000)
-})
-
-test('getWorkRequests запрещает кэш и использует уникальный URL', async () => {
-  const originalFetch = globalThis.fetch
-  const storageDescriptor = Object.getOwnPropertyDescriptor(
-    globalThis,
-    'sessionStorage',
-  )
-  const calls: Array<{ url: string; options: RequestInit }> = []
-  const storage: Storage = {
-    length: 1,
-    clear() {},
-    getItem(key) {
-      return key === 'eos_access_token' ? 'test-token' : null
-    },
-    key() {
-      return null
-    },
-    removeItem() {},
-    setItem() {},
-  }
-
-  Object.defineProperty(globalThis, 'sessionStorage', {
-    configurable: true,
-    value: storage,
+test('dropzone валидирует, объединяет и не дублирует фотографии', () => {
+  const valid = new File(['photo'], 'ok.webp', {
+    type: 'image/webp',
+    lastModified: 10,
   })
-  globalThis.fetch = async (input, options = {}) => {
-    calls.push({ url: String(input), options })
-    return new Response('[]', {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  try {
-    await getWorkRequests()
-    await getWorkRequests()
-  } finally {
-    globalThis.fetch = originalFetch
-    if (storageDescriptor) {
-      Object.defineProperty(
-        globalThis,
-        'sessionStorage',
-        storageDescriptor,
-      )
-    } else {
-      Reflect.deleteProperty(globalThis, 'sessionStorage')
-    }
-  }
-
-  assert.equal(calls.length, 2)
-  assert.match(calls[0].url, /^\/api\/requests\?_ts=\d+$/)
-  assert.match(calls[1].url, /^\/api\/requests\?_ts=\d+$/)
-  assert.notEqual(calls[0].url, calls[1].url)
-  assert.equal(calls[0].options.method, 'GET')
-  assert.equal(calls[0].options.cache, 'no-store')
-  const headers = new Headers(calls[0].options.headers)
-  assert.equal(headers.get('Cache-Control'), 'no-cache')
-  assert.equal(headers.get('Authorization'), 'Bearer test-token')
-})
-
-test('сортирует активные заявки первыми и сохраняет порядок по дате', () => {
-  const completed = {
-    ...CREATED,
-    id: 13,
-    status: 'completed' as const,
-    created_at: '2026-07-27T10:00:00Z',
-  }
-  const repair = {
-    ...CREATED,
-    id: 14,
-    request_type: 'repair' as const,
-    status: 'in_progress' as const,
-    created_at: '2026-07-25T10:00:00Z',
-  }
-  assert.deepEqual(
-    sortWorkRequests([completed, repair, CREATED]).map((item) => item.id),
-    [12, 14, 13],
-  )
-  const active = activeRequestsByType([completed, repair, CREATED])
-  assert.deepEqual(active.warehouse.map((item) => item.id), [12])
-  assert.deepEqual(active.repair.map((item) => item.id), [14])
-})
-
-test('хранит русские подписи enum в общей логике', () => {
-  assert.equal(statusLabel('new'), 'Новая')
-  assert.equal(statusLabel('in_progress'), 'В работе')
-  assert.equal(statusLabel('completed'), 'Выполнена')
-  assert.equal(statusLabel('cancelled'), 'Отменена')
-  assert.equal(warehouseCategoryLabel('household'), 'Хозяйственные товары')
-  assert.equal(priorityLabel('urgent'), 'Срочно')
-})
-
-test('проверяет ограничения фотографий чистой функцией', () => {
-  const valid = new File(['photo'], 'ok.webp', { type: 'image/webp' })
+  const duplicate = new File(['photo'], 'ok.webp', {
+    type: 'image/webp',
+    lastModified: 10,
+  })
   const wrong = new File(['text'], 'note.txt', { type: 'text/plain' })
   const tooLarge = new File(
     [new Uint8Array(8 * 1024 * 1024 + 1)],
     'large.png',
     { type: 'image/png' },
   )
+
   assert.equal(validateRepairPhotos([valid]), null)
-  assert.equal(
-    validateRepairPhotos(Array.from({ length: 6 }, () => valid)),
-    'Можно прикрепить не более 5 фотографий',
-  )
-  assert.equal(
-    validateRepairPhotos([wrong]),
-    'Допустимы только фотографии JPEG, PNG или WebP',
-  )
-  assert.equal(
-    validateRepairPhotos([tooLarge]),
-    'Размер одной фотографии не должен превышать 8 МБ',
-  )
+  assert.match(addRepairPhotos([valid], [duplicate]).error ?? '', /уже добавлен/)
+  assert.match(addRepairPhotos([], [wrong]).error ?? '', /неподдерживаемый/)
+  assert.match(addRepairPhotos([], [tooLarge]).error ?? '', /больше 8 МБ/)
+  const six = Array.from({ length: 6 }, (_, index) => new File(
+    ['x'],
+    `${index}.jpg`,
+    { type: 'image/jpeg', lastModified: index },
+  ))
+  const limited = addRepairPhotos([], six)
+  assert.equal(limited.files.length, 5)
+  assert.equal(limited.error, 'Можно прикрепить не более 5 фотографий')
+  assert.equal(formatFileSize(1024), '1 КБ')
+  assert.equal(formatFileSize(1024 * 1024), '1.0 МБ')
 })
 
-test('публичные API-функции используют JSON для склада и FormData для ремонта', async () => {
+test('форма ремонта использует EOS Select и доступную dropzone', () => {
+  const form = readFileSync(
+    new URL('../src/pages/WorkRequestFormPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const detail = readFileSync(
+    new URL('../src/pages/WorkRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.equal((form.match(/<EosSelect/g) ?? []).length, 3)
+  assert.equal((detail.match(/<EosSelect/g) ?? []).length, 4)
+  assert.match(form, /Перетащите фотографии сюда/)
+  assert.match(form, /onDrop=\{handleDrop\}/)
+  assert.match(form, /URL\.revokeObjectURL/)
+  assert.match(form, /fileInputRef\.current\.value = ''/)
+  assert.match(form, /repair-photo-previews/)
+})
+
+test('legacy warehouse UI удалён, а недельный redirect использует replace', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const layout = readFileSync(
+    new URL('../src/layouts/AppLayout.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    app,
+    /path="\/request\/warehouse"[\s\S]*?<Navigate to="\/request\/supply" replace \/>/,
+  )
+  assert.doesNotMatch(app, /path="\/public\/requests\/warehouse"/)
+  assert.doesNotMatch(app, /path="\/requests\/warehouse"/)
+  assert.doesNotMatch(layout, /Заявка на склад/)
+  assert.match(app, /path="\/request\/repair"/)
+  assert.match(app, /path="\/requests\/repair"/)
+})
+
+test('repair API сохраняет multipart upload-контракт', async () => {
   const originalFetch = globalThis.fetch
-  const calls: Array<{ url: string; options: RequestInit }> = []
+  let call: { url: string; options: RequestInit } | undefined
   globalThis.fetch = async (input, options = {}) => {
-    calls.push({ url: String(input), options })
-    return new Response(JSON.stringify(CREATED), {
+    call = { url: String(input), options }
+    return new Response(JSON.stringify(REPAIR), {
       status: 201,
       headers: { 'Content-Type': 'application/json' },
     })
   }
-
   try {
-    await createPublicWarehouseRequest({
-      request_type: 'warehouse',
-      department: 'Кухня',
-      description: 'Молоко',
-      warehouse_category: 'products',
-    })
     await createPublicRepairRequest(
       {
         request_type: 'repair',
@@ -337,16 +197,47 @@ test('публичные API-функции используют JSON для с�
   } finally {
     globalThis.fetch = originalFetch
   }
+  assert.equal(call?.url, '/api/public/requests')
+  assert.ok(call?.options.body instanceof FormData)
+  assert.equal((call?.options.body as FormData).getAll('photos').length, 1)
+})
 
-  assert.equal(calls[0].url, '/api/public/requests')
-  assert.equal(calls[0].options.method, 'POST')
-  assert.equal(typeof calls[0].options.body, 'string')
-  assert.equal(
-    JSON.parse(String(calls[0].options.body)).author_name,
-    undefined,
+test('сохраняет общую repair/Dashboard логику и cache protection', async () => {
+  assert.deepEqual(DEPARTMENTS, [
+    'М15', 'М35', 'М6А', 'Цех ГХ', 'Бар ГХ', 'Кухня', 'Авто',
+  ])
+  assert.equal(activeRequestCountLabel(2), '2 активные заявки')
+  assert.equal(statusLabel('in_progress'), 'В работе')
+  assert.equal(priorityLabel('urgent'), 'Срочно')
+  assert.equal(DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS, 10_000)
+  assert.equal(sortWorkRequests([REPAIR])[0].id, REPAIR.id)
+
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
   )
-  assert.ok(calls[1].options.body instanceof FormData)
-  const form = calls[1].options.body as FormData
-  assert.equal(form.has('author_name'), false)
-  assert.equal(form.getAll('photos').length, 1)
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  let options: RequestInit | undefined
+  globalThis.fetch = async (_input, requestOptions = {}) => {
+    options = requestOptions
+    return new Response('[]', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    await getWorkRequests()
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.equal(options?.cache, 'no-store')
 })

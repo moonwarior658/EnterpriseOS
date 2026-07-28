@@ -23,16 +23,12 @@ function App() {
         element={<LoginPage />}
       />
       <Route
-        path="/public/requests/warehouse"
-        element={<WorkRequestFormPage requestType="warehouse" />}
-      />
-      <Route
         path="/public/requests/repair"
-        element={<WorkRequestFormPage requestType="repair" />}
+        element={<WorkRequestFormPage />}
       />
       <Route
         path="/request/warehouse"
-        element={<Navigate to="/public/requests/warehouse" replace />}
+        element={<Navigate to="/request/supply" replace />}
       />
       <Route
         path="/request/repair"
@@ -56,23 +52,13 @@ function App() {
         />
 
         <Route
-          path="/requests/warehouse/new"
-          element={<Navigate to="/public/requests/warehouse" replace />}
-        />
-
-        <Route
           path="/requests/repair/new"
           element={<Navigate to="/public/requests/repair" replace />}
         />
 
         <Route
-          path="/requests/warehouse"
-          element={<WorkRequestListPage requestType="warehouse" />}
-        />
-
-        <Route
           path="/requests/repair"
-          element={<WorkRequestListPage requestType="repair" />}
+          element={<WorkRequestListPage />}
         />
 
         <Route

@@ -1,44 +1,50 @@
 import {
+  useEffect,
   useRef,
   useState,
+  type ChangeEvent,
+  type DragEvent,
   type FormEvent,
+  type KeyboardEvent,
 } from 'react'
+import { EosSelect } from '../components/EosFormControls'
+import { createPublicRepairRequest } from '../services/requests'
 import {
-  createPublicRepairRequest,
-  createPublicWarehouseRequest,
-  type WorkRequestType,
-} from '../services/requests'
-import {
+  addRepairPhotos,
   createSubmissionGuard,
   DEPARTMENTS,
   EMPTY_WORK_REQUEST_FORM,
+  formatFileSize,
   PRIORITIES,
   REPAIR_CATEGORIES,
-  submitPublicWorkRequest,
-  validateRepairPhotos,
-  WAREHOUSE_CATEGORIES,
+  submitPublicRepairRequest,
   type WorkRequestFormErrors,
   type WorkRequestFormValues,
 } from './workRequestLogic'
 
-type WorkRequestFormPageProps = {
-  requestType: WorkRequestType
+type PhotoPreview = {
+  file: File
+  url: string
 }
 
-function WorkRequestFormPage({
-  requestType,
-}: WorkRequestFormPageProps) {
-  const isWarehouse = requestType === 'warehouse'
+function WorkRequestFormPage() {
   const [values, setValues] = useState<WorkRequestFormValues>({
     ...EMPTY_WORK_REQUEST_FORM,
   })
-  const [photos, setPhotos] = useState<File[]>([])
+  const [previews, setPreviews] = useState<PhotoPreview[]>([])
   const [errors, setErrors] = useState<WorkRequestFormErrors>({})
   const [message, setMessage] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const guardRef = useRef(createSubmissionGuard())
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const objectUrlsRef = useRef(new Set<string>())
+
+  useEffect(() => () => {
+    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    objectUrlsRef.current.clear()
+  }, [])
 
   function updateValue<Key extends keyof WorkRequestFormValues>(
     key: Key,
@@ -50,14 +56,64 @@ function WorkRequestFormPage({
     setSubmitError('')
   }
 
-  function updatePhotos(files: File[]) {
-    setPhotos(files)
+  function openPicker() {
+    if (!isSubmitting) fileInputRef.current?.click()
+  }
+
+  function addPhotos(files: File[]) {
+    const result = addRepairPhotos(
+      previews.map((preview) => preview.file),
+      files,
+    )
+    const accepted = result.files.slice(previews.length)
+    const nextPreviews = [...previews]
+    let readingError = ''
+
+    for (const file of accepted) {
+      try {
+        const url = URL.createObjectURL(file)
+        objectUrlsRef.current.add(url)
+        nextPreviews.push({ file, url })
+      } catch {
+        readingError = `Не удалось прочитать файл «${file.name}»`
+      }
+    }
+
+    setPreviews(nextPreviews)
     setErrors((current) => ({
       ...current,
-      photos: validateRepairPhotos(files) ?? undefined,
+      photos: readingError || result.error || undefined,
     }))
     setMessage('')
     setSubmitError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function removePhoto(index: number) {
+    const preview = previews[index]
+    URL.revokeObjectURL(preview.url)
+    objectUrlsRef.current.delete(preview.url)
+    setPreviews((current) => current.filter((_, itemIndex) => itemIndex !== index))
+    setErrors((current) => ({ ...current, photos: undefined }))
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    addPhotos(Array.from(event.target.files ?? []))
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    if (isSubmitting) return
+    setIsDragging(false)
+    addPhotos(Array.from(event.dataTransfer.files))
+  }
+
+  function handleDropzoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openPicker()
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -69,26 +125,20 @@ function WorkRequestFormPage({
     setSubmitError('')
     setIsSubmitting(true)
 
-    const result = await submitPublicWorkRequest(
-      requestType,
+    const result = await submitPublicRepairRequest(
       values,
-      photos,
-      createPublicWarehouseRequest,
+      previews.map((preview) => preview.file),
       createPublicRepairRequest,
       guardRef.current,
     )
 
     if (result.status === 'success') {
-      setValues({
-        ...EMPTY_WORK_REQUEST_FORM,
-      })
-      setPhotos([])
+      setValues({ ...EMPTY_WORK_REQUEST_FORM })
+      previews.forEach((preview) => URL.revokeObjectURL(preview.url))
+      objectUrlsRef.current.clear()
+      setPreviews([])
       if (fileInputRef.current) fileInputRef.current.value = ''
-      setMessage(
-        isWarehouse
-          ? 'Заявка на склад отправлена'
-          : 'Заявка на ремонт отправлена',
-      )
+      setMessage('Заявка на ремонт отправлена')
     } else if (result.status === 'validation') {
       setErrors(result.errors)
     } else if (result.status === 'error') {
@@ -113,9 +163,7 @@ function WorkRequestFormPage({
           <div className="request-heading">
             <div>
               <p className="eyebrow">ПУБЛИЧНАЯ ФОРМА</p>
-              <h1>
-                {isWarehouse ? 'Заявка на склад' : 'Заявка на ремонт'}
-              </h1>
+              <h1>Заявка на ремонт</h1>
               <p className="request-intro">
                 Заполните форму — заявка сразу появится у администратора
                 EnterpriseOS.
@@ -130,133 +178,152 @@ function WorkRequestFormPage({
           >
             <label className="request-field">
               <span>Подразделение</span>
-              <select
+              <EosSelect
                 value={values.department}
                 aria-invalid={Boolean(errors.department)}
+                aria-required="true"
                 disabled={isSubmitting}
-                onChange={(event) =>
-                  updateValue('department', event.target.value)
-                }
+                onChange={(event) => updateValue('department', event.target.value)}
               >
                 <option value="">Выберите подразделение</option>
                 {DEPARTMENTS.map((department) => (
-                  <option key={department} value={department}>
-                    {department}
-                  </option>
+                  <option key={department} value={department}>{department}</option>
                 ))}
-              </select>
+              </EosSelect>
               {errors.department && <small>{errors.department}</small>}
             </label>
 
             <label className="request-field">
-              <span>
-                {isWarehouse ? 'Категория склада' : 'Категория ремонта'}
-              </span>
-              <select
+              <span>Категория ремонта</span>
+              <EosSelect
                 value={values.category}
                 aria-invalid={Boolean(errors.category)}
+                aria-required="true"
                 disabled={isSubmitting}
-                onChange={(event) =>
-                  updateValue('category', event.target.value)
-                }
+                onChange={(event) => updateValue('category', event.target.value)}
               >
                 <option value="">Выберите категорию</option>
-                {isWarehouse
-                  ? WAREHOUSE_CATEGORIES.map((category) => (
-                      <option key={category.value} value={category.value}>
-                        {category.label}
-                      </option>
-                    ))
-                  : REPAIR_CATEGORIES.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-              </select>
+                {REPAIR_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </EosSelect>
               {errors.category && <small>{errors.category}</small>}
             </label>
 
-            {!isWarehouse && (
-              <label className="request-field">
-                <span>Приоритет</span>
-                <select
-                  value={values.priority}
-                  aria-invalid={Boolean(errors.priority)}
-                  disabled={isSubmitting}
-                  onChange={(event) =>
-                    updateValue('priority', event.target.value)
-                  }
-                >
-                  <option value="">Выберите приоритет</option>
-                  {PRIORITIES.map((priority) => (
-                    <option key={priority.value} value={priority.value}>
-                      {priority.label}
-                    </option>
-                  ))}
-                </select>
-                {errors.priority && <small>{errors.priority}</small>}
-              </label>
-            )}
+            <label className="request-field">
+              <span>Приоритет</span>
+              <EosSelect
+                value={values.priority}
+                aria-invalid={Boolean(errors.priority)}
+                aria-required="true"
+                disabled={isSubmitting}
+                onChange={(event) => updateValue('priority', event.target.value)}
+              >
+                <option value="">Выберите приоритет</option>
+                {PRIORITIES.map((priority) => (
+                  <option key={priority.value} value={priority.value}>
+                    {priority.label}
+                  </option>
+                ))}
+              </EosSelect>
+              {errors.priority && <small>{errors.priority}</small>}
+            </label>
 
             <label className="request-field request-field-wide">
-              <span>
-                {isWarehouse ? 'Содержание заявки' : 'Описание проблемы'}
-              </span>
+              <span>Описание проблемы</span>
               <textarea
                 value={values.description}
                 maxLength={5000}
-                rows={isWarehouse ? 8 : 6}
+                rows={6}
                 aria-invalid={Boolean(errors.description)}
                 disabled={isSubmitting}
-                placeholder={
-                  isWarehouse
-                    ? 'Каждая позиция с новой строки.\n\nНапример:\nКартофель 10 кг\nМолоко 5 л\nКоробки 2 уп'
-                    : 'Опишите, что сломалось, где находится оборудование и как проявляется проблема.'
-                }
-                onChange={(event) =>
-                  updateValue('description', event.target.value)
-                }
+                placeholder="Опишите, что сломалось, где находится оборудование и как проявляется проблема."
+                onChange={(event) => updateValue('description', event.target.value)}
               />
               {errors.description && <small>{errors.description}</small>}
             </label>
 
-            {!isWarehouse && (
-              <label className="request-field request-field-wide">
-                <span>Фотографии (до 5 файлов, не более 8 МБ каждый)</span>
+            <div className="request-field request-field-wide">
+              <span>Фотографии</span>
+              <div
+                className={[
+                  'repair-dropzone',
+                  isDragging ? 'repair-dropzone-active' : '',
+                  errors.photos ? 'repair-dropzone-error' : '',
+                  isSubmitting ? 'repair-dropzone-disabled' : '',
+                ].filter(Boolean).join(' ')}
+                role="button"
+                tabIndex={isSubmitting ? -1 : 0}
+                aria-label="Выбрать фотографии ремонта"
+                aria-disabled={isSubmitting}
+                onClick={openPicker}
+                onKeyDown={handleDropzoneKeyDown}
+                onDragEnter={(event) => {
+                  event.preventDefault()
+                  if (!isSubmitting) setIsDragging(true)
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    setIsDragging(false)
+                  }
+                }}
+                onDrop={handleDrop}
+              >
+                <span className="repair-dropzone-icon" aria-hidden="true">▧</span>
+                <strong>Перетащите фотографии сюда</strong>
+                <span>или выберите файлы</span>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    openPicker()
+                  }}
+                >
+                  Выбрать файлы
+                </button>
+                <small>До 5 фотографий, не более 8 МБ каждая</small>
                 <input
                   ref={fileInputRef}
+                  className="visually-hidden"
                   type="file"
                   multiple
                   accept="image/jpeg,image/png,image/webp"
                   disabled={isSubmitting}
-                  aria-invalid={Boolean(errors.photos)}
-                  onChange={(event) =>
-                    updatePhotos(Array.from(event.target.files ?? []))
-                  }
+                  onChange={handleFileChange}
                 />
-                {photos.length > 0 && (
-                  <ul className="request-file-list">
-                    {photos.map((photo) => (
-                      <li key={`${photo.name}-${photo.size}`}>
-                        {photo.name}
+              </div>
+              {previews.length > 0 && (
+                <div className="repair-photo-previews">
+                  <p>Выбрано файлов: {previews.length}</p>
+                  <ul>
+                    {previews.map((preview, index) => (
+                      <li key={preview.url}>
+                        <img src={preview.url} alt="" />
+                        <span>
+                          <strong title={preview.file.name}>{preview.file.name}</strong>
+                          <small>{formatFileSize(preview.file.size)}</small>
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Удалить ${preview.file.name}`}
+                          disabled={isSubmitting}
+                          onClick={() => removePhoto(index)}
+                        >
+                          ×
+                        </button>
                       </li>
                     ))}
                   </ul>
-                )}
-                {errors.photos && <small>{errors.photos}</small>}
-              </label>
-            )}
+                </div>
+              )}
+              {errors.photos && <small>{errors.photos}</small>}
+            </div>
 
-            {message && (
-              <p className="request-message request-message-success">
-                {message}
-              </p>
-            )}
-            {submitError && (
-              <p className="request-message request-message-error">
-                {submitError}
-              </p>
-            )}
+            {message && <p className="request-message request-message-success">{message}</p>}
+            {submitError && <p className="request-message request-message-error">{submitError}</p>}
 
             <button
               className="primary-action request-submit"

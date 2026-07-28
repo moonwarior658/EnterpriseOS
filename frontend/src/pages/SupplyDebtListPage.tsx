@@ -63,7 +63,6 @@ function SupplyDebtListPage() {
     const routeParams = new URLSearchParams(searchKey)
     const query = new URLSearchParams(routeParams)
     query.delete('open')
-    if (!query.has('status')) query.set('status', 'ACTIVE')
     query.set('limit', '100')
     query.set('offset', '0')
     if (!background) setState('loading')
@@ -198,7 +197,7 @@ function SupplyDebtListPage() {
           <label className="eos-field">
             <span>Статус</span>
             <EosSelect
-              value={searchParams.get('status') ?? 'ACTIVE'}
+              value={searchParams.get('status') ?? ''}
               onChange={(event) => updateFilter('status', event.target.value)}
             >
               <option value="">Все</option>

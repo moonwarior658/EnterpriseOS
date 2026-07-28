@@ -1,11 +1,8 @@
 import type {
   PublicRepairRequestInput,
-  PublicWarehouseRequestInput,
   RepairPriority,
-  WarehouseCategory,
   WorkRequest,
   WorkRequestStatus,
-  WorkRequestType,
 } from '../services/requests.ts'
 
 export const DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS = 10_000
@@ -19,15 +16,6 @@ export const DEPARTMENTS = [
   'Кухня',
   'Авто',
 ] as const
-
-export const WAREHOUSE_CATEGORIES: Array<{
-  value: WarehouseCategory
-  label: string
-}> = [
-  { value: 'products', label: 'Продукты' },
-  { value: 'household', label: 'Хозяйственные товары' },
-  { value: 'packaging', label: 'Упаковка' },
-]
 
 export const REPAIR_CATEGORIES = [
   'Сантехника',
@@ -112,13 +100,51 @@ export function validateRepairPhotos(files: File[]): string | null {
   return null
 }
 
-export async function submitPublicWorkRequest(
-  requestType: WorkRequestType,
+function photoIdentity(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}:${file.type}`
+}
+
+export function addRepairPhotos(
+  current: File[],
+  incoming: File[],
+): { files: File[]; error: string | null } {
+  const files = [...current]
+  const identities = new Set(current.map(photoIdentity))
+  let error: string | null = null
+
+  for (const file of incoming) {
+    if (identities.has(photoIdentity(file))) {
+      error ??= `Файл «${file.name}» уже добавлен`
+      continue
+    }
+    if (!ALLOWED_PHOTO_TYPES.includes(
+      file.type as (typeof ALLOWED_PHOTO_TYPES)[number],
+    )) {
+      error ??= `Файл «${file.name}» имеет неподдерживаемый формат`
+      continue
+    }
+    if (file.size > MAX_PHOTO_SIZE) {
+      error ??= `Файл «${file.name}» больше 8 МБ`
+      continue
+    }
+    if (files.length >= MAX_PHOTO_COUNT) {
+      error ??= 'Можно прикрепить не более 5 фотографий'
+      continue
+    }
+    identities.add(photoIdentity(file))
+    files.push(file)
+  }
+  return { files, error }
+}
+
+export function formatFileSize(size: number): string {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} КБ`
+  return `${(size / (1024 * 1024)).toFixed(1)} МБ`
+}
+
+export async function submitPublicRepairRequest(
   values: WorkRequestFormValues,
   photos: File[],
-  createWarehouse: (
-    input: PublicWarehouseRequestInput,
-  ) => Promise<WorkRequest>,
   createRepair: (
     input: PublicRepairRequestInput,
     photos: File[],
@@ -138,25 +164,13 @@ export async function submitPublicWorkRequest(
   const description = values.description.trim()
 
   if (!values.department) errors.department = 'Выберите подразделение'
-  if (!values.category) {
-    errors.category =
-      requestType === 'warehouse'
-        ? 'Выберите категорию склада'
-        : 'Выберите категорию ремонта'
-  }
-  if (requestType === 'repair' && !values.priority) {
+  if (!values.category) errors.category = 'Выберите категорию ремонта'
+  if (!values.priority) {
     errors.priority = 'Выберите приоритет'
   }
-  if (!description) {
-    errors.description =
-      requestType === 'warehouse'
-        ? 'Укажите содержание заявки'
-        : 'Опишите проблему'
-  }
-  if (requestType === 'repair') {
-    const photoError = validateRepairPhotos(photos)
-    if (photoError) errors.photos = photoError
-  }
+  if (!description) errors.description = 'Опишите проблему'
+  const photoError = validateRepairPhotos(photos)
+  if (photoError) errors.photos = photoError
 
   if (Object.keys(errors).length > 0) {
     return { status: 'validation', errors }
@@ -164,24 +178,16 @@ export async function submitPublicWorkRequest(
 
   guard.active = true
   try {
-    const request =
-      requestType === 'warehouse'
-        ? await createWarehouse({
-            request_type: 'warehouse',
-            department: values.department,
-            description,
-            warehouse_category: values.category as WarehouseCategory,
-          })
-        : await createRepair(
-            {
-              request_type: 'repair',
-              department: values.department,
-              description,
-              repair_category: values.category,
-              priority: values.priority as RepairPriority,
-            },
-            photos,
-          )
+    const request = await createRepair(
+      {
+        request_type: 'repair',
+        department: values.department,
+        description,
+        repair_category: values.category,
+        priority: values.priority as RepairPriority,
+      },
+      photos,
+    )
     return { status: 'success', request }
   } catch {
     return {
@@ -197,19 +203,6 @@ export function statusLabel(status: WorkRequestStatus): string {
   return (
     REQUEST_STATUSES.find((option) => option.value === status)?.label ??
     'Неизвестно'
-  )
-}
-
-export function requestTypeLabel(type: WorkRequestType): string {
-  return type === 'warehouse' ? 'Заявка на склад' : 'Заявка на ремонт'
-}
-
-export function warehouseCategoryLabel(
-  category: WarehouseCategory | null,
-): string {
-  return (
-    WAREHOUSE_CATEGORIES.find((option) => option.value === category)?.label ??
-    'Не указана'
   )
 }
 

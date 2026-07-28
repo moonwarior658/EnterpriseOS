@@ -3,19 +3,13 @@ import { Link } from 'react-router-dom'
 import {
   getWorkRequests,
   type WorkRequest,
-  type WorkRequestType,
 } from '../services/requests'
 import {
   isActiveRequest,
   priorityLabel,
   sortWorkRequests,
   statusLabel,
-  warehouseCategoryLabel,
 } from './workRequestLogic'
-
-type WorkRequestListPageProps = {
-  requestType: WorkRequestType
-}
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -24,27 +18,23 @@ function formatDate(value: string): string {
   }).format(new Date(value))
 }
 
-function WorkRequestListPage({
-  requestType,
-}: WorkRequestListPageProps) {
+function WorkRequestListPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   )
   const [requests, setRequests] = useState<WorkRequest[]>([])
-  const isWarehouse = requestType === 'warehouse'
-
   useEffect(() => {
     getWorkRequests()
       .then((items) => {
         setRequests(
           sortWorkRequests(
-            items.filter((item) => item.request_type === requestType),
+            items.filter((item) => item.request_type === 'repair'),
           ),
         )
         setState('ready')
       })
       .catch(() => setState('error'))
-  }, [requestType])
+  }, [])
 
   const active = requests.filter(isActiveRequest)
   const closed = requests.filter((request) => !isActiveRequest(request)).slice(0, 20)
@@ -63,14 +53,10 @@ function WorkRequestListPage({
                 <strong>{request.department}</strong>
                 <span>{statusLabel(request.status)}</span>
                 <span>
-                  {isWarehouse
-                    ? warehouseCategoryLabel(request.warehouse_category)
-                    : request.repair_category}
+                  {request.repair_category}
                 </span>
-                {!isWarehouse && <span>{priorityLabel(request.priority)}</span>}
-                {!isWarehouse && (
-                  <span>Фото: {request.attachment_count}</span>
-                )}
+                <span>{priorityLabel(request.priority)}</span>
+                <span>Фото: {request.attachment_count}</span>
               </div>
               <p>{request.description}</p>
               <small>
@@ -90,9 +76,7 @@ function WorkRequestListPage({
         <div className="request-heading">
           <div>
             <p className="eyebrow">РАБОТА С ЗАЯВКАМИ</p>
-            <h1>
-              {isWarehouse ? 'Заявки на склад' : 'Заявки на ремонт'}
-            </h1>
+            <h1>Заявки на ремонт</h1>
             <p className="request-intro">
               Активных заявок: {active.length}
             </p>

@@ -63,14 +63,17 @@ const REQUEST: PublicSupplyRequest = {
   expires_at: '2026-07-28T11:00:00Z',
 }
 
-test('маршрут Supply-формы подключён отдельно от старых форм', () => {
+test('маршрут Supply-формы подключён и стартовое состояние центрировано', () => {
   const source = readFileSync(
     new URL('../src/App.tsx', import.meta.url),
     'utf8',
   )
   assert.match(source, /path="\/request\/supply"/)
   assert.match(source, /PublicSupplyRequestPage/)
-  assert.match(source, /path="\/request\/warehouse"/)
+  assert.match(
+    source,
+    /path="\/request\/warehouse"[\s\S]*?to="\/request\/supply" replace/,
+  )
   assert.match(source, /path="\/request\/repair"/)
   const pageSource = readFileSync(
     new URL('../src/pages/PublicSupplyRequestPage.tsx', import.meta.url),
@@ -84,6 +87,17 @@ test('маршрут Supply-формы подключён отдельно от 
   assert.doesNotMatch(pageSource, /Направление и цикл/)
   assert.match(pageSource, /Восстановить сохранённую заявку/)
   assert.match(pageSource, /retryRestore/)
+  assert.match(pageSource, /supply-request-initial/)
+  assert.match(pageSource, /isInitialState/)
+  const styles = readFileSync(
+    new URL('../src/App.css', import.meta.url),
+    'utf8',
+  )
+  assert.match(styles, /\.supply-request-initial\s*\{[\s\S]*?min-height: 470px/)
+  assert.match(styles, /width: min\(100%, 380px\)/)
+  assert.match(styles, /translateY\(10px\)/)
+  assert.match(styles, /220ms cubic-bezier/)
+  assert.match(styles, /prefers-reduced-motion: reduce/)
 })
 
 test('валидирует первый экран и строки формы', () => {

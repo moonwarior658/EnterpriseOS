@@ -57,3 +57,51 @@ export const EosSearchField = forwardRef<HTMLInputElement, FieldProps>(
     )
   },
 )
+
+type PaginationProps = {
+  offset: number
+  total: number
+  pageSize: number
+  itemCount: number
+  onPageChange: (offset: number) => void
+}
+
+export function EosPagination({
+  offset,
+  total,
+  pageSize,
+  itemCount,
+  onPageChange,
+}: PaginationProps) {
+  const page = Math.floor(offset / pageSize) + 1
+  const isFirstPage = offset === 0
+  const isLastPage = offset + itemCount >= total
+  const range = total === 0
+    ? '0 из 0'
+    : `${offset + 1}–${offset + itemCount} из ${total}`
+
+  return (
+    <nav className="eos-pagination" aria-label="Пагинация реестра заявок">
+      <div className="eos-pagination-controls">
+        <button
+          type="button"
+          aria-label="Предыдущая страница"
+          disabled={isFirstPage}
+          onClick={() => onPageChange(Math.max(0, offset - pageSize))}
+        >
+          ←
+        </button>
+        <span className="eos-pagination-page" aria-current="page">{page}</span>
+        <button
+          type="button"
+          aria-label="Следующая страница"
+          disabled={isLastPage}
+          onClick={() => onPageChange(offset + pageSize)}
+        >
+          →
+        </button>
+      </div>
+      <span className="eos-pagination-range">{range}</span>
+    </nav>
+  )
+}

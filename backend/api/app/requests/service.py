@@ -47,6 +47,7 @@ def _request_options():
 def list_work_requests(session: Session) -> list[WorkRequest]:
     statement = (
         select(WorkRequest)
+        .where(WorkRequest.request_type == "repair")
         .options(*_request_options())
         .order_by(WorkRequest.created_at.desc(), WorkRequest.id.desc())
     )
@@ -56,7 +57,10 @@ def list_work_requests(session: Session) -> list[WorkRequest]:
 def get_work_request(session: Session, request_id: int) -> WorkRequest:
     statement = (
         select(WorkRequest)
-        .where(WorkRequest.id == request_id)
+        .where(
+            WorkRequest.id == request_id,
+            WorkRequest.request_type == "repair",
+        )
         .options(*_request_options())
     )
     work_request = session.scalar(statement)
@@ -84,11 +88,7 @@ def create_work_request(
         department=payload.department,
         description=payload.description,
         status="new",
-        warehouse_category=(
-            payload.warehouse_category.value
-            if payload.warehouse_category is not None
-            else None
-        ),
+        warehouse_category=None,
         repair_category=payload.repair_category,
         priority=payload.priority.value if payload.priority is not None else None,
         created_by_user_id=created_by_user_id,
@@ -148,9 +148,6 @@ def update_work_request(
         request_type=work_request.request_type,
         department="М15",
         description=changes.get("description", work_request.description),
-        warehouse_category=changes.get(
-            "warehouse_category", work_request.warehouse_category
-        ),
         repair_category=changes.get(
             "repair_category", work_request.repair_category
         ),
@@ -163,11 +160,7 @@ def update_work_request(
             work_request.department,
         )
         work_request.description = candidate.description
-        work_request.warehouse_category = (
-            candidate.warehouse_category.value
-            if candidate.warehouse_category is not None
-            else None
-        )
+        work_request.warehouse_category = None
         work_request.repair_category = candidate.repair_category
         work_request.priority = (
             candidate.priority.value if candidate.priority is not None else None

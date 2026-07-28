@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   EosCheckbox,
   EosDateField,
+  EosPagination,
   EosSearchField,
   EosSelect,
 } from '../components/EosFormControls'
@@ -15,6 +16,8 @@ import {
   type SupplyReference,
   type SupplyRequestSummary,
 } from '../services/supplyAdmin'
+
+export const SUPPLY_REQUEST_PAGE_SIZE = 25
 
 function formatDate(value: string | null): string {
   if (!value) return '—'
@@ -73,7 +76,10 @@ function SupplyRequestListPage() {
     const sequence = requestSequence.current + 1
     requestSequence.current = sequence
     if (!background) setState('loading')
-    const query = new URLSearchParams({ offset: String(offset) })
+    const query = new URLSearchParams({
+      limit: String(SUPPLY_REQUEST_PAGE_SIZE),
+      offset: String(offset),
+    })
     if (search.trim()) query.set('search', search.trim())
     if (status) query.set('status', status)
     if (needsReview) query.set('has_needs_review', 'true')
@@ -230,12 +236,13 @@ function SupplyRequestListPage() {
             ))}
           </div>
         )}
-        <div className="supply-card-actions">
-          <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 25))}>Назад</button>
-          <span>Страница {Math.floor(offset / 25) + 1}</span>
-          <button type="button" disabled={offset + items.length >= total} onClick={() => setOffset(offset + 25)}>Вперёд</button>
-          <span>{total === 0 ? '0 из 0' : `${offset + 1}–${offset + items.length} из ${total}`}</span>
-        </div>
+        <EosPagination
+          offset={offset}
+          total={total}
+          pageSize={SUPPLY_REQUEST_PAGE_SIZE}
+          itemCount={items.length}
+          onPageChange={setOffset}
+        />
       </div>
     </section>
   )

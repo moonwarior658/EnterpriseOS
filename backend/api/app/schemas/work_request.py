@@ -47,7 +47,6 @@ class WorkRequestCreate(BaseModel):
     request_type: RequestType
     department: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=5000)
-    warehouse_category: WarehouseCategory | None = None
     repair_category: str | None = Field(default=None, max_length=64)
     priority: RepairPriority | None = None
 
@@ -75,25 +74,18 @@ class WorkRequestCreate(BaseModel):
     @model_validator(mode="after")
     def validate_type_fields(self) -> "WorkRequestCreate":
         if self.request_type == RequestType.WAREHOUSE:
-            if self.warehouse_category is None:
-                raise ValueError("Warehouse category is required")
-            if self.repair_category is not None or self.priority is not None:
-                raise ValueError("Repair fields are not allowed")
-            return self
+            raise ValueError("Warehouse requests are no longer accepted")
 
         if self.repair_category not in REPAIR_CATEGORIES:
             raise ValueError("Unknown repair category")
         if self.priority is None:
             raise ValueError("Repair priority is required")
-        if self.warehouse_category is not None:
-            raise ValueError("Warehouse category is not allowed")
         return self
 
 
 class WorkRequestUpdate(BaseModel):
     department: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = Field(default=None, min_length=1, max_length=5000)
-    warehouse_category: WarehouseCategory | None = None
     repair_category: str | None = Field(default=None, max_length=64)
     priority: RepairPriority | None = None
     status: RequestStatus | None = None

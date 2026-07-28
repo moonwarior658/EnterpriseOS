@@ -448,6 +448,21 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             self.client.get("/supply/debts", params={"status": "ACTIVE"}).json()["total"],
             0,
         )
+        second_request = self.create_planned_request()
+        self.fulfill(second_request, TRANSFER="4", PURCHASE="1")
+        all_debts = self.client.get("/supply/debts")
+        self.assertEqual(all_debts.status_code, 200, all_debts.text)
+        self.assertEqual(all_debts.json()["total"], 2)
+        self.assertEqual(
+            {item["status"] for item in all_debts.json()["items"]},
+            {"ACTIVE", "CANCELLED"},
+        )
+        self.assertEqual(
+            self.client.get(
+                "/supply/debts", params={"status": "CANCELLED"}
+            ).json()["total"],
+            1,
+        )
 
     def test_debt_lock_targets_only_base_row_with_optional_product_joins(
         self,

@@ -33,22 +33,6 @@ export type WorkRequest = {
   attachments: WorkRequestAttachment[]
 }
 
-export type CreateWorkRequestInput = {
-  request_type: WorkRequestType
-  department: string
-  description: string
-  warehouse_category?: WarehouseCategory
-  repair_category?: string
-  priority?: RepairPriority
-}
-
-export type PublicWarehouseRequestInput = {
-  request_type: 'warehouse'
-  department: string
-  description: string
-  warehouse_category: WarehouseCategory
-}
-
 export type PublicRepairRequestInput = {
   request_type: 'repair'
   department: string
@@ -61,7 +45,6 @@ export type UpdateWorkRequestInput = {
   department?: string
   description?: string
   status?: WorkRequestStatus
-  warehouse_category?: WarehouseCategory
   repair_category?: string
   priority?: RepairPriority
 }
@@ -128,19 +111,6 @@ async function publicRequest<T>(
     throw new Error('Не удалось отправить заявку')
   }
   return response.json() as Promise<T>
-}
-
-export function createPublicWarehouseRequest(
-  input: PublicWarehouseRequestInput,
-): Promise<WorkRequest> {
-  return publicRequest<WorkRequest>({
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(input),
-  })
 }
 
 export function createPublicRepairRequest(

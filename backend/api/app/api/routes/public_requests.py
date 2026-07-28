@@ -37,7 +37,6 @@ async def _read_public_payload(
                 "request_type": form.get("request_type"),
                 "department": form.get("department"),
                 "description": form.get("description"),
-                "warehouse_category": form.get("warehouse_category") or None,
                 "repair_category": form.get("repair_category") or None,
                 "priority": form.get("priority") or None,
             }

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { EosSelect } from '../components/EosFormControls'
 import { useAuth } from '../contexts/AuthContext'
 import {
   createWorkRequestComment,
@@ -8,7 +9,6 @@ import {
   getWorkRequestComments,
   updateWorkRequest,
   type RepairPriority,
-  type WarehouseCategory,
   type WorkRequest,
   type WorkRequestAttachment,
   type WorkRequestComment,
@@ -19,11 +19,8 @@ import {
   PRIORITIES,
   REPAIR_CATEGORIES,
   REQUEST_STATUSES,
-  WAREHOUSE_CATEGORIES,
   priorityLabel,
-  requestTypeLabel,
   statusLabel,
-  warehouseCategoryLabel,
 } from './workRequestLogic'
 
 function formatDate(value: string): string {
@@ -97,24 +94,22 @@ function WorkRequestDetailPage() {
     if (!hasValidRequestId) return
     getWorkRequest(numericRequestId)
       .then((item) => {
+        if (item.request_type !== 'repair') {
+          setState('error')
+          return
+        }
         setRequest(item)
         setDepartment(item.department)
         setDescription(item.description)
-        setCategory(
-          item.request_type === 'warehouse'
-            ? (item.warehouse_category ?? '')
-            : (item.repair_category ?? ''),
-        )
+        setCategory(item.repair_category ?? '')
         setPriority(item.priority ?? '')
         setStatus(item.status)
         setState('ready')
-        if (item.request_type === 'repair') {
-          getWorkRequestComments(item.id)
-            .then(setComments)
-            .catch(() =>
-              setCommentsError('Не удалось загрузить комментарии'),
-            )
-        }
+        getWorkRequestComments(item.id)
+          .then(setComments)
+          .catch(() =>
+            setCommentsError('Не удалось загрузить комментарии'),
+          )
       })
       .catch(() => setState('error'))
   }, [hasValidRequestId, numericRequestId])
@@ -131,12 +126,8 @@ function WorkRequestDetailPage() {
         department,
         description: description.trim(),
         status,
-        ...(request.request_type === 'warehouse'
-          ? { warehouse_category: category as WarehouseCategory }
-          : {
-              repair_category: category,
-              priority: priority as RepairPriority,
-            }),
+        repair_category: category,
+        priority: priority as RepairPriority,
       })
       setRequest(updated)
       setSaveMessage('Изменения сохранены')
@@ -180,18 +171,15 @@ function WorkRequestDetailPage() {
     )
   }
 
-  const isWarehouse = request.request_type === 'warehouse'
-  const backPath = isWarehouse ? '/requests/warehouse' : '/requests/repair'
-
   return (
     <section className="request-page request-detail-page">
       <div className="request-panel">
         <div className="request-heading">
           <div>
-            <p className="eyebrow">{requestTypeLabel(request.request_type)}</p>
+            <p className="eyebrow">Заявка на ремонт</p>
             <h1>Заявка №{request.id}</h1>
           </div>
-          <Link className="request-back-link" to={backPath}>
+          <Link className="request-back-link" to="/requests/repair">
             ← К списку
           </Link>
         </div>
@@ -205,14 +193,10 @@ function WorkRequestDetailPage() {
           <div>
             <dt>Категория</dt>
             <dd>
-              {isWarehouse
-                ? warehouseCategoryLabel(request.warehouse_category)
-                : request.repair_category}
+              {request.repair_category}
             </dd>
           </div>
-          {!isWarehouse && (
-            <div><dt>Приоритет</dt><dd>{priorityLabel(request.priority)}</dd></div>
-          )}
+          <div><dt>Приоритет</dt><dd>{priorityLabel(request.priority)}</dd></div>
         </dl>
 
         {!user?.is_admin && (
@@ -229,7 +213,7 @@ function WorkRequestDetailPage() {
           >
             <label className="request-field">
               <span>Подразделение</span>
-              <select
+              <EosSelect
                 value={department}
                 disabled={isSaving}
                 onChange={(event) => setDepartment(event.target.value)}
@@ -237,11 +221,11 @@ function WorkRequestDetailPage() {
                 {DEPARTMENTS.map((item) => (
                   <option key={item} value={item}>{item}</option>
                 ))}
-              </select>
+              </EosSelect>
             </label>
             <label className="request-field">
               <span>Статус</span>
-              <select
+              <EosSelect
                 value={status}
                 disabled={isSaving}
                 onChange={(event) =>
@@ -253,40 +237,34 @@ function WorkRequestDetailPage() {
                     {item.label}
                   </option>
                 ))}
-              </select>
+              </EosSelect>
             </label>
             <label className="request-field">
               <span>Категория</span>
-              <select
+              <EosSelect
                 value={category}
                 disabled={isSaving}
                 onChange={(event) => setCategory(event.target.value)}
               >
-                {(isWarehouse ? WAREHOUSE_CATEGORIES : REPAIR_CATEGORIES).map(
-                  (item) => {
-                    const value = typeof item === 'string' ? item : item.value
-                    const label = typeof item === 'string' ? item : item.label
-                    return <option key={value} value={value}>{label}</option>
-                  },
-                )}
-              </select>
+                {REPAIR_CATEGORIES.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </EosSelect>
             </label>
-            {!isWarehouse && (
-              <label className="request-field">
-                <span>Приоритет</span>
-                <select
-                  value={priority}
-                  disabled={isSaving}
-                  onChange={(event) => setPriority(event.target.value)}
-                >
-                  {PRIORITIES.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label className="request-field">
+              <span>Приоритет</span>
+              <EosSelect
+                value={priority}
+                disabled={isSaving}
+                onChange={(event) => setPriority(event.target.value)}
+              >
+                {PRIORITIES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </EosSelect>
+            </label>
             <label className="request-field request-field-wide">
               <span>Описание</span>
               <textarea
@@ -317,8 +295,7 @@ function WorkRequestDetailPage() {
           </form>
         )}
 
-        {!isWarehouse && (
-          <>
+        <>
             <section className="request-detail-section">
               <h2>Фотографии</h2>
               {request.attachments.length === 0 ? (
@@ -381,8 +358,7 @@ function WorkRequestDetailPage() {
                 </form>
               )}
             </section>
-          </>
-        )}
+        </>
       </div>
     </section>
   )
