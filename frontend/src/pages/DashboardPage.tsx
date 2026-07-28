@@ -49,6 +49,7 @@ function DashboardPage() {
     let isMounted = true
     let requestInFlight = false
     let hasLoadedRequests = false
+    const controller = new AbortController()
 
     async function loadRequests() {
       if (!isMounted || requestInFlight) {
@@ -64,9 +65,16 @@ function DashboardPage() {
         setRequests(items)
         if (user?.is_admin) {
           try {
-            setSupplySummary(await getSupplyDashboardSummary())
+            const summary = await getSupplyDashboardSummary(
+              controller.signal,
+            )
+            if (!isMounted) return
+            setSupplySummary(summary)
           } catch {
-            if (!hasLoadedRequests) setSupplySummary(null)
+            if (
+              !controller.signal.aborted
+              && !hasLoadedRequests
+            ) setSupplySummary(null)
           }
         }
         setRequestsState('ready')
@@ -111,6 +119,7 @@ function DashboardPage() {
 
     return () => {
       isMounted = false
+      controller.abort()
       window.clearInterval(refreshInterval)
       document.removeEventListener(
         'visibilitychange',

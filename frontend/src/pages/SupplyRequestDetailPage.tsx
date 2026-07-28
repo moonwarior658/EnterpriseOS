@@ -23,8 +23,10 @@ import {
   clearSupplyLineMappingDraft,
   clearSupplyLineWorkingDraft,
   createSupplyLineWorkingDraft,
+  formatSupplyQuantityMillis,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
+  supplyQuantityMillis,
   suggestSupplyWorkingName,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
@@ -37,6 +39,18 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat('ru-RU', {
     dateStyle: 'long', timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function statusLabel(value: SupplyRequest['status']): string {
+  return ({
+    DRAFT: 'Черновик',
+    SUBMITTED: 'Отправлена',
+    IN_REVIEW: 'В обработке',
+    PLANNED: 'Спланирована',
+    PARTIALLY_FULFILLED: 'Исполнена частично',
+    FULFILLED: 'Исполнена',
+    CANCELLED: 'Отменена',
+  } as const)[value]
 }
 
 function AllocationEditor({
@@ -58,8 +72,14 @@ function AllocationEditor({
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(line.allocations.length ? 'Сохранено' : 'Предложение, не сохранено')
   const dirty = JSON.stringify(values) !== JSON.stringify(initial)
-  const requested = Number(line.quantity ?? 0)
-  const total = Number(values.transfer || 0) + Number(values.purchase || 0) + Number(values.cancel || 0)
+  const requested = supplyQuantityMillis(line.quantity ?? '') ?? 0
+  const parts = [values.transfer, values.purchase, values.cancel]
+    .map(supplyQuantityMillis)
+  const hasInvalidQuantity = parts.some((value) => value === null)
+  const total = parts.reduce<number>(
+    (sum, value) => sum + (value ?? 0),
+    0,
+  )
   const remaining = Math.max(requested - total, 0)
 
   useEffect(() => {
@@ -105,12 +125,24 @@ function AllocationEditor({
         <input value={values.comment} disabled={saving} onChange={(event) => setValues({ ...values, comment: event.target.value })} />
       </label>
       <span className={remaining ? 'supply-incomplete' : 'supply-complete'}>
-        Не распределено: {remaining.toFixed(3)}
+        Не распределено: {formatSupplyQuantityMillis(remaining)}
       </span>
-      <button type="button" disabled={saving || total > requested || !dirty} onClick={() => void save()}>
+      <button
+        type="button"
+        disabled={
+          saving || hasInvalidQuantity || total > requested || !dirty
+        }
+        onClick={() => void save()}
+      >
         {saving ? 'Сохраняем…' : 'Сохранить решение'}
       </button>
-      <small>{total > requested ? 'Распределено больше запрошенного' : message}</small>
+      <small>
+        {hasInvalidQuantity
+          ? 'Введите количество с точностью не более трёх знаков'
+          : total > requested
+          ? 'Распределено больше запрошенного'
+          : message}
+      </small>
     </div>
   )
 }
@@ -143,6 +175,9 @@ function FulfillmentEditor({
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const dirty = JSON.stringify(values) !== JSON.stringify(initial)
+  const hasInvalidQuantity = Object.values(values).some(
+    (value) => supplyQuantityMillis(value.quantity) === null,
+  )
 
   useEffect(() => {
     if (!dirty) return
@@ -152,7 +187,7 @@ function FulfillmentEditor({
   }, [dirty])
 
   async function save() {
-    if (saving || !dirty) return
+    if (saving || !dirty || hasInvalidQuantity) return
     setSaving(true)
     setMessage('')
     try {
@@ -228,21 +263,29 @@ function FulfillmentEditor({
           </label>
           <span>
             Осталось по allocation:{' '}
-            {Math.max(
-              Number(allocation.planned_quantity)
-              - Number(values[allocation.id]?.quantity ?? 0),
+            {formatSupplyQuantityMillis(Math.max(
+              (supplyQuantityMillis(allocation.planned_quantity) ?? 0)
+              - (supplyQuantityMillis(
+                values[allocation.id]?.quantity ?? '',
+              ) ?? 0),
               0,
-            ).toFixed(3)}
+            ))}
           </span>
         </div>
       ))}
       <button
         type="button"
-        disabled={saving || !dirty || request.status === 'FULFILLED'}
+        disabled={
+          saving || !dirty || hasInvalidQuantity
+          || request.status === 'FULFILLED'
+        }
         onClick={() => void save()}
       >
         {saving ? 'Сохраняем…' : 'Сохранить факт'}
       </button>
+      {hasInvalidQuantity && (
+        <small>Введите количество с точностью не более трёх знаков</small>
+      )}
       {message && <small>{message}</small>}
     </div>
   )
@@ -266,14 +309,31 @@ function SupplyRequestDetailPage() {
   }
 
   useEffect(() => {
-    Promise.all([getSupplyRequest(requestId), getSupplyProducts(), getSupplyUnits()])
-      .then(([item, productPage, unitItems]) => {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setState('loading')
+      setRequest(null)
+      setMapping({})
+      setWorking({})
+      Promise.all([
+        getSupplyRequest(requestId, controller.signal),
+        getSupplyProducts('', controller.signal),
+        getSupplyUnits(controller.signal),
+      ]).then(([item, productPage, unitItems]) => {
+        if (controller.signal.aborted) return
         setRequest(item)
         setProducts(productPage.items)
         setUnits(unitItems.filter((unit) => unit.is_active))
         setState('ready')
       })
-      .catch(() => setState('error'))
+        .catch(() => {
+          if (!controller.signal.aborted) setState('error')
+        })
+    }, 0)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
   }, [requestId])
 
   async function saveWorkingValues(
@@ -464,6 +524,19 @@ function SupplyRequestDetailPage() {
   if (state === 'loading') return <p className="page-state">Загружаем заявку…</p>
   if (state === 'error' || !request) return <p className="request-message request-message-error">Заявка не найдена или недоступна</p>
 
+  const planBlockReason = !request.can_plan
+    ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
+      ? 'Для перевода в план сохраните решения по всем строкам и устраните блокирующие дубли.'
+      : 'Перевод в план доступен только для заявки в обработке.'
+    : ''
+  const fulfillmentBlockReason = request.status === 'PARTIALLY_FULFILLED'
+    ? 'Часть факта уже сохранена. Продолжите работу в строках заявки.'
+    : request.status === 'FULFILLED'
+    ? 'Заявка исполнена. Факт доступен только для просмотра.'
+    : request.status !== 'PLANNED'
+    ? 'Отправка по плану доступна после перевода заявки в план.'
+    : ''
+
   return (
     <section className="request-page request-detail-page supply-admin-page">
       <div className="request-panel">
@@ -476,7 +549,7 @@ function SupplyRequestDetailPage() {
           <div><dt>Направление</dt><dd>{request.direction.name}</dd></div>
           <div><dt>Цикл</dt><dd>{request.cycle?.cycle_date ?? '—'}</dd></div>
           <div><dt>Автор</dt><dd>{request.public_author_name ?? 'Сотрудник EOS'}</dd></div>
-          <div><dt>Статус</dt><dd>{request.status}</dd></div>
+          <div><dt>Статус</dt><dd>{statusLabel(request.status)}</dd></div>
           <div><dt>Создана / отправлена</dt><dd>{formatDate(request.created_at)} / {formatDate(request.submitted_at)}</dd></div>
           <div><dt>Версия</dt><dd>{request.version}</dd></div>
           <div><dt>Дубли</dt><dd>{request.duplicate_groups}</dd></div>
@@ -494,6 +567,12 @@ function SupplyRequestDetailPage() {
           <button type="button" disabled={busy} onClick={() => void reload()}>Обновить</button>
           {message && <span>{message}</span>}
         </div>
+        {(planBlockReason || fulfillmentBlockReason) && (
+          <div className="request-message request-message-warning">
+            {planBlockReason && <p>{planBlockReason}</p>}
+            {fulfillmentBlockReason && <p>{fulfillmentBlockReason}</p>}
+          </div>
+        )}
         <div className="supply-lines">
           {request.lines.map((line) => {
             const draft = getSupplyLineMappingDraft(
@@ -674,7 +753,14 @@ function SupplyRequestDetailPage() {
                 {line.quantity && line.requested_unit
                   && ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)
                   && ['SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
-                  <AllocationEditor request={request} line={line} onSaved={setRequest} />
+                  <AllocationEditor
+                    key={`${line.id}:${line.allocations.map((item) => (
+                      `${item.id}:${item.action}:${item.planned_quantity}`
+                    )).join('|')}`}
+                    request={request}
+                    line={line}
+                    onSaved={setRequest}
+                  />
                 )}
                 {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (
                   <div className="supply-fulfillment">
@@ -707,6 +793,9 @@ function SupplyRequestDetailPage() {
                       </Link>
                     )}
                     <FulfillmentEditor
+                      key={`${line.id}:${line.allocations.map((item) => (
+                        `${item.id}:${item.fulfilled_quantity}`
+                      )).join('|')}`}
                       request={request}
                       line={line}
                       onSaved={setRequest}

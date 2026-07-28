@@ -20,6 +20,23 @@ export type SupplyLineWorkingDraft = {
 
 export type SupplyLineWorkingState = Record<string, SupplyLineWorkingDraft>
 
+const SUPPLY_QUANTITY_SCALE = 1000
+
+export function supplyQuantityMillis(value: string): number | null {
+  const normalized = value.trim()
+  if (!normalized) return 0
+  const match = /^(\d+)(?:\.(\d{1,3}))?$/.exec(normalized)
+  if (!match) return null
+  const whole = Number(match[1])
+  const fraction = Number((match[2] ?? '').padEnd(3, '0'))
+  const result = whole * SUPPLY_QUANTITY_SCALE + fraction
+  return Number.isSafeInteger(result) ? result : null
+}
+
+export function formatSupplyQuantityMillis(value: number): string {
+  return (value / SUPPLY_QUANTITY_SCALE).toFixed(3)
+}
+
 const TRAILING_QUANTITY_AND_UNIT = new RegExp(
   String.raw`\s+\d+(?:[.,]\d+)?\s*(?:кг|килограмм(?:а|ов)?|г|грамм(?:а|ов)?|л|литр(?:а|ов)?|шт|штук(?:а|и)?|уп|упаков(?:ка|ки|ок)|короб(?:ка|ки|ок)|рулон(?:а|ов)?)\.?\s*$`,
   'iu',

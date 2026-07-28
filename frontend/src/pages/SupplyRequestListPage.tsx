@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   getSupplyRequests,
   getSupplyDepartments,
@@ -22,34 +22,50 @@ function statusLabel(value: string): string {
     SUBMITTED: 'Отправлена',
     IN_REVIEW: 'В обработке',
     PLANNED: 'Спланирована',
+    PARTIALLY_FULFILLED: 'Исполнена частично',
+    FULFILLED: 'Исполнена',
     CANCELLED: 'Отменена',
     DRAFT: 'Черновик',
   } as Record<string, string>)[value] ?? value
 }
 
 function SupplyRequestListPage() {
+  const [routeParams] = useSearchParams()
   const [items, setItems] = useState<SupplyRequestSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('')
-  const [needsReview, setNeedsReview] = useState(false)
-  const [duplicates, setDuplicates] = useState(false)
-  const [departmentId, setDepartmentId] = useState('')
-  const [directionId, setDirectionId] = useState('')
-  const [cycleId, setCycleId] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [limit, setLimit] = useState(50)
-  const [offset, setOffset] = useState(0)
+  const [search, setSearch] = useState(routeParams.get('search') ?? '')
+  const [status, setStatus] = useState(routeParams.get('status') ?? '')
+  const [needsReview, setNeedsReview] = useState(
+    routeParams.get('has_needs_review') === 'true',
+  )
+  const [duplicates, setDuplicates] = useState(
+    routeParams.get('has_duplicates') === 'true',
+  )
+  const [departmentId, setDepartmentId] = useState(
+    routeParams.get('department_id') ?? '',
+  )
+  const [directionId, setDirectionId] = useState(
+    routeParams.get('direction_id') ?? '',
+  )
+  const [cycleId, setCycleId] = useState(routeParams.get('cycle_id') ?? '')
+  const [dateFrom, setDateFrom] = useState(routeParams.get('date_from') ?? '')
+  const [dateTo, setDateTo] = useState(routeParams.get('date_to') ?? '')
+  const [limit, setLimit] = useState(Number(routeParams.get('limit')) || 50)
+  const [offset, setOffset] = useState(Number(routeParams.get('offset')) || 0)
   const [departments, setDepartments] = useState<SupplyReference[]>([])
   const [directions, setDirections] = useState<SupplyReference[]>([])
   const [cycles, setCycles] = useState<SupplyCycle[]>([])
-  const inFlight = useRef(false)
+  const activeRequest = useRef<AbortController | null>(null)
+  const requestSequence = useRef(0)
   const hasData = useRef(false)
 
   const load = useCallback(async (background = false) => {
-    if (inFlight.current) return
-    inFlight.current = true
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
+    const sequence = requestSequence.current + 1
+    requestSequence.current = sequence
+    if (!background) setState('loading')
     const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (search.trim()) query.set('search', search.trim())
     if (status) query.set('status', status)
@@ -61,19 +77,24 @@ function SupplyRequestListPage() {
     if (dateFrom) query.set('date_from', dateFrom)
     if (dateTo) query.set('date_to', dateTo)
     try {
-      const result = await getSupplyRequests(query)
+      const result = await getSupplyRequests(query, controller.signal)
+      if (
+        controller.signal.aborted
+        || sequence !== requestSequence.current
+      ) return
       setItems(result)
       hasData.current = true
       setState('ready')
     } catch {
+      if (
+        controller.signal.aborted
+        || sequence !== requestSequence.current
+      ) return
       if (!background || !hasData.current) setState('error')
-    } finally {
-      inFlight.current = false
     }
   }, [cycleId, dateFrom, dateTo, departmentId, directionId, duplicates, limit, needsReview, offset, search, status])
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void load(), 0)
     void Promise.all([
       getSupplyDepartments(), getSupplyDirections(), getSupplyCycles(),
     ]).then(([nextDepartments, nextDirections, nextCycles]) => {
@@ -81,6 +102,10 @@ function SupplyRequestListPage() {
       setDirections(nextDirections)
       setCycles(nextCycles.items)
     }).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void load(), 0)
     const interval = window.setInterval(() => void load(true), 10_000)
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load(true)
@@ -90,6 +115,7 @@ function SupplyRequestListPage() {
       window.clearTimeout(initial)
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisibility)
+      activeRequest.current?.abort()
     }
   }, [load])
 
@@ -116,6 +142,8 @@ function SupplyRequestListPage() {
             <option value="SUBMITTED">Отправлена</option>
             <option value="IN_REVIEW">В обработке</option>
             <option value="PLANNED">Спланирована</option>
+            <option value="PARTIALLY_FULFILLED">Исполнена частично</option>
+            <option value="FULFILLED">Исполнена</option>
             <option value="CANCELLED">Отменена</option>
           </select>
           <select aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>

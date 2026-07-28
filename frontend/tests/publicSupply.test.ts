@@ -78,6 +78,8 @@ test('маршрут Supply-формы подключён отдельно от 
   assert.match(pageSource, /sessionStorage\.getItem\(PUBLIC_SUPPLY_SESSION_KEY\)/)
   assert.match(pageSource, /getPublicSupplyRequest\(storedToken\)/)
   assert.match(pageSource, /Нет открытых циклов/)
+  assert.match(pageSource, /Восстановить сохранённую заявку/)
+  assert.match(pageSource, /retryRestore/)
 })
 
 test('валидирует первый экран и строки формы', () => {

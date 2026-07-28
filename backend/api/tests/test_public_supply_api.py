@@ -272,6 +272,18 @@ class PublicSupplyApiTests(unittest.TestCase):
         }
         self.assertTrue(forbidden.isdisjoint(restored.text))
 
+    def test_create_splits_crlf_without_losing_original_line_text(self) -> None:
+        created = self.create_request(
+            "Сахар-песок, белый 2 кг\r\nСалфетки-влажные 3 уп"
+        )
+        self.assertEqual(
+            [line["raw_text"] for line in created["lines"]],
+            [
+                "Сахар-песок, белый 2 кг",
+                "Салфетки-влажные 3 уп",
+            ],
+        )
+
     def test_invalid_expired_and_foreign_tokens_are_generic(self) -> None:
         created = self.create_request()
         token = created["public_token"]

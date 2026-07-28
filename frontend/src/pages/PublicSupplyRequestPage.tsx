@@ -93,6 +93,7 @@ function PublicSupplyRequestPage() {
         ) {
           sessionStorage.removeItem(PUBLIC_SUPPLY_SESSION_KEY)
         } else {
+          setPublicToken(storedToken)
           setError('Не удалось восстановить заявку. Попробуйте ещё раз')
         }
       }
@@ -140,9 +141,35 @@ function PublicSupplyRequestPage() {
     ? hasUnrecognizedLines(request.lines)
     : false
 
+  async function retryRestore() {
+    if (!publicToken || isBusy) return
+    setIsBusy(true)
+    setError('')
+    try {
+      applyRequest(await getPublicSupplyRequest(publicToken))
+    } catch (caught) {
+      if (
+        caught instanceof PublicSupplyApiError
+        && caught.code === 'SUPPLY_PUBLIC_REQUEST_NOT_FOUND'
+      ) {
+        sessionStorage.removeItem(PUBLIC_SUPPLY_SESSION_KEY)
+        setPublicToken('')
+        setError('Черновик больше недоступен. Создайте новую заявку')
+      } else {
+        setError('Не удалось восстановить заявку. Попробуйте ещё раз')
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   async function handleCheck(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (isBusy) return
+    if (publicToken && !request) {
+      setError('Сначала восстановите сохранённую заявку')
+      return
+    }
     const validationError = publicSupplyFormError({
       departmentId,
       cycleId,
@@ -350,7 +377,18 @@ function PublicSupplyRequestPage() {
               </label>
 
               {error && (
-                <p className="request-message request-message-error">{error}</p>
+                <>
+                  <p className="request-message request-message-error">{error}</p>
+                  {!request && publicToken && (
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void retryRestore()}
+                    >
+                      Восстановить сохранённую заявку
+                    </button>
+                  )}
+                </>
               )}
 
               <button

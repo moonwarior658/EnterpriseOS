@@ -829,6 +829,17 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(debt["working_name"], "Редкий ингредиент")
         self.assertEqual(Decimal(debt["outstanding_quantity"]), Decimal("4"))
         self.assertEqual([event["event_type"] for event in debt["events"]], ["CREATED"])
+        debt_page = self.client.get(
+            "/supply/debts",
+            params={"status": "ACTIVE", "search": "Редкий ингредиент"},
+        )
+        self.assertEqual(debt_page.status_code, 200, debt_page.text)
+        self.assertEqual(debt_page.json()["total"], 1)
+        self.assertEqual(debt_page.json()["items"][0]["id"], debt_id)
+        self.assertEqual(
+            debt_page.headers["cache-control"],
+            "no-store, no-cache, must-revalidate, max-age=0",
+        )
 
         late_match = self.match(
             created["id"],

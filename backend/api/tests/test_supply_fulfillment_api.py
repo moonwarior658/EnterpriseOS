@@ -11,6 +11,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -38,6 +39,7 @@ from app.models.user import User
 from app.models.work_request import WorkRequest
 from app.supply.normalization import normalize_product_text
 from app.supply.public_service import hash_public_token
+from app.supply.service import get_supply_debt
 
 
 class SupplyFulfillmentApiTests(unittest.TestCase):
@@ -445,6 +447,27 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         self.assertEqual(
             self.client.get("/supply/debts", params={"status": "ACTIVE"}).json()["total"],
             0,
+        )
+
+    def test_debt_lock_targets_only_base_row_with_optional_product_joins(
+        self,
+    ) -> None:
+        statements = []
+
+        class RecordingSession:
+            def scalar(self, statement):
+                statements.append(statement)
+                return object()
+
+        get_supply_debt(
+            RecordingSession(),
+            UUID(int=1),
+            for_update=True,
+        )
+        sql = str(statements[0].compile(dialect=postgresql.dialect()))
+        self.assertIn(
+            "FOR UPDATE OF supply_department_debts",
+            sql,
         )
 
     def test_public_status_exposes_only_safe_plan_fact_and_debt_totals(self) -> None:

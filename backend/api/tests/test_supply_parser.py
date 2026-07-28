@@ -14,6 +14,12 @@ class SupplyLineParserTests(unittest.TestCase):
             ("Яйцо 30 штук", "Яйцо", "30", "PCS"),
             ("  Сливки   33%   2.5 л  ", "Сливки 33%", "2.5", "L"),
             ("Сливки 2,5 л", "Сливки", "2.5", "L"),
+            (
+                "Сахар-песок, белый 2 кг",
+                "Сахар-песок, белый",
+                "2",
+                "KG",
+            ),
         )
         for raw_text, name, quantity, unit_code in cases:
             with self.subTest(raw_text=raw_text):

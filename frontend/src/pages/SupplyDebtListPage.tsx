@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   cancelSupplyDebt,
@@ -46,33 +46,76 @@ function SupplyDebtListPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const activeRequest = useRef<AbortController | null>(null)
+  const requestSequence = useRef(0)
+  const searchKey = searchParams.toString()
 
   const load = useCallback(async () => {
-    const query = new URLSearchParams(searchParams)
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
+    const sequence = requestSequence.current + 1
+    requestSequence.current = sequence
+    const routeParams = new URLSearchParams(searchKey)
+    const query = new URLSearchParams(routeParams)
     query.delete('open')
     if (!query.has('status')) query.set('status', 'ACTIVE')
     query.set('limit', '100')
     query.set('offset', '0')
+    setState('loading')
     try {
-      const page = await getSupplyDebts(query)
+      const openId = routeParams.get('open')
+      const [page, openedDebt] = await Promise.all([
+        getSupplyDebts(query, controller.signal),
+        openId
+          ? getSupplyDebt(openId, controller.signal)
+          : Promise.resolve(null),
+      ])
+      if (
+        controller.signal.aborted
+        || sequence !== requestSequence.current
+      ) return
       setItems(page.items)
-      const openId = searchParams.get('open')
-      if (openId) setSelected(await getSupplyDebt(openId))
+      setSelected(openedDebt)
       setState('ready')
     } catch {
+      if (
+        controller.signal.aborted
+        || sequence !== requestSequence.current
+      ) return
       setState('error')
     }
-  }, [searchParams])
+  }, [searchKey])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void load(), 0)
-    return () => window.clearTimeout(timeout)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearTimeout(timeout)
+      document.removeEventListener('visibilitychange', onVisibility)
+      activeRequest.current?.abort()
+    }
   }, [load])
 
   function updateFilter(name: string, value: string) {
     const next = new URLSearchParams(searchParams)
     if (value) next.set(name, value)
     else next.delete(name)
+    next.delete('open')
+    setSearchParams(next)
+  }
+
+  function openDebt(debtId: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set('open', debtId)
+    setSearchParams(next)
+  }
+
+  function closeDebtCard() {
+    const next = new URLSearchParams(searchParams)
     next.delete('open')
     setSearchParams(next)
   }
@@ -116,8 +159,17 @@ function SupplyDebtListPage() {
       setSelected(updated)
       setMessage('Долг отменён')
       await load()
-    } catch {
-      setMessage('Не удалось отменить долг')
+    } catch (error) {
+      setMessage(
+        error instanceof SupplyApiError
+        && error.code === 'SUPPLY_DEBT_VERSION_CONFLICT'
+          ? 'Долг уже изменился. Список обновлён — повторите действие.'
+          : 'Не удалось отменить долг',
+      )
+      if (
+        error instanceof SupplyApiError
+        && error.code === 'SUPPLY_DEBT_VERSION_CONFLICT'
+      ) await load()
     } finally {
       setBusy(false)
     }
@@ -179,7 +231,7 @@ function SupplyDebtListPage() {
                 type="button"
                 className={`supply-debt-row supply-debt-${debt.severity.toLowerCase()}`}
                 key={debt.id}
-                onClick={() => setSelected(debt)}
+                onClick={() => openDebt(debt.id)}
               >
                 <strong>{debt.department.name} · {debt.working_name}</strong>
                 <span>{debt.outstanding_quantity} {debt.unit.short_name_ru}</span>
@@ -197,7 +249,7 @@ function SupplyDebtListPage() {
                 <p className="eyebrow">{SEVERITY_LABELS[selected.severity]}</p>
                 <h2>{selected.department.name} · {selected.working_name}</h2>
               </div>
-              <button type="button" onClick={() => setSelected(null)}>Закрыть карточку</button>
+              <button type="button" onClick={closeDebtCard}>Закрыть карточку</button>
             </header>
             <dl className="request-facts">
               <div><dt>Осталось</dt><dd>{selected.outstanding_quantity} {selected.unit.short_name_ru}</dd></div>

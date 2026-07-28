@@ -1330,7 +1330,11 @@ def read_supply_debts(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> SupplyDebtPage:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     items, total = list_supply_debts(
         db,
         department_id=department_id,
@@ -1351,7 +1355,11 @@ def read_supply_debt(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyDepartmentDebt:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     try:
         return get_supply_debt(db, debt_id)
     except SupplyDebtNotFoundError as error:
@@ -1422,5 +1430,9 @@ def read_supply_dashboard_summary(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
 ) -> dict[str, int]:
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return get_supply_dashboard_summary(db)

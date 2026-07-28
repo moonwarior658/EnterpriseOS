@@ -2840,7 +2840,7 @@ def get_supply_debt(
         .options(*_debt_options())
     )
     if for_update:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update(of=SupplyDepartmentDebt)
     debt = session.scalar(statement)
     if debt is None:
         raise SupplyDebtNotFoundError
@@ -2877,6 +2877,7 @@ def list_supply_debts(
         term = f"%{search.strip()}%"
         filters.append(or_(
             SupplyProduct.name.ilike(term),
+            SupplyDepartmentDebt.working_name.ilike(term),
             Department.name.ilike(term),
             Department.code.ilike(term),
         ))
@@ -2884,7 +2885,7 @@ def list_supply_debts(
         select(func.count())
         .select_from(SupplyDepartmentDebt)
         .join(Department)
-        .join(SupplyProduct)
+        .outerjoin(SupplyProduct)
         .where(*filters)
     )
     severity_order = case(
@@ -2896,7 +2897,7 @@ def list_supply_debts(
     items = list(session.scalars(
         select(SupplyDepartmentDebt)
         .join(Department)
-        .join(SupplyProduct)
+        .outerjoin(SupplyProduct)
         .where(*filters)
         .options(*_debt_options())
         .order_by(

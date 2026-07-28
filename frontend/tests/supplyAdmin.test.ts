@@ -18,6 +18,8 @@ import {
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
   suggestSupplyWorkingName,
+  formatSupplyQuantityMillis,
+  supplyQuantityMillis,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
@@ -50,6 +52,7 @@ test('карточка поддерживает факт, долги и readonly
   assert.match(detail, /Сохранить факт/)
   assert.match(detail, /Подтвердить включение/)
   assert.match(detail, /request\.status === 'FULFILLED'/)
+  assert.match(detail, /Заявка исполнена\. Факт доступен только для просмотра/)
   assert.match(debts, /Долги подразделений/)
   assert.match(debts, /Закрыть частично или полностью/)
   assert.match(debts, /Отменить долг/)
@@ -201,8 +204,41 @@ test('реестр обновляется раз в 10 секунд и при в
   )
   assert.match(source, /10_000/)
   assert.match(source, /visibilitychange/)
-  assert.match(source, /inFlight/)
+  assert.match(source, /activeRequest/)
+  assert.match(source, /requestSequence/)
   assert.match(source, /Требует сопоставления/)
+})
+
+test('долги перезагружаются при route navigation и возврате на вкладку', () => {
+  const debts = readFileSync(
+    new URL('../src/pages/SupplyDebtListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const registry = readFileSync(
+    new URL('../src/pages/SupplyRequestListPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(debts, /visibilitychange/)
+  assert.match(debts, /activeRequest\.current\?\.abort\(\)/)
+  assert.match(debts, /setState\('loading'\)/)
+  assert.match(debts, /next\.set\('open', debtId\)/)
+  assert.match(debts, /searchKey/)
+  assert.match(registry, /routeParams\.get\('status'\)/)
+  assert.match(registry, /routeParams\.get\('has_needs_review'\)/)
+  assert.match(registry, /controller\.signal/)
+})
+
+test('количества Supply сравниваются без float-ошибки', () => {
+  assert.equal(supplyQuantityMillis('0.1'), 100)
+  assert.equal(supplyQuantityMillis('0.2'), 200)
+  assert.equal(supplyQuantityMillis('0.3'), 300)
+  assert.equal(
+    (supplyQuantityMillis('0.1') ?? 0)
+      + (supplyQuantityMillis('0.2') ?? 0),
+    supplyQuantityMillis('0.3'),
+  )
+  assert.equal(supplyQuantityMillis('1.2345'), null)
+  assert.equal(formatSupplyQuantityMillis(300), '0.300')
 })
 
 test('API-клиент передаёт фильтры, expected_version, алиас и allocations', async () => {
@@ -254,6 +290,7 @@ test('API-клиент передаёт фильтры, expected_version, али
     globalThis.fetch = originalFetch
   }
   assert.match(calls[0].url, /has_needs_review=true/)
+  assert.match(calls[0].url, /_ts=/)
   assert.equal(JSON.parse(String(calls[1].options.body)).save_alias, true)
   const workingBody = JSON.parse(String(calls[2].options.body))
   assert.equal(workingBody.request_version, 5)
@@ -268,4 +305,5 @@ test('API-клиент передаёт фильтры, expected_version, али
   assert.equal(JSON.parse(String(calls[4].options.body)).expected_version, 7)
   assert.equal(JSON.parse(String(calls[5].options.body)).expected_version, 8)
   assert.match(calls[6].url, /severity=CRITICAL/)
+  assert.match(calls[6].url, /_ts=/)
 })

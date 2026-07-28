@@ -181,8 +181,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function getSupplyRequests(query: URLSearchParams): Promise<SupplyRequestSummary[]> {
-  return request(`/supply/requests?${query.toString()}`, { cache: 'no-store' })
+function withFreshRequest(query: URLSearchParams): URLSearchParams {
+  const fresh = new URLSearchParams(query)
+  fresh.set('_ts', `${Date.now()}-${Math.random()}`)
+  return fresh
+}
+
+export function getSupplyRequests(
+  query: URLSearchParams,
+  signal?: AbortSignal,
+): Promise<SupplyRequestSummary[]> {
+  return request(`/supply/requests?${withFreshRequest(query).toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
 }
 
 export function getSupplyDepartments(): Promise<SupplyReference[]> {
@@ -197,18 +209,28 @@ export function getSupplyCycles(): Promise<{ items: SupplyCycle[] }> {
   return request('/supply/request-cycles?limit=100&offset=0')
 }
 
-export function getSupplyRequest(id: string): Promise<SupplyRequest> {
-  return request(`/supply/requests/${id}`)
+export function getSupplyRequest(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SupplyRequest> {
+  const query = withFreshRequest(new URLSearchParams())
+  return request(`/supply/requests/${id}?${query.toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
 }
 
-export function getSupplyProducts(search = ''): Promise<{ items: SupplyProduct[] }> {
+export function getSupplyProducts(
+  search = '',
+  signal?: AbortSignal,
+): Promise<{ items: SupplyProduct[] }> {
   const query = new URLSearchParams({ active: 'true', limit: '100' })
   if (search) query.set('search', search)
-  return request(`/supply/products?${query}`)
+  return request(`/supply/products?${query}`, { signal })
 }
 
-export function getSupplyUnits(): Promise<SupplyUnit[]> {
-  return request('/supply/units')
+export function getSupplyUnits(signal?: AbortSignal): Promise<SupplyUnit[]> {
+  return request('/supply/units', { signal })
 }
 
 export function disableSupplyAlias(
@@ -338,17 +360,30 @@ export function confirmSupplyDebtInclusion(
   )
 }
 
-export function getSupplyDebts(query: URLSearchParams): Promise<{
+export function getSupplyDebts(
+  query: URLSearchParams,
+  signal?: AbortSignal,
+): Promise<{
   items: SupplyDebt[]
   total: number
   limit: number
   offset: number
 }> {
-  return request(`/supply/debts?${query.toString()}`, { cache: 'no-store' })
+  return request(`/supply/debts?${withFreshRequest(query).toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
 }
 
-export function getSupplyDebt(id: string): Promise<SupplyDebt> {
-  return request(`/supply/debts/${id}`, { cache: 'no-store' })
+export function getSupplyDebt(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SupplyDebt> {
+  const query = withFreshRequest(new URLSearchParams())
+  return request(`/supply/debts/${id}?${query.toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
 }
 
 export function closeSupplyDebt(
@@ -371,6 +406,12 @@ export function cancelSupplyDebt(
   })
 }
 
-export function getSupplyDashboardSummary(): Promise<SupplyDashboardSummary> {
-  return request('/supply/summary/dashboard', { cache: 'no-store' })
+export function getSupplyDashboardSummary(
+  signal?: AbortSignal,
+): Promise<SupplyDashboardSummary> {
+  const query = withFreshRequest(new URLSearchParams())
+  return request(`/supply/summary/dashboard?${query.toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
 }
