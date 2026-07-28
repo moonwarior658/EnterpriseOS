@@ -679,6 +679,28 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         self.assertFalse(columns["working_name"]["nullable"])
         self.assertTrue(columns["product_id"]["nullable"])
 
+    def _assert_send_quantity_schema(self) -> None:
+        columns = {
+            column["name"]: column
+            for column in inspect(self.engine).get_columns(
+                "supply_request_lines"
+            )
+        }
+        self.assertIn("send_quantity", columns)
+        self.assertIn("working_name_override", columns)
+        self.assertIsInstance(columns["send_quantity"]["type"], Numeric)
+        self.assertTrue(columns["send_quantity"]["nullable"])
+        self.assertTrue(columns["working_name_override"]["nullable"])
+        self.assertIn(
+            "ck_supply_request_lines_send_quantity_nonnegative",
+            {
+                constraint["name"]
+                for constraint in inspect(self.engine).get_check_constraints(
+                    "supply_request_lines"
+                )
+            },
+        )
+
     def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -916,6 +938,35 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         self.assertEqual(self._current_revision(), "20260727_0015")
         self._assert_unmatched_operations_schema()
 
+        command.upgrade(self.alembic_config, "20260727_0016")
+        self.assertEqual(self._current_revision(), "20260727_0016")
+        command.upgrade(self.alembic_config, "20260728_0017")
+        self.assertEqual(self._current_revision(), "20260728_0017")
+        self._assert_send_quantity_schema()
+        command.downgrade(self.alembic_config, "20260727_0016")
+        self.assertEqual(self._current_revision(), "20260727_0016")
+        self.assertNotIn(
+            "send_quantity",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns(
+                    "supply_request_lines"
+                )
+            },
+        )
+        self.assertNotIn(
+            "working_name_override",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns(
+                    "supply_request_lines"
+                )
+            },
+        )
+        command.upgrade(self.alembic_config, "20260728_0017")
+        self.assertEqual(self._current_revision(), "20260728_0017")
+        self._assert_send_quantity_schema()
+
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")
         self.assertNotIn(
@@ -1052,7 +1103,8 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260727_0016")
+        self.assertEqual(self._current_revision(), "20260728_0017")
+        self._assert_send_quantity_schema()
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"

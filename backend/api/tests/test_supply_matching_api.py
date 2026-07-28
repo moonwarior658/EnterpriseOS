@@ -883,6 +883,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             "request_version": submitted["version"],
             "working_name": "  Мусорные пакеты 30 л  ",
             "requested_quantity": "3",
+            "send_quantity": "3",
             "requested_unit_id": str(self.units["ROLL"].id),
         }
 
@@ -989,6 +990,300 @@ class SupplyMatchingApiTests(unittest.TestCase):
             after_plan.json()["detail"]["code"],
             "SUPPLY_REQUEST_NOT_EDITABLE",
         )
+
+    def test_simple_send_preserves_request_and_creates_remainder_debt(
+        self,
+    ) -> None:
+        raw_text = "Молоко 10 л"
+        created = self.create_request(raw_text)
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        line = detail["lines"][0]
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+
+        corrected = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": submitted["version"],
+                "working_name": "Молоко для крема",
+                "requested_quantity": "10",
+                "send_quantity": "8",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        corrected_body = corrected.json()
+        self.assertEqual(corrected_body["line"]["raw_text"], raw_text)
+        self.assertEqual(corrected_body["line"]["parsed_name"], "Молоко")
+        self.assertEqual(corrected_body["line"]["parsed_quantity"], "10.000")
+        self.assertEqual(corrected_body["line"]["quantity"], "10.000")
+        self.assertEqual(
+            Decimal(corrected_body["line"]["send_quantity"]),
+            Decimal("8"),
+        )
+        self.assertEqual(
+            corrected_body["line"]["working_name"],
+            "Молоко для крема",
+        )
+        excessive = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": corrected_body["request_version"],
+                "working_name": "Молоко для крема",
+                "send_quantity": "11",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+        self.assertEqual(excessive.status_code, 422)
+        self.assertEqual(
+            excessive.json()["detail"]["code"],
+            "SUPPLY_SEND_QUANTITY_INVALID",
+        )
+        immutable = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": corrected_body["request_version"],
+                "working_name": "Молоко для крема",
+                "requested_quantity": "9",
+                "send_quantity": "8",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+        self.assertEqual(immutable.status_code, 409)
+        self.assertEqual(
+            immutable.json()["detail"]["code"],
+            "SUPPLY_REQUESTED_QUANTITY_IMMUTABLE",
+        )
+
+        manual_draft = self.client.put(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/allocations"
+            ),
+            json={
+                "expected_version": corrected_body["request_version"],
+                "allocations": [{
+                    "action": "TRANSFER",
+                    "planned_quantity": "2",
+                    "unit_id": str(self.units["L"].id),
+                }],
+            },
+        )
+        self.assertEqual(manual_draft.status_code, 200, manual_draft.text)
+
+        planned = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": manual_draft.json()["version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(planned.status_code, 200, planned.text)
+        planned_body = planned.json()
+        planned_line = planned_body["lines"][0]
+        self.assertEqual(planned_body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(Decimal(planned_line["planned_transfer"]), Decimal("0"))
+        self.assertEqual(planned_line["planned_purchase"], "10.000")
+        self.assertEqual(Decimal(planned_line["planned_cancel"]), Decimal("0"))
+        self.assertEqual(planned_line["fulfilled_total"], "8.000")
+        self.assertEqual(planned_line["unresolved_quantity"], "2.000")
+        self.assertEqual(len(planned_line["allocations"]), 1)
+
+        repeated = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": planned_body["version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(repeated.status_code, 409)
+        self.assertEqual(
+            repeated.json()["detail"]["code"],
+            "SUPPLY_REQUEST_NOT_EDITABLE",
+        )
+        fulfilled_line = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["lines"][0]
+        debt = self.client.get(
+            f"/supply/debts/{fulfilled_line['active_debt_id']}"
+        )
+        self.assertEqual(debt.status_code, 200, debt.text)
+        self.assertEqual(debt.json()["outstanding_quantity"], "2.000")
+        debts = self.client.get("/supply/debts?status=ACTIVE").json()
+        self.assertEqual(debts["total"], 1)
+
+    def test_simple_send_full_quantity_finishes_without_debt(self) -> None:
+        created = self.create_request("Молоко 10 л")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+
+        result = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": submitted["version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        body = result.json()
+        self.assertEqual(body["status"], "FULFILLED")
+        self.assertEqual(body["lines"][0]["quantity"], "10.000")
+        self.assertEqual(body["lines"][0]["send_quantity"], "10.000")
+        self.assertEqual(body["lines"][0]["fulfilled_total"], "10.000")
+        self.assertIsNone(body["lines"][0]["active_debt_id"])
+
+    def test_simple_send_zero_creates_full_debt(self) -> None:
+        created = self.create_request("Молоко 10 л")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line = submitted["lines"][0]
+        corrected = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": submitted["version"],
+                "working_name": line["working_name"],
+                "send_quantity": "0",
+                "requested_unit_id": line["requested_unit"]["id"],
+            },
+        ).json()
+
+        result = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": corrected["request_version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        body = result.json()
+        self.assertEqual(body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(
+            Decimal(body["lines"][0]["fulfilled_total"]),
+            Decimal("0"),
+        )
+        debt = self.client.get(
+            f"/supply/debts/{body['lines'][0]['active_debt_id']}"
+        ).json()
+        self.assertEqual(debt["outstanding_quantity"], "10.000")
+
+    def test_simple_send_fractional_unmatched_line_uses_working_identity(
+        self,
+    ) -> None:
+        created = self.create_request("Редкий крем 2.5 кг")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        self.assertIsNone(detail["lines"][0]["product_id"])
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line = submitted["lines"][0]
+        corrected = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": submitted["version"],
+                "working_name": "Крем особый",
+                "send_quantity": "1.5",
+                "requested_unit_id": line["requested_unit"]["id"],
+            },
+        ).json()
+        result = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": corrected["request_version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        body = result.json()
+        self.assertEqual(body["lines"][0]["quantity"], "2.500")
+        self.assertEqual(body["lines"][0]["fulfilled_total"], "1.500")
+        debt = self.client.get(
+            f"/supply/debts/{body['lines'][0]['active_debt_id']}"
+        ).json()
+        self.assertIsNone(debt["product"])
+        self.assertEqual(debt["working_name"], "Крем особый")
+        self.assertEqual(debt["unit"]["code"], "KG")
+        self.assertEqual(debt["outstanding_quantity"], "1.000")
+
+    def test_simple_send_can_change_before_finalization(self) -> None:
+        created = self.create_request("Молоко 10 л")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line = submitted["lines"][0]
+        endpoint = (
+            f"/supply/requests/{created['id']}/lines/{line['id']}"
+            "/working-values"
+        )
+        base = {
+            "working_name": line["working_name"],
+            "requested_unit_id": line["requested_unit"]["id"],
+        }
+        first = self.client.patch(
+            endpoint,
+            json={
+                **base,
+                "request_version": submitted["version"],
+                "send_quantity": "8",
+            },
+        ).json()
+        second = self.client.patch(
+            endpoint,
+            json={
+                **base,
+                "request_version": first["request_version"],
+                "send_quantity": "7",
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["line"]["quantity"], "10.000")
+        self.assertEqual(
+            Decimal(second.json()["line"]["send_quantity"]),
+            Decimal("7"),
+        )
+        result = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": second.json()["request_version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        result_line = result.json()["lines"][0]
+        debt = self.client.get(
+            f"/supply/debts/{result_line['active_debt_id']}"
+        ).json()
+        self.assertEqual(debt["outstanding_quantity"], "3.000")
 
     def test_registry_filters_summary_pagination_and_stable_status_order(self) -> None:
         submitted = self.create_request("неизвестная позиция 2 кг")

@@ -43,6 +43,7 @@ export type SupplyLine = {
   product_id: string | null
   requested_unit: SupplyUnit | null
   quantity: string | null
+  send_quantity: string | null
   match_status: string
   match_method: string | null
   duplicate_status: string
@@ -266,7 +267,8 @@ export function saveSupplyLineWorkingValues(
   input: {
     request_version: number
     working_name: string
-    requested_quantity: string
+    requested_quantity: string | null
+    send_quantity: string
     requested_unit_id: string
   },
 ): Promise<{ request_version: number; line: SupplyLine }> {
@@ -302,10 +304,17 @@ export function saveSupplyAllocations(
   })
 }
 
-export function planSupplyRequest(id: string, version: number): Promise<SupplyRequest> {
+export function planSupplyRequest(
+  id: string,
+  version: number,
+  simpleMode = false,
+): Promise<SupplyRequest> {
   return request(`/supply/requests/${id}/plan`, {
     method: 'POST',
-    body: JSON.stringify({ expected_version: version }),
+    body: JSON.stringify({
+      expected_version: version,
+      simple_mode: simpleMode,
+    }),
   })
 }
 

@@ -472,6 +472,7 @@ class SupplyRequestLineRead(BaseModel):
     product_id: UUID | None
     requested_unit_id: UUID | None
     quantity: Decimal | None
+    send_quantity: Decimal | None
     match_status: SupplyLineMatchStatus
     match_method: SupplyLineMatchMethod | None
     match_confidence: Decimal | None
@@ -538,8 +539,14 @@ class SupplyLineManualMatch(BaseModel):
 class SupplyLineWorkingValuesUpdate(BaseModel):
     request_version: int = Field(ge=1)
     working_name: str
-    requested_quantity: Decimal = Field(
+    requested_quantity: Decimal | None = Field(
+        default=None,
         gt=0,
+        max_digits=18,
+        decimal_places=3,
+    )
+    send_quantity: Decimal = Field(
+        ge=0,
         max_digits=18,
         decimal_places=3,
     )
@@ -583,6 +590,10 @@ class SupplyExpectedVersion(BaseModel):
     expected_version: int = Field(ge=1)
 
     model_config = ConfigDict(extra="forbid")
+
+
+class SupplyRequestPlan(SupplyExpectedVersion):
+    simple_mode: bool = False
 
 
 class SupplyAliasStatusUpdate(BaseModel):

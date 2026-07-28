@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   cancelSupplyRequest,
-  disableSupplyAlias,
   confirmSupplyDebtInclusion,
   fulfillSupplyAsPlanned,
   getSupplyProducts,
@@ -10,7 +9,6 @@ import {
   getSupplyUnits,
   matchSupplyLine,
   planSupplyRequest,
-  saveSupplyAllocations,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
   SupplyApiError,
@@ -21,23 +19,26 @@ import {
 } from '../services/supplyAdmin'
 import {
   clearSupplyLineMappingDraft,
-  clearSupplyLineWorkingDraft,
-  createSupplyLineWorkingDraft,
   formatSupplyQuantityMillis,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
+  isSupplyLineWorkingDraftDirty,
+  saveDirtySupplyLines,
+  supplyExpectedDebtMillis,
+  supplyLineWorkingBaseline,
   supplyQuantityMillis,
-  suggestSupplyWorkingName,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
+  type SupplyLineWorkingDraft,
   type SupplyLineWorkingState,
 } from './supplyRequestDetailLogic'
 
 function formatDate(value: string | null): string {
   if (!value) return '—'
   return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'long', timeStyle: 'short',
+    dateStyle: 'long',
+    timeStyle: 'short',
   }).format(new Date(value))
 }
 
@@ -46,105 +47,29 @@ function statusLabel(value: SupplyRequest['status']): string {
     DRAFT: 'Черновик',
     SUBMITTED: 'Отправлена',
     IN_REVIEW: 'В обработке',
-    PLANNED: 'Спланирована',
+    PLANNED: 'В работе',
     PARTIALLY_FULFILLED: 'Исполнена частично',
     FULFILLED: 'Исполнена',
     CANCELLED: 'Отменена',
   } as const)[value]
 }
 
-function AllocationEditor({
-  request,
-  line,
-  onSaved,
-}: {
-  request: SupplyRequest
-  line: SupplyLine
-  onSaved: (request: SupplyRequest) => void
-}) {
-  const initial = useMemo(() => ({
-    transfer: line.allocations.length ? line.planned_transfer : (line.quantity ?? ''),
-    purchase: line.planned_purchase === '0.000' ? '' : line.planned_purchase,
-    cancel: line.planned_cancel === '0.000' ? '' : line.planned_cancel,
-    comment: line.allocations[0]?.comment ?? '',
-  }), [line])
-  const [values, setValues] = useState(initial)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState(line.allocations.length ? 'Сохранено' : 'Предложение, не сохранено')
-  const dirty = JSON.stringify(values) !== JSON.stringify(initial)
-  const requested = supplyQuantityMillis(line.quantity ?? '') ?? 0
-  const parts = [values.transfer, values.purchase, values.cancel]
-    .map(supplyQuantityMillis)
-  const hasInvalidQuantity = parts.some((value) => value === null)
-  const total = parts.reduce<number>(
-    (sum, value) => sum + (value ?? 0),
-    0,
-  )
-  const remaining = Math.max(requested - total, 0)
-
-  useEffect(() => {
-    if (!dirty) return
-    const handler = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty])
-
-  async function save() {
-    if (!line.requested_unit || saving) return
-    setSaving(true)
-    setMessage('')
-    try {
-      const updated = await saveSupplyAllocations(
-        request.id, line.id, request.version, values, line.requested_unit.id,
-      )
-      onSaved(updated)
-    } catch (error) {
-      setMessage(error instanceof SupplyApiError && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
-        ? 'Заявка изменилась. Обновите карточку и повторите.'
-        : 'Не удалось сохранить решение')
-    } finally {
-      setSaving(false)
-    }
+function workingSaveError(error: unknown): string {
+  if (
+    error instanceof SupplyApiError
+    && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
+  ) {
+    return 'Заявка изменилась. Обновите карточку и повторите.'
   }
-
-  return (
-    <div className="supply-allocation-editor">
-      {(['transfer', 'purchase', 'cancel'] as const).map((key) => (
-        <label key={key}>
-          <span>{({ transfer: 'Перемещение', purchase: 'Закупка', cancel: 'Отмена' })[key]}</span>
-          <input
-            type="number" min="0" step="0.001"
-            value={values[key]}
-            disabled={saving || !['SUBMITTED', 'IN_REVIEW'].includes(request.status)}
-            onChange={(event) => setValues({ ...values, [key]: event.target.value })}
-          />
-        </label>
-      ))}
-      <label className="supply-comment">
-        <span>Комментарий</span>
-        <input value={values.comment} disabled={saving} onChange={(event) => setValues({ ...values, comment: event.target.value })} />
-      </label>
-      <span className={remaining ? 'supply-incomplete' : 'supply-complete'}>
-        Не распределено: {formatSupplyQuantityMillis(remaining)}
-      </span>
-      <button
-        type="button"
-        disabled={
-          saving || hasInvalidQuantity || total > requested || !dirty
-        }
-        onClick={() => void save()}
-      >
-        {saving ? 'Сохраняем…' : 'Сохранить решение'}
-      </button>
-      <small>
-        {hasInvalidQuantity
-          ? 'Введите количество с точностью не более трёх знаков'
-          : total > requested
-          ? 'Распределено больше запрошенного'
-          : message}
-      </small>
-    </div>
-  )
+  if (
+    error instanceof SupplyApiError
+    && ['SUPPLY_UNIT_NOT_FOUND', 'SUPPLY_UNIT_INACTIVE'].includes(
+      error.code ?? '',
+    )
+  ) {
+    return 'Единица больше недоступна. Выберите другую.'
+  }
+  return 'Не удалось сохранить эту строку.'
 }
 
 function FulfillmentEditor({
@@ -175,7 +100,7 @@ function FulfillmentEditor({
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const dirty = JSON.stringify(values) !== JSON.stringify(initial)
-  const hasInvalidQuantity = Object.values(values).some(
+  const invalid = Object.values(values).some(
     (value) => supplyQuantityMillis(value.quantity) === null,
   )
 
@@ -187,7 +112,7 @@ function FulfillmentEditor({
   }, [dirty])
 
   async function save() {
-    if (saving || !dirty || hasInvalidQuantity) return
+    if (saving || !dirty || invalid) return
     setSaving(true)
     setMessage('')
     try {
@@ -227,7 +152,9 @@ function FulfillmentEditor({
     <div className="supply-fulfillment-editor">
       {physical.map((allocation) => (
         <div className="supply-fulfillment-row" key={allocation.id}>
-          <strong>{allocation.action === 'TRANSFER' ? 'Перемещение' : 'Закупка'}</strong>
+          <strong>
+            {allocation.action === 'TRANSFER' ? 'Перемещение' : 'Закупка'}
+          </strong>
           <span>План: {allocation.planned_quantity}</span>
           <label>
             <span>Отправлено</span>
@@ -262,7 +189,7 @@ function FulfillmentEditor({
             />
           </label>
           <span>
-            Осталось по allocation:{' '}
+            Осталось:{' '}
             {formatSupplyQuantityMillis(Math.max(
               (supplyQuantityMillis(allocation.planned_quantity) ?? 0)
               - (supplyQuantityMillis(
@@ -276,16 +203,13 @@ function FulfillmentEditor({
       <button
         type="button"
         disabled={
-          saving || !dirty || hasInvalidQuantity
-          || request.status === 'FULFILLED'
+          saving || !dirty || invalid || request.status === 'FULFILLED'
         }
         onClick={() => void save()}
       >
         {saving ? 'Сохраняем…' : 'Сохранить факт'}
       </button>
-      {hasInvalidQuantity && (
-        <small>Введите количество с точностью не более трёх знаков</small>
-      )}
+      {invalid && <small>Введите количество с точностью до трёх знаков</small>}
       {message && <small>{message}</small>}
     </div>
   )
@@ -299,8 +223,40 @@ function SupplyRequestDetailPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const primaryActionInFlight = useRef(false)
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
+
+  const editable = request
+    ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
+    : false
+  const dirtyIds = useMemo(() => request?.lines
+    .filter((line) => {
+      const draft = working[line.id]
+      return draft && isSupplyLineWorkingDraftDirty(
+        draft,
+        supplyLineWorkingBaseline(line),
+      )
+    })
+    .map((line) => line.id) ?? [], [request, working])
+  const dirtySet = useMemo(() => new Set(dirtyIds), [dirtyIds])
+  const hasDirty = dirtyIds.length > 0
+  const invalidDirty = request?.lines.some((line) => {
+    if (!dirtySet.has(line.id)) return false
+    const draft = working[line.id]
+    const quantity = supplyQuantityMillis(draft?.quantity ?? '')
+    return !draft?.workingName.trim()
+      || quantity === null
+      || quantity < 0
+      || !draft.unitId
+  }) ?? false
+  const readyToSend = request?.lines.length
+    && request.lines.every((line) => (
+      ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)
+      && line.quantity
+      && line.requested_unit
+      && !['SUSPECTED', 'CONFIRMED'].includes(line.duplicate_status)
+    ))
 
   async function reload() {
     const item = await getSupplyRequest(requestId)
@@ -325,10 +281,9 @@ function SupplyRequestDetailPage() {
         setProducts(productPage.items)
         setUnits(unitItems.filter((unit) => unit.is_active))
         setState('ready')
+      }).catch(() => {
+        if (!controller.signal.aborted) setState('error')
       })
-        .catch(() => {
-          if (!controller.signal.aborted) setState('error')
-        })
     }, 0)
     return () => {
       window.clearTimeout(timeout)
@@ -336,114 +291,111 @@ function SupplyRequestDetailPage() {
     }
   }, [requestId])
 
-  async function saveWorkingValues(
+  useEffect(() => {
+    if (!hasDirty) return
+    const handler = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasDirty])
+
+  function changeWorking(
     line: SupplyLine,
-    draft: ReturnType<typeof createSupplyLineWorkingDraft>,
+    draft: SupplyLineWorkingDraft,
+    changes: Partial<SupplyLineWorkingDraft>,
   ) {
-    if (
-      !request || draft.status === 'loading' || !draft.workingName.trim()
-      || Number(draft.quantity) <= 0 || !draft.unitId
-    ) return
     setWorking((current) => updateSupplyLineWorkingDraft(
       current,
       line.id,
       draft,
-      { status: 'loading', error: '' },
+      { ...changes, status: 'idle', error: '' },
     ))
+  }
+
+  async function saveAllWorkingValues() {
+    if (
+      !request || busy || primaryActionInFlight.current
+      || !hasDirty || invalidDirty
+    ) return
+    primaryActionInFlight.current = true
+    setBusy(true)
     setMessage('')
+    setWorking((current) => {
+      const next = { ...current }
+      dirtyIds.forEach((lineId) => {
+        if (next[lineId]) {
+          next[lineId] = { ...next[lineId], status: 'loading', error: '' }
+        }
+      })
+      return next
+    })
     try {
-      const updated = await saveSupplyLineWorkingValues(
+      const result = await saveDirtySupplyLines(
         request.id,
-        line.id,
-        {
-          request_version: request.version,
-          working_name: draft.workingName.trim(),
-          requested_quantity: draft.quantity,
-          requested_unit_id: draft.unitId,
-        },
+        request.version,
+        request.lines,
+        working,
+        saveSupplyLineWorkingValues,
       )
+      let remaining = result.remaining
+      Object.entries(result.errors).forEach(([lineId, error]) => {
+        const draft = remaining[lineId]
+        if (draft) {
+          remaining = {
+            ...remaining,
+            [lineId]: {
+              ...draft,
+              status: 'error',
+              error: workingSaveError(error),
+            },
+          }
+        }
+      })
+      setWorking(remaining)
       setRequest((current) => current && current.id === request.id
         ? {
             ...current,
-            version: updated.request_version,
-            lines: current.lines.map((item) => (
-              item.id === line.id ? updated.line : item
-            )),
+            version: result.requestVersion,
+            lines: current.lines.map(
+              (line) => result.savedLines[line.id] ?? line,
+            ),
           }
         : current)
-      setWorking((current) => clearSupplyLineWorkingDraft(current, line.id))
-      setMessage('Строка готова к планированию')
-    } catch (error) {
-      const errorMessage = error instanceof SupplyApiError
-        && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
-        ? 'Заявка изменилась. Обновите карточку и повторите.'
-        : error instanceof SupplyApiError
-        && ['SUPPLY_UNIT_NOT_FOUND', 'SUPPLY_UNIT_INACTIVE'].includes(error.code ?? '')
-        ? 'Единица измерения больше недоступна. Выберите другую.'
-        : 'Не удалось сохранить строку'
-      setWorking((current) => updateSupplyLineWorkingDraft(
-        current,
-        line.id,
-        draft,
-        { status: 'error', error: errorMessage },
-      ))
-    }
-  }
-
-  async function mapLine(line: SupplyLine) {
-    const draft = mapping[line.id]
-    if (
-      !request || busy || draft?.status === 'loading'
-      || !draft?.productId || !draft.unitId || !draft.quantity
-    ) return
-    setMapping((current) => updateSupplyLineMappingDraft(
-      current,
-      line.id,
-      draft,
-      { status: 'loading', error: '' },
-    ))
-    setMessage('')
-    let matched = false
-    try {
-      await matchSupplyLine(request.id, line.id, {
-        expected_version: request.version,
-        product_id: draft.productId,
-        unit_id: draft.unitId,
-        quantity: draft.quantity,
-        save_alias: draft.saveAlias,
-      })
-      matched = true
-      setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
-      await reload()
-      setMessage(draft.saveAlias ? 'Строка сопоставлена, алиас сохранён' : 'Строка сопоставлена')
-    } catch (error) {
-      const errorMessage = matched
-        ? 'Строка сопоставлена, но не удалось обновить карточку'
-        : error instanceof SupplyApiError && error.code === 'SUPPLY_ALIAS_CONFLICT'
-        ? 'Такое наименование уже связано с другим товаром'
-        : 'Не удалось сопоставить строку. Обновите карточку и повторите.'
-      if (matched) {
-        setMessage(errorMessage)
-      } else {
-        setMapping((current) => updateSupplyLineMappingDraft(
-          current,
-          line.id,
-          draft,
-          { status: 'error', error: errorMessage },
-        ))
-      }
-    }
-  }
-
-  async function plan() {
-    if (!request || busy) return
-    setBusy(true)
-    try {
-      setRequest(await planSupplyRequest(request.id, request.version))
-      setMessage('Заявка переведена в план')
-    } catch {
-      setMessage('Заявку пока нельзя перевести в план')
+      const failedCount = Object.keys(result.errors).length
+      setMessage(failedCount
+        ? `Часть изменений не сохранена: ${failedCount}`
+        : 'Все изменения сохранены')
     } finally {
+      primaryActionInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  async function sendToWork() {
+    if (
+      !request || busy || primaryActionInFlight.current
+      || hasDirty || !readyToSend
+    ) return
+    primaryActionInFlight.current = true
+    setBusy(true)
+    setMessage('')
+    try {
+      setRequest(await planSupplyRequest(request.id, request.version, true))
+      setMessage('Заявка отправлена в работу')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_REQUEST_VERSION_CONFLICT:
+          'Заявка изменилась. Обновите карточку и повторите.',
+        SUPPLY_DUPLICATES_PRESENT:
+          'Сначала устраните отмеченные дубли.',
+        SUPPLY_REQUEST_PLANNING_INCOMPLETE:
+          'Проверьте название, количество и фасовку каждой строки.',
+        SUPPLY_SEND_QUANTITY_INVALID:
+          'Количество к отправке не может превышать запрошенное.',
+      } as Record<string, string>)[code ?? '']
+        ?? 'Не удалось отправить заявку в работу')
+    } finally {
+      primaryActionInFlight.current = false
       setBusy(false)
     }
   }
@@ -454,7 +406,11 @@ function SupplyRequestDetailPage() {
     if (!reason?.trim()) return
     setBusy(true)
     try {
-      setRequest(await cancelSupplyRequest(request.id, request.version, reason.trim()))
+      setRequest(await cancelSupplyRequest(
+        request.id,
+        request.version,
+        reason.trim(),
+      ))
       setMessage('Заявка отменена')
     } catch {
       setMessage('Не удалось отменить заявку')
@@ -496,7 +452,10 @@ function SupplyRequestDetailPage() {
     setBusy(true)
     try {
       setRequest(await confirmSupplyDebtInclusion(
-        request.id, line.id, request.version, entered,
+        request.id,
+        line.id,
+        request.version,
+        entered,
       ))
       setMessage('Включение долга подтверждено')
     } catch {
@@ -506,306 +465,355 @@ function SupplyRequestDetailPage() {
     }
   }
 
-  async function disableAlias(productId: string, aliasId: string) {
-    if (busy) return
-    setBusy(true)
+  async function mapLine(line: SupplyLine) {
+    const draft = mapping[line.id]
+    if (
+      !request || busy || hasDirty || draft?.status === 'loading'
+      || !draft?.productId || !draft.unitId || !draft.quantity
+    ) return
+    setMapping((current) => updateSupplyLineMappingDraft(
+      current,
+      line.id,
+      draft,
+      { status: 'loading', error: '' },
+    ))
     try {
-      await disableSupplyAlias(productId, aliasId)
-      const refreshed = await getSupplyProducts()
-      setProducts(refreshed.items)
-      setMessage('Алиас отключён')
+      await matchSupplyLine(request.id, line.id, {
+        expected_version: request.version,
+        product_id: draft.productId,
+        unit_id: draft.unitId,
+        quantity: draft.quantity,
+        save_alias: draft.saveAlias,
+      })
+      setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
+      await reload()
+      setMessage('Строка сопоставлена')
     } catch {
-      setMessage('Не удалось отключить алиас')
-    } finally {
-      setBusy(false)
+      setMapping((current) => updateSupplyLineMappingDraft(
+        current,
+        line.id,
+        draft,
+        {
+          status: 'error',
+          error: 'Не удалось сопоставить строку.',
+        },
+      ))
     }
   }
 
-  if (state === 'loading') return <p className="page-state">Загружаем заявку…</p>
-  if (state === 'error' || !request) return <p className="request-message request-message-error">Заявка не найдена или недоступна</p>
-
-  const planBlockReason = !request.can_plan
-    ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
-      ? 'Для перевода в план сохраните решения по всем строкам и устраните блокирующие дубли.'
-      : 'Перевод в план доступен только для заявки в обработке.'
-    : ''
-  const fulfillmentBlockReason = request.status === 'PARTIALLY_FULFILLED'
-    ? 'Часть факта уже сохранена. Продолжите работу в строках заявки.'
-    : request.status === 'FULFILLED'
-    ? 'Заявка исполнена. Факт доступен только для просмотра.'
-    : request.status !== 'PLANNED'
-    ? 'Отправка по плану доступна после перевода заявки в план.'
-    : ''
+  if (state === 'loading') {
+    return <p className="page-state">Загружаем заявку…</p>
+  }
+  if (state === 'error' || !request) {
+    return (
+      <p className="request-message request-message-error">
+        Заявка не найдена или недоступна
+      </p>
+    )
+  }
 
   return (
     <section className="request-page request-detail-page supply-admin-page">
       <div className="request-panel">
-        <div className="request-heading">
-          <div><p className="eyebrow">СНАБЖЕНИЕ</p><h1>{request.public_number}</h1></div>
-          <Link className="request-back-link" to="/supply/requests">← К реестру</Link>
-        </div>
-        <dl className="request-facts">
-          <div><dt>Подразделение</dt><dd>{request.department.name}</dd></div>
-          <div><dt>Направление</dt><dd>{request.direction.name}</dd></div>
-          <div><dt>Цикл</dt><dd>{request.cycle?.cycle_date ?? '—'}</dd></div>
-          <div><dt>Автор</dt><dd>{request.public_author_name ?? 'Сотрудник EOS'}</dd></div>
-          <div><dt>Статус</dt><dd>{statusLabel(request.status)}</dd></div>
-          <div><dt>Создана / отправлена</dt><dd>{formatDate(request.created_at)} / {formatDate(request.submitted_at)}</dd></div>
-          <div><dt>Версия</dt><dd>{request.version}</dd></div>
-          <div><dt>Дубли</dt><dd>{request.duplicate_groups}</dd></div>
-        </dl>
-        <div className="supply-card-actions">
-          <button type="button" disabled={!request.can_plan || busy} onClick={() => void plan()}>Перевести в план</button>
-          <button
-            type="button"
-            disabled={request.status !== 'PLANNED' || busy}
-            onClick={() => void fulfillAsPlanned()}
-          >
-            Отправить как запланировано
-          </button>
-          <button type="button" disabled={!['SUBMITTED', 'IN_REVIEW'].includes(request.status) || busy} onClick={() => void cancel()}>Отменить заявку</button>
-          <button type="button" disabled={busy} onClick={() => void reload()}>Обновить</button>
-          {message && <span>{message}</span>}
-        </div>
-        {(planBlockReason || fulfillmentBlockReason) && (
-          <div className="request-message request-message-warning">
-            {planBlockReason && <p>{planBlockReason}</p>}
-            {fulfillmentBlockReason && <p>{fulfillmentBlockReason}</p>}
+        <div className="request-heading supply-simple-heading">
+          <div>
+            <p className="eyebrow">СНАБЖЕНИЕ</p>
+            <h1>{request.public_number}</h1>
+            <p>
+              {request.department.name} · {request.direction.name}
+              {' · '}{statusLabel(request.status)}
+            </p>
           </div>
-        )}
-        <div className="supply-lines">
+          <Link className="request-back-link" to="/supply/requests">
+            ← К реестру
+          </Link>
+        </div>
+        <div className="supply-request-meta">
+          <span>{request.public_author_name ?? 'Сотрудник EOS'}</span>
+          <span>{formatDate(request.submitted_at ?? request.created_at)}</span>
+          <details>
+            <summary>Действия с заявкой</summary>
+            <button type="button" disabled={busy} onClick={() => void reload()}>
+              Обновить
+            </button>
+            {editable && (
+              <button
+                type="button"
+                disabled={busy || hasDirty}
+                onClick={() => void cancel()}
+              >
+                Отменить заявку
+              </button>
+            )}
+          </details>
+        </div>
+
+        <div className="supply-simple-table" role="table">
+          <div className="supply-simple-table-head" role="row">
+            <span role="columnheader">Название</span>
+            <span role="columnheader">Отправить</span>
+            <span role="columnheader">Фасовка / единица</span>
+            <span aria-hidden="true" />
+          </div>
           {request.lines.map((line) => {
-            const draft = getSupplyLineMappingDraft(
+            const baseline = supplyLineWorkingBaseline(line)
+            const draft = getSupplyLineWorkingDraft(
+              working,
+              line.id,
+              baseline,
+            )
+            const mappingDraft = getSupplyLineMappingDraft(
               mapping,
               line.id,
               line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
               line.quantity ?? line.parsed_quantity ?? '',
             )
-            const workingFallback = createSupplyLineWorkingDraft(
-              suggestSupplyWorkingName(line.parsed_name, line.raw_text),
-              line.quantity ?? line.parsed_quantity ?? '',
-              line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
-            )
-            const workingDraft = getSupplyLineWorkingDraft(
-              working,
-              line.id,
-              workingFallback,
-            )
-            const updateDraft = (
+            const updateMapping = (
               changes: Parameters<typeof updateSupplyLineMappingDraft>[3],
             ) => setMapping((current) => updateSupplyLineMappingDraft(
               current,
               line.id,
-              draft,
+              mappingDraft,
               changes,
             ))
+            const lineDirty = dirtySet.has(line.id)
+            const requested = supplyQuantityMillis(line.quantity ?? '')
+            const sending = supplyQuantityMillis(draft.quantity)
+            const expectedDebt = supplyExpectedDebtMillis(
+              line.quantity ?? '',
+              draft.quantity,
+            )
+            const sendDiffers = requested !== null
+              && sending !== null
+              && requested !== sending
             return (
-              <article className="supply-line-card" key={line.id}>
-                <header>
-                  <div>
-                    <strong>{line.working_name}</strong>
-                    <span>{line.quantity ?? line.parsed_quantity ?? '—'} {line.requested_unit?.short_name_ru ?? line.parsed_unit?.short_name_ru ?? ''}</span>
-                  </div>
-                  <small>
-                    {line.product_id ? 'Позиция сопоставлена' : 'Позиция не сопоставлена'}
-                    {' · '}дубли: {line.duplicate_status}
-                  </small>
-                </header>
-                <details><summary>Исходная строка</summary><p>{line.raw_text}</p></details>
-                {(!line.quantity || !line.requested_unit)
-                  && ['SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
-                  <div className="supply-mapping">
-                    <h3>Уточните строку</h3>
-                    <label>
-                      <span>Рабочее название</span>
-                      <input
-                        value={workingDraft.workingName}
-                        disabled={workingDraft.status === 'loading'}
-                        onChange={(event) => setWorking((current) => (
-                          updateSupplyLineWorkingDraft(
-                            current,
-                            line.id,
-                            workingDraft,
-                            {
-                              workingName: event.target.value,
-                              status: 'idle',
-                              error: '',
-                            },
-                          )
-                        ))}
-                      />
-                    </label>
-                    <label>
-                      <span>Количество</span>
-                      <input
-                        type="number"
-                        min="0.001"
-                        step="0.001"
-                        value={workingDraft.quantity}
-                        disabled={workingDraft.status === 'loading'}
-                        onChange={(event) => setWorking((current) => (
-                          updateSupplyLineWorkingDraft(
-                            current,
-                            line.id,
-                            workingDraft,
-                            {
-                              quantity: event.target.value,
-                              status: 'idle',
-                              error: '',
-                            },
-                          )
-                        ))}
-                      />
-                    </label>
-                    <label>
-                      <span>Единица измерения</span>
-                      <select
-                        value={workingDraft.unitId}
-                        disabled={workingDraft.status === 'loading'}
-                        onChange={(event) => setWorking((current) => (
-                          updateSupplyLineWorkingDraft(
-                            current,
-                            line.id,
-                            workingDraft,
-                            {
-                              unitId: event.target.value,
-                              status: 'idle',
-                              error: '',
-                            },
-                          )
-                        ))}
-                      >
-                        <option value="">Выберите единицу</option>
-                        {units.map((unit) => (
-                          <option key={unit.id} value={unit.id}>
-                            {unit.name_ru} ({unit.short_name_ru})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      disabled={
-                        workingDraft.status === 'loading'
-                        || !workingDraft.workingName.trim()
-                        || Number(workingDraft.quantity) <= 0
-                        || !workingDraft.unitId
-                      }
-                      onClick={() => void saveWorkingValues(line, workingDraft)}
+              <div
+                className={[
+                  'supply-simple-line',
+                  lineDirty ? 'is-dirty' : '',
+                  draft.status === 'error' ? 'has-error' : '',
+                ].filter(Boolean).join(' ')}
+                role="row"
+                key={line.id}
+              >
+                <div className="supply-simple-name" role="cell">
+                  {editable ? (
+                    <input
+                      aria-label={`Название, строка ${line.position}`}
+                      value={draft.workingName}
+                      disabled={busy}
+                      onChange={(event) => changeWorking(
+                        line,
+                        draft,
+                        { workingName: event.target.value },
+                      )}
+                    />
+                  ) : <span>{line.working_name}</span>}
+                  {!line.product_id && (
+                    <small className="supply-unmatched-badge">
+                      Не сопоставлено
+                    </small>
+                  )}
+                </div>
+                <div role="cell">
+                  {editable ? (
+                    <input
+                      className="supply-simple-quantity"
+                      aria-label={`Отправить, строка ${line.position}`}
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      inputMode="decimal"
+                      value={draft.quantity}
+                      disabled={busy}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                      onChange={(event) => changeWorking(
+                        line,
+                        draft,
+                        { quantity: event.target.value },
+                      )}
+                    />
+                  ) : (
+                    <span>{line.send_quantity ?? line.quantity ?? '—'}</span>
+                  )}
+                  {sendDiffers && expectedDebt !== null && (
+                    <small className="supply-send-summary">
+                      Запрошено: {line.quantity}
+                      {' · '}долг после отправки:{' '}
+                      {formatSupplyQuantityMillis(expectedDebt)}
+                    </small>
+                  )}
+                </div>
+                <div role="cell">
+                  {editable ? (
+                    <select
+                      aria-label={`Фасовка, строка ${line.position}`}
+                      value={draft.unitId}
+                      disabled={busy}
+                      onChange={(event) => changeWorking(
+                        line,
+                        draft,
+                        { unitId: event.target.value },
+                      )}
                     >
-                      {workingDraft.status === 'loading'
-                        ? 'Сохраняем…'
-                        : 'Сохранить строку'}
-                    </button>
-                    {workingDraft.error && (
-                      <small className="request-message-error">
-                        {workingDraft.error}
-                      </small>
-                    )}
-                  </div>
-                )}
-                {line.match_status === 'NEEDS_REVIEW' && (
-                  <details className="supply-mapping">
-                    <summary>Сопоставить с iiko позже</summary>
-                    <p className="request-message request-message-warning">
-                      {line.quantity && line.requested_unit
-                        ? 'Позиция не сопоставлена. Планирование и факт доступны по рабочему наименованию.'
-                        : 'Сначала уточните рабочее название, количество и единицу.'}
-                    </p>
-                    <p>Разбор: {line.parsed_name ?? 'название не распознано'} · {line.parsed_quantity ?? '—'} {line.parsed_unit?.short_name_ru ?? 'единица не распознана'}</p>
-                    <label><span>Поиск товара</span><input value={draft.searchQuery} onChange={(event) => updateDraft({ searchQuery: event.target.value, error: '', status: 'idle' })} /></label>
-                    <label><span>Активный товар</span>
-                      <select value={draft.productId} disabled={busy || draft.status === 'loading'} onChange={(event) => {
-                        const product = products.find((item) => item.id === event.target.value)
-                        updateDraft({
-                          productId: event.target.value,
-                          unitId: line.requested_unit?.id
-                            ?? product?.default_unit.id
-                            ?? draft.unitId,
-                          error: '',
-                          status: 'idle',
-                        })
-                      }}>
-                        <option value="">Выберите товар</option>
-                        {products.filter((product) => product.name.toLocaleLowerCase('ru-RU').includes(draft.searchQuery.trim().toLocaleLowerCase('ru-RU'))).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                      </select>
-                    </label>
-                    <label><span>Количество</span><input type="number" min="0.001" step="0.001" value={draft.quantity} disabled={draft.status === 'loading'} onChange={(event) => updateDraft({ quantity: event.target.value, error: '', status: 'idle' })} /></label>
-                    <label><input type="checkbox" checked={draft.saveAlias} disabled={draft.status === 'loading'} onChange={(event) => updateDraft({ saveAlias: event.target.checked, error: '', status: 'idle' })} /> Запомнить это наименование</label>
-                    <button type="button" disabled={busy || draft.status === 'loading' || !draft.productId || !draft.unitId || !draft.quantity} onClick={() => void mapLine(line)}>
-                      {draft.status === 'loading' ? 'Сопоставляем…' : 'Сопоставить'}
-                    </button>
-                    {draft.error && <small className="request-message-error">{draft.error}</small>}
-                    {draft.productId && (
-                      <div className="supply-aliases">
-                        <span>Сохранённые алиасы:</span>
-                        {products.find((product) => product.id === draft.productId)?.aliases
-                          .filter((alias) => alias.status === 'APPROVED')
-                          .map((alias) => (
-                            <button key={alias.id} type="button" disabled={busy} onClick={() => void disableAlias(draft.productId, alias.id)}>
-                              {alias.alias} · отключить
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </details>
-                )}
-                {line.quantity && line.requested_unit
-                  && ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)
-                  && ['SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
-                  <AllocationEditor
-                    key={`${line.id}:${line.allocations.map((item) => (
-                      `${item.id}:${item.action}:${item.planned_quantity}`
-                    )).join('|')}`}
-                    request={request}
-                    line={line}
-                    onSaved={setRequest}
-                  />
-                )}
-                {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (
-                  <div className="supply-fulfillment">
-                    <dl className="supply-line-totals">
-                      <div><dt>Запросили</dt><dd>{line.quantity ?? '—'}</dd></div>
-                      <div><dt>Перемещение, план</dt><dd>{line.planned_transfer}</dd></div>
-                      <div><dt>Закупка, план</dt><dd>{line.planned_purchase}</dd></div>
-                      <div><dt>Отмена</dt><dd>{line.planned_cancel}</dd></div>
-                      <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
-                      <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
-                      <div><dt>Активный долг</dt><dd>{line.active_debt_quantity}</dd></div>
-                      <div><dt>Включено старого долга</dt><dd>{line.debt_quantity_included}</dd></div>
-                    </dl>
-                    {line.requires_debt_confirmation && request.status !== 'FULFILLED' && (
-                      <div className="request-message request-message-warning">
-                        Новая заявка меньше активного долга. Подтвердите,
-                        какая часть долга включена.
+                      <option value="">Выберите</option>
+                      {units.map((unit) => (
+                        <option value={unit.id} key={unit.id}>
+                          {unit.short_name_ru}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>
+                      {line.requested_unit?.short_name_ru
+                        ?? line.parsed_unit?.short_name_ru
+                        ?? '—'}
+                    </span>
+                  )}
+                </div>
+                <details className="supply-line-menu" role="cell">
+                  <summary aria-label="Редкие действия">⋯</summary>
+                  <div>
+                    <strong>Исходная строка</strong>
+                    <p>{line.raw_text}</p>
+                    {line.match_status === 'NEEDS_REVIEW' && editable && (
+                      <div className="supply-optional-mapping">
+                        <strong>Сопоставить с iiko</strong>
+                        <input
+                          aria-label="Поиск товара"
+                          placeholder="Найти товар"
+                          value={mappingDraft.searchQuery}
+                          onChange={(event) => updateMapping({
+                            searchQuery: event.target.value,
+                            status: 'idle',
+                            error: '',
+                          })}
+                        />
+                        <select
+                          aria-label="Товар iiko"
+                          value={mappingDraft.productId}
+                          disabled={busy || hasDirty}
+                          onChange={(event) => updateMapping({
+                            productId: event.target.value,
+                            status: 'idle',
+                            error: '',
+                          })}
+                        >
+                          <option value="">Выберите товар</option>
+                          {products.filter((product) => product.name
+                            .toLocaleLowerCase('ru-RU')
+                            .includes(mappingDraft.searchQuery.trim()
+                              .toLocaleLowerCase('ru-RU')))
+                            .map((product) => (
+                              <option key={product.id} value={product.id}>
+                                {product.name}
+                              </option>
+                            ))}
+                        </select>
                         <button
                           type="button"
-                          disabled={busy}
-                          onClick={() => void confirmDebt(line)}
+                          disabled={
+                            busy || hasDirty || !mappingDraft.productId
+                            || !mappingDraft.unitId || !mappingDraft.quantity
+                          }
+                          onClick={() => void mapLine(line)}
                         >
-                          Подтвердить включение
+                          Сопоставить
                         </button>
+                        {mappingDraft.error && (
+                          <small className="request-message-error">
+                            {mappingDraft.error}
+                          </small>
+                        )}
                       </div>
                     )}
-                    {line.active_debt_id && (
-                      <Link to={`/supply/debts?open=${line.active_debt_id}`}>
-                        Открыть долг
-                      </Link>
-                    )}
-                    <FulfillmentEditor
-                      key={`${line.id}:${line.allocations.map((item) => (
-                        `${item.id}:${item.fulfilled_quantity}`
-                      )).join('|')}`}
-                      request={request}
-                      line={line}
-                      onSaved={setRequest}
-                    />
                   </div>
+                </details>
+                {draft.error && (
+                  <small className="supply-line-error">{draft.error}</small>
                 )}
-              </article>
+              </div>
             )
           })}
         </div>
+
+        {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(
+          request.status,
+        ) && request.lines.map((line) => (
+          <details className="supply-fulfillment" key={`fact-${line.id}`}>
+            <summary>
+              {line.working_name}: отправлено {line.fulfilled_total} из{' '}
+              {line.quantity ?? '—'}
+            </summary>
+            <dl className="supply-line-totals">
+              <div><dt>Утверждено</dt><dd>{line.quantity ?? '—'}</dd></div>
+              <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
+              <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
+              <div><dt>Активный долг</dt><dd>{line.active_debt_quantity}</dd></div>
+            </dl>
+            {line.requires_debt_confirmation
+              && request.status !== 'FULFILLED' && (
+              <div className="request-message request-message-warning">
+                Подтвердите, какая часть старого долга включена.
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void confirmDebt(line)}
+                >
+                  Подтвердить включение
+                </button>
+              </div>
+            )}
+            {line.active_debt_id && (
+              <Link to={`/supply/debts?open=${line.active_debt_id}`}>
+                Открыть долг
+              </Link>
+            )}
+            {line.send_quantity === null && (
+              <FulfillmentEditor
+                request={request}
+                line={line}
+                onSaved={setRequest}
+              />
+            )}
+          </details>
+        ))}
+      </div>
+
+      <div className="supply-sticky-actions">
+        {message && <span role="status">{message}</span>}
+        {editable && hasDirty && (
+          <button
+            className="supply-primary-action"
+            type="button"
+            disabled={busy || invalidDirty}
+            onClick={() => void saveAllWorkingValues()}
+          >
+            {busy ? 'Сохраняем…' : 'Сохранить изменения'}
+          </button>
+        )}
+        {editable && !hasDirty && (
+          <button
+            className="supply-primary-action"
+            type="button"
+            disabled={busy || !readyToSend}
+            onClick={() => void sendToWork()}
+          >
+            {busy ? 'Отправляем…' : 'Отправить в работу'}
+          </button>
+        )}
+        {request.status === 'PLANNED' && (
+          <button
+            className="supply-primary-action"
+            type="button"
+            disabled={busy}
+            onClick={() => void fulfillAsPlanned()}
+          >
+            {busy ? 'Сохраняем…' : 'Отправить как запланировано'}
+          </button>
+        )}
       </div>
     </section>
   )

@@ -6,6 +6,7 @@ import {
   getSupplyDebts,
   fulfillSupplyAsPlanned,
   matchSupplyLine,
+  planSupplyRequest,
   saveSupplyAllocations,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
@@ -17,6 +18,10 @@ import {
   createSupplyLineMappingDraft,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
+  isSupplyLineWorkingDraftDirty,
+  saveDirtySupplyLines,
+  supplyLineWorkingBaseline,
+  supplyExpectedDebtMillis,
   suggestSupplyWorkingName,
   formatSupplyQuantityMillis,
   supplyQuantityMillis,
@@ -25,6 +30,7 @@ import {
   type SupplyLineMappingState,
   type SupplyLineWorkingState,
 } from '../src/pages/supplyRequestDetailLogic.ts'
+import type { SupplyLine } from '../src/services/supplyAdmin.ts'
 
 test('подключает защищённые маршруты реестра и карточки', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
@@ -39,7 +45,7 @@ test('подключает защищённые маршруты реестра 
   assert.match(layout, /Долги подразделений/)
 })
 
-test('карточка поддерживает факт, долги и readonly исполненной заявки', () => {
+test('карточка сохраняет факт и readonly исполненной заявки', () => {
   const detail = readFileSync(
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
     'utf8',
@@ -52,14 +58,14 @@ test('карточка поддерживает факт, долги и readonly
   assert.match(detail, /Сохранить факт/)
   assert.match(detail, /Подтвердить включение/)
   assert.match(detail, /request\.status === 'FULFILLED'/)
-  assert.match(detail, /Заявка исполнена\. Факт доступен только для просмотра/)
+  assert.match(detail, /Утверждено/)
   assert.match(debts, /Долги подразделений/)
   assert.match(debts, /Закрыть частично или полностью/)
   assert.match(debts, /Отменить долг/)
   assert.match(debts, /История/)
 })
 
-test('несопоставленная позиция остаётся рабочей для плана и факта', () => {
+test('основной экран компактный и не требует ручного распределения', () => {
   const detail = readFileSync(
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
     'utf8',
@@ -72,27 +78,28 @@ test('несопоставленная позиция остаётся рабо�
     new URL('../src/pages/SupplyDebtListPage.tsx', import.meta.url),
     'utf8',
   )
-  assert.match(detail, /Позиция не сопоставлена/)
-  assert.match(detail, /Планирование и факт доступны по рабочему наименованию/)
-  assert.match(detail, /'MATCHED', 'NEEDS_REVIEW'/)
+  assert.match(detail, /supply-simple-table/)
+  assert.match(detail, /Название/)
+  assert.match(detail, /Отправить/)
+  assert.match(detail, /Фасовка \/ единица/)
+  assert.match(detail, /Не сопоставлено/)
+  assert.match(detail, /Сохранить изменения/)
+  assert.match(detail, /Отправить в работу/)
+  assert.doesNotMatch(detail, /AllocationEditor/)
+  assert.doesNotMatch(detail, /Сохранить решение/)
   assert.match(registry, /Не сопоставлено:/)
   assert.match(debts, /debt\.working_name/)
 })
 
-test('ручные значения двух неизвестных строк изолированы', () => {
+test('dirty state двух строк изолирован по line.id', () => {
   const detail = readFileSync(
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
     'utf8',
   )
-  assert.match(detail, /Уточните строку/)
-  assert.match(detail, /Сохранить строку/)
-  assert.match(detail, /Строка готова к планированию/)
-  assert.match(detail, /Сопоставить с iiko позже/)
-  assert.match(detail, /item\.id === line\.id \? updated\.line : item/)
-  assert.match(
-    detail,
-    /clearSupplyLineWorkingDraft\(current, line\.id\)/,
-  )
+  assert.match(detail, /dirtySet\.has\(line\.id\)/)
+  assert.match(detail, /saveDirtySupplyLines/)
+  assert.match(detail, /supply-sticky-actions/)
+  assert.match(detail, /event\.key === 'Enter'/)
   assert.match(
     detail,
     /Заявка изменилась\. Обновите карточку и повторите\./,
@@ -130,13 +137,79 @@ test('ручные значения двух неизвестных строк �
   )
 })
 
+test('batch-save очищает успешную строку и оставляет ошибочную dirty', async () => {
+  const lines = [
+    {
+      id: 'line-1',
+      working_name: 'Первая',
+      quantity: '10.000',
+      send_quantity: null,
+      parsed_quantity: '10.000',
+      requested_unit: { id: 'kg' },
+      parsed_unit: null,
+    },
+    {
+      id: 'line-2',
+      working_name: 'Вторая',
+      quantity: '20.000',
+      send_quantity: null,
+      parsed_quantity: '20.000',
+      requested_unit: { id: 'kg' },
+      parsed_unit: null,
+    },
+  ] as SupplyLine[]
+  const state: SupplyLineWorkingState = {
+    'line-1': createSupplyLineWorkingDraft('Первая', '8', 'kg'),
+    'line-2': createSupplyLineWorkingDraft('Вторая', '18', 'kg'),
+  }
+  assert.equal(supplyLineWorkingBaseline(lines[0]).quantity, '10.000')
+  assert.equal(
+    isSupplyLineWorkingDraftDirty(
+      state['line-1'],
+      supplyLineWorkingBaseline(lines[0]),
+    ),
+    true,
+  )
+
+  const result = await saveDirtySupplyLines(
+    'request',
+    7,
+    lines,
+    state,
+    async (_requestId, lineId, input) => {
+      if (lineId === 'line-2') throw new Error('validation')
+      assert.equal(input.requested_quantity, '10.000')
+      assert.equal(input.send_quantity, '8')
+      return {
+        request_version: input.request_version + 1,
+        line: { ...lines[0], send_quantity: input.send_quantity },
+      }
+    },
+  )
+
+  assert.equal(result.requestVersion, 8)
+  assert.equal(result.savedLines['line-1'].quantity, '10.000')
+  assert.equal(result.savedLines['line-1'].send_quantity, '8')
+  assert.equal(result.remaining['line-1'], undefined)
+  assert.equal(result.remaining['line-2'].quantity, '18')
+  assert.ok(result.errors['line-2'])
+  assert.equal(supplyExpectedDebtMillis('10', '8'), 2000)
+  assert.equal(
+    isSupplyLineWorkingDraftDirty(
+      supplyLineWorkingBaseline(lines[0]),
+      supplyLineWorkingBaseline(lines[0]),
+    ),
+    false,
+  )
+})
+
 test('editable state сопоставления изолирован по двум line.id', () => {
   const detail = readFileSync(
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
     'utf8',
   )
   assert.doesNotMatch(detail, /productSearch/)
-  assert.match(detail, /value=\{draft\.searchQuery\}/)
+  assert.match(detail, /value=\{mappingDraft\.searchQuery\}/)
   assert.match(
     detail,
     /clearSupplyLineMappingDraft\(current, line\.id\)/,
@@ -272,6 +345,7 @@ test('API-клиент передаёт фильтры, expected_version, али
       request_version: 5,
       working_name: 'Мусорные пакеты 30 л',
       requested_quantity: '3',
+      send_quantity: '2',
       requested_unit_id: 'roll',
     })
     await saveSupplyAllocations(
@@ -285,6 +359,7 @@ test('API-клиент передаёт фильтры, expected_version, али
       comment: 'факт',
     }])
     await fulfillSupplyAsPlanned('request', 8)
+    await planSupplyRequest('request', 9, true)
     await getSupplyDebts(new URLSearchParams({ severity: 'CRITICAL' }))
   } finally {
     globalThis.fetch = originalFetch
@@ -295,6 +370,7 @@ test('API-клиент передаёт фильтры, expected_version, али
   const workingBody = JSON.parse(String(calls[2].options.body))
   assert.equal(workingBody.request_version, 5)
   assert.equal(workingBody.requested_quantity, '3')
+  assert.equal(workingBody.send_quantity, '2')
   assert.equal(calls[2].options.method, 'PATCH')
   const allocationBody = JSON.parse(String(calls[3].options.body))
   assert.equal(allocationBody.expected_version, 6)
@@ -304,6 +380,9 @@ test('API-клиент передаёт фильтры, expected_version, али
   )
   assert.equal(JSON.parse(String(calls[4].options.body)).expected_version, 7)
   assert.equal(JSON.parse(String(calls[5].options.body)).expected_version, 8)
-  assert.match(calls[6].url, /severity=CRITICAL/)
-  assert.match(calls[6].url, /_ts=/)
+  const planBody = JSON.parse(String(calls[6].options.body))
+  assert.equal(planBody.expected_version, 9)
+  assert.equal(planBody.simple_mode, true)
+  assert.match(calls[7].url, /severity=CRITICAL/)
+  assert.match(calls[7].url, /_ts=/)
 })

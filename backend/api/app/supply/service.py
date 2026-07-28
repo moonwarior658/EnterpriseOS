@@ -212,6 +212,14 @@ class SupplyAllocationUnitMismatchError(ValueError):
     pass
 
 
+class SupplyRequestedQuantityImmutableError(ValueError):
+    pass
+
+
+class SupplySendQuantityExceedsRequestedError(ValueError):
+    pass
+
+
 class SupplyRequestPlanningIncompleteError(ValueError):
     pass
 
@@ -2122,11 +2130,38 @@ def update_supply_line_working_values(
         raise SupplyRequestStateError
 
     unit = _get_supply_unit(session, payload.requested_unit_id)
-    validate_quantity_for_unit(payload.requested_quantity, unit)
+    requested_quantity = line.quantity
+    if requested_quantity is None:
+        if payload.requested_quantity is None:
+            raise SupplyRequestPlanningIncompleteError
+        requested_quantity = payload.requested_quantity
+        validate_quantity_for_unit(requested_quantity, unit)
+        line.quantity = requested_quantity
+    elif (
+        payload.requested_quantity is not None
+        and payload.requested_quantity != requested_quantity
+    ):
+        raise SupplyRequestedQuantityImmutableError
+    validate_quantity_for_unit(requested_quantity, unit)
+    if (
+        payload.send_quantity > requested_quantity
+        or (
+            not unit.allows_fraction
+            and payload.send_quantity
+            != payload.send_quantity.to_integral_value()
+        )
+    ):
+        raise SupplySendQuantityExceedsRequestedError
     changed_at = datetime.now(timezone.utc)
     old_values = {
         "working_name": line.working_name,
-        "quantity": str(line.quantity) if line.quantity is not None else None,
+        "requested_quantity": (
+            str(line.quantity) if line.quantity is not None else None
+        ),
+        "send_quantity": (
+            str(line.send_quantity)
+            if line.send_quantity is not None else None
+        ),
         "unit_id": (
             str(line.requested_unit_id)
             if line.requested_unit_id is not None
@@ -2134,8 +2169,8 @@ def update_supply_line_working_values(
         ),
     }
 
-    line.parsed_name = payload.working_name
-    line.quantity = payload.requested_quantity
+    line.working_name_override = payload.working_name
+    line.send_quantity = payload.send_quantity
     line.requested_unit_id = unit.id
     if line.product_id is None:
         line.match_status = "NEEDS_REVIEW"
@@ -2162,7 +2197,8 @@ def update_supply_line_working_values(
         old_values,
         {
             "working_name": payload.working_name,
-            "quantity": str(payload.requested_quantity),
+            "requested_quantity": str(requested_quantity),
+            "send_quantity": str(payload.send_quantity),
             "unit_id": str(unit.id),
         },
     )
@@ -2250,13 +2286,17 @@ def plan_supply_request(
     *,
     expected_version: int,
     user_id: int,
+    simple_mode: bool = False,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session, request_id, expected_version=expected_version
     )
     if supply_request.status == "PLANNED":
         raise SupplyRequestAlreadyPlannedError
-    if supply_request.status != "IN_REVIEW":
+    editable_statuses = (
+        {"SUBMITTED", "IN_REVIEW"} if simple_mode else {"IN_REVIEW"}
+    )
+    if supply_request.status not in editable_statuses:
         raise SupplyRequestStateError
     refreshed = get_supply_request(session, request_id)
     if any(
@@ -2273,16 +2313,84 @@ def plan_supply_request(
     ]
     if blocking:
         raise SupplyRequestDuplicatesPresentError(blocking)
-    if not refreshed.lines or any(
-        line.planning_status != "COMPLETE" for line in refreshed.lines
-    ):
+    if not refreshed.lines:
         raise SupplyRequestPlanningIncompleteError
     try:
+        if simple_mode:
+            now = datetime.now(timezone.utc)
+            session.query(SupplyLineAllocation).filter(
+                SupplyLineAllocation.request_id == supply_request.id,
+                SupplyLineAllocation.tenant_id == settings.default_tenant_id,
+            ).delete(synchronize_session=False)
+            for line in refreshed.lines:
+                sent_quantity = (
+                    line.send_quantity
+                    if line.send_quantity is not None
+                    else line.quantity
+                )
+                if (
+                    sent_quantity is None
+                    or sent_quantity > line.quantity
+                    or (
+                        not line.requested_unit.allows_fraction
+                        and sent_quantity
+                        != sent_quantity.to_integral_value()
+                    )
+                ):
+                    raise SupplySendQuantityExceedsRequestedError
+                line.send_quantity = sent_quantity
+                session.add(SupplyLineAllocation(
+                    tenant_id=settings.default_tenant_id,
+                    request_id=supply_request.id,
+                    request_line_id=line.id,
+                    action="PURCHASE",
+                    planned_quantity=line.quantity,
+                    unit_id=line.requested_unit_id,
+                    comment="Техническое решение простого режима",
+                    fulfilled_quantity=sent_quantity,
+                    fulfilled_at=now if sent_quantity > 0 else None,
+                    fulfilled_by_user_id=(
+                        user_id if sent_quantity > 0 else None
+                    ),
+                    fulfillment_comment="Отправлено в простом режиме",
+                    created_by_user_id=user_id,
+                ))
+        elif any(
+            line.planning_status != "COMPLETE" for line in refreshed.lines
+        ):
+            raise SupplyRequestPlanningIncompleteError
         supply_request.status = "PLANNED"
         supply_request.planned_at = datetime.now(timezone.utc)
         supply_request.planned_by_user_id = user_id
+        if simple_mode:
+            session.flush()
+            for line in refreshed.lines:
+                session.expire(line, ["allocations"])
+                link = _ensure_debt_inclusion(
+                    session,
+                    supply_request,
+                    line,
+                    user_id=user_id,
+                    require_confirmation=False,
+                )
+                _apply_debt_for_line(
+                    session,
+                    supply_request,
+                    line,
+                    link,
+                    user_id=user_id,
+                    comment="Отправлено в простом режиме",
+                )
+            _finish_request_status(
+                session,
+                supply_request,
+                user_id=user_id,
+                explicit_action=True,
+            )
         supply_request.version += 1
         session.commit()
+        if simple_mode:
+            session.expire_all()
     except Exception:
         session.rollback()
         raise

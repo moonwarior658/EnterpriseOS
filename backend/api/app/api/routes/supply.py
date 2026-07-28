@@ -53,6 +53,7 @@ from app.schemas.supply import (
     SupplyRecognitionSummary,
     SupplyRecognitionRequest,
     SupplyRequestCreate,
+    SupplyRequestPlan,
     SupplyRequestCycleCreate,
     SupplyRequestCyclePage,
     SupplyRequestCycleRead,
@@ -85,6 +86,8 @@ from app.supply.service import (
     InvalidSupplyQuantityError,
     SupplyAllocationExceedsRequestedError,
     SupplyAllocationUnitMismatchError,
+    SupplyRequestedQuantityImmutableError,
+    SupplySendQuantityExceedsRequestedError,
     SupplyLineNotMatchedError,
     SupplyRequestPlanningIncompleteError,
     SupplyRequestNotFulfillableError,
@@ -1058,6 +1061,21 @@ def update_line_working_values(
             status_code=422,
             detail={"code": "SUPPLY_QUANTITY_INVALID"},
         ) from error
+    except SupplyRequestedQuantityImmutableError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SUPPLY_REQUESTED_QUANTITY_IMMUTABLE"},
+        ) from error
+    except SupplySendQuantityExceedsRequestedError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},
+        ) from error
+    except SupplyRequestPlanningIncompleteError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_REQUESTED_QUANTITY_REQUIRED"},
+        ) from error
 
 
 @router.put(
@@ -1102,7 +1120,7 @@ def update_line_allocations(
 @router.post("/requests/{request_id}/plan", response_model=SupplyRequestRead)
 def plan_request(
     request_id: UUID,
-    payload: SupplyExpectedVersion,
+    payload: SupplyRequestPlan,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyRequest:
@@ -1111,6 +1129,7 @@ def plan_request(
             db, request_id,
             expected_version=payload.expected_version,
             user_id=current_admin.id,
+            simple_mode=payload.simple_mode,
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
@@ -1124,6 +1143,11 @@ def plan_request(
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_DUPLICATES_PRESENT"}) from error
     except SupplyRequestPlanningIncompleteError as error:
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_PLANNING_INCOMPLETE"}) from error
+    except SupplySendQuantityExceedsRequestedError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},
+        ) from error
     except SupplyRequestStateError as error:
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
 

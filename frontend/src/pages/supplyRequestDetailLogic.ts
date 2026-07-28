@@ -20,6 +20,13 @@ export type SupplyLineWorkingDraft = {
 
 export type SupplyLineWorkingState = Record<string, SupplyLineWorkingDraft>
 
+export type SupplyWorkingSaveResult = {
+  requestVersion: number
+  savedLines: Record<string, SupplyLine>
+  remaining: SupplyLineWorkingState
+  errors: Record<string, unknown>
+}
+
 const SUPPLY_QUANTITY_SCALE = 1000
 
 export function supplyQuantityMillis(value: string): number | null {
@@ -35,6 +42,16 @@ export function supplyQuantityMillis(value: string): number | null {
 
 export function formatSupplyQuantityMillis(value: number): string {
   return (value / SUPPLY_QUANTITY_SCALE).toFixed(3)
+}
+
+export function supplyExpectedDebtMillis(
+  requestedQuantity: string,
+  sendQuantity: string,
+): number | null {
+  const requested = supplyQuantityMillis(requestedQuantity)
+  const sent = supplyQuantityMillis(sendQuantity)
+  if (requested === null || sent === null) return null
+  return Math.max(requested - sent, 0)
 }
 
 const TRAILING_QUANTITY_AND_UNIT = new RegExp(
@@ -96,6 +113,82 @@ export function clearSupplyLineWorkingDraft(
   return next
 }
 
+export function supplyLineWorkingBaseline(
+  line: SupplyLine,
+): SupplyLineWorkingDraft {
+  return createSupplyLineWorkingDraft(
+    line.working_name,
+    line.send_quantity ?? line.quantity ?? line.parsed_quantity ?? '',
+    line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
+  )
+}
+
+export function isSupplyLineWorkingDraftDirty(
+  draft: SupplyLineWorkingDraft,
+  baseline: SupplyLineWorkingDraft,
+): boolean {
+  return draft.workingName.trim() !== baseline.workingName.trim()
+    || supplyQuantityMillis(draft.quantity)
+      !== supplyQuantityMillis(baseline.quantity)
+    || draft.unitId !== baseline.unitId
+}
+
+export async function saveDirtySupplyLines(
+  requestId: string,
+  requestVersion: number,
+  lines: SupplyLine[],
+  state: SupplyLineWorkingState,
+  save: (
+    requestId: string,
+    lineId: string,
+    input: {
+      request_version: number
+      working_name: string
+      requested_quantity: string | null
+      send_quantity: string
+      requested_unit_id: string
+    },
+  ) => Promise<{ request_version: number; line: SupplyLine }>,
+): Promise<SupplyWorkingSaveResult> {
+  let currentVersion = requestVersion
+  const remaining = { ...state }
+  const savedLines: Record<string, SupplyLine> = {}
+  const errors: Record<string, unknown> = {}
+
+  for (const line of lines) {
+    const draft = state[line.id]
+    if (
+      !draft
+      || !isSupplyLineWorkingDraftDirty(
+        draft,
+        supplyLineWorkingBaseline(line),
+      )
+    ) continue
+    try {
+      const result = await save(requestId, line.id, {
+        request_version: currentVersion,
+        working_name: draft.workingName.trim(),
+        requested_quantity:
+          line.quantity ?? line.parsed_quantity ?? draft.quantity,
+        send_quantity: draft.quantity,
+        requested_unit_id: draft.unitId,
+      })
+      currentVersion = result.request_version
+      savedLines[line.id] = result.line
+      delete remaining[line.id]
+    } catch (error) {
+      errors[line.id] = error
+    }
+  }
+
+  return {
+    requestVersion: currentVersion,
+    savedLines,
+    remaining,
+    errors,
+  }
+}
+
 export function createSupplyLineMappingDraft(
   unitId: string,
   quantity: string,
@@ -143,3 +236,4 @@ export function clearSupplyLineMappingDraft(
   delete next[lineId]
   return next
 }
+import type { SupplyLine } from '../services/supplyAdmin'

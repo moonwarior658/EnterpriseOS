@@ -733,6 +733,10 @@ class SupplyRequestLine(Base):
             name="ck_supply_request_lines_raw_text",
         ),
         CheckConstraint(
+            "send_quantity IS NULL OR send_quantity >= 0",
+            name="ck_supply_request_lines_send_quantity_nonnegative",
+        ),
+        CheckConstraint(
             "match_status IN ('UNPROCESSED', 'PARSED', 'MATCHED', "
             "'NEEDS_REVIEW', 'REJECTED')",
             name="ck_supply_request_lines_match_status",
@@ -770,6 +774,10 @@ class SupplyRequestLine(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    working_name_override: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
     parsed_quantity: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 3),
         nullable=True,
@@ -787,6 +795,10 @@ class SupplyRequestLine(Base):
         nullable=True,
     )
     quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3),
+        nullable=True,
+    )
+    send_quantity: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 3),
         nullable=True,
     )
@@ -967,6 +979,8 @@ class SupplyRequestLine(Base):
 
     @property
     def working_name(self) -> str:
+        if self.working_name_override:
+            return self.working_name_override
         return self.product.name if self.product else (self.parsed_name or self.raw_text)
 
 
