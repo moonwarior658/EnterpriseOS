@@ -27,6 +27,7 @@ import {
   supplyExpectedDebtMillis,
   supplyLineWorkingBaseline,
   supplyQuantityMillis,
+  supplySendExcessMillis,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
@@ -583,6 +584,10 @@ function SupplyRequestDetailPage() {
               line.quantity ?? '',
               draft.quantity,
             )
+            const sendExcess = supplySendExcessMillis(
+              line.quantity ?? '',
+              draft.quantity,
+            )
             const sendDiffers = requested !== null
               && sending !== null
               && requested !== sending
@@ -638,11 +643,17 @@ function SupplyRequestDetailPage() {
                   ) : (
                     <span>{line.send_quantity ?? line.quantity ?? '—'}</span>
                   )}
-                  {sendDiffers && expectedDebt !== null && (
+                  {sendDiffers && expectedDebt !== null && expectedDebt > 0 && (
                     <small className="supply-send-summary">
                       Запрошено: {line.quantity}
                       {' · '}долг после отправки:{' '}
                       {formatSupplyQuantityMillis(expectedDebt)}
+                    </small>
+                  )}
+                  {sendDiffers && sendExcess !== null && sendExcess > 0 && (
+                    <small className="supply-send-summary">
+                      Отправлено больше запроса на{' '}
+                      {formatSupplyQuantityMillis(sendExcess)} единиц
                     </small>
                   )}
                 </div>

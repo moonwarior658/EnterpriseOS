@@ -22,6 +22,7 @@ import {
   saveDirtySupplyLines,
   supplyLineWorkingBaseline,
   supplyExpectedDebtMillis,
+  supplySendExcessMillis,
   suggestSupplyWorkingName,
   formatSupplyQuantityMillis,
   supplyQuantityMillis,
@@ -194,6 +195,10 @@ test('batch-save очищает успешную строку и оставля�
   assert.equal(result.remaining['line-2'].quantity, '18')
   assert.ok(result.errors['line-2'])
   assert.equal(supplyExpectedDebtMillis('10', '8'), 2000)
+  assert.equal(supplyExpectedDebtMillis('10', '12'), 0)
+  assert.equal(supplySendExcessMillis('10', '8'), 0)
+  assert.equal(supplySendExcessMillis('10', '10'), 0)
+  assert.equal(supplySendExcessMillis('10', '12'), 2000)
   assert.equal(
     isSupplyLineWorkingDraftDirty(
       supplyLineWorkingBaseline(lines[0]),

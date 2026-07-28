@@ -54,6 +54,16 @@ export function supplyExpectedDebtMillis(
   return Math.max(requested - sent, 0)
 }
 
+export function supplySendExcessMillis(
+  requestedQuantity: string,
+  sendQuantity: string,
+): number | null {
+  const requested = supplyQuantityMillis(requestedQuantity)
+  const sent = supplyQuantityMillis(sendQuantity)
+  if (requested === null || sent === null) return null
+  return Math.max(sent - requested, 0)
+}
+
 const TRAILING_QUANTITY_AND_UNIT = new RegExp(
   String.raw`\s+\d+(?:[.,]\d+)?\s*(?:кг|килограмм(?:а|ов)?|г|грамм(?:а|ов)?|л|литр(?:а|ов)?|шт|штук(?:а|и)?|уп|упаков(?:ка|ки|ок)|короб(?:ка|ки|ок)|рулон(?:а|ов)?)\.?\s*$`,
   'iu',

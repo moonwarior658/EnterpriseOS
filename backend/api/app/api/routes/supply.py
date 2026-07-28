@@ -87,7 +87,7 @@ from app.supply.service import (
     SupplyAllocationExceedsRequestedError,
     SupplyAllocationUnitMismatchError,
     SupplyRequestedQuantityImmutableError,
-    SupplySendQuantityExceedsRequestedError,
+    SupplySendQuantityInvalidError,
     SupplyLineNotMatchedError,
     SupplyRequestPlanningIncompleteError,
     SupplyRequestNotFulfillableError,
@@ -1066,7 +1066,7 @@ def update_line_working_values(
             status_code=409,
             detail={"code": "SUPPLY_REQUESTED_QUANTITY_IMMUTABLE"},
         ) from error
-    except SupplySendQuantityExceedsRequestedError as error:
+    except SupplySendQuantityInvalidError as error:
         raise HTTPException(
             status_code=422,
             detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},
@@ -1143,7 +1143,7 @@ def plan_request(
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_DUPLICATES_PRESENT"}) from error
     except SupplyRequestPlanningIncompleteError as error:
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_PLANNING_INCOMPLETE"}) from error
-    except SupplySendQuantityExceedsRequestedError as error:
+    except SupplySendQuantityInvalidError as error:
         raise HTTPException(
             status_code=422,
             detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},

@@ -1031,23 +1031,6 @@ class SupplyMatchingApiTests(unittest.TestCase):
             corrected_body["line"]["working_name"],
             "Молоко для крема",
         )
-        excessive = self.client.patch(
-            (
-                f"/supply/requests/{created['id']}/lines/{line['id']}"
-                "/working-values"
-            ),
-            json={
-                "request_version": corrected_body["request_version"],
-                "working_name": "Молоко для крема",
-                "send_quantity": "11",
-                "requested_unit_id": str(self.units["L"].id),
-            },
-        )
-        self.assertEqual(excessive.status_code, 422)
-        self.assertEqual(
-            excessive.json()["detail"]["code"],
-            "SUPPLY_SEND_QUANTITY_INVALID",
-        )
         immutable = self.client.patch(
             (
                 f"/supply/requests/{created['id']}/lines/{line['id']}"
@@ -1123,6 +1106,94 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(debt.json()["outstanding_quantity"], "2.000")
         debts = self.client.get("/supply/debts?status=ACTIVE").json()
         self.assertEqual(debts["total"], 1)
+
+    def _simple_send(
+        self,
+        raw_text: str,
+        send_quantity: str,
+    ) -> dict:
+        created = self.create_request(raw_text)
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line = submitted["lines"][0]
+        corrected = self.client.patch(
+            (
+                f"/supply/requests/{created['id']}/lines/{line['id']}"
+                "/working-values"
+            ),
+            json={
+                "request_version": submitted["version"],
+                "working_name": line["working_name"],
+                "send_quantity": send_quantity,
+                "requested_unit_id": line["requested_unit"]["id"],
+            },
+        )
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        result = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": corrected.json()["request_version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        return result.json()
+
+    def test_simple_send_above_request_fulfills_without_debt(self) -> None:
+        body = self._simple_send("Молоко 50 л", "100")
+        line = body["lines"][0]
+        self.assertEqual(body["status"], "FULFILLED")
+        self.assertEqual(line["quantity"], "50.000")
+        self.assertEqual(line["send_quantity"], "100.000")
+        self.assertEqual(line["fulfilled_total"], "100.000")
+        self.assertEqual(Decimal(line["unresolved_quantity"]), Decimal("0"))
+        self.assertIsNone(line["active_debt_id"])
+
+        repeated = self.client.post(
+            f"/supply/requests/{body['id']}/plan",
+            json={
+                "expected_version": body["version"],
+                "simple_mode": True,
+            },
+        )
+        self.assertEqual(repeated.status_code, 409)
+        debts = self.client.get("/supply/debts?status=ACTIVE").json()
+        self.assertEqual(debts["total"], 0)
+
+    def test_simple_send_small_overage_fulfills_without_debt(self) -> None:
+        body = self._simple_send("Молоко 10 л", "12")
+        line = body["lines"][0]
+        self.assertEqual(body["status"], "FULFILLED")
+        self.assertEqual(line["fulfilled_total"], "12.000")
+        self.assertEqual(Decimal(line["unresolved_quantity"]), Decimal("0"))
+        self.assertIsNone(line["active_debt_id"])
+
+    def test_simple_send_fractional_overage_fulfills_without_debt(
+        self,
+    ) -> None:
+        body = self._simple_send("Молоко 2.5 л", "3.75")
+        line = body["lines"][0]
+        self.assertEqual(body["status"], "FULFILLED")
+        self.assertEqual(line["fulfilled_total"], "3.750")
+        self.assertEqual(Decimal(line["unresolved_quantity"]), Decimal("0"))
+        self.assertIsNone(line["active_debt_id"])
+
+    def test_simple_send_unmatched_overage_fulfills_without_debt(
+        self,
+    ) -> None:
+        body = self._simple_send("Редкий крем 3 кг", "5")
+        line = body["lines"][0]
+        self.assertIsNone(line["product_id"])
+        self.assertEqual(body["status"], "FULFILLED")
+        self.assertEqual(line["fulfilled_total"], "5.000")
+        self.assertEqual(Decimal(line["unresolved_quantity"]), Decimal("0"))
+        self.assertIsNone(line["active_debt_id"])
 
     def test_simple_send_full_quantity_finishes_without_debt(self) -> None:
         created = self.create_request("Молоко 10 л")

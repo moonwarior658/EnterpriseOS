@@ -216,7 +216,7 @@ class SupplyRequestedQuantityImmutableError(ValueError):
     pass
 
 
-class SupplySendQuantityExceedsRequestedError(ValueError):
+class SupplySendQuantityInvalidError(ValueError):
     pass
 
 
@@ -2144,14 +2144,11 @@ def update_supply_line_working_values(
         raise SupplyRequestedQuantityImmutableError
     validate_quantity_for_unit(requested_quantity, unit)
     if (
-        payload.send_quantity > requested_quantity
-        or (
-            not unit.allows_fraction
-            and payload.send_quantity
-            != payload.send_quantity.to_integral_value()
-        )
+        not unit.allows_fraction
+        and payload.send_quantity
+        != payload.send_quantity.to_integral_value()
     ):
-        raise SupplySendQuantityExceedsRequestedError
+        raise SupplySendQuantityInvalidError
     changed_at = datetime.now(timezone.utc)
     old_values = {
         "working_name": line.working_name,
@@ -2330,21 +2327,20 @@ def plan_supply_request(
                 )
                 if (
                     sent_quantity is None
-                    or sent_quantity > line.quantity
                     or (
                         not line.requested_unit.allows_fraction
                         and sent_quantity
                         != sent_quantity.to_integral_value()
                     )
                 ):
-                    raise SupplySendQuantityExceedsRequestedError
+                    raise SupplySendQuantityInvalidError
                 line.send_quantity = sent_quantity
                 session.add(SupplyLineAllocation(
                     tenant_id=settings.default_tenant_id,
                     request_id=supply_request.id,
                     request_line_id=line.id,
                     action="PURCHASE",
-                    planned_quantity=line.quantity,
+                    planned_quantity=max(line.quantity, sent_quantity),
                     unit_id=line.requested_unit_id,
                     comment="Техническое решение простого режима",
                     fulfilled_quantity=sent_quantity,
