@@ -5,40 +5,39 @@
 Stage 3 Supply.
 
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. The manual processing contour of
-Stage 3.1A and operational automation of Supply cycles are implemented
-locally; the next sub-stage is Stage 3.1B.
+Supply domain model — completed at 100%. Stage 3.1A is completed at 100%,
+deployed to production, and manually verified. After several days of real
+operation and collection of factual issues, the next sub-stage is Stage 3.1B.
 
 ## Current state
 
 - Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.
 - Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
-- Эксплуатационный `WorkRequest` MVP развёрнут, но не закрывает этап 3.
 - ADR-002 принят владельцем проекта 27 июля 2026 года.
-- Stage 3.1A выполнен восемью срезами: foundation, базовый каталог,
-  сопоставление, карточка товара, циклы и дубли, публичная форма, ручное
-  планирование, факт исполнения и долги.
-- Ручной end-to-end сценарий закрыт: заявка сохраняется и разбирается,
-  снабжение сопоставляет товары, утверждает план и фиксирует отправленное,
-  система хранит requested/planned/fulfilled/unresolved и долг.
-- Supply-циклы открываются и закрываются локальными actions Automation Core;
-  дни недели, время и параметры периода настраивает администратор.
-- Локальный baseline: `main`, commit `7040d51`
-  (`fix(supply): stabilize production request workflow`) плюс
-  незакоммиченный эксплуатационный срез автоматизации циклов.
-- Локальный Alembic head: `20260727_0016`; новая миграция для автоматизации
-  циклов не требуется.
-- Production-состояние в этой задаче не проверялось; commit, push и deployment
-  эксплуатационного среза не выполнялись.
-- WorkRequest MVP и старые публичные URL сохранены без изменений.
-- Следующий подэтап: Stage 3.1B.
+- Stage 3.1A завершён на 100%: публичная Supply-форма, реестр заявок,
+  упрощённое исполнение, частичное исполнение и долги, Dashboard и отдельный
+  реестр долгов работают в едином контуре.
+- Supply-циклы автоматически открываются и закрываются actions Automation
+  Core; дни недели, время и параметры периода настраивает администратор.
+- Выполнен UX-polish сценариев Supply и Repair.
+- Legacy warehouse-контур удалён из активного API и интерфейса; старый
+  публичный URL временно перенаправляет на Supply-форму. Repair-контур
+  сохранён.
+- `PARTIALLY_FULFILLED` считается завершённой заявкой; дальнейшая работа с
+  незакрытым объёмом ведётся через долг подразделения.
+- Stage 3.1A развёрнут в production, основной сценарий проверен вручную.
+- Локальный baseline: `main`, commit `12186e2`
+  (`fix(dashboard): exclude fulfilled supply requests from attention`).
+- Локальный Alembic head: `20260728_0017`.
+- Следующий шаг: несколько дней реальной эксплуатации, сбор фактических
+  проблем, затем переход к Stage 3.1B.
 
 Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
-автоматизирован. В backlog/polish отложены таймеры, edit lock,
+автоматизирован. В backlog отложены таймеры, edit lock,
 пользовательское уточнение неизвестной единицы, очередь mapping candidates,
-настройка кодов подразделений и финальная UX-полировка. iiko, реальные
-остатки, supplier aliases, фасовки и альтернативные единицы, поставщики и
-закупочные документы относятся к последующим подэтапам.
+настройка кодов подразделений. iiko относится к Stage 3.1B; реальные остатки,
+supplier aliases, фасовки и альтернативные единицы, поставщики и закупочные
+документы относятся к последующим подэтапам.
 
 ## Architecture
 
