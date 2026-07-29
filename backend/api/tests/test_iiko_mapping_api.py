@@ -26,6 +26,8 @@ from app.models.iiko import (
     IikoSyncType,
     IikoUnitMapping,
     IikoWarehouseMapping,
+    IikoMappingStatus,
+    IikoWarehouseDestinationType,
 )
 from app.models.supply import (
     Department,
@@ -109,7 +111,18 @@ class IikoMappingApiTests(unittest.TestCase):
                     is_active=True,
                 )
             )
+            warehouse_mapping = IikoWarehouseMapping(
+                tenant_id="tenant-a",
+                iiko_warehouse_id=uuid4(),
+                source_name="Центральный продуктовый склад",
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
+                status=IikoMappingStatus.UNMAPPED,
+                reasons=[],
+            )
+            session.add(warehouse_mapping)
+            session.flush()
             self.product_id = product.id
+            self.warehouse_mapping_id = warehouse_mapping.id
 
         def override_db():
             with self.sessions() as session:
@@ -205,3 +218,32 @@ class IikoMappingApiTests(unittest.TestCase):
         app.dependency_overrides[get_current_admin] = forbidden
         response = self.client.get("/integrations/iiko/mappings/products")
         self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_confirm_source_without_department(self) -> None:
+        confirmed = self.client.post(
+            "/integrations/iiko/mappings/warehouses/"
+            f"{self.warehouse_mapping_id}/confirm",
+            json={
+                "destination_type": "SOURCE",
+                "source_direction": "PRODUCT",
+                "source_priority": 1,
+            },
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        body = confirmed.json()
+        self.assertEqual(body["destination_type"], "SOURCE")
+        self.assertEqual(body["source_direction"], "PRODUCT")
+        self.assertEqual(body["source_priority"], 1)
+        self.assertIsNone(body["eos_department_id"])
+        self.assertIsNone(body["role"])
+
+        invalid = self.client.post(
+            "/integrations/iiko/mappings/warehouses/"
+            f"{self.warehouse_mapping_id}/replace",
+            json={
+                "destination_type": "SOURCE",
+                "source_direction": "PRODUCT",
+                "source_priority": 0,
+            },
+        )
+        self.assertEqual(invalid.status_code, 422)

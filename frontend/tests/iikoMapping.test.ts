@@ -3,10 +3,13 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   iikoMappingStatusLabel,
+  iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
+  iikoWarehouseSourceDirectionLabel,
   mappingActionLabel,
 } from '../src/pages/iikoMappingLogic.ts'
 import {
+  confirmWarehouseMapping,
   generateMappingCandidates,
   IikoMappingApiError,
   mappingQuery,
@@ -18,6 +21,14 @@ test('показывает безопасные русские статусы и
   assert.equal(iikoMappingStatusLabel('SUGGESTED'), 'Предложено')
   assert.equal(iikoMappingStatusLabel('CONFLICT'), 'Конфликт')
   assert.equal(iikoWarehouseRoleLabel('FIXED_ASSETS'), 'Основные средства')
+  assert.equal(
+    iikoWarehouseDestinationTypeLabel('SOURCE'),
+    'Источник снабжения',
+  )
+  assert.equal(
+    iikoWarehouseSourceDirectionLabel('HOUSEHOLD'),
+    'Хозяйственные товары',
+  )
   assert.equal(mappingActionLabel('CONFIRMED'), 'Заменить связь')
 })
 
@@ -46,12 +57,65 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /Товары/)
   assert.match(page, /Единицы/)
   assert.match(page, /Склады/)
+  assert.match(page, /iikoWarehouseDestinationTypeLabel/)
+  assert.match(page, /Направление источника/)
+  assert.match(page, /Приоритет/)
   assert.match(page, /Сформировать предложения/)
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
+})
+
+test('SOURCE отправляется без фиктивного подразделения и роли', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  let requestBody: Record<string, unknown> = {}
+  globalThis.fetch = async (_input, options = {}) => {
+    requestBody = JSON.parse(String(options.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({
+      id: 'mapping-1',
+      destination_type: 'SOURCE',
+      source_direction: 'PACKAGING',
+      source_priority: 2,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    await confirmWarehouseMapping(
+      'mapping-1',
+      {
+        destination_type: 'SOURCE',
+        source_direction: 'PACKAGING',
+        source_priority: 2,
+      },
+      false,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.deepEqual(requestBody, {
+    destination_type: 'SOURCE',
+    source_direction: 'PACKAGING',
+    source_priority: 2,
+  })
+  assert.equal('eos_department_id' in requestBody, false)
+  assert.equal('role' in requestBody, false)
 })
 
 test('обновляет reference snapshot, показывает totals и не запрашивает остатки', async () => {

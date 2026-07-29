@@ -29,7 +29,9 @@ from app.models.iiko import (
     IikoSyncType,
     IikoUnitMapping,
     IikoWarehouseMapping,
+    IikoWarehouseDestinationType,
     IikoWarehouseRole,
+    IikoWarehouseSourceDirection,
 )
 from app.models.supply import (
     Department,
@@ -468,16 +470,22 @@ class IikoMappingServiceTests(unittest.TestCase):
                 session,
                 tenant_id="tenant-a",
                 mapping_id=mappings[0].id,
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
                 eos_department_id=department.id,
                 role=IikoWarehouseRole.MAIN,
+                source_direction=None,
+                source_priority=None,
                 actor_user_id=1,
             )
             confirm_warehouse_mapping(
                 session,
                 tenant_id="tenant-a",
                 mapping_id=mappings[1].id,
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
                 eos_department_id=department.id,
                 role=IikoWarehouseRole.PACKAGING,
+                source_direction=None,
+                source_priority=None,
                 actor_user_id=1,
             )
             with self.assertRaises(MappingError):
@@ -485,8 +493,95 @@ class IikoMappingServiceTests(unittest.TestCase):
                     session,
                     tenant_id="tenant-a",
                     mapping_id=mappings[1].id,
+                    destination_type=IikoWarehouseDestinationType.DESTINATION,
                     eos_department_id=department.id,
                     role=IikoWarehouseRole.MAIN,
+                    source_direction=None,
+                    source_priority=None,
                     actor_user_id=1,
                     replace=True,
                 )
+
+    def test_sources_need_unique_priority_per_direction_and_no_department(
+        self,
+    ) -> None:
+        source_ids = [uuid4(), uuid4()]
+        with self.sessions.begin() as session:
+            session.add_all(
+                [
+                    IikoWarehouseMapping(
+                        tenant_id="tenant-a",
+                        iiko_warehouse_id=source_id,
+                        source_name=f"Центральный склад {index}",
+                        destination_type=IikoWarehouseDestinationType.DESTINATION,
+                        status=IikoMappingStatus.UNMAPPED,
+                        reasons=[],
+                    )
+                    for index, source_id in enumerate(source_ids, start=1)
+                ]
+            )
+        with self.sessions() as session:
+            mappings = session.scalars(
+                select(IikoWarehouseMapping).where(
+                    IikoWarehouseMapping.iiko_warehouse_id.in_(source_ids)
+                )
+            ).all()
+            first = confirm_warehouse_mapping(
+                session,
+                tenant_id="tenant-a",
+                mapping_id=mappings[0].id,
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                eos_department_id=None,
+                role=None,
+                source_direction=IikoWarehouseSourceDirection.PRODUCT,
+                source_priority=1,
+                actor_user_id=1,
+            )
+            second = confirm_warehouse_mapping(
+                session,
+                tenant_id="tenant-a",
+                mapping_id=mappings[1].id,
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                eos_department_id=None,
+                role=None,
+                source_direction=IikoWarehouseSourceDirection.PRODUCT,
+                source_priority=2,
+                actor_user_id=1,
+            )
+            self.assertIsNone(first.eos_department_id)
+            self.assertIsNone(first.role)
+            self.assertEqual(first.source_priority, 1)
+            self.assertEqual(second.source_priority, 2)
+            with self.assertRaises(MappingError):
+                confirm_warehouse_mapping(
+                    session,
+                    tenant_id="tenant-a",
+                    mapping_id=mappings[1].id,
+                    destination_type=IikoWarehouseDestinationType.SOURCE,
+                    eos_department_id=None,
+                    role=None,
+                    source_direction=IikoWarehouseSourceDirection.PRODUCT,
+                    source_priority=1,
+                    actor_user_id=1,
+                    replace=True,
+                )
+            with self.assertRaises(MappingError):
+                confirm_warehouse_mapping(
+                    session,
+                    tenant_id="tenant-b",
+                    mapping_id=mappings[0].id,
+                    destination_type=IikoWarehouseDestinationType.SOURCE,
+                    eos_department_id=None,
+                    role=None,
+                    source_direction=IikoWarehouseSourceDirection.PACKAGING,
+                    source_priority=1,
+                    actor_user_id=1,
+                )
+            audit = session.scalars(
+                select(IikoMappingAuditEvent).where(
+                    IikoMappingAuditEvent.mapping_id == first.id
+                )
+            ).all()
+            self.assertEqual(audit[-1].after["destination_type"], "SOURCE")
+            self.assertEqual(audit[-1].after["source_direction"], "PRODUCT")
+            self.assertEqual(audit[-1].after["source_priority"], 1)

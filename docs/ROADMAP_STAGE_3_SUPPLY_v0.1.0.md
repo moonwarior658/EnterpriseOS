@@ -729,6 +729,11 @@ deployment не выполнены.**
       администратору.
 - [x] Роли склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
       `OTHER`.
+- [x] Тип назначения склада: `DESTINATION` для склада подразделения EOS и
+      `SOURCE` для центрального склада-источника без фиктивного подразделения.
+- [x] Для `SOURCE` задаются направление `PRODUCT`, `PACKAGING`, `HOUSEHOLD`
+      или `FIXED_ASSETS` и приоритет от 1; активный подтверждённый приоритет
+      уникален внутри направления и tenant.
 - [x] Одно подразделение может иметь несколько подтверждённых складов разных
       ролей; частичный уникальный индекс запрещает две активные
       `CONFIRMED`-связи одинаковой роли.
@@ -754,6 +759,10 @@ deployment не выполнены.**
 - `iiko_mapping_audit_events`;
 - tenant-aware unique и partial unique индексы для UUID iiko, подтверждённых
   товаров/единиц и пары подразделение + роль склада.
+
+Миграция `20260730_0020` сохраняет существующие `CONFIRMED`-связи как
+`DESTINATION` и добавляет тип назначения, направление и приоритет
+склада-источника с tenant-aware уникальностью.
 
 Ограничения среза:
 
@@ -874,6 +883,7 @@ List endpoints поддерживают `status`, `search`, `include_deleted`,
 - [x] iiko product ↔ EOS product.
 - [x] iiko unit ↔ EOS unit.
 - [x] EOS department ↔ iiko warehouse.
+- [x] Центральный iiko warehouse ↔ направление снабжения без подразделения EOS.
 - [x] Назначение склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
       `OTHER`.
 - [x] Состояния mapping: `UNMAPPED`, `SUGGESTED`, `CONFIRMED`, `CONFLICT`,

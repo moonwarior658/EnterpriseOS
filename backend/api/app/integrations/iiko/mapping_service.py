@@ -7,6 +7,7 @@ from typing import Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.iiko import (
@@ -18,7 +19,9 @@ from app.models.iiko import (
     IikoRawEntity,
     IikoUnitMapping,
     IikoWarehouseMapping,
+    IikoWarehouseDestinationType,
     IikoWarehouseRole,
+    IikoWarehouseSourceDirection,
 )
 from app.models.supply import (
     Department,
@@ -211,12 +214,21 @@ def _state(mapping: MappingT) -> dict[str, Any]:
             str(mapping.eos_unit_id) if mapping.eos_unit_id else None
         )
     else:
+        result["destination_type"] = (
+            mapping.destination_type.value
+            if mapping.destination_type
+            else IikoWarehouseDestinationType.DESTINATION.value
+        )
         result["eos_department_id"] = (
             str(mapping.eos_department_id)
             if mapping.eos_department_id
             else None
         )
         result["role"] = mapping.role.value if mapping.role else None
+        result["source_direction"] = (
+            mapping.source_direction.value if mapping.source_direction else None
+        )
+        result["source_priority"] = mapping.source_priority
     return result
 
 
@@ -428,6 +440,8 @@ def generate_mapping_candidates(
         for mapping in warehouse_mappings.values()
         if (
             mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.destination_type
+            == IikoWarehouseDestinationType.DESTINATION
             and mapping.eos_department_id is not None
             and mapping.role is not None
             and not mapping.is_deleted
@@ -619,6 +633,7 @@ def generate_mapping_candidates(
                 tenant_id=tenant_id,
                 iiko_warehouse_id=external_id,
                 source_name=str(raw.payload.get("name") or raw.external_id),
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
                 status=IikoMappingStatus.UNMAPPED,
                 is_deleted=False,
                 reasons=[],
@@ -866,8 +881,11 @@ def confirm_warehouse_mapping(
     *,
     tenant_id: str,
     mapping_id: UUID,
-    eos_department_id: UUID,
-    role: IikoWarehouseRole,
+    destination_type: IikoWarehouseDestinationType,
+    eos_department_id: UUID | None,
+    role: IikoWarehouseRole | None,
+    source_direction: IikoWarehouseSourceDirection | None,
+    source_priority: int | None,
     actor_user_id: int,
     replace: bool = False,
 ) -> IikoWarehouseMapping:
@@ -877,44 +895,91 @@ def confirm_warehouse_mapping(
         tenant_id=tenant_id,
         mapping_id=mapping_id,
     )
-    department = session.scalar(
-        select(Department).where(
-            Department.id == eos_department_id,
-            Department.tenant_id == tenant_id,
+    if destination_type == IikoWarehouseDestinationType.DESTINATION:
+        if eos_department_id is None or role is None:
+            raise MappingError(
+                "Для склада подразделения нужны подразделение и роль"
+            )
+        department = session.scalar(
+            select(Department).where(
+                Department.id == eos_department_id,
+                Department.tenant_id == tenant_id,
+            )
         )
-    )
-    if department is None:
-        raise MappingError("Подразделение EOS не найдено")
-    conflict = session.scalar(
-        select(IikoWarehouseMapping.id).where(
-            IikoWarehouseMapping.tenant_id == tenant_id,
-            IikoWarehouseMapping.eos_department_id == eos_department_id,
-            IikoWarehouseMapping.role == role,
-            IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
-            IikoWarehouseMapping.is_deleted.is_(False),
-            IikoWarehouseMapping.id != mapping.id,
+        if department is None:
+            raise MappingError("Подразделение EOS не найдено")
+        conflict = session.scalar(
+            select(IikoWarehouseMapping.id).where(
+                IikoWarehouseMapping.tenant_id == tenant_id,
+                IikoWarehouseMapping.destination_type
+                == IikoWarehouseDestinationType.DESTINATION,
+                IikoWarehouseMapping.eos_department_id == eos_department_id,
+                IikoWarehouseMapping.role == role,
+                IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
+                IikoWarehouseMapping.is_deleted.is_(False),
+                IikoWarehouseMapping.id != mapping.id,
+            )
         )
-    )
-    if conflict:
-        raise MappingError(
-            "Для подразделения уже подтверждён активный склад этой роли"
+        if conflict:
+            raise MappingError(
+                "Для подразделения уже подтверждён активный склад этой роли"
+            )
+    else:
+        if source_direction is None or source_priority is None:
+            raise MappingError(
+                "Для источника снабжения нужны направление и приоритет"
+            )
+        if source_priority < 1:
+            raise MappingError("Приоритет источника должен быть не меньше 1")
+        conflict = session.scalar(
+            select(IikoWarehouseMapping.id).where(
+                IikoWarehouseMapping.tenant_id == tenant_id,
+                IikoWarehouseMapping.destination_type
+                == IikoWarehouseDestinationType.SOURCE,
+                IikoWarehouseMapping.source_direction == source_direction,
+                IikoWarehouseMapping.source_priority == source_priority,
+                IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
+                IikoWarehouseMapping.is_deleted.is_(False),
+                IikoWarehouseMapping.id != mapping.id,
+            )
         )
+        if conflict:
+            raise MappingError(
+                "Для направления уже есть активный источник с таким приоритетом"
+            )
     before = _state(mapping)
-    mapping.eos_department_id = eos_department_id
-    mapping.role = role
+    mapping.destination_type = destination_type
+    if destination_type == IikoWarehouseDestinationType.DESTINATION:
+        mapping.eos_department_id = eos_department_id
+        mapping.role = role
+        mapping.source_direction = None
+        mapping.source_priority = None
+    else:
+        mapping.eos_department_id = None
+        mapping.role = None
+        mapping.source_direction = source_direction
+        mapping.source_priority = source_priority
     mapping.status = IikoMappingStatus.CONFIRMED
     mapping.confidence = 100
     mapping.reasons = ["Подтверждено администратором"]
-    return _finish_decision(
-        session,
-        mapping,
-        kind=IikoMappingKind.WAREHOUSE,
-        action=(
-            IikoMappingAction.REPLACED if replace else IikoMappingAction.CONFIRMED
-        ),
-        actor_user_id=actor_user_id,
-        before=before,
-    )
+    try:
+        return _finish_decision(
+            session,
+            mapping,
+            kind=IikoMappingKind.WAREHOUSE,
+            action=(
+                IikoMappingAction.REPLACED
+                if replace
+                else IikoMappingAction.CONFIRMED
+            ),
+            actor_user_id=actor_user_id,
+            before=before,
+        )
+    except IntegrityError as error:
+        session.rollback()
+        raise MappingError(
+            "Такая активная подтверждённая связь склада уже существует"
+        ) from error
 
 
 def set_mapping_ignored(
@@ -938,6 +1003,9 @@ def set_mapping_ignored(
     else:
         mapping.eos_department_id = None
         mapping.role = None
+        mapping.destination_type = IikoWarehouseDestinationType.DESTINATION
+        mapping.source_direction = None
+        mapping.source_priority = None
         kind = IikoMappingKind.WAREHOUSE
     mapping.status = IikoMappingStatus.IGNORED
     mapping.confidence = None
@@ -973,6 +1041,9 @@ def unmap_mapping(
     else:
         mapping.eos_department_id = None
         mapping.role = None
+        mapping.destination_type = IikoWarehouseDestinationType.DESTINATION
+        mapping.source_direction = None
+        mapping.source_priority = None
         kind = IikoMappingKind.WAREHOUSE
     mapping.status = IikoMappingStatus.UNMAPPED
     mapping.confidence = None

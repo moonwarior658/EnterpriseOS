@@ -6,6 +6,11 @@ export type IikoMappingStatus =
 export type IikoWarehouseRole =
   | 'MAIN' | 'PACKAGING' | 'HOUSEHOLD' | 'FIXED_ASSETS' | 'OTHER'
 
+export type IikoWarehouseDestinationType = 'DESTINATION' | 'SOURCE'
+
+export type IikoWarehouseSourceDirection =
+  | 'PRODUCT' | 'PACKAGING' | 'HOUSEHOLD' | 'FIXED_ASSETS'
+
 type MappingBase = {
   id: string
   source_name: string
@@ -35,7 +40,10 @@ export type IikoWarehouseMapping = MappingBase & {
   iiko_warehouse_id: string
   eos_department_id: string | null
   eos_department_name: string | null
+  destination_type: IikoWarehouseDestinationType
   role: IikoWarehouseRole | null
+  source_direction: IikoWarehouseSourceDirection | null
+  source_priority: number | null
 }
 
 export type IikoMappingKind = 'products' | 'units' | 'warehouses'
@@ -248,18 +256,22 @@ export function confirmUnitMapping(
 
 export function confirmWarehouseMapping(
   mappingId: string,
-  eosDepartmentId: string,
-  role: IikoWarehouseRole,
+  payload: {
+    destination_type: 'DESTINATION'
+    eos_department_id: string
+    role: IikoWarehouseRole
+  } | {
+    destination_type: 'SOURCE'
+    source_direction: IikoWarehouseSourceDirection
+    source_priority: number
+  },
   replace: boolean,
 ): Promise<IikoWarehouseMapping> {
   return request(
     `/warehouses/${mappingId}/${replace ? 'replace' : 'confirm'}`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        eos_department_id: eosDepartmentId,
-        role,
-      }),
+      body: JSON.stringify(payload),
     },
   )
 }

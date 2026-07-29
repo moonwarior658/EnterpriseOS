@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
@@ -61,6 +62,18 @@ class IikoWarehouseRole(StrEnum):
     HOUSEHOLD = "HOUSEHOLD"
     FIXED_ASSETS = "FIXED_ASSETS"
     OTHER = "OTHER"
+
+
+class IikoWarehouseDestinationType(StrEnum):
+    DESTINATION = "DESTINATION"
+    SOURCE = "SOURCE"
+
+
+class IikoWarehouseSourceDirection(StrEnum):
+    PRODUCT = "PRODUCT"
+    PACKAGING = "PACKAGING"
+    HOUSEHOLD = "HOUSEHOLD"
+    FIXED_ASSETS = "FIXED_ASSETS"
 
 
 class IikoMappingKind(StrEnum):
@@ -452,13 +465,48 @@ class IikoWarehouseMapping(Base):
             "role",
             unique=True,
             postgresql_where=text(
-                "status = 'CONFIRMED' AND eos_department_id IS NOT NULL "
+                "status = 'CONFIRMED' "
+                "AND destination_type = 'DESTINATION' "
+                "AND eos_department_id IS NOT NULL "
                 "AND role IS NOT NULL AND is_deleted = false"
             ),
             sqlite_where=text(
-                "status = 'CONFIRMED' AND eos_department_id IS NOT NULL "
+                "status = 'CONFIRMED' "
+                "AND destination_type = 'DESTINATION' "
+                "AND eos_department_id IS NOT NULL "
                 "AND role IS NOT NULL AND is_deleted = false"
             ),
+        ),
+        Index(
+            "uq_iiko_warehouse_mappings_confirmed_source_priority",
+            "tenant_id",
+            "source_direction",
+            "source_priority",
+            unique=True,
+            postgresql_where=text(
+                "status = 'CONFIRMED' AND destination_type = 'SOURCE' "
+                "AND source_direction IS NOT NULL "
+                "AND source_priority IS NOT NULL AND is_deleted = false"
+            ),
+            sqlite_where=text(
+                "status = 'CONFIRMED' AND destination_type = 'SOURCE' "
+                "AND source_direction IS NOT NULL "
+                "AND source_priority IS NOT NULL AND is_deleted = false"
+            ),
+        ),
+        CheckConstraint(
+            "source_priority IS NULL OR source_priority >= 1",
+            name="ck_iiko_warehouse_mapping_source_priority_positive",
+        ),
+        CheckConstraint(
+            "status != 'CONFIRMED' OR "
+            "(destination_type = 'DESTINATION' "
+            "AND eos_department_id IS NOT NULL AND role IS NOT NULL "
+            "AND source_direction IS NULL AND source_priority IS NULL) OR "
+            "(destination_type = 'SOURCE' "
+            "AND eos_department_id IS NULL AND role IS NULL "
+            "AND source_direction IS NOT NULL AND source_priority IS NOT NULL)",
+            name="ck_iiko_warehouse_mapping_confirmed_target",
         ),
     )
 
@@ -468,6 +516,18 @@ class IikoWarehouseMapping(Base):
     eos_department_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("departments.id", ondelete="RESTRICT"),
         nullable=True,
+    )
+    destination_type: Mapped[IikoWarehouseDestinationType] = mapped_column(
+        SqlEnum(
+            IikoWarehouseDestinationType,
+            name="iiko_warehouse_destination_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoWarehouseDestinationType.DESTINATION,
+        nullable=False,
     )
     role: Mapped[IikoWarehouseRole | None] = mapped_column(
         SqlEnum(
@@ -480,6 +540,18 @@ class IikoWarehouseMapping(Base):
         ),
         nullable=True,
     )
+    source_direction: Mapped[IikoWarehouseSourceDirection | None] = mapped_column(
+        SqlEnum(
+            IikoWarehouseSourceDirection,
+            name="iiko_warehouse_source_direction",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=24,
+        ),
+        nullable=True,
+    )
+    source_priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[IikoMappingStatus] = mapped_column(
         SqlEnum(
             IikoMappingStatus,

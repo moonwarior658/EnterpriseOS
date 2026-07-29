@@ -113,7 +113,10 @@ def warehouse_read(
         eos_department_name=(
             mapping.eos_department.name if mapping.eos_department else None
         ),
+        destination_type=mapping.destination_type,
         role=mapping.role,
+        source_direction=mapping.source_direction,
+        source_priority=mapping.source_priority,
         decided_at=mapping.decided_at,
     )
 
@@ -391,8 +394,11 @@ def _warehouse_action(
             db,
             tenant_id=settings.default_tenant_id,
             mapping_id=mapping_id,
+            destination_type=payload.destination_type,
             eos_department_id=payload.eos_department_id,
             role=payload.role,
+            source_direction=payload.source_direction,
+            source_priority=payload.source_priority,
             actor_user_id=user.id,
             replace=replace,
         )

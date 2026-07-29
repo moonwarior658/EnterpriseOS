@@ -787,6 +787,25 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             warehouse_indexes,
         )
 
+    def _assert_iiko_warehouse_destination_schema(self) -> None:
+        inspector = inspect(self.engine)
+        columns = {
+            column["name"]: column
+            for column in inspector.get_columns("iiko_warehouse_mappings")
+        }
+        self.assertFalse(columns["destination_type"]["nullable"])
+        self.assertTrue(
+            {"source_direction", "source_priority"} <= columns.keys()
+        )
+        warehouse_indexes = {
+            index["name"]: index
+            for index in inspector.get_indexes("iiko_warehouse_mappings")
+        }
+        self.assertIn(
+            "uq_iiko_warehouse_mappings_confirmed_source_priority",
+            warehouse_indexes,
+        )
+
     def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -1069,6 +1088,55 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260729_0019")
         self.assertEqual(self._current_revision(), "20260729_0019")
         self._assert_iiko_mapping_schema()
+        legacy_mapping_id = "40000000-0000-0000-0000-000000000001"
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO iiko_warehouse_mappings
+                        (id, tenant_id, iiko_warehouse_id, eos_department_id,
+                         role, source_name, status, is_deleted, reasons)
+                    VALUES
+                        (:mapping_id, 'eclair',
+                         '50000000-0000-0000-0000-000000000001',
+                         'a29ac646-322f-47ab-8d31-d3d41fe1a510',
+                         'MAIN', 'Старый склад подразделения',
+                         'CONFIRMED', false, '[]'::jsonb)
+                    """
+                ),
+                {"mapping_id": legacy_mapping_id},
+            )
+        command.upgrade(self.alembic_config, "20260730_0020")
+        self.assertEqual(self._current_revision(), "20260730_0020")
+        self._assert_iiko_warehouse_destination_schema()
+        with self.engine.connect() as connection:
+            legacy_mapping = connection.execute(
+                text(
+                    "SELECT destination_type, eos_department_id, role "
+                    "FROM iiko_warehouse_mappings WHERE id = :mapping_id"
+                ),
+                {"mapping_id": legacy_mapping_id},
+            ).one()
+        self.assertEqual(legacy_mapping.destination_type, "DESTINATION")
+        self.assertEqual(
+            str(legacy_mapping.eos_department_id),
+            "a29ac646-322f-47ab-8d31-d3d41fe1a510",
+        )
+        self.assertEqual(legacy_mapping.role, "MAIN")
+        command.downgrade(self.alembic_config, "20260729_0019")
+        self.assertEqual(self._current_revision(), "20260729_0019")
+        self.assertNotIn(
+            "destination_type",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns(
+                    "iiko_warehouse_mappings"
+                )
+            },
+        )
+        command.upgrade(self.alembic_config, "20260730_0020")
+        self.assertEqual(self._current_revision(), "20260730_0020")
+        self._assert_iiko_warehouse_destination_schema()
         command.downgrade(self.alembic_config, "20260728_0017")
         self.assertEqual(self._current_revision(), "20260728_0017")
         self.assertNotIn(
@@ -1219,10 +1287,11 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260729_0019")
+        self.assertEqual(self._current_revision(), "20260730_0020")
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()
+        self._assert_iiko_warehouse_destination_schema()
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"

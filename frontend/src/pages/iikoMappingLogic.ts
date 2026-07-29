@@ -1,6 +1,8 @@
 import type {
   IikoMappingStatus,
+  IikoWarehouseDestinationType,
   IikoWarehouseRole,
+  IikoWarehouseSourceDirection,
 } from '../services/iikoMapping'
 
 export function iikoMappingStatusLabel(status: IikoMappingStatus): string {
@@ -21,6 +23,26 @@ export function iikoWarehouseRoleLabel(role: IikoWarehouseRole): string {
     FIXED_ASSETS: 'Основные средства',
     OTHER: 'Другой',
   }[role]
+}
+
+export function iikoWarehouseDestinationTypeLabel(
+  destinationType: IikoWarehouseDestinationType,
+): string {
+  return {
+    DESTINATION: 'Склад подразделения',
+    SOURCE: 'Источник снабжения',
+  }[destinationType]
+}
+
+export function iikoWarehouseSourceDirectionLabel(
+  direction: IikoWarehouseSourceDirection,
+): string {
+  return {
+    PRODUCT: 'Продукты',
+    PACKAGING: 'Упаковка',
+    HOUSEHOLD: 'Хозяйственные товары',
+    FIXED_ASSETS: 'Основные средства',
+  }[direction]
 }
 
 export function mappingActionLabel(status: IikoMappingStatus): string {
