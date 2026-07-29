@@ -733,7 +733,9 @@ deployment не выполнены.**
       и конфликтам.
 - [x] На странице mapping доступно ручное read-only обновление reference
       snapshot с итогами по товарам, единицам и складам; после успеха
-      обновляется список и становится доступна генерация предложений.
+      (`SUCCEEDED` или `PARTIALLY_SUCCEEDED`) обновляется список и становится
+      доступна генерация предложений, а частичный результат показывается
+      предупреждением.
 - [x] Supply 3.1A не читает mapping и не использует остатки.
 
 Миграция `20260729_0019` создаёт:
@@ -849,7 +851,7 @@ List endpoints поддерживают `status`, `search`, `include_deleted`,
 - [x] Отдельный PostgreSQL migration integration test на одноразовой
       изолированной БД прошёл цикл
       `20260729_0018 → 20260729_0019 → 20260729_0018 → 20260729_0019`.
-- [x] Frontend tests — **91/91** успешно; production build успешно.
+- [x] Frontend tests — **92/92** успешно; production build успешно.
 - [x] ESLint изменённых frontend-файлов успешно; общий lint сохраняет две
       известные baseline-ошибки `AuthContext.tsx`, не относящиеся к срезу.
 - [x] `compileall` и offline Alembic SQL generation до `20260729_0019`

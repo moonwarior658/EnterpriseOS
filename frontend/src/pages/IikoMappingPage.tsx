@@ -308,11 +308,18 @@ function IikoMappingPage() {
         </div>
 
         {syncResult && (
-          <p className="request-message iiko-mapping-sync-result">
-            Данные iiko обновлены: товары — {syncResult.products},
-            {' '}единицы — {syncResult.units},
-            {' '}склады — {syncResult.warehouses}.
-          </p>
+          <>
+            <p className="request-message iiko-mapping-sync-result">
+              Данные iiko обновлены: товары — {syncResult.products},
+              {' '}единицы — {syncResult.units},
+              {' '}склады — {syncResult.warehouses}.
+            </p>
+            {syncResult.warning && (
+              <p className="request-message iiko-mapping-sync-warning">
+                {syncResult.warning}
+              </p>
+            )}
+          </>
         )}
 
         <div className="iiko-mapping-filters">

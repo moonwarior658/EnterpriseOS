@@ -2838,6 +2838,12 @@
   color: #2f6944;
 }
 
+.iiko-mapping-sync-warning {
+  margin-top: 0.65rem;
+  background: #fff5dc;
+  color: #795d18;
+}
+
 .iiko-mapping-tabs {
   display: flex;
   gap: 0.35rem;

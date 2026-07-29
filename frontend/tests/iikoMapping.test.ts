@@ -80,6 +80,7 @@ test('обновляет reference snapshot, показывает totals и не
       products: 12,
       units: 3,
       warehouses: 5,
+      warning: null,
     })
   } finally {
     globalThis.fetch = originalFetch
@@ -109,6 +110,59 @@ test('обновляет reference snapshot, показывает totals и не
   )))
 })
 
+test('PARTIALLY_SUCCEEDED показывает предупреждение и загружает totals', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  const calls: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+    const body = url.endsWith('/sync/reference-snapshot')
+      ? {
+          status: 'PARTIALLY_SUCCEEDED',
+          error_message: 'Часть справочников iiko недоступна текущим правам',
+        }
+      : {
+          items: [],
+          total: url.includes('/products')
+            ? 12
+            : url.includes('/units') ? 3 : 5,
+          limit: 1,
+          offset: 0,
+        }
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    assert.deepEqual(await syncIikoReferenceData(), {
+      products: 12,
+      units: 3,
+      warehouses: 5,
+      warning: 'Часть справочников iiko недоступна текущим правам',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.equal(calls.length, 4)
+  assert.ok(calls.some((url) => url.includes('/products?')))
+  assert.ok(calls.some((url) => url.includes('/units?')))
+  assert.ok(calls.some((url) => url.includes('/warehouses?')))
+})
+
 test('ошибка синхронизации не показывает технические детали', async () => {
   const originalFetch = globalThis.fetch
   const storageDescriptor = Object.getOwnPropertyDescriptor(
@@ -133,6 +187,20 @@ test('ошибка синхронизации не показывает техн
         && error.message === 'Не удалось обновить данные iiko'
       ),
     )
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      status: 'FAILED',
+      error_message: 'IIKO_INTERNAL_ERROR at internal endpoint',
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    await assert.rejects(
+      syncIikoReferenceData(),
+      (error: unknown) => (
+        error instanceof IikoMappingApiError
+        && error.message === 'Не удалось обновить данные iiko'
+      ),
+    )
   } finally {
     globalThis.fetch = originalFetch
     if (storageDescriptor) {
@@ -150,6 +218,7 @@ test('кнопка предложений доступна только посл
   )
   assert.match(page, /Обновить данные iiko/)
   assert.match(page, /Данные iiko обновлены: товары/)
+  assert.match(page, /syncResult\.warning/)
   assert.match(page, /disabled=\{busyId !== null \|\| !referenceReady\}/)
   assert.match(page, /setReferenceReady\(true\)[\s\S]*?await load\(\)/)
   assert.doesNotMatch(page, /sync\/stock-balances/)

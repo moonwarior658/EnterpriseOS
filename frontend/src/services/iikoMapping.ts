@@ -51,10 +51,12 @@ export type IikoReferenceSyncResult = {
   products: number
   units: number
   warehouses: number
+  warning: string | null
 }
 
 type IikoSyncRun = {
   status: 'RUNNING' | 'SUCCEEDED' | 'PARTIALLY_SUCCEEDED' | 'FAILED'
+  error_message: string | null
 }
 
 export class IikoMappingApiError extends Error {}
@@ -114,10 +116,11 @@ export async function syncIikoReferenceData(): Promise<
     '/sync/reference-snapshot',
     { method: 'POST' },
   )
-  if (run.status !== 'SUCCEEDED') {
-    throw new IikoMappingApiError(
-      'Данные iiko обновлены не полностью. Повторите попытку',
-    )
+  if (
+    run.status !== 'SUCCEEDED'
+    && run.status !== 'PARTIALLY_SUCCEEDED'
+  ) {
+    throw new IikoMappingApiError('Не удалось обновить данные iiko')
   }
   const query = '?limit=1&offset=0'
   const [products, units, warehouses] = await Promise.all([
@@ -129,6 +132,9 @@ export async function syncIikoReferenceData(): Promise<
     products: products.total,
     units: units.total,
     warehouses: warehouses.total,
+    warning: run.status === 'PARTIALLY_SUCCEEDED'
+      ? run.error_message ?? 'Часть справочников iiko недоступна'
+      : null,
   }
 }
 
