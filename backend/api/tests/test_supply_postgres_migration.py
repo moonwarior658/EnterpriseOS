@@ -708,6 +708,47 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             },
         )
 
+    def _assert_iiko_staging_schema(self) -> None:
+        inspector = inspect(self.engine)
+        self.assertTrue(
+            {"iiko_sync_runs", "iiko_raw_entities"}
+            <= set(inspector.get_table_names())
+        )
+        raw_columns = {
+            column["name"]
+            for column in inspector.get_columns("iiko_raw_entities")
+        }
+        self.assertTrue(
+            {
+                "tenant_id",
+                "sync_run_id",
+                "entity_type",
+                "external_id",
+                "payload",
+                "payload_hash",
+                "source_updated_at",
+                "is_active",
+            }
+            <= raw_columns
+        )
+        unique_constraints = {
+            constraint["name"]: constraint
+            for constraint in inspector.get_unique_constraints(
+                "iiko_raw_entities"
+            )
+        }
+        self.assertEqual(
+            unique_constraints[
+                "uq_iiko_raw_entity_version"
+            ]["column_names"],
+            [
+                "tenant_id",
+                "entity_type",
+                "external_id",
+                "payload_hash",
+            ],
+        )
+
     def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -974,6 +1015,23 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         self.assertEqual(self._current_revision(), "20260728_0017")
         self._assert_send_quantity_schema()
 
+        command.upgrade(self.alembic_config, "20260729_0018")
+        self.assertEqual(self._current_revision(), "20260729_0018")
+        self._assert_iiko_staging_schema()
+        command.downgrade(self.alembic_config, "20260728_0017")
+        self.assertEqual(self._current_revision(), "20260728_0017")
+        self.assertNotIn(
+            "iiko_sync_runs",
+            inspect(self.engine).get_table_names(),
+        )
+        self.assertNotIn(
+            "iiko_raw_entities",
+            inspect(self.engine).get_table_names(),
+        )
+        command.upgrade(self.alembic_config, "20260729_0018")
+        self.assertEqual(self._current_revision(), "20260729_0018")
+        self._assert_iiko_staging_schema()
+
         command.downgrade(self.alembic_config, "20260727_0010")
         self.assertEqual(self._current_revision(), "20260727_0010")
         self.assertNotIn(
@@ -1110,8 +1168,9 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260728_0017")
+        self.assertEqual(self._current_revision(), "20260729_0018")
         self._assert_send_quantity_schema()
+        self._assert_iiko_staging_schema()
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"

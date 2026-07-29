@@ -2,9 +2,9 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **28 июля 2026 года**
+Дата обновления: **29 июля 2026 года**
 Статус: **Stage 3.1A завершён на 100%, развёрнут в production и вручную проверен; этап 3 продолжается**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; после периода реальной эксплуатации следующий подэтап — Stage 3.1B**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B начат, локально завершены и проверены срезы 3.1B / 1 и 3.1B / 2**
 
 ---
 
@@ -626,7 +626,156 @@ iiko относится к Stage 3.1B и не входит в завершённ
 
 # Этап 3.1B — iiko, документы и печать
 
-Прогресс: **0%**
+Прогресс: **начат; завершены локально и проверены на реальном iikoServer срезы 3.1B / 1 и 3.1B / 2**
+
+Статус: **Stage 3.1B не завершён. Срезы 3.1B / 1 и 3.1B / 2 не
+закоммичены и не развёрнуты. Supply 3.1A не переключён на iiko; изменяющие
+операции iiko не реализованы.**
+
+Интеграция — прямое read-only подключение EOS к **iikoServer REST API 9.2.7014.0**.
+Это не iikoCloud и не iikoTransport. Относительные пути ниже вызываются
+относительно настроенного base URL iikoServer; EOS не добавляет префикс
+`/resto` вручную.
+
+## Фактически завершённые срезы
+
+### Stage 3.1B / 1 — read-only доступ и reference snapshot
+
+Статус: **завершён локально и проверен на реальном iikoServer; commit и
+deployment не выполнены.**
+
+- [x] Read-only `IikoProvider` и HTTP-клиент iikoServer.
+- [x] Авторизация через SHA-1 пароля; токен передаётся как `key` в cookie,
+      хранится только в памяти и освобождается logout после работы.
+- [x] Блокируется параллельная повторная авторизация; после HTTP 401
+      допускается только один re-auth.
+- [x] Auth-параметры исключаются из HTTP-логов; ошибки соединения,
+      авторизации, прав, контракта и rate limit типизированы.
+- [x] Нормализованные DTO; количества и коэффициенты фасовок хранятся как
+      `Decimal`.
+- [x] API EOS доступен только администратору.
+- [x] Staging-таблицы `iiko_sync_runs` и `iiko_raw_entities`; reference
+      snapshot идемпотентен, использует SHA-256 payload, tenant isolation и
+      фильтрацию секретных полей.
+- [x] Безопасная CLI-диагностика без вывода credentials и raw payload.
+
+Реальная проверка справочников:
+
+- номенклатура — **9 795**;
+- удалённая номенклатура — **5 569**;
+- группы номенклатуры — **822**;
+- пользовательские категории — **27**;
+- единицы измерения — **10**;
+- фасовки через `containers` товара — **301**.
+
+Структура торговых предприятий текущей API-учётке недоступна: методы
+структуры могут возвращать пустые объекты без полей. Это подтверждённое
+ограничение прав учётной записи, а не ошибка EOS. Отсутствие структуры
+предприятий не блокирует складскую часть.
+
+### Stage 3.1B / 2 — склады и остатки
+
+Статус: **завершён локально и проверен на реальном iikoServer; commit и
+deployment не выполнены.**
+
+- [x] Склады читаются независимо от корпоративной структуры как счета
+      `INVENTORY_ASSETS`; `enterprise_external_id` может быть `null`.
+- [x] Остатки запрашиваются на указанную дату с фильтром конкретного склада
+      и, при необходимости, конкретного товара. Для API EOS обязательны
+      склад и дата; неограниченная выгрузка всех складов запрещена.
+- [x] Количество хранится как `Decimal`; отрицательные остатки не
+      обнуляются, а нулевая строка сохраняется, если сервер её вернул.
+- [x] Единица остатка присоединяется через основную единицу товара
+      (`product.mainUnit`); повторная синхронизация staging идемпотентна.
+
+Реальная проверка складов: **108 складских счетов**, **34 активных**,
+**74 удалённых**.
+
+Реальная проверка остатков одного активного склада на **29.07.2026**:
+**97 строк остатков**, **25 положительных**, **72 отрицательных**, **0 нулевых**.
+Сервер не вернул нулевые строки для проверенного склада; реализация готова
+сохранить нулевое значение, если оно будет возвращено. Отрицательные значения
+сохраняются без изменения. Бизнес-правило доступного перемещения будет
+реализовано позднее и не должно изменять исходные данные staging.
+
+## Подтверждённый контракт iikoServer
+
+Все пути вызываются относительно настроенного base URL iikoServer. Статус
+относится к проверке текущих read-only срезов, а не к будущим изменяющим
+операциям.
+
+| Назначение | HTTP-метод | Точный относительный путь | Обязательные параметры | Опциональные или повторяемые параметры | Основные поля ответа | Статус и ограничения |
+|---|---|---|---|---|---|---|
+| Авторизация | GET | `/api/auth` | `login`, `pass` (SHA-1 пароля) | — | Текстовый токен | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER; токен передаётся далее cookie `key`, в БД не сохраняется |
+| Logout | GET | `/api/logout` | Cookie `key` | — | Статус HTTP | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER; выполняется при завершении работы |
+| Корпорация | GET | `/api/corporation/departments` | `revisionFrom=-1` | — | `id`, `name`, `code`, `type`, `parentId`/`parent`, `deleted` | ОГРАНИЧЕН ПРАВАМИ ТЕКУЩЕЙ УЧЁТКИ; возможны пустые объекты без полей |
+| Торговые предприятия | GET | `/api/corporation/departments` | `revisionFrom=-1` | — | Те же поля; EOS отбирает `type=DEPARTMENT` | ОГРАНИЧЕН ПРАВАМИ ТЕКУЩЕЙ УЧЁТКИ |
+| Подразделения и группы подразделений | GET | `/api/corporation/groups` | `revisionFrom=-1` | — | `id`, `name`, `code`, `type`, `parentId`/`parent`, `deleted` | ОГРАНИЧЕН ПРАВАМИ ТЕКУЩЕЙ УЧЁТКИ; пустые объекты считаются ограничением прав |
+| Номенклатура | GET | `/api/v2/entities/products/list` | — | `includeDeleted=true` | `id`, `name`, `code`, `num`, `parent`, `category`, `mainUnit`, `type`, `deleted`, `containers` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER |
+| Группы номенклатуры | GET | `/api/v2/entities/products/group/list` | — | `includeDeleted=true` | `id`, `name`, `code`, `parent`, `deleted` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER |
+| Пользовательские категории | GET | `/api/v2/entities/products/category/list` | — | `includeDeleted=true` | `id`, `name`, `deleted` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER |
+| Единицы измерения | GET | `/api/v2/entities/list` | `rootType=MeasureUnit` | `includeDeleted=true` | `id`, `name`, `code`, `deleted` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER |
+| Фасовки | GET | `/api/v2/entities/products/list` | — | `includeDeleted=true`; EOS читает повторяемые `containers` каждого товара | `containers[].id`, `name`, `count`, `deleted`; товар `id`, `mainUnit` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER |
+| Склады | GET | `/api/v2/entities/list` | `rootType=Account` | `includeDeleted=true` | `id`, `name`, `code`, `type`, `deleted`, `accountParentId`, `parentCorporateId` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER; EOS отбирает `type=INVENTORY_ASSETS` |
+| Остатки на складах | GET | `/api/v2/reports/balance/stores` | `timestamp=yyyy-MM-dd'T'HH:mm:ss`, минимум один `store` | Повторяемые `store`, `product`; `department` поддержан контрактом, но не используется из-за ограничения прав на структуру | `store`, `product`, `amount`, `sum` | ПОДТВЕРЖДЁН НА РЕАЛЬНОМ IIKOSERVER; серверные `includeZero` и `includeDeleted` не подтверждены |
+
+Для остатков EOS формирует `timestamp` на конец выбранной даты — `23:59:59`.
+`amount` преобразуется в `Decimal`, единица берётся из `product.mainUnit`, а
+фильтрация `include_zero` и `include_deleted` выполняется внутри EOS.
+Отрицательный `amount` сохраняется без изменения.
+
+## API EOS: реализованный admin-only read-only контур
+
+Все маршруты требуют административной авторизации и задаются относительно
+приложения EOS:
+
+- `GET /integrations/iiko/status`;
+- `POST /integrations/iiko/test-connection`;
+- `GET /integrations/iiko/organizations`;
+- `GET /integrations/iiko/enterprises`;
+- `GET /integrations/iiko/departments`;
+- `GET /integrations/iiko/warehouses`;
+- `GET /integrations/iiko/product-groups`;
+- `GET /integrations/iiko/product-categories`;
+- `GET /integrations/iiko/products`;
+- `GET /integrations/iiko/units`;
+- `GET /integrations/iiko/packages`;
+- `GET /integrations/iiko/stock-balances`;
+- `POST /integrations/iiko/sync/reference-snapshot`;
+- `POST /integrations/iiko/sync/warehouses`;
+- `POST /integrations/iiko/sync/stock-balances`;
+- `GET /integrations/iiko/sync-runs`;
+- `GET /integrations/iiko/sync-runs/{id}`.
+
+## Проверки и состояние реализации
+
+- [x] Профильные iiko-тесты — **36/36** успешно.
+- [x] Полный backend suite — **492** теста успешно; **5** PostgreSQL-тестов
+      штатно пропущены без переменной изолированной БД.
+- [x] Migration cycle: предыдущая миграция → `0018` → downgrade → `0018`
+      успешно.
+- [x] Offline Alembic SQL generation успешно.
+- [x] Приложение запускается с включённой и выключенной интеграцией;
+      `compileall` успешно.
+- [x] `git diff --check` чистый; credentials не попали в код, БД и
+      документацию.
+- [x] Реальная проверка завершилась logout; изменяющие запросы к iiko не
+      выполнялись.
+
+## Следующий срез: Stage 3.1B / 3 — явный mapping iiko ↔ EOS
+
+- [ ] iiko product ↔ EOS product.
+- [ ] iiko unit ↔ EOS unit.
+- [ ] EOS department ↔ iiko warehouse.
+- [ ] Назначение склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
+      `OTHER`.
+- [ ] Состояния mapping: `UNMAPPED`, `SUGGESTED`, `CONFIRMED`, `CONFLICT`,
+      `IGNORED`.
+- [ ] Предложения создаются автоматически, подтверждение выполняет
+      пользователь.
+- [ ] Удалённые товары не входят в основную очередь.
+- [ ] Подтверждённый mapping переживает повторный snapshot.
+- [ ] Supply 3.1A пока не применяет mapping автоматически.
 
 ## 3.1B.1. Доступ к iiko API
 

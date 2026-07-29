@@ -11,6 +11,12 @@
     ScheduleAuditEventType,
 )
 from app.models.user import User
+from app.models.iiko import (
+    IikoRawEntity,
+    IikoSyncRun,
+    IikoSyncStatus,
+    IikoSyncType,
+)
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -42,6 +48,10 @@ __all__ = [
     "OutboxEvent",
     "OutboxStatus",
     "RuntimeComponent",
+    "IikoRawEntity",
+    "IikoSyncRun",
+    "IikoSyncStatus",
+    "IikoSyncType",
     "ScheduleAuditEventType",
     "Department",
     "SupplyProduct",

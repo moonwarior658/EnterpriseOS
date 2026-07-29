@@ -4,6 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.automation import router as automation_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.iiko import router as iiko_router
 from app.api.routes.public_requests import router as public_requests_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.requests import router as requests_router
@@ -24,6 +25,7 @@ app.include_router(public_supply_router)
 app.include_router(requests_router)
 app.include_router(supply_router)
 app.include_router(automation_router)
+app.include_router(iiko_router)
 
 
 @app.get("/health")
