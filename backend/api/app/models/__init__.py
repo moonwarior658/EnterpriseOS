@@ -12,10 +12,18 @@
 )
 from app.models.user import User
 from app.models.iiko import (
+    IikoMappingAction,
+    IikoMappingAuditEvent,
+    IikoMappingKind,
+    IikoMappingStatus,
+    IikoProductMapping,
     IikoRawEntity,
     IikoSyncRun,
     IikoSyncStatus,
     IikoSyncType,
+    IikoUnitMapping,
+    IikoWarehouseMapping,
+    IikoWarehouseRole,
 )
 from app.models.supply import (
     Department,
@@ -49,9 +57,17 @@ __all__ = [
     "OutboxStatus",
     "RuntimeComponent",
     "IikoRawEntity",
+    "IikoMappingAction",
+    "IikoMappingAuditEvent",
+    "IikoMappingKind",
+    "IikoMappingStatus",
+    "IikoProductMapping",
     "IikoSyncRun",
     "IikoSyncStatus",
     "IikoSyncType",
+    "IikoUnitMapping",
+    "IikoWarehouseMapping",
+    "IikoWarehouseRole",
     "ScheduleAuditEventType",
     "Department",
     "SupplyProduct",

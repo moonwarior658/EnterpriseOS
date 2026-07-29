@@ -136,6 +136,17 @@ function AppLayout() {
               </NavLink>
 
               <NavLink
+                to="/integrations/iiko/mappings"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Mapping iiko ↔ EOS</span>
+                <span>→</span>
+              </NavLink>
+
+              <NavLink
                 to="/users"
                 onClick={closeMenu}
                 className={({ isActive }) =>

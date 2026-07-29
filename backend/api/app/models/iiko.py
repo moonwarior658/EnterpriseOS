@@ -17,6 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,6 +45,36 @@ class IikoSyncType(StrEnum):
     PACKAGES = "PACKAGES"
     STOCK_BALANCES = "STOCK_BALANCES"
     FULL_REFERENCE_SNAPSHOT = "FULL_REFERENCE_SNAPSHOT"
+
+
+class IikoMappingStatus(StrEnum):
+    UNMAPPED = "UNMAPPED"
+    SUGGESTED = "SUGGESTED"
+    CONFIRMED = "CONFIRMED"
+    CONFLICT = "CONFLICT"
+    IGNORED = "IGNORED"
+
+
+class IikoWarehouseRole(StrEnum):
+    MAIN = "MAIN"
+    PACKAGING = "PACKAGING"
+    HOUSEHOLD = "HOUSEHOLD"
+    FIXED_ASSETS = "FIXED_ASSETS"
+    OTHER = "OTHER"
+
+
+class IikoMappingKind(StrEnum):
+    PRODUCT = "PRODUCT"
+    UNIT = "UNIT"
+    WAREHOUSE = "WAREHOUSE"
+
+
+class IikoMappingAction(StrEnum):
+    GENERATED = "GENERATED"
+    CONFIRMED = "CONFIRMED"
+    REPLACED = "REPLACED"
+    IGNORED = "IGNORED"
+    UNMAPPED = "UNMAPPED"
 
 
 def enum_values(enum_class: type[StrEnum]) -> list[str]:
@@ -242,4 +273,298 @@ class IikoRawEntity(Base):
 
     sync_run: Mapped[IikoSyncRun] = relationship(
         back_populates="raw_entities",
+    )
+
+
+class IikoProductMapping(Base):
+    __tablename__ = "iiko_product_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "iiko_product_id",
+            name="uq_iiko_product_mappings_tenant_external",
+        ),
+        Index(
+            "ix_iiko_product_mappings_queue",
+            "tenant_id",
+            "status",
+            "is_deleted",
+            "source_name",
+        ),
+        Index(
+            "uq_iiko_product_mappings_confirmed_eos",
+            "tenant_id",
+            "eos_product_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'CONFIRMED' AND is_deleted = false "
+                "AND eos_product_id IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "status = 'CONFIRMED' AND is_deleted = false "
+                "AND eos_product_id IS NOT NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    iiko_product_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    eos_product_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_products.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    status: Mapped[IikoMappingStatus] = mapped_column(
+        SqlEnum(
+            IikoMappingStatus,
+            name="iiko_mapping_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoMappingStatus.UNMAPPED,
+        nullable=False,
+    )
+    source_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    source_code: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_sku: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_unit_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasons: Mapped[list[str]] = mapped_column(json_type, default=list, nullable=False)
+    decided_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    eos_product: Mapped[Any | None] = relationship("SupplyProduct")
+
+
+class IikoUnitMapping(Base):
+    __tablename__ = "iiko_unit_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "iiko_unit_id",
+            name="uq_iiko_unit_mappings_tenant_external",
+        ),
+        Index(
+            "ix_iiko_unit_mappings_queue",
+            "tenant_id",
+            "status",
+            "is_deleted",
+            "source_name",
+        ),
+        Index(
+            "uq_iiko_unit_mappings_confirmed_eos",
+            "tenant_id",
+            "eos_unit_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'CONFIRMED' AND is_deleted = false "
+                "AND eos_unit_id IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "status = 'CONFIRMED' AND is_deleted = false "
+                "AND eos_unit_id IS NOT NULL"
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    iiko_unit_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    eos_unit_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("supply_units.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    status: Mapped[IikoMappingStatus] = mapped_column(
+        SqlEnum(
+            IikoMappingStatus,
+            name="iiko_mapping_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoMappingStatus.UNMAPPED,
+        nullable=False,
+    )
+    source_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasons: Mapped[list[str]] = mapped_column(json_type, default=list, nullable=False)
+    decided_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    eos_unit: Mapped[Any | None] = relationship("SupplyUnit")
+
+
+class IikoWarehouseMapping(Base):
+    __tablename__ = "iiko_warehouse_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "iiko_warehouse_id",
+            name="uq_iiko_warehouse_mappings_tenant_external",
+        ),
+        Index(
+            "ix_iiko_warehouse_mappings_queue",
+            "tenant_id",
+            "status",
+            "is_deleted",
+            "source_name",
+        ),
+        Index(
+            "uq_iiko_warehouse_mappings_confirmed_role",
+            "tenant_id",
+            "eos_department_id",
+            "role",
+            unique=True,
+            postgresql_where=text(
+                "status = 'CONFIRMED' AND eos_department_id IS NOT NULL "
+                "AND role IS NOT NULL AND is_deleted = false"
+            ),
+            sqlite_where=text(
+                "status = 'CONFIRMED' AND eos_department_id IS NOT NULL "
+                "AND role IS NOT NULL AND is_deleted = false"
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    iiko_warehouse_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    eos_department_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    role: Mapped[IikoWarehouseRole | None] = mapped_column(
+        SqlEnum(
+            IikoWarehouseRole,
+            name="iiko_warehouse_role",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=24,
+        ),
+        nullable=True,
+    )
+    status: Mapped[IikoMappingStatus] = mapped_column(
+        SqlEnum(
+            IikoMappingStatus,
+            name="iiko_mapping_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoMappingStatus.UNMAPPED,
+        nullable=False,
+    )
+    source_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    source_code: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasons: Mapped[list[str]] = mapped_column(json_type, default=list, nullable=False)
+    decided_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    eos_department: Mapped[Any | None] = relationship("Department")
+
+
+class IikoMappingAuditEvent(Base):
+    __tablename__ = "iiko_mapping_audit_events"
+    __table_args__ = (
+        Index(
+            "ix_iiko_mapping_audit_tenant_mapping",
+            "tenant_id",
+            "mapping_kind",
+            "mapping_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    mapping_kind: Mapped[IikoMappingKind] = mapped_column(
+        SqlEnum(
+            IikoMappingKind,
+            name="iiko_mapping_kind",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        nullable=False,
+    )
+    mapping_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    action: Mapped[IikoMappingAction] = mapped_column(
+        SqlEnum(
+            IikoMappingAction,
+            name="iiko_mapping_action",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        nullable=False,
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    before: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict, nullable=False)
+    after: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

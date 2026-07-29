@@ -5,6 +5,7 @@ import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
 import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import IikoMappingPage from './pages/IikoMappingPage'
 import PublicSupplyRequestPage from './pages/PublicSupplyRequestPage'
 import SupplyRequestDetailPage from './pages/SupplyRequestDetailPage'
 import SupplyRequestListPage from './pages/SupplyRequestListPage'
@@ -79,6 +80,11 @@ function App() {
         <Route
           path="/supply/debts"
           element={<ProtectedRoute adminOnly><SupplyDebtListPage /></ProtectedRoute>}
+        />
+
+        <Route
+          path="/integrations/iiko/mappings"
+          element={<ProtectedRoute adminOnly><IikoMappingPage /></ProtectedRoute>}
         />
 
         <Route

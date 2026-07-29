@@ -4,7 +4,7 @@
 Дата создания: **22 июля 2026 года**  
 Дата обновления: **29 июля 2026 года**
 Статус: **Stage 3.1A завершён на 100%, развёрнут в production и вручную проверен; этап 3 продолжается**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B начат, локально завершены и проверены срезы 3.1B / 1 и 3.1B / 2**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B начат, локально завершены и проверены срезы 3.1B / 1, 3.1B / 2 и 3.1B / 3**
 
 ---
 
@@ -626,11 +626,11 @@ iiko относится к Stage 3.1B и не входит в завершённ
 
 # Этап 3.1B — iiko, документы и печать
 
-Прогресс: **начат; завершены локально и проверены на реальном iikoServer срезы 3.1B / 1 и 3.1B / 2**
+Прогресс: **начат; завершены локально срезы 3.1B / 1, 3.1B / 2 и 3.1B / 3; первые два среза проверены на реальном iikoServer**
 
-Статус: **Stage 3.1B не завершён. Срезы 3.1B / 1 и 3.1B / 2 не
-закоммичены и не развёрнуты. Supply 3.1A не переключён на iiko; изменяющие
-операции iiko не реализованы.**
+Статус: **Stage 3.1B не завершён. Срез 3.1B / 3 реализован и проверен
+локально; commit и deployment не выполнены. Supply 3.1A не переключён на
+iiko; изменяющие операции iiko не реализованы.**
 
 Интеграция — прямое read-only подключение EOS к **iikoServer REST API 9.2.7014.0**.
 Это не iikoCloud и не iikoTransport. Относительные пути ниже вызываются
@@ -698,6 +698,58 @@ deployment не выполнены.**
 сохраняются без изменения. Бизнес-правило доступного перемещения будет
 реализовано позднее и не должно изменять исходные данные staging.
 
+### Stage 3.1B / 3 — явный mapping iiko ↔ EOS
+
+Статус: **завершён локально; commit и deployment не выполнены.**
+
+- [x] Отдельные модели явных связей `IikoProductMapping`,
+      `IikoUnitMapping` и `IikoWarehouseMapping`.
+- [x] Внешний идентификатор связи хранится как UUID iiko; название,
+      артикул, код, единица и подтверждённые алиасы используются только для
+      формирования предложения.
+- [x] Состояния `UNMAPPED`, `SUGGESTED`, `CONFIRMED`, `CONFLICT`,
+      `IGNORED`.
+- [x] Автоматическая генерация не подтверждает связь: однозначный кандидат
+      остаётся `SUGGESTED`, равные или уже занятые кандидаты становятся
+      `CONFLICT`.
+- [x] Генерация идемпотентна по `tenant_id + UUID iiko`; повторный запуск не
+      создаёт дубли.
+- [x] `CONFIRMED` и `IGNORED` не перезаписываются новым snapshot; при этом
+      актуальный признак удаления и reference-поля iiko обновляются.
+- [x] Удалённые товары исключены из основной очереди по умолчанию и доступны
+      отдельным фильтром.
+- [x] Поддержаны подтверждение, замена, игнорирование и снятие связи.
+- [x] Все решения сохраняются в `IikoMappingAuditEvent`; физического удаления
+      mapping и истории нет.
+- [x] Все чтения и действия ограничены текущим tenant и доступны только
+      администратору.
+- [x] Роли склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
+      `OTHER`.
+- [x] Одно подразделение может иметь несколько подтверждённых складов разных
+      ролей; частичный уникальный индекс запрещает две активные
+      `CONFIRMED`-связи одинаковой роли.
+- [x] Добавлен минимальный admin frontend с отдельными вкладками товаров,
+      единиц и складов, пагинацией и фильтрами по статусу, поиску, удалённости
+      и конфликтам.
+- [x] Supply 3.1A не читает mapping и не использует остатки.
+
+Миграция `20260729_0019` создаёт:
+
+- `iiko_product_mappings`;
+- `iiko_unit_mappings`;
+- `iiko_warehouse_mappings`;
+- `iiko_mapping_audit_events`;
+- tenant-aware unique и partial unique индексы для UUID iiko, подтверждённых
+  товаров/единиц и пары подразделение + роль склада.
+
+Ограничения среза:
+
+- mapping строится только по уже сохранённому reference snapshot;
+- никакие документы и изменяющие запросы в iiko не выполняются;
+- остатки не участвуют в Supply и расчёте перемещений;
+- поставщики, Min/Max, расписания синхронизации и n8n не затронуты;
+- fallback-импорт из Excel не реализован.
+
 ## Подтверждённый контракт iikoServer
 
 Все пути вызываются относительно настроенного base URL iikoServer. Статус
@@ -747,6 +799,29 @@ deployment не выполнены.**
 - `GET /integrations/iiko/sync-runs`;
 - `GET /integrations/iiko/sync-runs/{id}`.
 
+## API EOS: реализованный admin-only mapping-контур
+
+- `POST /integrations/iiko/mappings/generate`;
+- `GET /integrations/iiko/mappings/products`;
+- `POST /integrations/iiko/mappings/products/{id}/confirm`;
+- `POST /integrations/iiko/mappings/products/{id}/replace`;
+- `POST /integrations/iiko/mappings/products/{id}/ignore`;
+- `POST /integrations/iiko/mappings/products/{id}/unmap`;
+- `GET /integrations/iiko/mappings/units`;
+- `POST /integrations/iiko/mappings/units/{id}/confirm`;
+- `POST /integrations/iiko/mappings/units/{id}/replace`;
+- `POST /integrations/iiko/mappings/units/{id}/ignore`;
+- `POST /integrations/iiko/mappings/units/{id}/unmap`;
+- `GET /integrations/iiko/mappings/warehouses`;
+- `POST /integrations/iiko/mappings/warehouses/{id}/confirm`;
+- `POST /integrations/iiko/mappings/warehouses/{id}/replace`;
+- `POST /integrations/iiko/mappings/warehouses/{id}/ignore`;
+- `POST /integrations/iiko/mappings/warehouses/{id}/unmap`;
+- `GET /integrations/iiko/mappings/audit`.
+
+List endpoints поддерживают `status`, `search`, `include_deleted`,
+`conflicts_only`, `limit` и `offset`.
+
 ## Проверки и состояние реализации
 
 - [x] Профильные iiko-тесты — **36/36** успешно.
@@ -762,20 +837,50 @@ deployment не выполнены.**
 - [x] Реальная проверка завершилась logout; изменяющие запросы к iiko не
       выполнялись.
 
-## Следующий срез: Stage 3.1B / 3 — явный mapping iiko ↔ EOS
+Проверки среза 3.1B / 3:
 
-- [ ] iiko product ↔ EOS product.
-- [ ] iiko unit ↔ EOS unit.
-- [ ] EOS department ↔ iiko warehouse.
-- [ ] Назначение склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
+- [x] Профильные service/API/migration mapping-тесты — **11/11** успешно.
+- [x] Полный backend suite — запущено **503** теста: **498** успешно,
+      **5** PostgreSQL-тестов штатно пропущены в общем запуске без переменной
+      изолированной БД.
+- [x] Отдельный PostgreSQL migration integration test на одноразовой
+      изолированной БД прошёл цикл
+      `20260729_0018 → 20260729_0019 → 20260729_0018 → 20260729_0019`.
+- [x] Frontend tests — **88/88** успешно; production build успешно.
+- [x] ESLint изменённых frontend-файлов успешно; общий lint сохраняет две
+      известные baseline-ошибки `AuthContext.tsx`, не относящиеся к срезу.
+- [x] `compileall` и offline Alembic SQL generation до `20260729_0019`
+      успешно.
+- [x] Tenant isolation, повторная генерация без дублей, сохранение
+      `CONFIRMED` после нового snapshot, конфликт, удалённая позиция,
+      разные роли склада и запрет одинаковой активной роли покрыты тестами.
+
+## Завершённый срез: Stage 3.1B / 3 — явный mapping iiko ↔ EOS
+
+- [x] iiko product ↔ EOS product.
+- [x] iiko unit ↔ EOS unit.
+- [x] EOS department ↔ iiko warehouse.
+- [x] Назначение склада: `MAIN`, `PACKAGING`, `HOUSEHOLD`, `FIXED_ASSETS`,
       `OTHER`.
-- [ ] Состояния mapping: `UNMAPPED`, `SUGGESTED`, `CONFIRMED`, `CONFLICT`,
+- [x] Состояния mapping: `UNMAPPED`, `SUGGESTED`, `CONFIRMED`, `CONFLICT`,
       `IGNORED`.
-- [ ] Предложения создаются автоматически, подтверждение выполняет
+- [x] Предложения создаются автоматически, подтверждение выполняет
       пользователь.
-- [ ] Удалённые товары не входят в основную очередь.
-- [ ] Подтверждённый mapping переживает повторный snapshot.
-- [ ] Supply 3.1A пока не применяет mapping автоматически.
+- [x] Удалённые товары не входят в основную очередь.
+- [x] Подтверждённый mapping переживает повторный snapshot.
+- [x] Supply 3.1A пока не применяет mapping автоматически.
+
+## Следующий срез: Stage 3.1B / 4 — сверка Supply-заявки с реальными остатками
+
+- основной результат среза — сверка строк Supply-заявки с реальными остатками
+  iiko через подтверждённый mapping;
+- подготовительная часть среза — ручной запуск актуализации остатков из admin
+  UI, отображение времени последней синхронизации и признака устаревших данных;
+- расчёт доступного перемещения, возможность ручной корректировки и фиксация
+  дефицита выполняются только после успешной сверки с актуальными остатками;
+- Supply 3.1A не переключать на автоматический расчёт до отдельного решения;
+- не начинать документы iiko, печать, поставщиков, Min/Max и расписания в
+  рамках этого среза.
 
 ## 3.1B.1. Доступ к iiko API
 
@@ -1310,6 +1415,18 @@ deployment не выполнены.**
 ---
 
 # Changelog
+
+## 2026-07-29
+
+- Локально завершён срез 3.1B / 3: явный mapping товаров, единиц и складов
+  iiko ↔ EOS.
+- Добавлены состояния mapping, роли складов, идемпотентная генерация
+  кандидатов, admin-only API/UI и бессрочный аудит решений.
+- Добавлена миграция `20260729_0019`; PostgreSQL migration cycle
+  `0018 → 0019 → 0018 → 0019` пройден на одноразовой изолированной БД.
+- Supply 3.1A не подключён к mapping и остаткам; документы и запись в iiko,
+  расчёт перемещений, поставщики, Min/Max, n8n и расписания не реализовывались.
+- Commit, push и deployment не выполнялись.
 
 ## 2026-07-28
 

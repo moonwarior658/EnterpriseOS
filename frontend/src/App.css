@@ -2814,6 +2814,102 @@
   padding-bottom: 6.5rem;
 }
 
+.iiko-mapping-toolbar,
+.iiko-mapping-filters,
+.iiko-mapping-actions,
+.iiko-mapping-target {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.iiko-mapping-toolbar {
+  justify-content: space-between;
+  margin: 1rem 0;
+}
+
+.iiko-mapping-tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.iiko-mapping-tabs button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #d9d9d2;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.iiko-mapping-tabs button.is-active {
+  border-color: #222;
+  background: #222;
+  color: #fff;
+}
+
+.iiko-mapping-filters {
+  margin-bottom: 1rem;
+}
+
+.iiko-mapping-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.iiko-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) minmax(15rem, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem;
+  border: 1px solid #e2e2dc;
+  border-left: 0.3rem solid #a8a8a0;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.iiko-mapping-row.status-suggested {
+  border-left-color: #d89a22;
+}
+
+.iiko-mapping-row.status-confirmed {
+  border-left-color: #41855a;
+}
+
+.iiko-mapping-row.status-conflict {
+  border-left-color: #b52d2d;
+}
+
+.iiko-mapping-source {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.iiko-mapping-source span,
+.iiko-mapping-source small,
+.iiko-mapping-source p {
+  margin: 0;
+  color: #686868;
+}
+
+.iiko-mapping-target .eos-select {
+  min-width: 13rem;
+}
+
+.iiko-mapping-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .iiko-mapping-row {
+    grid-template-columns: 1fr;
+  }
+
+  .iiko-mapping-actions {
+    justify-content: flex-start;
+  }
+}
+
 .supply-simple-heading p:last-child {
   margin: 0.35rem 0 0;
   color: #686868;
