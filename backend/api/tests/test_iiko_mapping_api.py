@@ -9,7 +9,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -34,6 +34,9 @@ from app.models.supply import (
     LegalContour,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyProductCategory,
+    SupplyRequestDirection,
+    SupplyStorageZone,
     SupplyUnit,
 )
 from app.models.user import User
@@ -51,6 +54,9 @@ class IikoMappingApiTests(unittest.TestCase):
             User.__table__,
             SupplyUnit.__table__,
             Department.__table__,
+            SupplyRequestDirection.__table__,
+            SupplyProductCategory.__table__,
+            SupplyStorageZone.__table__,
             SupplyProduct.__table__,
             SupplyProductAlias.__table__,
             IikoSyncRun.__table__,
@@ -63,6 +69,7 @@ class IikoMappingApiTests(unittest.TestCase):
             table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.external_id = uuid4()
+        self.unit_external_id = uuid4()
         with self.sessions.begin() as session:
             admin = User(
                 id=1,
@@ -107,10 +114,21 @@ class IikoMappingApiTests(unittest.TestCase):
                     payload={
                         "id": str(self.external_id),
                         "name": "т Салфетки",
+                        "mainUnit": str(self.unit_external_id),
                         "deleted": False,
                     },
                     payload_hash=uuid4().hex,
                     is_active=True,
+                )
+            )
+            session.add(
+                IikoUnitMapping(
+                    tenant_id="tenant-a",
+                    iiko_unit_id=self.unit_external_id,
+                    eos_unit_id=unit.id,
+                    source_name="Штука",
+                    status=IikoMappingStatus.CONFIRMED,
+                    reasons=["Подтверждено администратором"],
                 )
             )
             warehouse_mapping = IikoWarehouseMapping(
@@ -212,6 +230,53 @@ class IikoMappingApiTests(unittest.TestCase):
         )
         self.assertEqual(conflicts.status_code, 200)
         self.assertEqual(conflicts.json()["total"], 0)
+
+    def test_bootstrap_catalog_is_listed_by_supply_products_endpoint(
+        self,
+    ) -> None:
+        catalog_external_id = uuid4()
+        with self.sessions.begin() as session:
+            run = session.scalar(select(IikoSyncRun))
+            session.add(
+                IikoRawEntity(
+                    tenant_id="tenant-a",
+                    sync_run_id=run.id,
+                    entity_type="product",
+                    external_id=str(catalog_external_id),
+                    payload={
+                        "id": str(catalog_external_id),
+                        "name": "ту Коробка",
+                        "mainUnit": str(self.unit_external_id),
+                        "deleted": False,
+                    },
+                    payload_hash=uuid4().hex,
+                    is_active=True,
+                )
+            )
+
+        response = self.client.post(
+            "/integrations/iiko/mappings/products/bootstrap-catalog"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {
+                "created": 1,
+                "linked": 1,
+                "existing": 1,
+                "conflicts": 0,
+                "skipped": 0,
+            },
+        )
+        products = self.client.get(
+            "/supply/products",
+            params={"active": True, "limit": 100},
+        )
+        self.assertEqual(products.status_code, 200, products.text)
+        self.assertIn(
+            "Коробка",
+            {item["name"] for item in products.json()["items"]},
+        )
 
     def test_non_admin_is_forbidden(self) -> None:
         def forbidden():

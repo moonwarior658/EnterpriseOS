@@ -15,6 +15,7 @@ import {
   type SupplyUnit,
 } from '../services/supplyAdmin'
 import {
+  bootstrapIikoProductCatalog,
   confirmProductMapping,
   confirmUnitMapping,
   confirmWarehouseMapping,
@@ -30,6 +31,7 @@ import {
   type IikoMappingKind,
   type IikoMappingStatus,
   type IikoLegalContour,
+  type IikoCatalogBootstrapResult,
   type IikoProductMapping,
   type IikoReferenceSyncResult,
   type IikoUnitMapping,
@@ -84,6 +86,8 @@ function IikoMappingPage() {
   const [referenceReady, setReferenceReady] = useState(false)
   const [syncResult, setSyncResult] =
     useState<IikoReferenceSyncResult | null>(null)
+  const [bootstrapResult, setBootstrapResult] =
+    useState<IikoCatalogBootstrapResult | null>(null)
   const [products, setProducts] = useState<SupplyProduct[]>([])
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [departments, setDepartments] = useState<SupplyReference[]>([])
@@ -204,6 +208,27 @@ function IikoMappingPage() {
         actionError instanceof IikoMappingApiError
           ? actionError.message
           : 'Не удалось сформировать предложения',
+      )
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function bootstrapCatalog() {
+    setBusyId('bootstrap-catalog')
+    setError('')
+    setBootstrapResult(null)
+    try {
+      const result = await bootstrapIikoProductCatalog()
+      setBootstrapResult(result)
+      const productPage = await getSupplyProducts()
+      setProducts(productPage.items)
+      await load()
+    } catch (actionError) {
+      setError(
+        actionError instanceof IikoMappingApiError
+          ? actionError.message
+          : 'Не удалось создать каталог EOS из iiko',
       )
     } finally {
       setBusyId(null)
@@ -361,6 +386,18 @@ function IikoMappingPage() {
                 ? 'Обновляем данные iiko…'
                 : 'Обновить данные iiko'}
             </button>
+            {tab === 'products' && (
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={busyId !== null || !referenceReady}
+                onClick={() => void bootstrapCatalog()}
+              >
+                {busyId === 'bootstrap-catalog'
+                  ? 'Создаём каталог EOS…'
+                  : 'Создать каталог EOS из iiko'}
+              </button>
+            )}
             <button
               type="button"
               className="primary-action"
@@ -387,6 +424,15 @@ function IikoMappingPage() {
               </p>
             )}
           </>
+        )}
+        {bootstrapResult && (
+          <p className="request-message iiko-mapping-sync-result">
+            Каталог EOS обработан: created — {bootstrapResult.created},
+            {' '}linked — {bootstrapResult.linked},
+            {' '}existing — {bootstrapResult.existing},
+            {' '}conflicts — {bootstrapResult.conflicts},
+            {' '}skipped — {bootstrapResult.skipped}.
+          </p>
         )}
 
         <div className="iiko-mapping-filters">

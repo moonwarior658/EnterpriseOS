@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.integrations.iiko.mapping_service import (
     MappingError,
+    bootstrap_product_catalog,
     confirm_product_mapping,
     confirm_warehouse_mapping,
     generate_mapping_candidates,
@@ -381,6 +382,185 @@ class IikoMappingServiceTests(unittest.TestCase):
             )
             for excluded_id in excluded_ids:
                 self.assertNotIn(excluded_id, mappings)
+
+    def test_catalog_bootstrap_creates_links_and_is_idempotent(self) -> None:
+        packaging_id = uuid4()
+        ignored_id = uuid4()
+        deleted_id = uuid4()
+        with self.sessions.begin() as session:
+            unit = session.scalar(select(SupplyUnit))
+            run = session.scalar(select(IikoSyncRun))
+            session.add(
+                IikoUnitMapping(
+                    tenant_id="tenant-a",
+                    iiko_unit_id=self.unit_external_id,
+                    eos_unit_id=unit.id,
+                    source_name="Килограмм",
+                    status=IikoMappingStatus.CONFIRMED,
+                    reasons=["Подтверждено администратором"],
+                )
+            )
+            session.add_all(
+                [
+                    self.raw(
+                    run,
+                    "product",
+                    packaging_id,
+                    {
+                        "id": str(packaging_id),
+                        "name": "ТУ Коробка",
+                        "mainUnit": str(self.unit_external_id),
+                        "deleted": False,
+                    },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        ignored_id,
+                        {
+                            "id": str(ignored_id),
+                            "name": "т Игнорируемый товар",
+                            "mainUnit": str(self.unit_external_id),
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        deleted_id,
+                        {
+                            "id": str(deleted_id),
+                            "name": "т Удалённый товар",
+                            "mainUnit": str(self.unit_external_id),
+                            "deleted": True,
+                        },
+                    ),
+                    IikoProductMapping(
+                        tenant_id="tenant-a",
+                        iiko_product_id=ignored_id,
+                        source_name="т Игнорируемый товар",
+                        status=IikoMappingStatus.IGNORED,
+                        reasons=["Игнорировано администратором"],
+                    ),
+                ]
+            )
+
+        with self.sessions() as session:
+            first = bootstrap_product_catalog(
+                session,
+                tenant_id="tenant-a",
+                actor_user_id=1,
+            )
+            self.assertEqual(first.created, 1)
+            self.assertEqual(first.linked, 1)
+            self.assertEqual(first.existing, 1)
+            self.assertEqual(first.conflicts, 0)
+            self.assertEqual(first.skipped, 2)
+            product = session.scalar(
+                select(SupplyProduct).where(
+                    SupplyProduct.normalized_name == "коробка"
+                )
+            )
+            self.assertEqual(product.name, "Коробка")
+            self.assertEqual(product.iiko_id, str(packaging_id))
+            mappings = {
+                mapping.iiko_product_id: mapping
+                for mapping in session.scalars(
+                    select(IikoProductMapping)
+                ).all()
+            }
+            self.assertEqual(
+                mappings[packaging_id].status,
+                IikoMappingStatus.CONFIRMED,
+            )
+            self.assertIn(
+                "Тип iiko: PACKAGING",
+                mappings[packaging_id].reasons,
+            )
+            self.assertEqual(
+                mappings[self.product_external_id].status,
+                IikoMappingStatus.SUGGESTED,
+            )
+            self.assertEqual(
+                mappings[ignored_id].status,
+                IikoMappingStatus.IGNORED,
+            )
+
+            second = bootstrap_product_catalog(
+                session,
+                tenant_id="tenant-a",
+                actor_user_id=1,
+            )
+            self.assertEqual(second.created, 0)
+            self.assertEqual(second.linked, 0)
+            self.assertEqual(second.existing, 2)
+            self.assertEqual(second.conflicts, 0)
+            self.assertEqual(second.skipped, 2)
+
+    def test_catalog_bootstrap_conflicts_on_different_unit(self) -> None:
+        other_unit_external_id = uuid4()
+        other_product_external_id = uuid4()
+        with self.sessions.begin() as session:
+            unit = session.scalar(select(SupplyUnit))
+            other_unit = SupplyUnit(
+                tenant_id="tenant-a",
+                code="PCS",
+                name_ru="Штука",
+                short_name_ru="шт",
+            )
+            session.add(other_unit)
+            session.flush()
+            session.add_all(
+                [
+                    IikoUnitMapping(
+                        tenant_id="tenant-a",
+                        iiko_unit_id=self.unit_external_id,
+                        eos_unit_id=unit.id,
+                        source_name="Килограмм",
+                        status=IikoMappingStatus.CONFIRMED,
+                        reasons=["Подтверждено администратором"],
+                    ),
+                    IikoUnitMapping(
+                        tenant_id="tenant-a",
+                        iiko_unit_id=other_unit_external_id,
+                        eos_unit_id=other_unit.id,
+                        source_name="Штука",
+                        status=IikoMappingStatus.CONFIRMED,
+                        reasons=["Подтверждено администратором"],
+                    ),
+                ]
+            )
+            run = session.scalar(select(IikoSyncRun))
+            session.add(
+                self.raw(
+                    run,
+                    "product",
+                    other_product_external_id,
+                    {
+                        "id": str(other_product_external_id),
+                        "name": "т Молоко",
+                        "mainUnit": str(other_unit_external_id),
+                        "deleted": False,
+                    },
+                )
+            )
+
+        with self.sessions() as session:
+            result = bootstrap_product_catalog(
+                session,
+                tenant_id="tenant-a",
+                actor_user_id=1,
+            )
+            self.assertEqual(result.created, 0)
+            self.assertEqual(result.conflicts, 1)
+            mapping = session.scalar(
+                select(IikoProductMapping).where(
+                    IikoProductMapping.iiko_product_id
+                    == other_product_external_id
+                )
+            )
+            self.assertEqual(mapping.status, IikoMappingStatus.CONFLICT)
+            self.assertIn("единица товара отличается", mapping.reasons[0])
 
     def test_candidate_for_already_confirmed_target_becomes_conflict(self) -> None:
         other_external_id = uuid4()

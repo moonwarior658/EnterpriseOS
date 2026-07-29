@@ -23,6 +23,14 @@ class IikoMappingGenerateRead(BaseModel):
     warehouses_updated: int
 
 
+class IikoCatalogBootstrapRead(BaseModel):
+    created: int
+    linked: int
+    existing: int
+    conflicts: int
+    skipped: int
+
+
 class IikoMappingGenerateStatusRead(BaseModel):
     generation_id: UUID
     status: Literal["RUNNING", "SUCCEEDED", "FAILED", "UNKNOWN"]

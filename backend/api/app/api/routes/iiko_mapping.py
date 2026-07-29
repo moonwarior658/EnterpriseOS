@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.mapping_service import (
     MappingError,
+    bootstrap_product_catalog,
     confirm_product_mapping,
     confirm_unit_mapping,
     confirm_warehouse_mapping,
@@ -31,6 +32,7 @@ from app.models.iiko import (
 )
 from app.models.user import User
 from app.schemas.iiko_mapping import (
+    IikoCatalogBootstrapRead,
     IikoMappingAuditPage,
     IikoMappingGenerateRead,
     IikoMappingGenerateStatusRead,
@@ -56,6 +58,31 @@ def mapping_error(error: MappingError) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail=str(error),
+    )
+
+
+@router.post(
+    "/products/bootstrap-catalog",
+    response_model=IikoCatalogBootstrapRead,
+)
+def bootstrap_catalog(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> IikoCatalogBootstrapRead:
+    try:
+        result = bootstrap_product_catalog(
+            db,
+            tenant_id=settings.default_tenant_id,
+            actor_user_id=user.id,
+        )
+    except MappingError as error:
+        raise mapping_error(error) from error
+    return IikoCatalogBootstrapRead(
+        created=result.created,
+        linked=result.linked,
+        existing=result.existing,
+        conflicts=result.conflicts,
+        skipped=result.skipped,
     )
 
 

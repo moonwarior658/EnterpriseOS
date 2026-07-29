@@ -60,6 +60,14 @@ export type IikoReferenceSyncResult = {
   warning: string | null
 }
 
+export type IikoCatalogBootstrapResult = {
+  created: number
+  linked: number
+  existing: number
+  conflicts: number
+  skipped: number
+}
+
 type IikoSyncRun = {
   status: 'RUNNING' | 'SUCCEEDED' | 'PARTIALLY_SUCCEEDED' | 'FAILED'
   error_message: string | null
@@ -228,6 +236,12 @@ export async function generateMappingCandidates(): Promise<
     }
     return waitForGeneration(generationId)
   }
+}
+
+export function bootstrapIikoProductCatalog(): Promise<
+  IikoCatalogBootstrapResult
+> {
+  return request('/products/bootstrap-catalog', { method: 'POST' })
 }
 
 export function confirmProductMapping(

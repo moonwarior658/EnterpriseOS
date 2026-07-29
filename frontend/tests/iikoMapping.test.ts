@@ -9,6 +9,7 @@ import {
   mappingActionLabel,
 } from '../src/pages/iikoMappingLogic.ts'
 import {
+  bootstrapIikoProductCatalog,
   confirmWarehouseMapping,
   generateMappingCandidates,
   IikoMappingApiError,
@@ -57,11 +58,63 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /iikoWarehouseDestinationTypeLabel/)
   assert.match(page, /Контур источника/)
   assert.match(page, /Сформировать предложения/)
+  assert.match(page, /Создать каталог EOS из iiko/)
+  assert.match(page, /bootstrapResult\.created/)
+  assert.match(page, /bootstrapResult\.linked/)
+  assert.match(page, /bootstrapResult\.existing/)
+  assert.match(page, /bootstrapResult\.conflicts/)
+  assert.match(page, /bootstrapResult\.skipped/)
+  assert.match(
+    page,
+    /await bootstrapIikoProductCatalog\(\)[\s\S]*?await getSupplyProducts\(\)[\s\S]*?setProducts\(productPage\.items\)[\s\S]*?await load\(\)/,
+  )
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
+})
+
+test('bootstrap каталога вызывает отдельный endpoint и возвращает счётчики', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  let requestedPath = ''
+  let requestedMethod = ''
+  globalThis.fetch = async (input, options = {}) => {
+    requestedPath = String(input)
+    requestedMethod = options.method ?? 'GET'
+    return new Response(JSON.stringify({
+      created: 2,
+      linked: 2,
+      existing: 3,
+      conflicts: 1,
+      skipped: 4,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    const result = await bootstrapIikoProductCatalog()
+    assert.equal(result.created, 2)
+    assert.equal(result.conflicts, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.match(requestedPath, /\/products\/bootstrap-catalog$/)
+  assert.equal(requestedMethod, 'POST')
 })
 
 test('SOURCE отправляется с контуром и ролью без подразделения', async () => {

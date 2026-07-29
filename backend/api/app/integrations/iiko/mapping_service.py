@@ -63,6 +63,15 @@ class GenerationResult:
 
 
 @dataclass(frozen=True)
+class CatalogBootstrapResult:
+    created: int = 0
+    linked: int = 0
+    existing: int = 0
+    conflicts: int = 0
+    skipped: int = 0
+
+
+@dataclass(frozen=True)
 class ProductSource:
     original_name: str
     search_name: str
@@ -367,6 +376,278 @@ def _should_preserve(mapping: MappingT) -> bool:
         IikoMappingStatus.CONFIRMED,
         IikoMappingStatus.IGNORED,
     }
+
+
+def bootstrap_product_catalog(
+    session: Session,
+    *,
+    tenant_id: str,
+    actor_user_id: int,
+) -> CatalogBootstrapResult:
+    products = session.scalars(
+        select(SupplyProduct).where(SupplyProduct.tenant_id == tenant_id)
+    ).all()
+    aliases = session.execute(
+        select(SupplyProductAlias.product_id, SupplyProductAlias.normalized_alias)
+        .where(
+            SupplyProductAlias.tenant_id == tenant_id,
+            SupplyProductAlias.status == "APPROVED",
+        )
+    ).all()
+    product_mappings = {
+        mapping.iiko_product_id: mapping
+        for mapping in session.scalars(
+            select(IikoProductMapping).where(
+                IikoProductMapping.tenant_id == tenant_id
+            )
+        ).all()
+    }
+    confirmed_product_targets = {
+        mapping.eos_product_id: mapping.iiko_product_id
+        for mapping in product_mappings.values()
+        if (
+            mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.eos_product_id is not None
+        )
+    }
+    confirmed_units = {
+        mapping.iiko_unit_id: mapping.eos_unit
+        for mapping in session.scalars(
+            select(IikoUnitMapping).where(
+                IikoUnitMapping.tenant_id == tenant_id,
+                IikoUnitMapping.status == IikoMappingStatus.CONFIRMED,
+                IikoUnitMapping.is_deleted.is_(False),
+                IikoUnitMapping.eos_unit_id.is_not(None),
+            )
+        ).all()
+        if mapping.eos_unit is not None and mapping.eos_unit.is_active
+    }
+    products_by_id = {product.id: product for product in products}
+    products_by_name: dict[str, set[UUID]] = {}
+    products_by_iiko_id = {
+        product.iiko_id: product
+        for product in products
+        if product.iiko_id is not None
+    }
+    for product in products:
+        products_by_name.setdefault(product.normalized_name, set()).add(
+            product.id
+        )
+    for product_id, normalized_alias in aliases:
+        products_by_name.setdefault(normalized_alias, set()).add(product_id)
+
+    counts = {
+        "created": 0,
+        "linked": 0,
+        "existing": 0,
+        "conflicts": 0,
+        "skipped": 0,
+    }
+
+    def set_conflict(
+        mapping: IikoProductMapping,
+        *,
+        before: dict[str, Any],
+        reason: str,
+        candidate: SupplyProduct | None = None,
+    ) -> None:
+        mapping.eos_product_id = candidate.id if candidate else None
+        mapping.status = IikoMappingStatus.CONFLICT
+        mapping.confidence = None
+        mapping.reasons = [reason]
+        if before != _state(mapping):
+            _audit(
+                session,
+                mapping,
+                kind=IikoMappingKind.PRODUCT,
+                action=IikoMappingAction.GENERATED,
+                actor_user_id=actor_user_id,
+                before=before,
+            )
+        counts["conflicts"] += 1
+
+    for raw in _latest_raw_entities(
+        session,
+        tenant_id=tenant_id,
+        entity_type="product",
+    ):
+        source = _product_source(raw.payload, is_active=raw.is_active)
+        external_id = _uuid(raw.external_id)
+        if (
+            source is None
+            or external_id is None
+            or len(source.search_name) > 240
+            or not _normalized(source.search_name)
+        ):
+            counts["skipped"] += 1
+            continue
+
+        mapping = product_mappings.get(external_id)
+        if mapping is None:
+            mapping = IikoProductMapping(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                iiko_product_id=external_id,
+                source_name=source.original_name,
+                status=IikoMappingStatus.UNMAPPED,
+                is_deleted=False,
+                reasons=[],
+            )
+            session.add(mapping)
+            product_mappings[external_id] = mapping
+        if _should_preserve(mapping):
+            counts[
+                "existing"
+                if mapping.status == IikoMappingStatus.CONFIRMED
+                else "skipped"
+            ] += 1
+            continue
+
+        before = _state(mapping)
+        mapping.source_name = source.original_name
+        mapping.source_code = raw.payload.get("code")
+        mapping.source_sku = raw.payload.get("num")
+        mapping.source_unit_id = _uuid(raw.payload.get("mainUnit"))
+        mapping.is_deleted = False
+        base_reasons = [f"Тип iiko: {source.mapping_type}"]
+        unit = confirmed_units.get(mapping.source_unit_id)
+        if unit is None:
+            set_conflict(
+                mapping,
+                before=before,
+                reason="Единица iiko не подтверждена в EOS",
+            )
+            continue
+
+        normalized_name = _normalized(source.search_name)
+        product_with_iiko_id = products_by_iiko_id.get(str(external_id))
+        if product_with_iiko_id is not None:
+            if (
+                product_with_iiko_id.normalized_name != normalized_name
+                or product_with_iiko_id.default_unit_id != unit.id
+                or not product_with_iiko_id.is_active
+            ):
+                set_conflict(
+                    mapping,
+                    before=before,
+                    reason="Связанный товар EOS отличается по названию или единице",
+                    candidate=product_with_iiko_id,
+                )
+                continue
+            mapping.eos_product_id = product_with_iiko_id.id
+            mapping.status = IikoMappingStatus.CONFIRMED
+            mapping.confidence = 100
+            mapping.reasons = [
+                *base_reasons,
+                "Связь восстановлена по iiko external_id",
+            ]
+            if before != _state(mapping):
+                _audit(
+                    session,
+                    mapping,
+                    kind=IikoMappingKind.PRODUCT,
+                    action=IikoMappingAction.CONFIRMED,
+                    actor_user_id=actor_user_id,
+                    before=before,
+                )
+                counts["linked"] += 1
+            counts["existing"] += 1
+            continue
+
+        candidate_ids = products_by_name.get(normalized_name, set())
+        candidates = [products_by_id[product_id] for product_id in candidate_ids]
+        active_candidates = [
+            candidate for candidate in candidates if candidate.is_active
+        ]
+        if len(candidates) != 1 or len(active_candidates) != 1:
+            if candidates:
+                set_conflict(
+                    mapping,
+                    before=before,
+                    reason="Найдено неоднозначное или неактивное совпадение EOS",
+                )
+                continue
+        elif active_candidates[0].default_unit_id != unit.id:
+            set_conflict(
+                mapping,
+                before=before,
+                reason="Название совпало, но единица товара отличается",
+                candidate=active_candidates[0],
+            )
+            continue
+        else:
+            candidate = active_candidates[0]
+            if (
+                candidate.iiko_id not in {None, str(external_id)}
+                or confirmed_product_targets.get(candidate.id)
+                not in {None, external_id}
+            ):
+                set_conflict(
+                    mapping,
+                    before=before,
+                    reason="Товар EOS уже связан с другой позицией iiko",
+                    candidate=candidate,
+                )
+                continue
+            mapping.eos_product_id = candidate.id
+            mapping.status = IikoMappingStatus.SUGGESTED
+            mapping.confidence = 80
+            mapping.reasons = [
+                *base_reasons,
+                "Совпали нормализованное название и единица",
+            ]
+            if before != _state(mapping):
+                _audit(
+                    session,
+                    mapping,
+                    kind=IikoMappingKind.PRODUCT,
+                    action=IikoMappingAction.GENERATED,
+                    actor_user_id=actor_user_id,
+                    before=before,
+                )
+            counts["existing"] += 1
+            continue
+
+        product = SupplyProduct(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            name=source.search_name,
+            normalized_name=normalized_name,
+            iiko_id=str(external_id),
+            default_unit_id=unit.id,
+            is_active=True,
+        )
+        session.add(product)
+        products.append(product)
+        products_by_id[product.id] = product
+        products_by_name.setdefault(normalized_name, set()).add(product.id)
+        products_by_iiko_id[str(external_id)] = product
+        mapping.eos_product_id = product.id
+        mapping.status = IikoMappingStatus.CONFIRMED
+        mapping.confidence = 100
+        mapping.reasons = [
+            *base_reasons,
+            "Товар EOS создан из staging iiko",
+        ]
+        _audit(
+            session,
+            mapping,
+            kind=IikoMappingKind.PRODUCT,
+            action=IikoMappingAction.CONFIRMED,
+            actor_user_id=actor_user_id,
+            before=before,
+        )
+        counts["created"] += 1
+        counts["linked"] += 1
+
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise MappingError(
+            "Каталог изменился параллельно. Повторите инициализацию"
+        ) from error
+    return CatalogBootstrapResult(**counts)
 
 
 def generate_mapping_candidates(
