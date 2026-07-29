@@ -2815,6 +2815,7 @@
 }
 
 .iiko-mapping-toolbar,
+.iiko-mapping-toolbar-actions,
 .iiko-mapping-filters,
 .iiko-mapping-actions,
 .iiko-mapping-target {
@@ -2827,6 +2828,14 @@
 .iiko-mapping-toolbar {
   justify-content: space-between;
   margin: 1rem 0;
+}
+
+.iiko-mapping-toolbar-actions {
+  justify-content: flex-end;
+}
+
+.iiko-mapping-sync-result {
+  color: #2f6944;
 }
 
 .iiko-mapping-tabs {

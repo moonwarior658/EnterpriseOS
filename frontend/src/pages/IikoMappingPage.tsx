@@ -25,10 +25,12 @@ import {
   ignoreMapping,
   IikoMappingApiError,
   mappingQuery,
+  syncIikoReferenceData,
   unmapMapping,
   type IikoMappingKind,
   type IikoMappingStatus,
   type IikoProductMapping,
+  type IikoReferenceSyncResult,
   type IikoUnitMapping,
   type IikoWarehouseMapping,
   type IikoWarehouseRole,
@@ -62,6 +64,9 @@ function IikoMappingPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [referenceReady, setReferenceReady] = useState(false)
+  const [syncResult, setSyncResult] =
+    useState<IikoReferenceSyncResult | null>(null)
   const [products, setProducts] = useState<SupplyProduct[]>([])
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [departments, setDepartments] = useState<SupplyReference[]>([])
@@ -153,6 +158,23 @@ function IikoMappingPage() {
           ? actionError.message
           : 'Не удалось сформировать предложения',
       )
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function syncReferenceData() {
+    setBusyId('sync-reference')
+    setError('')
+    setSyncResult(null)
+    setReferenceReady(false)
+    try {
+      const result = await syncIikoReferenceData()
+      setSyncResult(result)
+      setReferenceReady(true)
+      await load()
+    } catch {
+      setError('Не удалось обновить данные iiko. Повторите попытку')
     } finally {
       setBusyId(null)
     }
@@ -263,15 +285,35 @@ function IikoMappingPage() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className="primary-action"
-            disabled={busyId !== null}
-            onClick={() => void generate()}
-          >
-            Сформировать предложения
-          </button>
+          <div className="iiko-mapping-toolbar-actions">
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={busyId !== null}
+              onClick={() => void syncReferenceData()}
+            >
+              {busyId === 'sync-reference'
+                ? 'Обновляем данные iiko…'
+                : 'Обновить данные iiko'}
+            </button>
+            <button
+              type="button"
+              className="primary-action"
+              disabled={busyId !== null || !referenceReady}
+              onClick={() => void generate()}
+            >
+              Сформировать предложения
+            </button>
+          </div>
         </div>
+
+        {syncResult && (
+          <p className="request-message iiko-mapping-sync-result">
+            Данные iiko обновлены: товары — {syncResult.products},
+            {' '}единицы — {syncResult.units},
+            {' '}склады — {syncResult.warehouses}.
+          </p>
+        )}
 
         <div className="iiko-mapping-filters">
           <EosSearchField

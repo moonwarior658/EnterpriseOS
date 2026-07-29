@@ -6,7 +6,11 @@ import {
   iikoWarehouseRoleLabel,
   mappingActionLabel,
 } from '../src/pages/iikoMappingLogic.ts'
-import { mappingQuery } from '../src/services/iikoMapping.ts'
+import {
+  IikoMappingApiError,
+  mappingQuery,
+  syncIikoReferenceData,
+} from '../src/services/iikoMapping.ts'
 
 
 test('показывает безопасные русские статусы и роли mapping', () => {
@@ -47,4 +51,107 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
+})
+
+test('обновляет reference snapshot, показывает totals и не запрашивает остатки', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  globalThis.fetch = async (input, options = {}) => {
+    const url = String(input)
+    calls.push({ url, options })
+    const body = url.endsWith('/sync/reference-snapshot')
+      ? { status: 'SUCCEEDED' }
+      : { items: [], total: url.includes('/products') ? 12 : url.includes('/units') ? 3 : 5, limit: 1, offset: 0 }
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    assert.deepEqual(await syncIikoReferenceData(), {
+      products: 12,
+      units: 3,
+      warehouses: 5,
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.equal(
+    calls[0].url,
+    '/api/integrations/iiko/sync/reference-snapshot',
+  )
+  assert.equal(calls[0].options.method, 'POST')
+  assert.deepEqual(
+    calls.slice(1).map((call) => call.url).sort(),
+    [
+      '/api/integrations/iiko/products?limit=1&offset=0',
+      '/api/integrations/iiko/units?limit=1&offset=0',
+      '/api/integrations/iiko/warehouses?limit=1&offset=0',
+    ],
+  )
+  assert.ok(calls.every((call) => !call.url.includes('stock-balances')))
+  assert.ok(calls.every((call) => (
+    new Headers(call.options.headers).get('Authorization')
+      === 'Bearer test-token'
+  )))
+})
+
+test('ошибка синхронизации не показывает технические детали', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    detail: 'https://iiko.internal/resto/api: token expired',
+  }), {
+    status: 502,
+    headers: { 'Content-Type': 'application/json' },
+  })
+  try {
+    await assert.rejects(
+      syncIikoReferenceData(),
+      (error: unknown) => (
+        error instanceof IikoMappingApiError
+        && error.message === 'Не удалось обновить данные iiko'
+      ),
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+})
+
+test('кнопка предложений доступна только после обновления данных iiko', () => {
+  const page = readFileSync(
+    new URL('../src/pages/IikoMappingPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(page, /Обновить данные iiko/)
+  assert.match(page, /Данные iiko обновлены: товары/)
+  assert.match(page, /disabled=\{busyId !== null \|\| !referenceReady\}/)
+  assert.match(page, /setReferenceReady\(true\)[\s\S]*?await load\(\)/)
+  assert.doesNotMatch(page, /sync\/stock-balances/)
+  assert.doesNotMatch(page, /Обновить остатки/)
 })

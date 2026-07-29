@@ -47,6 +47,16 @@ export type IikoMappingPage<T> = {
   offset: number
 }
 
+export type IikoReferenceSyncResult = {
+  products: number
+  units: number
+  warehouses: number
+}
+
+type IikoSyncRun = {
+  status: 'RUNNING' | 'SUCCEEDED' | 'PARTIALLY_SUCCEEDED' | 'FAILED'
+}
+
 export class IikoMappingApiError extends Error {}
 
 async function request<T>(
@@ -75,6 +85,51 @@ async function request<T>(
     throw new IikoMappingApiError(message)
   }
   return response.json() as Promise<T>
+}
+
+async function referenceRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const token = getStoredToken()
+  if (!token) throw new IikoMappingApiError('Сессия не найдена')
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  headers.set('Accept', 'application/json')
+  const response = await fetch(`/api/integrations/iiko${path}`, {
+    ...options,
+    headers,
+    cache: 'no-store',
+  })
+  if (!response.ok) {
+    throw new IikoMappingApiError('Не удалось обновить данные iiko')
+  }
+  return response.json() as Promise<T>
+}
+
+export async function syncIikoReferenceData(): Promise<
+  IikoReferenceSyncResult
+> {
+  const run = await referenceRequest<IikoSyncRun>(
+    '/sync/reference-snapshot',
+    { method: 'POST' },
+  )
+  if (run.status !== 'SUCCEEDED') {
+    throw new IikoMappingApiError(
+      'Данные iiko обновлены не полностью. Повторите попытку',
+    )
+  }
+  const query = '?limit=1&offset=0'
+  const [products, units, warehouses] = await Promise.all([
+    referenceRequest<IikoMappingPage<unknown>>(`/products${query}`),
+    referenceRequest<IikoMappingPage<unknown>>(`/units${query}`),
+    referenceRequest<IikoMappingPage<unknown>>(`/warehouses${query}`),
+  ])
+  return {
+    products: products.total,
+    units: units.total,
+    warehouses: warehouses.total,
+  }
 }
 
 export function mappingQuery(values: {
