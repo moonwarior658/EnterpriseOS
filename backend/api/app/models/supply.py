@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -7,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Enum as SqlEnum,
     ForeignKey,
     Index,
     Integer,
@@ -21,6 +23,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+
+class LegalContour(StrEnum):
+    IP = "IP"
+    OOO = "OOO"
 
 
 class Department(Base):
@@ -47,6 +54,17 @@ class Department(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    legal_contour: Mapped[LegalContour | None] = mapped_column(
+        SqlEnum(
+            LegalContour,
+            name="department_legal_contour",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=8,
+        ),
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

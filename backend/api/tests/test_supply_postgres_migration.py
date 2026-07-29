@@ -806,6 +806,21 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             warehouse_indexes,
         )
 
+    def _assert_iiko_warehouse_legal_contour_schema(self) -> None:
+        inspector = inspect(self.engine)
+        warehouse_columns = {
+            column["name"]
+            for column in inspector.get_columns("iiko_warehouse_mappings")
+        }
+        self.assertIn("legal_contour", warehouse_columns)
+        self.assertNotIn("source_priority", warehouse_columns)
+        self.assertNotIn("source_direction", warehouse_columns)
+        department_columns = {
+            column["name"]
+            for column in inspector.get_columns("departments")
+        }
+        self.assertIn("legal_contour", department_columns)
+
     def test_01_upgrade_downgrade_and_repeat_upgrade(self) -> None:
         command.upgrade(self.alembic_config, "20260726_0006")
         self.assertEqual(self._current_revision(), "20260726_0006")
@@ -1109,6 +1124,9 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260730_0020")
         self.assertEqual(self._current_revision(), "20260730_0020")
         self._assert_iiko_warehouse_destination_schema()
+        command.upgrade(self.alembic_config, "20260730_0021")
+        self.assertEqual(self._current_revision(), "20260730_0021")
+        self._assert_iiko_warehouse_legal_contour_schema()
         with self.engine.connect() as connection:
             legacy_mapping = connection.execute(
                 text(
@@ -1134,9 +1152,9 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 )
             },
         )
-        command.upgrade(self.alembic_config, "20260730_0020")
-        self.assertEqual(self._current_revision(), "20260730_0020")
-        self._assert_iiko_warehouse_destination_schema()
+        command.upgrade(self.alembic_config, "20260730_0021")
+        self.assertEqual(self._current_revision(), "20260730_0021")
+        self._assert_iiko_warehouse_legal_contour_schema()
         command.downgrade(self.alembic_config, "20260728_0017")
         self.assertEqual(self._current_revision(), "20260728_0017")
         self.assertNotIn(

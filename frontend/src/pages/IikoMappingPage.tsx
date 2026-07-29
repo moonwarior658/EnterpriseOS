@@ -29,19 +29,19 @@ import {
   unmapMapping,
   type IikoMappingKind,
   type IikoMappingStatus,
+  type IikoLegalContour,
   type IikoProductMapping,
   type IikoReferenceSyncResult,
   type IikoUnitMapping,
   type IikoWarehouseMapping,
   type IikoWarehouseDestinationType,
   type IikoWarehouseRole,
-  type IikoWarehouseSourceDirection,
 } from '../services/iikoMapping'
 import {
   iikoMappingStatusLabel,
   iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
-  iikoWarehouseSourceDirectionLabel,
+  iikoLegalContourLabel,
   mappingActionLabel,
 } from './iikoMappingLogic'
 
@@ -57,9 +57,7 @@ const ROLES: IikoWarehouseRole[] = [
 const DESTINATION_TYPES: IikoWarehouseDestinationType[] = [
   'DESTINATION', 'SOURCE',
 ]
-const SOURCE_DIRECTIONS: IikoWarehouseSourceDirection[] = [
-  'PRODUCT', 'PACKAGING', 'HOUSEHOLD', 'FIXED_ASSETS',
-]
+const LEGAL_CONTOURS: IikoLegalContour[] = ['IP', 'OOO']
 const PAGE_SIZE = 100
 
 function withoutDraft<T>(
@@ -96,11 +94,8 @@ function IikoMappingPage() {
   const [destinationTypeDrafts, setDestinationTypeDrafts] = useState<
     Record<string, IikoWarehouseDestinationType>
   >({})
-  const [sourceDirectionDrafts, setSourceDirectionDrafts] = useState<
-    Record<string, IikoWarehouseSourceDirection>
-  >({})
-  const [sourcePriorityDrafts, setSourcePriorityDrafts] = useState<
-    Record<string, string>
+  const [legalContourDrafts, setLegalContourDrafts] = useState<
+    Record<string, IikoLegalContour>
   >({})
 
   const load = useCallback(async () => {
@@ -155,22 +150,12 @@ function IikoMappingPage() {
           }
           return next
         })
-        setSourceDirectionDrafts((current) => {
+        setLegalContourDrafts((current) => {
           const next = { ...current }
           for (const rawItem of page.items) {
             const item = rawItem as IikoWarehouseMapping
             if (next[item.id] === undefined) {
-              next[item.id] = item.source_direction ?? 'PRODUCT'
-            }
-          }
-          return next
-        })
-        setSourcePriorityDrafts((current) => {
-          const next = { ...current }
-          for (const rawItem of page.items) {
-            const item = rawItem as IikoWarehouseMapping
-            if (next[item.id] === undefined) {
-              next[item.id] = item.source_priority?.toString() ?? '1'
+              next[item.id] = item.legal_contour ?? 'IP'
             }
           }
           return next
@@ -192,7 +177,11 @@ function IikoMappingPage() {
       getSupplyProducts(),
       getSupplyUnits(),
       getSupplyDepartments(),
-    ]).then(([productPage, nextUnits, nextDepartments]) => {
+    ]).then(([
+      productPage,
+      nextUnits,
+      nextDepartments,
+    ]) => {
       setProducts(productPage.items)
       setUnits(nextUnits)
       setDepartments(nextDepartments)
@@ -250,15 +239,6 @@ function IikoMappingPage() {
       setError('Выберите объект EOS')
       return
     }
-    const sourcePriority = Number(sourcePriorityDrafts[item.id])
-    if (
-      tab === 'warehouses'
-      && warehouseDestinationType === 'SOURCE'
-      && (!Number.isInteger(sourcePriority) || sourcePriority < 1)
-    ) {
-      setError('Укажите приоритет источника от 1')
-      return
-    }
     setBusyId(item.id)
     setError('')
     try {
@@ -278,9 +258,8 @@ function IikoMappingPage() {
               }
             : {
                 destination_type: 'SOURCE',
-                source_direction:
-                  sourceDirectionDrafts[item.id] ?? 'PRODUCT',
-                source_priority: sourcePriority,
+                legal_contour: legalContourDrafts[item.id] ?? 'IP',
+                role: roleDrafts[item.id] ?? 'OTHER',
               },
           replace,
         )
@@ -309,8 +288,7 @@ function IikoMappingPage() {
       setTargetDrafts((current) => ({ ...current, [item.id]: '' }))
       setDestinationTypeDrafts((current) => withoutDraft(current, item.id))
       setRoleDrafts((current) => withoutDraft(current, item.id))
-      setSourceDirectionDrafts((current) => withoutDraft(current, item.id))
-      setSourcePriorityDrafts((current) => withoutDraft(current, item.id))
+      setLegalContourDrafts((current) => withoutDraft(current, item.id))
       await load()
     } catch (actionError) {
       setError(
@@ -468,7 +446,11 @@ function IikoMappingPage() {
             <p className="request-intro">Найдено: {total}</p>
             {items.map((item) => (
               <article
-                className={`iiko-mapping-row status-${item.status.toLowerCase()}`}
+                className={[
+                  'iiko-mapping-row',
+                  `status-${item.status.toLowerCase()}`,
+                  tab === 'warehouses' ? 'is-warehouse' : '',
+                ].filter(Boolean).join(' ')}
                 key={item.id}
               >
                 <div className="iiko-mapping-source">
@@ -527,62 +509,64 @@ function IikoMappingPage() {
                     <>
                       {(destinationTypeDrafts[item.id] ?? 'DESTINATION')
                         === 'DESTINATION' ? (
-                          <EosSelect
-                            aria-label={`Роль склада ${item.source_name}`}
-                            value={roleDrafts[item.id] ?? 'OTHER'}
-                            onChange={(event) => setRoleDrafts((current) => ({
-                              ...current,
-                              [item.id]: event.target.value as
-                                IikoWarehouseRole,
-                            }))}
-                          >
-                            {ROLES.map((role) => (
-                              <option key={role} value={role}>
-                                {iikoWarehouseRoleLabel(role)}
-                              </option>
-                            ))}
-                          </EosSelect>
-                        ) : (
                           <>
+                            <span className="iiko-mapping-contour">
+                              Контур:{' '}
+                              {departments.find(
+                                (department) => department.id
+                                  === targetDrafts[item.id],
+                              )?.legal_contour ?? 'не настроен'}
+                            </span>
                             <EosSelect
-                              aria-label={
-                                `Направление источника ${item.source_name}`
-                              }
-                              value={
-                                sourceDirectionDrafts[item.id] ?? 'PRODUCT'
-                              }
-                              onChange={(event) => setSourceDirectionDrafts(
-                                (current) => ({
-                                  ...current,
-                                  [item.id]: event.target.value as
-                                    IikoWarehouseSourceDirection,
-                                }),
-                              )}
+                              aria-label={`Роль склада ${item.source_name}`}
+                              value={roleDrafts[item.id] ?? 'OTHER'}
+                              onChange={(event) => setRoleDrafts((current) => ({
+                                ...current,
+                                [item.id]: event.target.value as
+                                  IikoWarehouseRole,
+                              }))}
                             >
-                              {SOURCE_DIRECTIONS.map((direction) => (
-                                <option key={direction} value={direction}>
-                                  {iikoWarehouseSourceDirectionLabel(direction)}
+                              {ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                  {iikoWarehouseRoleLabel(role)}
                                 </option>
                               ))}
                             </EosSelect>
-                            <label className="eos-field">
-                              <span>Приоритет</span>
-                              <input
-                                aria-label={
-                                  `Приоритет источника ${item.source_name}`
-                                }
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={sourcePriorityDrafts[item.id] ?? '1'}
-                                onChange={(event) => setSourcePriorityDrafts(
-                                  (current) => ({
-                                    ...current,
-                                    [item.id]: event.target.value,
-                                  }),
-                                )}
-                              />
-                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <EosSelect
+                              aria-label={`Контур источника ${item.source_name}`}
+                              value={legalContourDrafts[item.id] ?? 'IP'}
+                              onChange={(event) => setLegalContourDrafts(
+                                (current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value as
+                                    IikoLegalContour,
+                                }),
+                              )}
+                            >
+                              {LEGAL_CONTOURS.map((contour) => (
+                                <option key={contour} value={contour}>
+                                  {iikoLegalContourLabel(contour)}
+                                </option>
+                              ))}
+                            </EosSelect>
+                            <EosSelect
+                              aria-label={`Роль склада ${item.source_name}`}
+                              value={roleDrafts[item.id] ?? 'OTHER'}
+                              onChange={(event) => setRoleDrafts((current) => ({
+                                ...current,
+                                [item.id]: event.target.value as
+                                  IikoWarehouseRole,
+                              }))}
+                            >
+                              {ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                  {iikoWarehouseRoleLabel(role)}
+                                </option>
+                              ))}
+                            </EosSelect>
                           </>
                         )}
                     </>

@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.supply import LegalContour
 
 
 class IikoSyncStatus(StrEnum):
@@ -67,13 +68,6 @@ class IikoWarehouseRole(StrEnum):
 class IikoWarehouseDestinationType(StrEnum):
     DESTINATION = "DESTINATION"
     SOURCE = "SOURCE"
-
-
-class IikoWarehouseSourceDirection(StrEnum):
-    PRODUCT = "PRODUCT"
-    PACKAGING = "PACKAGING"
-    HOUSEHOLD = "HOUSEHOLD"
-    FIXED_ASSETS = "FIXED_ASSETS"
 
 
 class IikoMappingKind(StrEnum):
@@ -477,35 +471,14 @@ class IikoWarehouseMapping(Base):
                 "AND role IS NOT NULL AND is_deleted = false"
             ),
         ),
-        Index(
-            "uq_iiko_warehouse_mappings_confirmed_source_priority",
-            "tenant_id",
-            "source_direction",
-            "source_priority",
-            unique=True,
-            postgresql_where=text(
-                "status = 'CONFIRMED' AND destination_type = 'SOURCE' "
-                "AND source_direction IS NOT NULL "
-                "AND source_priority IS NOT NULL AND is_deleted = false"
-            ),
-            sqlite_where=text(
-                "status = 'CONFIRMED' AND destination_type = 'SOURCE' "
-                "AND source_direction IS NOT NULL "
-                "AND source_priority IS NOT NULL AND is_deleted = false"
-            ),
-        ),
-        CheckConstraint(
-            "source_priority IS NULL OR source_priority >= 1",
-            name="ck_iiko_warehouse_mapping_source_priority_positive",
-        ),
         CheckConstraint(
             "status != 'CONFIRMED' OR "
             "(destination_type = 'DESTINATION' "
             "AND eos_department_id IS NOT NULL AND role IS NOT NULL "
-            "AND source_direction IS NULL AND source_priority IS NULL) OR "
+            "AND legal_contour IS NULL) OR "
             "(destination_type = 'SOURCE' "
-            "AND eos_department_id IS NULL AND role IS NULL "
-            "AND source_direction IS NOT NULL AND source_priority IS NOT NULL)",
+            "AND eos_department_id IS NULL AND role IS NOT NULL "
+            "AND legal_contour IS NOT NULL)",
             name="ck_iiko_warehouse_mapping_confirmed_target",
         ),
     )
@@ -540,18 +513,17 @@ class IikoWarehouseMapping(Base):
         ),
         nullable=True,
     )
-    source_direction: Mapped[IikoWarehouseSourceDirection | None] = mapped_column(
+    legal_contour: Mapped[LegalContour | None] = mapped_column(
         SqlEnum(
-            IikoWarehouseSourceDirection,
-            name="iiko_warehouse_source_direction",
+            LegalContour,
+            name="iiko_warehouse_mapping_legal_contour",
             native_enum=False,
             create_constraint=True,
             values_callable=enum_values,
-            length=24,
+            length=8,
         ),
         nullable=True,
     )
-    source_priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[IikoMappingStatus] = mapped_column(
         SqlEnum(
             IikoMappingStatus,

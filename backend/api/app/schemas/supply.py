@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.models.supply import LegalContour
+
 
 MAX_RAW_INPUT_LENGTH = 20_000
 MAX_LINE_LENGTH = 1_000
@@ -77,6 +79,7 @@ class DepartmentRead(BaseModel):
     id: UUID
     code: str
     name: str
+    legal_contour: LegalContour | None
     is_active: bool
     display_order: int
 

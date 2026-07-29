@@ -2911,9 +2911,8 @@
 }
 
 .iiko-mapping-source-heading strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .iiko-mapping-source-heading small {
@@ -2940,10 +2939,26 @@
   min-width: 13rem;
 }
 
+.iiko-mapping-row.is-warehouse .iiko-mapping-target .eos-select {
+  min-width: 10.5rem;
+  width: 10.5rem;
+}
+
+.iiko-mapping-contour {
+  color: #686868;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .iiko-mapping-actions {
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: 0.35rem;
+}
+
+.iiko-mapping-row.is-warehouse .iiko-mapping-actions {
+  align-items: stretch;
+  flex-direction: column;
 }
 
 .iiko-mapping-actions .primary-action,

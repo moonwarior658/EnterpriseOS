@@ -8,8 +8,7 @@ export type IikoWarehouseRole =
 
 export type IikoWarehouseDestinationType = 'DESTINATION' | 'SOURCE'
 
-export type IikoWarehouseSourceDirection =
-  | 'PRODUCT' | 'PACKAGING' | 'HOUSEHOLD' | 'FIXED_ASSETS'
+export type IikoLegalContour = 'IP' | 'OOO'
 
 type MappingBase = {
   id: string
@@ -42,8 +41,7 @@ export type IikoWarehouseMapping = MappingBase & {
   eos_department_name: string | null
   destination_type: IikoWarehouseDestinationType
   role: IikoWarehouseRole | null
-  source_direction: IikoWarehouseSourceDirection | null
-  source_priority: number | null
+  legal_contour: IikoLegalContour | null
 }
 
 export type IikoMappingKind = 'products' | 'units' | 'warehouses'
@@ -262,8 +260,8 @@ export function confirmWarehouseMapping(
     role: IikoWarehouseRole
   } | {
     destination_type: 'SOURCE'
-    source_direction: IikoWarehouseSourceDirection
-    source_priority: number
+    legal_contour: IikoLegalContour
+    role: IikoWarehouseRole
   },
   replace: boolean,
 ): Promise<IikoWarehouseMapping> {

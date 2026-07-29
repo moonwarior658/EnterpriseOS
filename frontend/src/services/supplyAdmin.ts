@@ -140,7 +140,12 @@ export type SupplyDashboardSummary = {
   critical_debts: number
 }
 
-export type SupplyReference = { id: string; code: string; name: string }
+export type SupplyReference = {
+  id: string
+  code: string
+  name: string
+  legal_contour?: 'IP' | 'OOO' | null
+}
 export type SupplyDirection = SupplyReference & { is_active: boolean }
 export type SupplyCycle = { id: string; cycle_date: string; direction_id: string }
 

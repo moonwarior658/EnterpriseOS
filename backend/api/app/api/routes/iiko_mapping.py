@@ -115,8 +115,11 @@ def warehouse_read(
         ),
         destination_type=mapping.destination_type,
         role=mapping.role,
-        source_direction=mapping.source_direction,
-        source_priority=mapping.source_priority,
+        legal_contour=(
+            mapping.eos_department.legal_contour
+            if mapping.eos_department
+            else mapping.legal_contour
+        ),
         decided_at=mapping.decided_at,
     )
 
@@ -397,8 +400,7 @@ def _warehouse_action(
             destination_type=payload.destination_type,
             eos_department_id=payload.eos_department_id,
             role=payload.role,
-            source_direction=payload.source_direction,
-            source_priority=payload.source_priority,
+            legal_contour=payload.legal_contour,
             actor_user_id=user.id,
             replace=replace,
         )

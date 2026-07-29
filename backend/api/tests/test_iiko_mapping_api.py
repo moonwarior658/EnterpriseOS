@@ -31,6 +31,7 @@ from app.models.iiko import (
 )
 from app.models.supply import (
     Department,
+    LegalContour,
     SupplyProduct,
     SupplyProductAlias,
     SupplyUnit,
@@ -87,6 +88,7 @@ class IikoMappingApiTests(unittest.TestCase):
                 tenant_id="tenant-a",
                 code="M15",
                 name="М15",
+                legal_contour=LegalContour.IP,
             )
             run = IikoSyncRun(
                 tenant_id="tenant-a",
@@ -225,25 +227,22 @@ class IikoMappingApiTests(unittest.TestCase):
             f"{self.warehouse_mapping_id}/confirm",
             json={
                 "destination_type": "SOURCE",
-                "source_direction": "PRODUCT",
-                "source_priority": 1,
+                "legal_contour": "IP",
+                "role": "MAIN",
             },
         )
         self.assertEqual(confirmed.status_code, 200)
         body = confirmed.json()
         self.assertEqual(body["destination_type"], "SOURCE")
-        self.assertEqual(body["source_direction"], "PRODUCT")
-        self.assertEqual(body["source_priority"], 1)
+        self.assertEqual(body["legal_contour"], "IP")
+        self.assertEqual(body["role"], "MAIN")
         self.assertIsNone(body["eos_department_id"])
-        self.assertIsNone(body["role"])
 
         invalid = self.client.post(
             "/integrations/iiko/mappings/warehouses/"
             f"{self.warehouse_mapping_id}/replace",
             json={
                 "destination_type": "SOURCE",
-                "source_direction": "PRODUCT",
-                "source_priority": 0,
             },
         )
         self.assertEqual(invalid.status_code, 422)

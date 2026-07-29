@@ -21,10 +21,10 @@ from app.models.iiko import (
     IikoWarehouseMapping,
     IikoWarehouseDestinationType,
     IikoWarehouseRole,
-    IikoWarehouseSourceDirection,
 )
 from app.models.supply import (
     Department,
+    LegalContour,
     SupplyProduct,
     SupplyProductAlias,
     SupplyUnit,
@@ -225,10 +225,18 @@ def _state(mapping: MappingT) -> dict[str, Any]:
             else None
         )
         result["role"] = mapping.role.value if mapping.role else None
-        result["source_direction"] = (
-            mapping.source_direction.value if mapping.source_direction else None
+        legal_contour = (
+            mapping.eos_department.legal_contour
+            if (
+                mapping.destination_type
+                == IikoWarehouseDestinationType.DESTINATION
+                and mapping.eos_department is not None
+            )
+            else mapping.legal_contour
         )
-        result["source_priority"] = mapping.source_priority
+        result["legal_contour"] = (
+            legal_contour.value if legal_contour else None
+        )
     return result
 
 
@@ -884,8 +892,7 @@ def confirm_warehouse_mapping(
     destination_type: IikoWarehouseDestinationType,
     eos_department_id: UUID | None,
     role: IikoWarehouseRole | None,
-    source_direction: IikoWarehouseSourceDirection | None,
-    source_priority: int | None,
+    legal_contour: LegalContour | None,
     actor_user_id: int,
     replace: bool = False,
 ) -> IikoWarehouseMapping:
@@ -908,6 +915,10 @@ def confirm_warehouse_mapping(
         )
         if department is None:
             raise MappingError("Подразделение EOS не найдено")
+        if department.legal_contour is None:
+            raise MappingError(
+                "Для подразделения не настроен юридический контур"
+            )
         conflict = session.scalar(
             select(IikoWarehouseMapping.id).where(
                 IikoWarehouseMapping.tenant_id == tenant_id,
@@ -925,40 +936,18 @@ def confirm_warehouse_mapping(
                 "Для подразделения уже подтверждён активный склад этой роли"
             )
     else:
-        if source_direction is None or source_priority is None:
-            raise MappingError(
-                "Для источника снабжения нужны направление и приоритет"
-            )
-        if source_priority < 1:
-            raise MappingError("Приоритет источника должен быть не меньше 1")
-        conflict = session.scalar(
-            select(IikoWarehouseMapping.id).where(
-                IikoWarehouseMapping.tenant_id == tenant_id,
-                IikoWarehouseMapping.destination_type
-                == IikoWarehouseDestinationType.SOURCE,
-                IikoWarehouseMapping.source_direction == source_direction,
-                IikoWarehouseMapping.source_priority == source_priority,
-                IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
-                IikoWarehouseMapping.is_deleted.is_(False),
-                IikoWarehouseMapping.id != mapping.id,
-            )
-        )
-        if conflict:
-            raise MappingError(
-                "Для направления уже есть активный источник с таким приоритетом"
-            )
+        if legal_contour is None or role is None:
+            raise MappingError("Для источника снабжения нужны контур и роль")
     before = _state(mapping)
     mapping.destination_type = destination_type
     if destination_type == IikoWarehouseDestinationType.DESTINATION:
-        mapping.eos_department_id = eos_department_id
+        mapping.eos_department = department
         mapping.role = role
-        mapping.source_direction = None
-        mapping.source_priority = None
+        mapping.legal_contour = None
     else:
         mapping.eos_department_id = None
-        mapping.role = None
-        mapping.source_direction = source_direction
-        mapping.source_priority = source_priority
+        mapping.role = role
+        mapping.legal_contour = legal_contour
     mapping.status = IikoMappingStatus.CONFIRMED
     mapping.confidence = 100
     mapping.reasons = ["Подтверждено администратором"]
@@ -1004,8 +993,7 @@ def set_mapping_ignored(
         mapping.eos_department_id = None
         mapping.role = None
         mapping.destination_type = IikoWarehouseDestinationType.DESTINATION
-        mapping.source_direction = None
-        mapping.source_priority = None
+        mapping.legal_contour = None
         kind = IikoMappingKind.WAREHOUSE
     mapping.status = IikoMappingStatus.IGNORED
     mapping.confidence = None
@@ -1042,8 +1030,7 @@ def unmap_mapping(
         mapping.eos_department_id = None
         mapping.role = None
         mapping.destination_type = IikoWarehouseDestinationType.DESTINATION
-        mapping.source_direction = None
-        mapping.source_priority = None
+        mapping.legal_contour = None
         kind = IikoMappingKind.WAREHOUSE
     mapping.status = IikoMappingStatus.UNMAPPED
     mapping.confidence = None

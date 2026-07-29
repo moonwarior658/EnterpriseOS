@@ -31,10 +31,10 @@ from app.models.iiko import (
     IikoWarehouseMapping,
     IikoWarehouseDestinationType,
     IikoWarehouseRole,
-    IikoWarehouseSourceDirection,
 )
 from app.models.supply import (
     Department,
+    LegalContour,
     SupplyProduct,
     SupplyProductAlias,
     SupplyUnit,
@@ -89,6 +89,7 @@ class IikoMappingServiceTests(unittest.TestCase):
                 tenant_id="tenant-a",
                 code="M15",
                 name="М15",
+                legal_contour=LegalContour.IP,
             )
             product = SupplyProduct(
                 tenant_id="tenant-a",
@@ -466,17 +467,22 @@ class IikoMappingServiceTests(unittest.TestCase):
                 )
             ).all()
             department = session.scalar(select(Department))
-            confirm_warehouse_mapping(
+            first = confirm_warehouse_mapping(
                 session,
                 tenant_id="tenant-a",
                 mapping_id=mappings[0].id,
                 destination_type=IikoWarehouseDestinationType.DESTINATION,
                 eos_department_id=department.id,
                 role=IikoWarehouseRole.MAIN,
-                source_direction=None,
-                source_priority=None,
+                legal_contour=None,
                 actor_user_id=1,
             )
+            audit = session.scalars(
+                select(IikoMappingAuditEvent).where(
+                    IikoMappingAuditEvent.mapping_id == first.id
+                )
+            ).all()
+            self.assertEqual(audit[-1].after["legal_contour"], "IP")
             confirm_warehouse_mapping(
                 session,
                 tenant_id="tenant-a",
@@ -484,8 +490,7 @@ class IikoMappingServiceTests(unittest.TestCase):
                 destination_type=IikoWarehouseDestinationType.DESTINATION,
                 eos_department_id=department.id,
                 role=IikoWarehouseRole.PACKAGING,
-                source_direction=None,
-                source_priority=None,
+                legal_contour=None,
                 actor_user_id=1,
             )
             with self.assertRaises(MappingError):
@@ -496,13 +501,12 @@ class IikoMappingServiceTests(unittest.TestCase):
                     destination_type=IikoWarehouseDestinationType.DESTINATION,
                     eos_department_id=department.id,
                     role=IikoWarehouseRole.MAIN,
-                    source_direction=None,
-                    source_priority=None,
+                    legal_contour=None,
                     actor_user_id=1,
                     replace=True,
                 )
 
-    def test_sources_need_unique_priority_per_direction_and_no_department(
+    def test_sources_allow_multiple_per_contour_and_role_without_department(
         self,
     ) -> None:
         source_ids = [uuid4(), uuid4()]
@@ -532,9 +536,8 @@ class IikoMappingServiceTests(unittest.TestCase):
                 mapping_id=mappings[0].id,
                 destination_type=IikoWarehouseDestinationType.SOURCE,
                 eos_department_id=None,
-                role=None,
-                source_direction=IikoWarehouseSourceDirection.PRODUCT,
-                source_priority=1,
+                role=IikoWarehouseRole.PACKAGING,
+                legal_contour=LegalContour.IP,
                 actor_user_id=1,
             )
             second = confirm_warehouse_mapping(
@@ -543,28 +546,17 @@ class IikoMappingServiceTests(unittest.TestCase):
                 mapping_id=mappings[1].id,
                 destination_type=IikoWarehouseDestinationType.SOURCE,
                 eos_department_id=None,
-                role=None,
-                source_direction=IikoWarehouseSourceDirection.PRODUCT,
-                source_priority=2,
+                role=IikoWarehouseRole.PACKAGING,
+                legal_contour=LegalContour.IP,
                 actor_user_id=1,
             )
             self.assertIsNone(first.eos_department_id)
-            self.assertIsNone(first.role)
-            self.assertEqual(first.source_priority, 1)
-            self.assertEqual(second.source_priority, 2)
-            with self.assertRaises(MappingError):
-                confirm_warehouse_mapping(
-                    session,
-                    tenant_id="tenant-a",
-                    mapping_id=mappings[1].id,
-                    destination_type=IikoWarehouseDestinationType.SOURCE,
-                    eos_department_id=None,
-                    role=None,
-                    source_direction=IikoWarehouseSourceDirection.PRODUCT,
-                    source_priority=1,
-                    actor_user_id=1,
-                    replace=True,
-                )
+            self.assertEqual(first.legal_contour, LegalContour.IP)
+            self.assertEqual(second.legal_contour, LegalContour.IP)
+            self.assertEqual(first.role, IikoWarehouseRole.PACKAGING)
+            self.assertEqual(second.role, IikoWarehouseRole.PACKAGING)
+            self.assertEqual(first.status, IikoMappingStatus.CONFIRMED)
+            self.assertEqual(second.status, IikoMappingStatus.CONFIRMED)
             with self.assertRaises(MappingError):
                 confirm_warehouse_mapping(
                     session,
@@ -572,9 +564,8 @@ class IikoMappingServiceTests(unittest.TestCase):
                     mapping_id=mappings[0].id,
                     destination_type=IikoWarehouseDestinationType.SOURCE,
                     eos_department_id=None,
-                    role=None,
-                    source_direction=IikoWarehouseSourceDirection.PACKAGING,
-                    source_priority=1,
+                    role=IikoWarehouseRole.MAIN,
+                    legal_contour=LegalContour.OOO,
                     actor_user_id=1,
                 )
             audit = session.scalars(
@@ -583,5 +574,4 @@ class IikoMappingServiceTests(unittest.TestCase):
                 )
             ).all()
             self.assertEqual(audit[-1].after["destination_type"], "SOURCE")
-            self.assertEqual(audit[-1].after["source_direction"], "PRODUCT")
-            self.assertEqual(audit[-1].after["source_priority"], 1)
+            self.assertEqual(audit[-1].after["legal_contour"], "IP")

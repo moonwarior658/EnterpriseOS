@@ -10,8 +10,8 @@ from app.models.iiko import (
     IikoMappingStatus,
     IikoWarehouseDestinationType,
     IikoWarehouseRole,
-    IikoWarehouseSourceDirection,
 )
+from app.models.supply import LegalContour
 
 
 class IikoMappingGenerateRead(BaseModel):
@@ -41,8 +41,7 @@ class IikoWarehouseMappingAction(BaseModel):
     destination_type: IikoWarehouseDestinationType
     eos_department_id: UUID | None = None
     role: IikoWarehouseRole | None = None
-    source_direction: IikoWarehouseSourceDirection | None = None
-    source_priority: int | None = Field(default=None, ge=1)
+    legal_contour: LegalContour | None = None
 
     @model_validator(mode="after")
     def validate_target(self) -> "IikoWarehouseMappingAction":
@@ -51,18 +50,18 @@ class IikoWarehouseMappingAction(BaseModel):
                 raise ValueError(
                     "Для склада подразделения нужны подразделение и роль"
                 )
-            if self.source_direction is not None or self.source_priority is not None:
+            if self.legal_contour is not None:
                 raise ValueError(
-                    "Для склада подразделения нельзя задавать источник снабжения"
+                    "Контур склада подразделения определяется автоматически"
                 )
         else:
-            if self.source_direction is None or self.source_priority is None:
+            if self.legal_contour is None or self.role is None:
                 raise ValueError(
-                    "Для источника снабжения нужны направление и приоритет"
+                    "Для источника снабжения нужны контур и роль"
                 )
-            if self.eos_department_id is not None or self.role is not None:
+            if self.eos_department_id is not None:
                 raise ValueError(
-                    "Для источника снабжения нельзя задавать подразделение и роль"
+                    "Для источника снабжения нельзя задавать подразделение"
                 )
         return self
 
@@ -110,8 +109,7 @@ class IikoWarehouseMappingRead(BaseModel):
     eos_department_name: str | None
     destination_type: IikoWarehouseDestinationType
     role: IikoWarehouseRole | None
-    source_direction: IikoWarehouseSourceDirection | None
-    source_priority: int | None
+    legal_contour: LegalContour | None
     decided_at: datetime | None
 
 

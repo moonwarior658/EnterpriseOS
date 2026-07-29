@@ -1,8 +1,8 @@
 import type {
   IikoMappingStatus,
+  IikoLegalContour,
   IikoWarehouseDestinationType,
   IikoWarehouseRole,
-  IikoWarehouseSourceDirection,
 } from '../services/iikoMapping'
 
 export function iikoMappingStatusLabel(status: IikoMappingStatus): string {
@@ -34,15 +34,13 @@ export function iikoWarehouseDestinationTypeLabel(
   }[destinationType]
 }
 
-export function iikoWarehouseSourceDirectionLabel(
-  direction: IikoWarehouseSourceDirection,
+export function iikoLegalContourLabel(
+  contour: IikoLegalContour,
 ): string {
   return {
-    PRODUCT: 'Продукты',
-    PACKAGING: 'Упаковка',
-    HOUSEHOLD: 'Хозяйственные товары',
-    FIXED_ASSETS: 'Основные средства',
-  }[direction]
+    IP: 'ИП',
+    OOO: 'ООО',
+  }[contour]
 }
 
 export function mappingActionLabel(status: IikoMappingStatus): string {

@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   iikoMappingStatusLabel,
+  iikoLegalContourLabel,
   iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
-  iikoWarehouseSourceDirectionLabel,
   mappingActionLabel,
 } from '../src/pages/iikoMappingLogic.ts'
 import {
@@ -25,10 +25,7 @@ test('показывает безопасные русские статусы и
     iikoWarehouseDestinationTypeLabel('SOURCE'),
     'Источник снабжения',
   )
-  assert.equal(
-    iikoWarehouseSourceDirectionLabel('HOUSEHOLD'),
-    'Хозяйственные товары',
-  )
+  assert.equal(iikoLegalContourLabel('OOO'), 'ООО')
   assert.equal(mappingActionLabel('CONFIRMED'), 'Заменить связь')
 })
 
@@ -58,8 +55,7 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /Единицы/)
   assert.match(page, /Склады/)
   assert.match(page, /iikoWarehouseDestinationTypeLabel/)
-  assert.match(page, /Направление источника/)
-  assert.match(page, /Приоритет/)
+  assert.match(page, /Контур источника/)
   assert.match(page, /Сформировать предложения/)
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
@@ -68,7 +64,7 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
 })
 
-test('SOURCE отправляется без фиктивного подразделения и роли', async () => {
+test('SOURCE отправляется с контуром и ролью без подразделения', async () => {
   const originalFetch = globalThis.fetch
   const storageDescriptor = Object.getOwnPropertyDescriptor(
     globalThis,
@@ -84,8 +80,8 @@ test('SOURCE отправляется без фиктивного подразд
     return new Response(JSON.stringify({
       id: 'mapping-1',
       destination_type: 'SOURCE',
-      source_direction: 'PACKAGING',
-      source_priority: 2,
+      legal_contour: 'IP',
+      role: 'PACKAGING',
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -96,8 +92,8 @@ test('SOURCE отправляется без фиктивного подразд
       'mapping-1',
       {
         destination_type: 'SOURCE',
-        source_direction: 'PACKAGING',
-        source_priority: 2,
+        legal_contour: 'IP',
+        role: 'PACKAGING',
       },
       false,
     )
@@ -111,11 +107,11 @@ test('SOURCE отправляется без фиктивного подразд
   }
   assert.deepEqual(requestBody, {
     destination_type: 'SOURCE',
-    source_direction: 'PACKAGING',
-    source_priority: 2,
+    legal_contour: 'IP',
+    role: 'PACKAGING',
   })
   assert.equal('eos_department_id' in requestBody, false)
-  assert.equal('role' in requestBody, false)
+  assert.equal(requestBody.role, 'PACKAGING')
 })
 
 test('обновляет reference snapshot, показывает totals и не запрашивает остатки', async () => {
