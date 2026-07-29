@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any, Generic, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -58,6 +59,79 @@ class GenerationResult:
     warehouses_updated: int = 0
 
 
+@dataclass(frozen=True)
+class ProductSource:
+    original_name: str
+    search_name: str
+    mapping_type: str
+
+
+@dataclass(frozen=True)
+class GenerationProgress:
+    generation_id: UUID
+    status: str
+    result: GenerationResult | None = None
+
+
+_generation_lock = Lock()
+_generation_progress: dict[tuple[str, UUID], GenerationProgress] = {}
+_active_generation: dict[str, UUID] = {}
+
+
+def start_generation(tenant_id: str, generation_id: UUID) -> bool:
+    with _generation_lock:
+        active_id = _active_generation.get(tenant_id)
+        if active_id is not None:
+            return False
+        completed = [
+            key
+            for key, progress in _generation_progress.items()
+            if key[0] == tenant_id and progress.status != "RUNNING"
+        ]
+        for key in completed[:-20]:
+            _generation_progress.pop(key, None)
+        _active_generation[tenant_id] = generation_id
+        _generation_progress[(tenant_id, generation_id)] = GenerationProgress(
+            generation_id=generation_id,
+            status="RUNNING",
+        )
+        return True
+
+
+def finish_generation(
+    tenant_id: str,
+    generation_id: UUID,
+    *,
+    result: GenerationResult | None,
+) -> None:
+    with _generation_lock:
+        key = (tenant_id, generation_id)
+        current = _generation_progress.get(key)
+        if current is None:
+            return
+        _generation_progress[key] = GenerationProgress(
+            generation_id=generation_id,
+            status="SUCCEEDED" if result is not None else "FAILED",
+            result=result,
+        )
+        if _active_generation.get(tenant_id) == generation_id:
+            _active_generation.pop(tenant_id, None)
+
+
+def get_generation_progress(
+    tenant_id: str,
+    generation_id: UUID,
+) -> GenerationProgress:
+    with _generation_lock:
+        current = _generation_progress.get((tenant_id, generation_id))
+        if current is None:
+            return GenerationProgress(
+                generation_id=generation_id,
+                status="UNKNOWN",
+            )
+        return current
+
+
 def _uuid(value: Any) -> UUID | None:
     try:
         return UUID(str(value))
@@ -67,6 +141,35 @@ def _uuid(value: Any) -> UUID | None:
 
 def _normalized(value: str | None) -> str:
     return normalize_product_text(value or "")
+
+
+def _product_source(
+    payload: dict[str, Any],
+    *,
+    is_active: bool,
+) -> ProductSource | None:
+    if not is_active or bool(payload.get("deleted", False)):
+        return None
+    original_name = str(payload.get("name") or "")
+    name = original_name.lstrip()
+    if not name or name.startswith("-"):
+        return None
+    folded = name.casefold()
+    for prefix, mapping_type in (
+        ("тх ", "HOUSEHOLD"),
+        ("ту ", "PACKAGING"),
+        ("т ", "PRODUCT"),
+    ):
+        if folded.startswith(prefix):
+            search_name = name[len(prefix):].strip()
+            if not search_name:
+                return None
+            return ProductSource(
+                original_name=original_name,
+                search_name=search_name,
+                mapping_type=mapping_type,
+            )
+    return None
 
 
 def _latest_raw_entities(
@@ -141,13 +244,14 @@ def _audit(
 
 def _score_product(
     payload: dict[str, Any],
+    source_search_name: str,
     product: SupplyProduct,
     aliases: set[str],
     confirmed_units: dict[UUID, UUID],
 ) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
-    source_name = _normalized(payload.get("name"))
+    source_name = _normalized(source_search_name)
     if source_name and source_name == product.normalized_name:
         score += 60
         reasons.append("Название совпадает")
@@ -269,16 +373,75 @@ def generate_mapping_candidates(
     aliases: dict[UUID, set[str]] = {}
     for product_id, alias in alias_rows:
         aliases.setdefault(product_id, set()).add(alias)
-    confirmed_units = dict(
-        session.execute(
-            select(IikoUnitMapping.iiko_unit_id, IikoUnitMapping.eos_unit_id)
-            .where(
-                IikoUnitMapping.tenant_id == tenant_id,
-                IikoUnitMapping.status == IikoMappingStatus.CONFIRMED,
-                IikoUnitMapping.eos_unit_id.is_not(None),
+    product_mappings = {
+        mapping.iiko_product_id: mapping
+        for mapping in session.scalars(
+            select(IikoProductMapping).where(
+                IikoProductMapping.tenant_id == tenant_id
             )
         ).all()
-    )
+    }
+    unit_mappings = {
+        mapping.iiko_unit_id: mapping
+        for mapping in session.scalars(
+            select(IikoUnitMapping).where(
+                IikoUnitMapping.tenant_id == tenant_id
+            )
+        ).all()
+    }
+    warehouse_mappings = {
+        mapping.iiko_warehouse_id: mapping
+        for mapping in session.scalars(
+            select(IikoWarehouseMapping).where(
+                IikoWarehouseMapping.tenant_id == tenant_id
+            )
+        ).all()
+    }
+    confirmed_units = {
+        mapping.iiko_unit_id: mapping.eos_unit_id
+        for mapping in unit_mappings.values()
+        if (
+            mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.eos_unit_id is not None
+        )
+    }
+    confirmed_product_targets = {
+        mapping.eos_product_id
+        for mapping in product_mappings.values()
+        if (
+            mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.eos_product_id is not None
+            and not mapping.is_deleted
+        )
+    }
+    confirmed_unit_targets = {
+        mapping.eos_unit_id
+        for mapping in unit_mappings.values()
+        if (
+            mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.eos_unit_id is not None
+            and not mapping.is_deleted
+        )
+    }
+    confirmed_warehouse_roles = {
+        (mapping.eos_department_id, mapping.role)
+        for mapping in warehouse_mappings.values()
+        if (
+            mapping.status == IikoMappingStatus.CONFIRMED
+            and mapping.eos_department_id is not None
+            and mapping.role is not None
+            and not mapping.is_deleted
+        )
+    }
+    products_by_id = {product.id: product for product in products}
+    products_by_name: dict[str, set[UUID]] = {}
+    products_by_alias: dict[str, set[UUID]] = {}
+    for product in products:
+        for name in {_normalized(product.name), product.normalized_name}:
+            if name:
+                products_by_name.setdefault(name, set()).add(product.id)
+        for alias in aliases.get(product.id, set()):
+            products_by_alias.setdefault(alias, set()).add(product.id)
     counts = {
         "products_created": 0,
         "products_updated": 0,
@@ -294,52 +457,78 @@ def generate_mapping_candidates(
         external_id = _uuid(raw.external_id)
         if external_id is None:
             continue
-        mapping = session.scalar(
-            select(IikoProductMapping).where(
-                IikoProductMapping.tenant_id == tenant_id,
-                IikoProductMapping.iiko_product_id == external_id,
-            )
+        mapping = product_mappings.get(external_id)
+        source = _product_source(
+            raw.payload,
+            is_active=raw.is_active,
         )
+        if source is None:
+            if mapping is not None and _should_preserve(mapping):
+                mapping.source_name = str(
+                    raw.payload.get("name") or raw.external_id
+                )
+                mapping.source_code = raw.payload.get("code")
+                mapping.source_sku = raw.payload.get("num")
+                mapping.source_unit_id = _uuid(raw.payload.get("mainUnit"))
+                mapping.is_deleted = (
+                    not raw.is_active
+                    or bool(raw.payload.get("deleted", False))
+                )
+            elif mapping is not None:
+                session.delete(mapping)
+            continue
         created = mapping is None
         if mapping is None:
             mapping = IikoProductMapping(
+                id=uuid4(),
                 tenant_id=tenant_id,
                 iiko_product_id=external_id,
-                source_name=str(raw.payload.get("name") or raw.external_id),
+                source_name=source.original_name,
+                status=IikoMappingStatus.UNMAPPED,
+                is_deleted=False,
+                reasons=[],
             )
             session.add(mapping)
-            session.flush()
+            product_mappings[external_id] = mapping
         before = _state(mapping)
-        mapping.source_name = str(raw.payload.get("name") or raw.external_id)
+        mapping.source_name = source.original_name
         mapping.source_code = raw.payload.get("code")
         mapping.source_sku = raw.payload.get("num")
         mapping.source_unit_id = _uuid(raw.payload.get("mainUnit"))
-        mapping.is_deleted = bool(raw.payload.get("deleted", False))
+        mapping.is_deleted = False
         if not _should_preserve(mapping):
+            source_name = _normalized(source.search_name)
+            candidate_ids = set(products_by_name.get(source_name, set()))
+            candidate_ids.update(products_by_alias.get(source_name, set()))
+            candidate_ids.update(
+                products_by_name.get(_normalized(raw.payload.get("code")), set())
+            )
+            candidate_ids.update(
+                products_by_name.get(_normalized(raw.payload.get("num")), set())
+            )
             candidate, state, score, reasons = _best_candidate(
                 [
                     (
                         *_score_product(
                             raw.payload,
+                            source.search_name,
                             product,
                             aliases.get(product.id, set()),
                             confirmed_units,
                         ),
                         product,
                     )
-                    for product in products
+                    for product in (
+                        products_by_id[product_id]
+                        for product_id in candidate_ids
+                    )
                 ],
                 minimum=55,
             )
-            if candidate is not None and session.scalar(
-                select(IikoProductMapping.id).where(
-                    IikoProductMapping.tenant_id == tenant_id,
-                    IikoProductMapping.eos_product_id == candidate.id,
-                    IikoProductMapping.status
-                    == IikoMappingStatus.CONFIRMED,
-                    IikoProductMapping.is_deleted.is_(False),
-                    IikoProductMapping.id != mapping.id,
-                )
+            reasons = [f"Тип iiko: {source.mapping_type}", *reasons]
+            if (
+                candidate is not None
+                and candidate.id in confirmed_product_targets
             ):
                 state = IikoMappingStatus.CONFLICT
                 reasons = [
@@ -368,21 +557,20 @@ def generate_mapping_candidates(
         external_id = _uuid(raw.external_id)
         if external_id is None:
             continue
-        mapping = session.scalar(
-            select(IikoUnitMapping).where(
-                IikoUnitMapping.tenant_id == tenant_id,
-                IikoUnitMapping.iiko_unit_id == external_id,
-            )
-        )
+        mapping = unit_mappings.get(external_id)
         created = mapping is None
         if mapping is None:
             mapping = IikoUnitMapping(
+                id=uuid4(),
                 tenant_id=tenant_id,
                 iiko_unit_id=external_id,
                 source_name=str(raw.payload.get("name") or raw.external_id),
+                status=IikoMappingStatus.UNMAPPED,
+                is_deleted=False,
+                reasons=[],
             )
             session.add(mapping)
-            session.flush()
+            unit_mappings[external_id] = mapping
         before = _state(mapping)
         mapping.source_name = str(raw.payload.get("name") or raw.external_id)
         mapping.source_code = raw.payload.get("code")
@@ -395,15 +583,7 @@ def generate_mapping_candidates(
                 ],
                 minimum=60,
             )
-            if candidate is not None and session.scalar(
-                select(IikoUnitMapping.id).where(
-                    IikoUnitMapping.tenant_id == tenant_id,
-                    IikoUnitMapping.eos_unit_id == candidate.id,
-                    IikoUnitMapping.status == IikoMappingStatus.CONFIRMED,
-                    IikoUnitMapping.is_deleted.is_(False),
-                    IikoUnitMapping.id != mapping.id,
-                )
-            ):
+            if candidate is not None and candidate.id in confirmed_unit_targets:
                 state = IikoMappingStatus.CONFLICT
                 reasons = [
                     "Кандидат уже подтверждён для другого UUID iiko",
@@ -431,21 +611,20 @@ def generate_mapping_candidates(
         external_id = _uuid(raw.external_id)
         if external_id is None:
             continue
-        mapping = session.scalar(
-            select(IikoWarehouseMapping).where(
-                IikoWarehouseMapping.tenant_id == tenant_id,
-                IikoWarehouseMapping.iiko_warehouse_id == external_id,
-            )
-        )
+        mapping = warehouse_mappings.get(external_id)
         created = mapping is None
         if mapping is None:
             mapping = IikoWarehouseMapping(
+                id=uuid4(),
                 tenant_id=tenant_id,
                 iiko_warehouse_id=external_id,
                 source_name=str(raw.payload.get("name") or raw.external_id),
+                status=IikoMappingStatus.UNMAPPED,
+                is_deleted=False,
+                reasons=[],
             )
             session.add(mapping)
-            session.flush()
+            warehouse_mappings[external_id] = mapping
         before = _state(mapping)
         mapping.source_name = str(raw.payload.get("name") or raw.external_id)
         mapping.source_code = raw.payload.get("code")
@@ -465,18 +644,7 @@ def generate_mapping_candidates(
             if (
                 candidate is not None
                 and mapping.role is not None
-                and session.scalar(
-                    select(IikoWarehouseMapping.id).where(
-                        IikoWarehouseMapping.tenant_id == tenant_id,
-                        IikoWarehouseMapping.eos_department_id
-                        == candidate.id,
-                        IikoWarehouseMapping.role == mapping.role,
-                        IikoWarehouseMapping.status
-                        == IikoMappingStatus.CONFIRMED,
-                        IikoWarehouseMapping.is_deleted.is_(False),
-                        IikoWarehouseMapping.id != mapping.id,
-                    )
-                )
+                and (candidate.id, mapping.role) in confirmed_warehouse_roles
             ):
                 state = IikoMappingStatus.CONFLICT
                 reasons = [

@@ -102,7 +102,7 @@ class IikoMappingApiTests(unittest.TestCase):
                     external_id=str(self.external_id),
                     payload={
                         "id": str(self.external_id),
-                        "name": "Салфетки",
+                        "name": "т Салфетки",
                         "deleted": False,
                     },
                     payload_hash=uuid4().hex,
@@ -133,9 +133,23 @@ class IikoMappingApiTests(unittest.TestCase):
     def test_admin_can_generate_filter_confirm_ignore_unmap_and_read_audit(
         self,
     ) -> None:
-        generated = self.client.post("/integrations/iiko/mappings/generate")
+        generation_id = uuid4()
+        generated = self.client.post(
+            "/integrations/iiko/mappings/generate",
+            headers={"X-EOS-Generation-ID": str(generation_id)},
+        )
         self.assertEqual(generated.status_code, 200)
         self.assertEqual(generated.json()["products_created"], 1)
+        generation_status = self.client.get(
+            "/integrations/iiko/mappings/generate/status",
+            params={"generation_id": str(generation_id)},
+        )
+        self.assertEqual(generation_status.status_code, 200)
+        self.assertEqual(generation_status.json()["status"], "SUCCEEDED")
+        self.assertEqual(
+            generation_status.json()["result"]["products_created"],
+            1,
+        )
 
         listing = self.client.get(
             "/integrations/iiko/mappings/products",

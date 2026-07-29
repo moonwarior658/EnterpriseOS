@@ -59,7 +59,20 @@ type IikoSyncRun = {
   error_message: string | null
 }
 
-export class IikoMappingApiError extends Error {}
+type IikoGenerationStatus = {
+  generation_id: string
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN'
+  result: Record<string, number> | null
+}
+
+export class IikoMappingApiError extends Error {
+  status: number | null
+
+  constructor(message: string, status: number | null = null) {
+    super(message)
+    this.status = status
+  }
+}
 
 async function request<T>(
   path: string,
@@ -84,7 +97,7 @@ async function request<T>(
     } catch {
       // Safe generic message is already selected.
     }
-    throw new IikoMappingApiError(message)
+    throw new IikoMappingApiError(message, response.status)
   }
   return response.json() as Promise<T>
 }
@@ -171,8 +184,44 @@ export function getWarehouseMappings(query: URLSearchParams) {
   )
 }
 
-export function generateMappingCandidates(): Promise<Record<string, number>> {
-  return request('/generate', { method: 'POST' })
+async function waitForGeneration(
+  generationId: string,
+): Promise<Record<string, number>> {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const progress = await request<IikoGenerationStatus>(
+      `/generate/status?generation_id=${encodeURIComponent(generationId)}`,
+    )
+    if (progress.status === 'SUCCEEDED' && progress.result) {
+      return progress.result
+    }
+    if (progress.status === 'FAILED' || progress.status === 'UNKNOWN') {
+      throw new IikoMappingApiError(
+        'Не удалось сформировать предложения',
+      )
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 1000))
+  }
+  throw new IikoMappingApiError('Не удалось сформировать предложения')
+}
+
+export async function generateMappingCandidates(): Promise<
+  Record<string, number>
+> {
+  const generationId = crypto.randomUUID()
+  try {
+    return await request('/generate', {
+      method: 'POST',
+      headers: { 'X-EOS-Generation-ID': generationId },
+    })
+  } catch (error) {
+    if (
+      error instanceof IikoMappingApiError
+      && ![502, 503, 504].includes(error.status ?? 0)
+    ) {
+      throw error
+    }
+    return waitForGeneration(generationId)
+  }
 }
 
 export function confirmProductMapping(

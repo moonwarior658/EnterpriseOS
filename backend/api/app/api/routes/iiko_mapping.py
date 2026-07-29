@@ -1,7 +1,7 @@
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,9 +13,12 @@ from app.integrations.iiko.mapping_service import (
     confirm_product_mapping,
     confirm_unit_mapping,
     confirm_warehouse_mapping,
+    finish_generation,
     generate_mapping_candidates,
+    get_generation_progress,
     list_mappings,
     set_mapping_ignored,
+    start_generation,
     unmap_mapping,
 )
 from app.models.iiko import (
@@ -30,6 +33,7 @@ from app.models.user import User
 from app.schemas.iiko_mapping import (
     IikoMappingAuditPage,
     IikoMappingGenerateRead,
+    IikoMappingGenerateStatusRead,
     IikoProductMappingAction,
     IikoProductMappingPage,
     IikoProductMappingRead,
@@ -118,13 +122,63 @@ def warehouse_read(
 def generate_candidates(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_admin)],
+    generation_id: Annotated[
+        UUID | None,
+        Header(alias="X-EOS-Generation-ID"),
+    ] = None,
 ) -> IikoMappingGenerateRead:
-    return IikoMappingGenerateRead.model_validate(
-        generate_mapping_candidates(
+    resolved_id = generation_id or uuid4()
+    if not start_generation(settings.default_tenant_id, resolved_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Формирование предложений уже выполняется",
+        )
+    try:
+        result = generate_mapping_candidates(
             db,
             tenant_id=settings.default_tenant_id,
-        ),
+        )
+    except Exception:
+        finish_generation(
+            settings.default_tenant_id,
+            resolved_id,
+            result=None,
+        )
+        raise
+    finish_generation(
+        settings.default_tenant_id,
+        resolved_id,
+        result=result,
+    )
+    return IikoMappingGenerateRead.model_validate(
+        result,
         from_attributes=True,
+    )
+
+
+@router.get(
+    "/generate/status",
+    response_model=IikoMappingGenerateStatusRead,
+)
+def read_generation_status(
+    _: Annotated[User, Depends(get_current_admin)],
+    generation_id: UUID,
+) -> IikoMappingGenerateStatusRead:
+    progress = get_generation_progress(
+        settings.default_tenant_id,
+        generation_id,
+    )
+    return IikoMappingGenerateStatusRead(
+        generation_id=progress.generation_id,
+        status=progress.status,
+        result=(
+            IikoMappingGenerateRead.model_validate(
+                progress.result,
+                from_attributes=True,
+            )
+            if progress.result is not None
+            else None
+        ),
     )
 
 

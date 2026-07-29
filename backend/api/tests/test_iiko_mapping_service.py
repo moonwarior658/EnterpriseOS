@@ -121,7 +121,7 @@ class IikoMappingServiceTests(unittest.TestCase):
                         self.product_external_id,
                         {
                             "id": str(self.product_external_id),
-                            "name": "Молочко",
+                            "name": "т Молочко",
                             "code": "MILK",
                             "num": "100",
                             "mainUnit": str(self.unit_external_id),
@@ -185,7 +185,9 @@ class IikoMappingServiceTests(unittest.TestCase):
             unit = session.scalar(select(IikoUnitMapping))
             warehouse = session.scalar(select(IikoWarehouseMapping))
             self.assertEqual(product.status, IikoMappingStatus.SUGGESTED)
+            self.assertEqual(product.source_name, "т Молочко")
             self.assertIn("Совпадает подтверждённый алиас", product.reasons)
+            self.assertIn("Тип iiko: PRODUCT", product.reasons)
             self.assertEqual(unit.status, IikoMappingStatus.SUGGESTED)
             self.assertEqual(warehouse.status, IikoMappingStatus.SUGGESTED)
             self.assertEqual(warehouse.role, IikoWarehouseRole.MAIN)
@@ -232,6 +234,150 @@ class IikoMappingServiceTests(unittest.TestCase):
             self.assertEqual(mapping.status, IikoMappingStatus.CONFIRMED)
             self.assertEqual(mapping.eos_product_id, product.id)
             self.assertTrue(mapping.is_deleted)
+
+    def test_ignored_mapping_survives_source_without_prefix(self) -> None:
+        with self.sessions() as session:
+            generate_mapping_candidates(session, tenant_id="tenant-a")
+            mapping = session.scalar(select(IikoProductMapping))
+            set_mapping_ignored(
+                session,
+                IikoProductMapping,
+                tenant_id="tenant-a",
+                mapping_id=mapping.id,
+                actor_user_id=1,
+            )
+            run = IikoSyncRun(
+                tenant_id="tenant-a",
+                sync_type=IikoSyncType.PRODUCTS,
+                status=IikoSyncStatus.SUCCEEDED,
+                source_api_type="iiko_server",
+            )
+            session.add(run)
+            session.flush()
+            session.add(
+                self.raw(
+                    run,
+                    "product",
+                    self.product_external_id,
+                    {
+                        "id": str(self.product_external_id),
+                        "name": "Название без префикса",
+                        "deleted": False,
+                    },
+                )
+            )
+            session.commit()
+            generate_mapping_candidates(session, tenant_id="tenant-a")
+            session.refresh(mapping)
+            self.assertEqual(mapping.status, IikoMappingStatus.IGNORED)
+            self.assertEqual(mapping.source_name, "Название без префикса")
+
+    def test_product_prefixes_and_exclusions(self) -> None:
+        packaging_id = uuid4()
+        household_id = uuid4()
+        excluded_ids = [uuid4() for _ in range(4)]
+        with self.sessions.begin() as session:
+            run = session.scalar(select(IikoSyncRun))
+            session.add_all(
+                [
+                    self.raw(
+                        run,
+                        "product",
+                        packaging_id,
+                        {
+                            "id": str(packaging_id),
+                            "name": "ТУ Коробка",
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        household_id,
+                        {
+                            "id": str(household_id),
+                            "name": "тХ Чистящее средство",
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        excluded_ids[0],
+                        {
+                            "id": str(excluded_ids[0]),
+                            "name": "- Скрытая позиция",
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        excluded_ids[1],
+                        {
+                            "id": str(excluded_ids[1]),
+                            "name": "Без префикса",
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        excluded_ids[2],
+                        {
+                            "id": str(excluded_ids[2]),
+                            "name": "т Неактивная позиция",
+                            "deleted": False,
+                        },
+                    ),
+                    self.raw(
+                        run,
+                        "product",
+                        excluded_ids[3],
+                        {
+                            "id": str(excluded_ids[3]),
+                            "name": "т Удалённая позиция",
+                            "deleted": True,
+                        },
+                    ),
+                ]
+            )
+            inactive = session.scalar(
+                select(IikoRawEntity).where(
+                    IikoRawEntity.external_id == str(excluded_ids[2])
+                )
+            )
+            inactive.is_active = False
+        with self.sessions() as session:
+            result = generate_mapping_candidates(
+                session,
+                tenant_id="tenant-a",
+            )
+            self.assertEqual(result.products_created, 3)
+            mappings = {
+                mapping.iiko_product_id: mapping
+                for mapping in session.scalars(
+                    select(IikoProductMapping)
+                ).all()
+            }
+            self.assertEqual(
+                mappings[packaging_id].source_name,
+                "ТУ Коробка",
+            )
+            self.assertIn(
+                "Тип iiko: PACKAGING",
+                mappings[packaging_id].reasons,
+            )
+            self.assertEqual(
+                mappings[household_id].source_name,
+                "тХ Чистящее средство",
+            )
+            self.assertIn(
+                "Тип iiko: HOUSEHOLD",
+                mappings[household_id].reasons,
+            )
+            for excluded_id in excluded_ids:
+                self.assertNotIn(excluded_id, mappings)
 
     def test_candidate_for_already_confirmed_target_becomes_conflict(self) -> None:
         other_external_id = uuid4()

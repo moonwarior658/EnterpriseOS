@@ -712,6 +712,10 @@ deployment не выполнены.**
 - [x] Автоматическая генерация не подтверждает связь: однозначный кандидат
       остаётся `SUGGESTED`, равные или уже занятые кандидаты становятся
       `CONFLICT`.
+- [x] Product-кандидаты формируются только для активных позиций iiko с
+      префиксами `т `, `ту ` и `тх `; поиск EOS использует название без
+      префикса, исходное название сохраняется, а позиции без префикса и с `-`
+      исключаются без удаления `CONFIRMED`/`IGNORED`.
 - [x] Генерация идемпотентна по `tenant_id + UUID iiko`; повторный запуск не
       создаёт дубли.
 - [x] `CONFIRMED` и `IGNORED` не перезаписываются новым snapshot; при этом
@@ -736,6 +740,10 @@ deployment не выполнены.**
       (`SUCCEEDED` или `PARTIALLY_SUCCEEDED`) обновляется список и становится
       доступна генерация предложений, а частичный результат показывается
       предупреждением.
+- [x] Генерация кандидатов оптимизирована для большого snapshot; UI показывает
+      длительное выполнение, блокирует повторный запуск, обновляет список после
+      завершения и при gateway timeout проверяет состояние того же запуска;
+      карточки mapping на desktop уплотнены.
 - [x] Supply 3.1A не читает mapping и не использует остатки.
 
 Миграция `20260729_0019` создаёт:
@@ -807,6 +815,7 @@ deployment не выполнены.**
 ## API EOS: реализованный admin-only mapping-контур
 
 - `POST /integrations/iiko/mappings/generate`;
+- `GET /integrations/iiko/mappings/generate/status`;
 - `GET /integrations/iiko/mappings/products`;
 - `POST /integrations/iiko/mappings/products/{id}/confirm`;
 - `POST /integrations/iiko/mappings/products/{id}/replace`;
@@ -844,14 +853,14 @@ List endpoints поддерживают `status`, `search`, `include_deleted`,
 
 Проверки среза 3.1B / 3:
 
-- [x] Профильные service/API/migration mapping-тесты — **11/11** успешно.
-- [x] Полный backend suite — запущено **503** теста: **498** успешно,
+- [x] Профильные service/API/migration mapping-тесты — **13/13** успешно.
+- [x] Полный backend suite — запущено **505** тестов: **500** успешно,
       **5** PostgreSQL-тестов штатно пропущены в общем запуске без переменной
       изолированной БД.
 - [x] Отдельный PostgreSQL migration integration test на одноразовой
       изолированной БД прошёл цикл
       `20260729_0018 → 20260729_0019 → 20260729_0018 → 20260729_0019`.
-- [x] Frontend tests — **92/92** успешно; production build успешно.
+- [x] Frontend tests — **95/95** успешно; production build успешно.
 - [x] ESLint изменённых frontend-файлов успешно; общий lint сохраняет две
       известные baseline-ошибки `AuthContext.tsx`, не относящиеся к срезу.
 - [x] `compileall` и offline Alembic SQL generation до `20260729_0019`

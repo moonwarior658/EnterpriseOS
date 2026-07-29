@@ -7,6 +7,7 @@ import {
   mappingActionLabel,
 } from '../src/pages/iikoMappingLogic.ts'
 import {
+  generateMappingCandidates,
   IikoMappingApiError,
   mappingQuery,
   syncIikoReferenceData,
@@ -220,7 +221,130 @@ test('кнопка предложений доступна только посл
   assert.match(page, /Данные iiko обновлены: товары/)
   assert.match(page, /syncResult\.warning/)
   assert.match(page, /disabled=\{busyId !== null \|\| !referenceReady\}/)
+  assert.match(page, /Формируем предложения…/)
   assert.match(page, /setReferenceReady\(true\)[\s\S]*?await load\(\)/)
+  assert.match(page, /await generateMappingCandidates\(\)[\s\S]*?await load\(\)/)
   assert.doesNotMatch(page, /sync\/stock-balances/)
   assert.doesNotMatch(page, /Обновить остатки/)
+})
+
+test('долгая генерация остаётся pending без клиентского timeout', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  let resolveResponse: ((response: Response) => void) | undefined
+  let callCount = 0
+  globalThis.fetch = async () => {
+    callCount += 1
+    return await new Promise<Response>((resolve) => {
+      resolveResponse = resolve
+    })
+  }
+  let settled = false
+  try {
+    const generation = generateMappingCandidates().finally(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    assert.equal(callCount, 1)
+    assert.equal(settled, false)
+    resolveResponse?.(new Response(JSON.stringify({
+      products_created: 1,
+      products_updated: 0,
+      units_created: 0,
+      units_updated: 0,
+      warehouses_created: 0,
+      warehouses_updated: 0,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    await generation
+    assert.equal(settled, true)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+})
+
+test('gateway timeout переключается на статус того же запуска', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  let generationId = ''
+  let callCount = 0
+  globalThis.fetch = async (input, options = {}) => {
+    callCount += 1
+    if (callCount === 1) {
+      generationId = new Headers(options.headers).get(
+        'X-EOS-Generation-ID',
+      ) ?? ''
+      return new Response('gateway timeout', { status: 504 })
+    }
+    assert.match(
+      String(input),
+      new RegExp(`generation_id=${generationId}`),
+    )
+    return new Response(JSON.stringify({
+      generation_id: generationId,
+      status: 'SUCCEEDED',
+      result: {
+        products_created: 1,
+        products_updated: 0,
+        units_created: 0,
+        units_updated: 0,
+        warehouses_created: 0,
+        warehouses_updated: 0,
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    const result = await generateMappingCandidates()
+    assert.equal(result.products_created, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.equal(callCount, 2)
+  assert.match(generationId, /^[0-9a-f-]{36}$/)
+})
+
+test('карточки mapping компактны на desktop и складываются на mobile', () => {
+  const styles = readFileSync(
+    new URL('../src/App.css', import.meta.url),
+    'utf8',
+  )
+  assert.match(styles, /\.iiko-mapping-row[\s\S]*?min-height: 80px/)
+  assert.match(styles, /\.iiko-mapping-actions[\s\S]*?flex-wrap: nowrap/)
+  assert.match(
+    styles,
+    /\.iiko-mapping-actions \.primary-action,[\s\S]*?font-size: 0\.78rem/,
+  )
+  assert.match(
+    styles,
+    /@media \(max-width: 900px\)[\s\S]*?grid-template-columns: 1fr/,
+  )
 })

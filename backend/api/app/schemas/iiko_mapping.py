@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,6 +19,12 @@ class IikoMappingGenerateRead(BaseModel):
     units_updated: int
     warehouses_created: int
     warehouses_updated: int
+
+
+class IikoMappingGenerateStatusRead(BaseModel):
+    generation_id: UUID
+    status: Literal["RUNNING", "SUCCEEDED", "FAILED", "UNKNOWN"]
+    result: IikoMappingGenerateRead | None = None
 
 
 class IikoProductMappingAction(BaseModel):

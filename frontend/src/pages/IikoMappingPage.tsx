@@ -302,7 +302,9 @@ function IikoMappingPage() {
               disabled={busyId !== null || !referenceReady}
               onClick={() => void generate()}
             >
-              Сформировать предложения
+              {busyId === 'generate'
+                ? 'Формируем предложения…'
+                : 'Сформировать предложения'}
             </button>
           </div>
         </div>
@@ -383,14 +385,18 @@ function IikoMappingPage() {
                 key={item.id}
               >
                 <div className="iiko-mapping-source">
-                  <strong>{item.source_name}</strong>
+                  <div className="iiko-mapping-source-heading">
+                    <strong>{item.source_name}</strong>
+                    <small>{iikoMappingStatusLabel(item.status)}</small>
+                  </div>
                   <span>
                     {item.source_code || 'Без кода'}
                     {item.is_deleted ? ' · удалено в iiko' : ''}
                   </span>
-                  <small>{iikoMappingStatusLabel(item.status)}</small>
                   {item.reasons.length > 0 && (
-                    <p>{item.reasons.join(' · ')}</p>
+                    <p title={item.reasons.join(' · ')}>
+                      {item.reasons.join(' · ')}
+                    </p>
                   )}
                 </div>
                 <div className="iiko-mapping-target">

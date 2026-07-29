@@ -2873,10 +2873,12 @@
 
 .iiko-mapping-row {
   display: grid;
-  grid-template-columns: minmax(15rem, 1fr) minmax(15rem, 1fr) auto;
-  gap: 1rem;
+  grid-template-columns: minmax(14rem, 1.1fr) minmax(13rem, 1fr) auto;
+  min-height: 80px;
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.9rem;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
   border: 1px solid #e2e2dc;
   border-left: 0.3rem solid #a8a8a0;
   border-radius: 0.8rem;
@@ -2897,7 +2899,25 @@
 
 .iiko-mapping-source {
   display: grid;
-  gap: 0.25rem;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.iiko-mapping-source-heading {
+  display: flex;
+  min-width: 0;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
+.iiko-mapping-source-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iiko-mapping-source-heading small {
+  flex: none;
 }
 
 .iiko-mapping-source span,
@@ -2907,12 +2927,33 @@
   color: #686868;
 }
 
+.iiko-mapping-source span,
+.iiko-mapping-source p {
+  overflow: hidden;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .iiko-mapping-target .eos-select {
   min-width: 13rem;
 }
 
 .iiko-mapping-actions {
   justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+.iiko-mapping-actions .primary-action,
+.iiko-mapping-actions .secondary-action {
+  min-height: 2.15rem;
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.58rem;
+  box-shadow: none;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
@@ -2922,6 +2963,7 @@
 
   .iiko-mapping-actions {
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 
