@@ -361,6 +361,64 @@ class SupplyCatalogApiTests(unittest.TestCase):
             422,
         )
 
+    def test_product_autocomplete_searches_full_catalog_and_ranks_matches(self) -> None:
+        with self.session_factory.begin() as session:
+            for index in range(105):
+                session.add(SupplyProduct(
+                    tenant_id="eclair",
+                    name=f"А товар {index:03d}",
+                    normalized_name=f"а товар {index:03d}",
+                    default_unit_id=self.units["KG"].id,
+                    is_active=True,
+                ))
+            exact = SupplyProduct(
+                tenant_id="eclair",
+                name="Молоко",
+                normalized_name="молоко",
+                default_unit_id=self.units["L"].id,
+                is_active=True,
+            )
+            prefix = SupplyProduct(
+                tenant_id="eclair",
+                name="Молоко пастеризованное",
+                normalized_name="молоко пастеризованное",
+                default_unit_id=self.units["L"].id,
+                is_active=True,
+            )
+            alias_exact = SupplyProduct(
+                tenant_id="eclair",
+                name="Напиток молочный",
+                normalized_name="напиток молочный",
+                default_unit_id=self.units["L"].id,
+                is_active=True,
+            )
+            session.add_all([exact, prefix, alias_exact])
+            session.flush()
+            session.add(SupplyProductAlias(
+                tenant_id="eclair",
+                product_id=alias_exact.id,
+                alias="Молоко",
+                normalized_alias="молоко",
+                status="APPROVED",
+            ))
+            exact_id = str(exact.id)
+            prefix_id = str(prefix.id)
+            alias_exact_id = str(alias_exact.id)
+
+        response = self.client.get(
+            "/supply/products",
+            params={
+                "active": "true",
+                "search": "молоко",
+                "limit": 20,
+                "offset": 0,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        ids = [item["id"] for item in response.json()["items"]]
+        self.assertEqual(ids[:3], [exact_id, alias_exact_id, prefix_id])
+        self.assertGreater(response.json()["total"], 0)
+
     def test_foreign_or_inactive_references_are_rejected_and_hidden(self) -> None:
         with self.session_factory.begin() as session:
             foreign_unit = SupplyUnit(

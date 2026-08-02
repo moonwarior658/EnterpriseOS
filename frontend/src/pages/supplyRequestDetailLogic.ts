@@ -1,9 +1,11 @@
+import type { SupplyLine, SupplyProduct } from '../services/supplyAdmin'
+
 export type SupplyLineMappingDraft = {
   searchQuery: string
   productId: string
+  selectedProduct: SupplyProduct | null
   unitId: string
   quantity: string
-  saveAlias: boolean
   status: 'idle' | 'loading' | 'error'
   error: string
 }
@@ -25,6 +27,39 @@ export type SupplyWorkingSaveResult = {
   savedLines: Record<string, SupplyLine>
   remaining: SupplyLineWorkingState
   errors: Record<string, unknown>
+}
+
+export const SUPPLY_MATCH_REQUIRED_STATUSES = [
+  'UNPROCESSED',
+  'PARSED',
+  'NEEDS_REVIEW',
+] as const
+
+export function requiresSupplyLineMatch(line: SupplyLine): boolean {
+  return SUPPLY_MATCH_REQUIRED_STATUSES.includes(
+    line.match_status as (typeof SUPPLY_MATCH_REQUIRED_STATUSES)[number],
+  )
+}
+
+export function supplyMatchProgress(lines: SupplyLine[]): {
+  matched: number
+  total: number
+  needsReview: number
+} {
+  return {
+    matched: lines.filter((line) => line.match_status === 'MATCHED').length,
+    total: lines.length,
+    needsReview: lines.filter(requiresSupplyLineMatch).length,
+  }
+}
+
+export function nextSupplyLineToMatch(
+  lines: SupplyLine[],
+  completedLineId: string,
+): string | null {
+  const completedIndex = lines.findIndex((line) => line.id === completedLineId)
+  const after = lines.slice(completedIndex + 1).find(requiresSupplyLineMatch)
+  return after?.id ?? lines.find(requiresSupplyLineMatch)?.id ?? null
 }
 
 const SUPPLY_QUANTITY_SCALE = 1000
@@ -200,15 +235,16 @@ export async function saveDirtySupplyLines(
 }
 
 export function createSupplyLineMappingDraft(
+  searchQuery: string,
   unitId: string,
   quantity: string,
 ): SupplyLineMappingDraft {
   return {
-    searchQuery: '',
+    searchQuery,
     productId: '',
+    selectedProduct: null,
     unitId,
     quantity,
-    saveAlias: false,
     status: 'idle',
     error: '',
   }
@@ -217,10 +253,15 @@ export function createSupplyLineMappingDraft(
 export function getSupplyLineMappingDraft(
   state: SupplyLineMappingState,
   lineId: string,
+  searchQuery: string,
   unitId: string,
   quantity: string,
 ): SupplyLineMappingDraft {
-  return state[lineId] ?? createSupplyLineMappingDraft(unitId, quantity)
+  return state[lineId] ?? createSupplyLineMappingDraft(
+    searchQuery,
+    unitId,
+    quantity,
+  )
 }
 
 export function updateSupplyLineMappingDraft(
@@ -246,4 +287,3 @@ export function clearSupplyLineMappingDraft(
   delete next[lineId]
   return next
 }
-import type { SupplyLine } from '../services/supplyAdmin'

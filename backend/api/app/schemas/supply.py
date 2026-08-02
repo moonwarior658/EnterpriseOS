@@ -518,7 +518,6 @@ class SupplyLineManualMatch(BaseModel):
     )
     action: SupplyLineMatchAction
     notes: str | None = Field(default=None, max_length=2000)
-    save_alias: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -534,8 +533,6 @@ class SupplyLineManualMatch(BaseModel):
             raise ValueError(
                 "Для REJECT и RESET товар, единица и количество не передаются"
             )
-        if self.save_alias and self.action != SupplyLineMatchAction.MATCH:
-            raise ValueError("Алиас можно сохранить только при сопоставлении")
         return self
 
 

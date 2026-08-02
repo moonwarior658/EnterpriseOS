@@ -698,7 +698,10 @@ class SupplyRequest(Base):
 
     @property
     def lines_needs_review(self) -> int:
-        return sum(line.match_status == "NEEDS_REVIEW" for line in self.lines)
+        return sum(
+            line.match_status in {"UNPROCESSED", "PARSED", "NEEDS_REVIEW"}
+            for line in self.lines
+        )
 
     @property
     def duplicate_groups(self) -> int:

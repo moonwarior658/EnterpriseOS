@@ -14,6 +14,9 @@ class SupplyLineParserTests(unittest.TestCase):
             ("Яйцо 30 штук", "Яйцо", "30", "PCS"),
             ("  Сливки   33%   2.5 л  ", "Сливки 33%", "2.5", "L"),
             ("Сливки 2,5 л", "Сливки", "2.5", "L"),
+            ("Салфетки обычные 3уп", "Салфетки обычные", "3", "PACK"),
+            ("Молоко 10л", "Молоко", "10", "L"),
+            ("Стаканы 50шт", "Стаканы", "50", "PCS"),
             (
                 "Сахар-песок, белый 2 кг",
                 "Сахар-песок, белый",
@@ -44,10 +47,13 @@ class SupplyLineParserTests(unittest.TestCase):
                 self.assertIsNone(parse_supply_line(raw_text))
 
     def test_integer_only_units_reject_fractional_quantity(self) -> None:
-        for unit in ("шт", "уп", "коробок"):
-            self.assertIsNone(parse_supply_line(f"Товар 1,5 {unit}"))
+        for suffix in ("1,5 шт", "1,5шт", "1,5 уп", "1,5уп", "1,5 кор"):
+            self.assertIsNone(parse_supply_line(f"Товар {suffix}"))
         self.assertIsNotNone(parse_supply_line("Товар 1,5 кг"))
         self.assertIsNotNone(parse_supply_line("Товар 1.5 л"))
+
+    def test_name_still_requires_separator_before_quantity(self) -> None:
+        self.assertIsNone(parse_supply_line("Молоко10л"))
 
 
 if __name__ == "__main__":

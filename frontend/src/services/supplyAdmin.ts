@@ -252,7 +252,11 @@ export function getSupplyProducts(
   search = '',
   signal?: AbortSignal,
 ): Promise<{ items: SupplyProduct[] }> {
-  const query = new URLSearchParams({ active: 'true', limit: '100' })
+  const query = new URLSearchParams({
+    active: 'true',
+    limit: '20',
+    offset: '0',
+  })
   if (search) query.set('search', search)
   return request(`/supply/products?${query}`, { signal })
 }
@@ -278,12 +282,28 @@ export function matchSupplyLine(
     product_id: string
     unit_id: string
     quantity: string
-    save_alias: boolean
   },
 ): Promise<SupplyLine> {
   return request(`/supply/requests/${requestId}/lines/${lineId}/match`, {
     method: 'POST',
     body: JSON.stringify({ ...input, action: 'MATCH' }),
+  })
+}
+
+export function recognizeSupplyRequest(
+  requestId: string,
+  expectedVersion: number,
+  signal?: AbortSignal,
+): Promise<{
+  total: number
+  matched: number
+  needs_review: number
+  skipped: number
+}> {
+  return request(`/supply/requests/${requestId}/recognize`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version: expectedVersion }),
+    signal,
   })
 }
 

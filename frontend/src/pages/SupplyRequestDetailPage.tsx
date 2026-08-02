@@ -10,6 +10,7 @@ import {
   getSupplyUnits,
   matchSupplyLine,
   planSupplyRequest,
+  recognizeSupplyRequest,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
   SupplyApiError,
@@ -24,13 +25,18 @@ import {
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
   isSupplyLineWorkingDraftDirty,
+  nextSupplyLineToMatch,
+  requiresSupplyLineMatch,
   saveDirtySupplyLines,
   supplyExpectedDebtMillis,
   supplyLineWorkingBaseline,
+  supplyMatchProgress,
   supplyQuantityMillis,
   supplySendExcessMillis,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
+  suggestSupplyWorkingName,
+  type SupplyLineMappingDraft,
   type SupplyLineMappingState,
   type SupplyLineWorkingDraft,
   type SupplyLineWorkingState,
@@ -72,6 +78,154 @@ function workingSaveError(error: unknown): string {
     return 'Единица больше недоступна. Выберите другую.'
   }
   return 'Не удалось сохранить эту строку.'
+}
+
+function SupplyLineMappingEditor({
+  line,
+  draft,
+  disabled,
+  onChange,
+  onMatch,
+  inputRef,
+}: {
+  line: SupplyLine
+  draft: SupplyLineMappingDraft
+  disabled: boolean
+  onChange: (changes: Partial<SupplyLineMappingDraft>) => void
+  onMatch: () => void
+  inputRef: (element: HTMLInputElement | null) => void
+}) {
+  const [searchResult, setSearchResult] = useState<{
+    query: string
+    items: SupplyProduct[]
+    state: 'idle' | 'loading' | 'error'
+  }>({ query: '', items: [], state: 'idle' })
+  const currentQuery = draft.searchQuery.trim()
+  const currentResult = searchResult.query === currentQuery
+    ? searchResult
+    : { query: currentQuery, items: [], state: 'idle' as const }
+
+  useEffect(() => {
+    const query = draft.searchQuery.trim()
+    if (!query) return
+
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      setSearchResult({ query, items: [], state: 'loading' })
+      getSupplyProducts(query, controller.signal).then((page) => {
+        if (controller.signal.aborted) return
+        setSearchResult({
+          query,
+          items: page.items.slice(0, 20),
+          state: 'idle',
+        })
+      }).catch(() => {
+        if (!controller.signal.aborted) {
+          setSearchResult({ query, items: [], state: 'error' })
+        }
+      })
+    }, 300)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [draft.searchQuery, line.id])
+
+  return (
+    <div className="supply-line-mapping-workspace">
+      <div className="supply-source-line">
+        <span>Исходная строка</span>
+        <strong>{line.raw_text}</strong>
+      </div>
+      <div className="supply-product-autocomplete">
+        <label htmlFor={`supply-product-search-${line.id}`}>
+          Товар EOS
+        </label>
+        <input
+          id={`supply-product-search-${line.id}`}
+          ref={inputRef}
+          aria-label={`Поиск товара EOS, строка ${line.position}`}
+          autoComplete="off"
+          placeholder="Начните вводить название"
+          value={draft.searchQuery}
+          disabled={disabled}
+          onChange={(event) => onChange({
+            searchQuery: event.target.value,
+            productId: '',
+            selectedProduct: null,
+            status: 'idle',
+            error: '',
+          })}
+        />
+        {currentResult.state === 'loading' && <small>Ищем товары…</small>}
+        {currentResult.state === 'error' && (
+          <small className="request-message-error">
+            Не удалось загрузить предложения.
+          </small>
+        )}
+        {currentResult.items.length > 0 && (
+          <div className="supply-product-suggestions" role="listbox">
+            {currentResult.items.map((product) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={draft.productId === product.id}
+                key={product.id}
+                onClick={() => {
+                  onChange({
+                    productId: product.id,
+                    selectedProduct: product,
+                    status: 'idle',
+                    error: '',
+                  })
+                  setSearchResult({ query: '', items: [], state: 'idle' })
+                }}
+              >
+                <strong>{product.name}</strong>
+                <span>{product.default_unit.short_name_ru}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {draft.selectedProduct && (
+        <div className="supply-selected-product" role="status">
+          <span>Выбран товар EOS</span>
+          <strong>{draft.selectedProduct.name}</strong>
+          <small>
+            Базовая единица: {draft.selectedProduct.default_unit.short_name_ru}
+          </small>
+        </div>
+      )}
+      <div className="supply-mapping-values">
+        <span>Количество: <strong>{draft.quantity || '—'}</strong></span>
+        <span>
+          Единица:{' '}
+          <strong>
+            {line.requested_unit?.short_name_ru
+              ?? line.parsed_unit?.short_name_ru
+              ?? 'не определена'}
+          </strong>
+        </span>
+      </div>
+      <button
+        className="supply-map-product-button"
+        type="button"
+        disabled={
+          disabled || draft.status === 'loading' || !draft.productId
+          || !draft.unitId || !draft.quantity
+        }
+        onClick={onMatch}
+      >
+        {draft.status === 'loading'
+          ? 'Сопоставляем…'
+          : 'Сопоставить с товаром EOS'}
+      </button>
+      {draft.error && (
+        <small className="request-message-error">{draft.error}</small>
+      )}
+    </div>
+  )
 }
 
 function FulfillmentEditor({
@@ -220,12 +374,13 @@ function FulfillmentEditor({
 function SupplyRequestDetailPage() {
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
-  const [products, setProducts] = useState<SupplyProduct[]>([])
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const primaryActionInFlight = useRef(false)
+  const recognitionAttempts = useRef(new Set<string>())
+  const mappingInputRefs = useRef(new Map<string, HTMLInputElement>())
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
 
@@ -259,11 +414,16 @@ function SupplyRequestDetailPage() {
       && line.requested_unit
       && !['SUSPECTED', 'CONFIRMED'].includes(line.duplicate_status)
     ))
+  const matchProgress = useMemo(
+    () => supplyMatchProgress(request?.lines ?? []),
+    [request],
+  )
 
-  async function reload() {
+  async function reload(): Promise<SupplyRequest> {
     const item = await getSupplyRequest(requestId)
     setRequest(item)
     setState('ready')
+    return item
   }
 
   useEffect(() => {
@@ -273,19 +433,40 @@ function SupplyRequestDetailPage() {
       setRequest(null)
       setMapping({})
       setWorking({})
-      Promise.all([
-        getSupplyRequest(requestId, controller.signal),
-        getSupplyProducts('', controller.signal),
-        getSupplyUnits(controller.signal),
-      ]).then(([item, productPage, unitItems]) => {
-        if (controller.signal.aborted) return
-        setRequest(item)
-        setProducts(productPage.items)
-        setUnits(unitItems.filter((unit) => unit.is_active))
-        setState('ready')
-      }).catch(() => {
-        if (!controller.signal.aborted) setState('error')
-      })
+      void (async () => {
+        try {
+          const [loadedRequest, unitItems] = await Promise.all([
+            getSupplyRequest(requestId, controller.signal),
+            getSupplyUnits(controller.signal),
+          ])
+          let item = loadedRequest
+          const recognitionKey = `${item.id}:${item.version}`
+          if (
+            item.lines.some((line) => line.match_status === 'UNPROCESSED')
+            && !recognitionAttempts.current.has(recognitionKey)
+          ) {
+            recognitionAttempts.current.add(recognitionKey)
+            try {
+              await recognizeSupplyRequest(
+                item.id,
+                item.version,
+                controller.signal,
+              )
+              item = await getSupplyRequest(requestId, controller.signal)
+            } catch {
+              if (!controller.signal.aborted) {
+                setMessage('Не удалось автоматически распознать строки.')
+              }
+            }
+          }
+          if (controller.signal.aborted) return
+          setRequest(item)
+          setUnits(unitItems.filter((unit) => unit.is_active))
+          setState('ready')
+        } catch {
+          if (!controller.signal.aborted) setState('error')
+        }
+      })()
     }, 0)
     return () => {
       window.clearTimeout(timeout)
@@ -485,19 +666,30 @@ function SupplyRequestDetailPage() {
         product_id: draft.productId,
         unit_id: draft.unitId,
         quantity: draft.quantity,
-        save_alias: draft.saveAlias,
       })
       setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
-      await reload()
+      const updated = await reload()
       setMessage('Строка сопоставлена')
-    } catch {
+      const nextLineId = nextSupplyLineToMatch(updated.lines, line.id)
+      if (nextLineId) {
+        window.requestAnimationFrame(() => {
+          const input = mappingInputRefs.current.get(nextLineId)
+          input?.focus()
+          input?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+      }
+    } catch (error) {
+      const conflict = error instanceof SupplyApiError
+        && error.code === 'SUPPLY_ALIAS_CONFLICT'
       setMapping((current) => updateSupplyLineMappingDraft(
         current,
         line.id,
         draft,
         {
           status: 'error',
-          error: 'Не удалось сопоставить строку.',
+          error: conflict
+            ? 'Это название уже связано с другим товаром EOS.'
+            : 'Не удалось сопоставить строку.',
         },
       ))
     }
@@ -549,6 +741,12 @@ function SupplyRequestDetailPage() {
             )}
           </details>
         </div>
+        <div className="supply-match-progress" aria-live="polite">
+          <strong>
+            Сопоставлено: {matchProgress.matched} из {matchProgress.total}
+          </strong>
+          <span>Требуют проверки: {matchProgress.needsReview}</span>
+        </div>
 
         <div className="supply-simple-table" role="table">
           <div className="supply-simple-table-head" role="row">
@@ -567,8 +765,9 @@ function SupplyRequestDetailPage() {
             const mappingDraft = getSupplyLineMappingDraft(
               mapping,
               line.id,
-              line.requested_unit?.id ?? line.parsed_unit?.id ?? '',
-              line.quantity ?? line.parsed_quantity ?? '',
+              suggestSupplyWorkingName(line.parsed_name, line.raw_text),
+              draft.unitId,
+              draft.quantity,
             )
             const updateMapping = (
               changes: Parameters<typeof updateSupplyLineMappingDraft>[3],
@@ -685,64 +884,23 @@ function SupplyRequestDetailPage() {
                     </span>
                   )}
                 </div>
-                <details className="supply-line-menu" role="cell">
-                  <summary aria-label="Редкие действия">⋯</summary>
-                  <div>
-                    <strong>Исходная строка</strong>
-                    <p>{line.raw_text}</p>
-                    {line.match_status === 'NEEDS_REVIEW' && editable && (
-                      <div className="supply-optional-mapping">
-                        <strong>Сопоставить с iiko</strong>
-                        <input
-                          aria-label="Поиск товара"
-                          placeholder="Найти товар"
-                          value={mappingDraft.searchQuery}
-                          onChange={(event) => updateMapping({
-                            searchQuery: event.target.value,
-                            status: 'idle',
-                            error: '',
-                          })}
-                        />
-                        <EosSelect
-                          aria-label="Товар iiko"
-                          value={mappingDraft.productId}
-                          disabled={busy || hasDirty}
-                          onChange={(event) => updateMapping({
-                            productId: event.target.value,
-                            status: 'idle',
-                            error: '',
-                          })}
-                        >
-                          <option value="">Выберите товар</option>
-                          {products.filter((product) => product.name
-                            .toLocaleLowerCase('ru-RU')
-                            .includes(mappingDraft.searchQuery.trim()
-                              .toLocaleLowerCase('ru-RU')))
-                            .map((product) => (
-                              <option key={product.id} value={product.id}>
-                                {product.name}
-                              </option>
-                            ))}
-                        </EosSelect>
-                        <button
-                          type="button"
-                          disabled={
-                            busy || hasDirty || !mappingDraft.productId
-                            || !mappingDraft.unitId || !mappingDraft.quantity
-                          }
-                          onClick={() => void mapLine(line)}
-                        >
-                          Сопоставить
-                        </button>
-                        {mappingDraft.error && (
-                          <small className="request-message-error">
-                            {mappingDraft.error}
-                          </small>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </details>
+                <span role="cell" aria-hidden="true" />
+                {requiresSupplyLineMatch(line) && (
+                  <SupplyLineMappingEditor
+                    line={line}
+                    draft={mappingDraft}
+                    disabled={busy || hasDirty || !editable}
+                    onChange={updateMapping}
+                    onMatch={() => void mapLine(line)}
+                    inputRef={(element) => {
+                      if (element) {
+                        mappingInputRefs.current.set(line.id, element)
+                      } else {
+                        mappingInputRefs.current.delete(line.id)
+                      }
+                    }}
+                  />
+                )}
                 {draft.error && (
                   <small className="supply-line-error">{draft.error}</small>
                 )}

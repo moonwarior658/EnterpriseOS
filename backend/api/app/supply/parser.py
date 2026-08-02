@@ -38,7 +38,7 @@ _UNIT_PATTERN = "|".join(
 )
 _LINE_PATTERN = re.compile(
     rf"^(?P<name>.+?)\s+"
-    rf"(?P<quantity>\d+(?:[.,]\d{{1,3}})?)\s+"
+    rf"(?P<quantity>\d+(?:[.,]\d{{1,3}})?)\s*"
     rf"(?P<unit>{_UNIT_PATTERN})$",
     re.IGNORECASE,
 )
@@ -69,3 +69,13 @@ def parse_supply_line(raw_text: str) -> ParsedSupplyLine | None:
         quantity=quantity,
         unit_code=unit_code,
     )
+
+
+def supply_line_product_name(raw_text: str) -> str:
+    parsed = parse_supply_line(raw_text)
+    if parsed is not None:
+        return parsed.name
+    match = _LINE_PATTERN.fullmatch(raw_text.strip())
+    if match is not None:
+        return " ".join(match.group("name").split())
+    return " ".join(raw_text.split())

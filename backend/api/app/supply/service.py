@@ -45,7 +45,7 @@ from app.schemas.supply import (
     SupplyRequestCycleUpdate,
 )
 from app.supply.normalization import normalize_product_text
-from app.supply.parser import parse_supply_line
+from app.supply.parser import parse_supply_line, supply_line_product_name
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
@@ -846,40 +846,64 @@ def list_supply_products(
     offset: int,
 ) -> tuple[list[SupplyProduct], int]:
     filters = [SupplyProduct.tenant_id == settings.default_tenant_id]
+    ranking = None
     if active is not None:
         filters.append(SupplyProduct.is_active == active)
     if search is not None:
         normalized_search = normalize_product_text(search)
         if normalized_search:
+            exact_alias = exists().where(
+                SupplyProductAlias.product_id == SupplyProduct.id,
+                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.normalized_alias == normalized_search,
+            )
+            prefix_alias = exists().where(
+                SupplyProductAlias.product_id == SupplyProduct.id,
+                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.normalized_alias.startswith(
+                    normalized_search
+                ),
+            )
+            partial_alias = exists().where(
+                SupplyProductAlias.product_id == SupplyProduct.id,
+                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.normalized_alias.contains(
+                    normalized_search
+                ),
+            )
             filters.append(
                 or_(
                     SupplyProduct.normalized_name.contains(normalized_search),
                     SupplyProduct.iiko_id.contains(search.strip()),
-                    exists().where(
-                        SupplyProductAlias.product_id == SupplyProduct.id,
-                        SupplyProductAlias.tenant_id
-                        == settings.default_tenant_id,
-                        SupplyProductAlias.normalized_alias.contains(
-                            normalized_search
-                        ),
-                    ),
+                    partial_alias,
                 )
+            )
+            ranking = case(
+                (SupplyProduct.normalized_name == normalized_search, 1),
+                (exact_alias, 2),
+                (SupplyProduct.normalized_name.startswith(normalized_search), 3),
+                (prefix_alias, 4),
+                else_=5,
             )
 
     total = session.scalar(
         select(func.count()).select_from(SupplyProduct).where(*filters)
     )
-    statement = (
-        select(SupplyProduct)
-        .where(*filters)
-        .options(*_product_options())
-        .order_by(
+    statement = select(SupplyProduct).where(*filters).options(
+        *_product_options()
+    )
+    if ranking is not None:
+        statement = statement.order_by(
+            ranking.asc(),
             SupplyProduct.normalized_name.asc(),
             SupplyProduct.id.asc(),
         )
-        .limit(limit)
-        .offset(offset)
-    )
+    else:
+        statement = statement.order_by(
+            SupplyProduct.normalized_name.asc(),
+            SupplyProduct.id.asc(),
+        )
+    statement = statement.limit(limit).offset(offset)
     return list(session.scalars(statement).all()), int(total or 0)
 
 
@@ -1320,7 +1344,9 @@ def _supply_request_filters(
     if has_needs_review is not None:
         predicate = exists().where(
             SupplyRequestLine.request_id == SupplyRequest.id,
-            SupplyRequestLine.match_status == "NEEDS_REVIEW",
+            SupplyRequestLine.match_status.in_(
+                {"UNPROCESSED", "PARSED", "NEEDS_REVIEW"}
+            ),
         )
         filters.append(predicate if has_needs_review else ~predicate)
     if has_duplicates is not None:
@@ -2098,28 +2124,31 @@ def manually_match_supply_request_line(
         line.matched_at = now
         line.matched_by_user_id = matched_by_user_id
         line.match_notes = payload.notes
-        if payload.save_alias:
-            alias_text = line.parsed_name or line.raw_text
-            normalized_alias = normalize_product_text(alias_text)
-            existing = session.scalar(
-                select(SupplyProductAlias).where(
-                    SupplyProductAlias.tenant_id == settings.default_tenant_id,
-                    SupplyProductAlias.normalized_alias == normalized_alias,
-                )
+        alias_text = line.parsed_name or supply_line_product_name(line.raw_text)
+        normalized_alias = normalize_product_text(alias_text)
+        existing = session.scalar(
+            select(SupplyProductAlias).where(
+                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.normalized_alias == normalized_alias,
             )
-            if existing is not None:
-                if existing.product_id != product.id or existing.status != "APPROVED":
-                    session.rollback()
-                    raise DuplicateSupplyProductAliasError
-            else:
-                session.add(SupplyProductAlias(
-                    tenant_id=settings.default_tenant_id,
-                    product_id=product.id,
-                    alias=alias_text,
-                    normalized_alias=normalized_alias,
-                    status="APPROVED",
-                    created_by_user_id=matched_by_user_id,
-                ))
+        )
+        if existing is not None:
+            if existing.product_id != product.id or existing.status != "APPROVED":
+                session.rollback()
+                raise DuplicateSupplyProductAliasError
+            existing.successful_application_count += 1
+            existing.last_applied_at = now
+        else:
+            session.add(SupplyProductAlias(
+                tenant_id=settings.default_tenant_id,
+                product_id=product.id,
+                alias=alias_text,
+                normalized_alias=normalized_alias,
+                status="APPROVED",
+                successful_application_count=1,
+                last_applied_at=now,
+                created_by_user_id=matched_by_user_id,
+            ))
     elif payload.action == SupplyLineMatchAction.REJECT:
         _clear_confirmed_match(line)
         line.match_status = "REJECTED"

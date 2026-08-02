@@ -385,7 +385,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(valid.status_code, 200, valid.text)
 
     def test_manual_match_reject_reset_and_force_are_transactional(self) -> None:
-        created = self.create_request("Сливочки 2 л")
+        created = self.create_request("Молочко тестовое 2 л")
         recognized = self.recognize(created["id"]).json()
         line_id = recognized["results"][0]["line_id"]
 
@@ -450,7 +450,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertIsNone(body["product_id"])
         self.assertIsNone(body["requested_unit_id"])
         self.assertIsNone(body["quantity"])
-        self.assertEqual(body["parsed_name"], "Сливочки")
+        self.assertEqual(body["parsed_name"], "Молочко тестовое")
 
         reset = self.match(
             created["id"],
@@ -464,8 +464,8 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertIsNone(body["matched_at"])
         self.assertIsNone(body["matched_by_user_id"])
         self.assertIsNone(body["match_notes"])
-        self.assertEqual(body["parsed_name"], "Сливочки")
-        self.assertEqual(body["raw_text"], "Сливочки 2 л")
+        self.assertEqual(body["parsed_name"], "Молочко тестовое")
+        self.assertEqual(body["raw_text"], "Молочко тестовое 2 л")
 
     def test_tenant_scope_cancelled_state_and_admin_access(self) -> None:
         created = self.create_request("Молоко 1 л")
@@ -603,7 +603,6 @@ class SupplyMatchingApiTests(unittest.TestCase):
                 "product_id": str(self.milk.id),
                 "unit_id": str(self.units["L"].id),
                 "quantity": "2",
-                "save_alias": True,
             },
         )
         self.assertEqual(matched.status_code, 200, matched.text)
@@ -613,20 +612,104 @@ class SupplyMatchingApiTests(unittest.TestCase):
             ).one()
             self.assertEqual(alias.status, "APPROVED")
             self.assertEqual(alias.created_by_user_id, 2)
-            self.assertEqual(alias.successful_application_count, 0)
+            self.assertEqual(alias.successful_application_count, 1)
+            self.assertIsNotNone(alias.last_applied_at)
 
         second = self.create_request("молочко 3 л")
-        self.assertEqual(self.recognize(second["id"]).status_code, 200)
-        second_detail = self.client.get(
-            f"/supply/requests/{second['id']}"
-        ).json()
-        self.assertEqual(second_detail["lines"][0]["match_method"], "EXACT_ALIAS")
+        second_line = second["lines"][0]
+        second_match = self.match(
+            second["id"],
+            second_line["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "3",
+            },
+        )
+        self.assertEqual(second_match.status_code, 200, second_match.text)
         with self.session_factory() as session:
             alias = session.query(SupplyProductAlias).filter_by(
                 normalized_alias="молочко"
             ).one()
-            self.assertEqual(alias.successful_application_count, 1)
+            self.assertEqual(alias.successful_application_count, 2)
             self.assertIsNotNone(alias.last_applied_at)
+
+        third = self.create_request("молочко 4 л")
+        self.assertEqual(self.recognize(third["id"]).status_code, 200)
+        third_detail = self.client.get(
+            f"/supply/requests/{third['id']}"
+        ).json()
+        self.assertEqual(third_detail["lines"][0]["match_method"], "EXACT_ALIAS")
+
+    def test_manual_alias_conflict_does_not_change_existing_alias(self) -> None:
+        with self.session_factory.begin() as session:
+            conflict = SupplyProductAlias(
+                tenant_id="eclair",
+                product_id=self.cream.id,
+                alias="Спорное молоко",
+                normalized_alias="спорное молоко",
+                status="APPROVED",
+                successful_application_count=7,
+            )
+            session.add(conflict)
+            session.flush()
+            conflict_id = conflict.id
+
+        created = self.create_request("Спорное молоко 2 л")
+        line = created["lines"][0]
+        response = self.match(
+            created["id"],
+            line["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "2",
+            },
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "SUPPLY_ALIAS_CONFLICT")
+        unchanged_line = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(unchanged_line["match_status"], "UNPROCESSED")
+        self.assertIsNone(unchanged_line["product_id"])
+        with self.session_factory() as session:
+            alias = session.get(SupplyProductAlias, conflict_id)
+            self.assertEqual(alias.product_id, self.cream.id)
+            self.assertEqual(alias.status, "APPROVED")
+            self.assertEqual(alias.successful_application_count, 7)
+            self.assertIsNone(alias.last_applied_at)
+
+        with self.session_factory.begin() as session:
+            disabled = SupplyProductAlias(
+                tenant_id="eclair",
+                product_id=self.milk.id,
+                alias="Отключённое название",
+                normalized_alias="отключенное название",
+                status="DISABLED",
+                successful_application_count=3,
+            )
+            session.add(disabled)
+            session.flush()
+            disabled_id = disabled.id
+        disabled_request = self.create_request("Отключённое название 1 л")
+        disabled_response = self.match(
+            disabled_request["id"],
+            disabled_request["lines"][0]["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "1",
+            },
+        )
+        self.assertEqual(disabled_response.status_code, 409)
+        with self.session_factory() as session:
+            alias = session.get(SupplyProductAlias, disabled_id)
+            self.assertEqual(alias.status, "DISABLED")
+            self.assertEqual(alias.successful_application_count, 3)
 
     def test_allocations_start_review_and_complete_request_plan(self) -> None:
         created = self.create_request("Молоко 10 л")
@@ -849,7 +932,6 @@ class SupplyMatchingApiTests(unittest.TestCase):
                 "product_id": str(self.milk.id),
                 "unit_id": str(self.units["KG"].id),
                 "quantity": "10",
-                "save_alias": False,
             },
         )
         self.assertEqual(late_match.status_code, 200, late_match.text)
@@ -1426,6 +1508,38 @@ class SupplyMatchingApiTests(unittest.TestCase):
         ordered = self.client.get("/supply/requests?limit=100&offset=0").json()
         self.assertEqual(ordered[0]["id"], submitted["id"])
         self.assertIn(draft["id"], [item["id"] for item in ordered])
+
+    def test_needs_review_filter_includes_unprocessed_and_parsed_only(self) -> None:
+        unprocessed = self.create_request("Новая строка 1 кг")
+        parsed = self.create_request("Разобранная строка 1 кг")
+        matched = self.create_request("Молоко 1 л")
+        rejected = self.create_request("Отклонённая строка 1 кг")
+        with self.session_factory.begin() as session:
+            parsed_line = session.get(
+                SupplyRequestLine,
+                UUID(parsed["lines"][0]["id"]),
+            )
+            parsed_line.match_status = "PARSED"
+        self.assertEqual(self.recognize(matched["id"]).status_code, 200)
+        reject_response = self.match(
+            rejected["id"],
+            rejected["lines"][0]["id"],
+            {"action": "REJECT"},
+        )
+        self.assertEqual(reject_response.status_code, 200, reject_response.text)
+
+        filtered = self.client.get(
+            "/supply/requests",
+            params={"has_needs_review": "true", "limit": 100},
+        )
+        self.assertEqual(filtered.status_code, 200, filtered.text)
+        items = {item["id"]: item for item in filtered.json()}
+        self.assertIn(unprocessed["id"], items)
+        self.assertIn(parsed["id"], items)
+        self.assertNotIn(matched["id"], items)
+        self.assertNotIn(rejected["id"], items)
+        self.assertEqual(items[unprocessed["id"]]["lines_needs_review"], 1)
+        self.assertEqual(items[parsed["id"]]["lines_needs_review"], 1)
 
 
 if __name__ == "__main__":

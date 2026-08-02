@@ -3008,6 +3008,18 @@
   align-items: center;
 }
 
+.supply-match-progress {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin: 0 0 0.8rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.65rem;
+  background: #f6f6f2;
+  color: #555;
+  font-size: 0.88rem;
+}
+
 .supply-simple-table {
   overflow: visible;
   border: 1px solid #e2e2dc;
@@ -3178,6 +3190,102 @@
   border-color: #ddd;
 }
 
+.supply-line-mapping-workspace {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.8fr) minmax(16rem, 1.2fr) minmax(12rem, 0.8fr);
+  gap: 0.7rem;
+  align-items: start;
+  width: 100%;
+  margin: 0.25rem 0 0.4rem;
+  padding: 0.8rem;
+  border: 1px solid #deded8;
+  border-radius: 0.65rem;
+  background: #fafaf7;
+}
+
+.supply-source-line,
+.supply-selected-product,
+.supply-product-autocomplete {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.supply-source-line span,
+.supply-selected-product span,
+.supply-product-autocomplete label {
+  color: #686868;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.supply-source-line strong {
+  overflow-wrap: anywhere;
+}
+
+.supply-product-autocomplete {
+  position: relative;
+}
+
+.supply-product-autocomplete > input {
+  border-color: #d2d2cc;
+  background: #fff;
+}
+
+.supply-product-suggestions {
+  position: absolute;
+  z-index: 4;
+  top: 4.25rem;
+  right: 0;
+  left: 0;
+  max-height: 17rem;
+  overflow-y: auto;
+  border: 1px solid #d8d8d2;
+  border-radius: 0.55rem;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 12%);
+  background: #fff;
+}
+
+.supply-product-suggestions button {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 0;
+  border-bottom: 1px solid #eeeeea;
+  border-radius: 0;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+}
+
+.supply-product-suggestions button:hover,
+.supply-product-suggestions button[aria-selected="true"] {
+  background: #f1f5ff;
+}
+
+.supply-selected-product {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #b9cfbd;
+  border-radius: 0.5rem;
+  background: #f2f8f3;
+}
+
+.supply-mapping-values {
+  grid-column: 1 / 3;
+  display: flex;
+  gap: 1rem;
+  color: #5f5f5a;
+  font-size: 0.84rem;
+}
+
+.supply-map-product-button {
+  justify-self: stretch;
+}
+
 .supply-line-error {
   grid-column: 1 / -1;
   color: #a12727;
@@ -3264,6 +3372,22 @@
   .supply-line-menu {
     grid-column: 4;
     grid-row: 2;
+  }
+
+  .supply-match-progress {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .supply-line-mapping-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .supply-mapping-values {
+    grid-column: 1;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   .supply-sticky-actions {
