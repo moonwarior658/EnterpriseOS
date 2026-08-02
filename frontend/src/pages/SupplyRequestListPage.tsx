@@ -31,7 +31,7 @@ function statusLabel(value: string): string {
   return ({
     SUBMITTED: 'Создана',
     IN_REVIEW: 'Создана',
-    PLANNED: 'Сопоставлена',
+    PLANNED: 'В работе',
     PARTIALLY_FULFILLED: 'Исполнена частично',
     FULFILLED: 'Исполнена',
     CANCELLED: 'Отменена',
@@ -174,7 +174,7 @@ function SupplyRequestListPage() {
             <option value="">Все статусы</option>
             <option value="SUBMITTED">Создана</option>
             <option value="IN_REVIEW">В обработке</option>
-            <option value="PLANNED">Сопоставлена</option>
+            <option value="PLANNED">В работе</option>
             <option value="PARTIALLY_FULFILLED">Исполнена частично</option>
             <option value="FULFILLED">Исполнена</option>
             <option value="CANCELLED">Отменена</option>

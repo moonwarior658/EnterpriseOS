@@ -608,13 +608,13 @@ function SupplyRequestDetailPage() {
     setMessage('')
     try {
       setRequest(await fulfillSupplyAsPlanned(request.id, request.version))
-      setMessage('Факт отправки сохранён по плану')
+      setMessage('Заявка завершена')
     } catch (error) {
       setMessage(
         error instanceof SupplyApiError
         && error.code === 'SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED'
           ? 'Для одной из строк сначала подтвердите включение старого долга'
-          : 'Не удалось сохранить факт по плану',
+          : 'Не удалось завершить заявку',
       )
     } finally {
       setBusy(false)
@@ -986,7 +986,7 @@ function SupplyRequestDetailPage() {
             disabled={busy}
             onClick={() => void fulfillAsPlanned()}
           >
-            {busy ? 'Сохраняем…' : 'Отправить как запланировано'}
+            {busy ? 'Завершаем…' : 'Завершить заявку'}
           </button>
         )}
       </div>

@@ -1702,9 +1702,11 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 user_id=91001,
                 simple_mode=True,
             )
-            self.assertEqual(result.status, "PARTIALLY_FULFILLED")
-            self.assertEqual(result.lines[0].unresolved_quantity, 1)
-            self.assertIsNotNone(result.lines[0].active_debt_id)
+            self.assertEqual(result.status, "PLANNED")
+            self.assertEqual(result.lines[0].fulfilled_total, 0)
+            self.assertEqual(result.lines[0].unresolved_quantity, 3)
+            self.assertIsNone(result.lines[0].active_debt_id)
+            planned_version = result.version
 
         def override_get_db():
             with session_factory() as session:
@@ -1718,6 +1720,10 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         app.dependency_overrides[get_current_user] = override_current_user
         client = TestClient(app)
         try:
+            completed = client.post(
+                f"/supply/requests/{request_id}/fulfill-as-planned",
+                json={"expected_version": planned_version},
+            )
             detail = client.get(f"/supply/requests/{request_id}")
             debts = client.get(
                 "/supply/debts",
@@ -1727,6 +1733,12 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 },
             )
             dashboard = client.get("/supply/summary/dashboard")
+            self.assertEqual(completed.status_code, 200, completed.text)
+            self.assertEqual(completed.json()["status"], "PARTIALLY_FULFILLED")
+            self.assertEqual(
+                completed.json()["lines"][0]["fulfilled_total"],
+                "2.000",
+            )
             self.assertEqual(detail.status_code, 200, detail.text)
             self.assertEqual(debts.status_code, 200, debts.text)
             self.assertEqual(dashboard.status_code, 200, dashboard.text)

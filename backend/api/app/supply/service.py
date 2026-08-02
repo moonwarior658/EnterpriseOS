@@ -49,6 +49,9 @@ from app.supply.parser import parse_supply_line, supply_line_product_name
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
+SIMPLE_MODE_ALLOCATION_COMMENT = (
+    "Техническое решение простого режима"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -2379,7 +2382,6 @@ def plan_supply_request(
         raise SupplyRequestPlanningIncompleteError
     try:
         if simple_mode:
-            now = datetime.now(timezone.utc)
             session.query(SupplyLineAllocation).filter(
                 SupplyLineAllocation.request_id == supply_request.id,
                 SupplyLineAllocation.tenant_id == settings.default_tenant_id,
@@ -2407,13 +2409,7 @@ def plan_supply_request(
                     action="PURCHASE",
                     planned_quantity=max(line.quantity, sent_quantity),
                     unit_id=line.requested_unit_id,
-                    comment="Техническое решение простого режима",
-                    fulfilled_quantity=sent_quantity,
-                    fulfilled_at=now if sent_quantity > 0 else None,
-                    fulfilled_by_user_id=(
-                        user_id if sent_quantity > 0 else None
-                    ),
-                    fulfillment_comment="Отправлено в простом режиме",
+                    comment=SIMPLE_MODE_ALLOCATION_COMMENT,
                     created_by_user_id=user_id,
                 ))
         elif any(
@@ -2423,31 +2419,6 @@ def plan_supply_request(
         supply_request.status = "PLANNED"
         supply_request.planned_at = datetime.now(timezone.utc)
         supply_request.planned_by_user_id = user_id
-        if simple_mode:
-            session.flush()
-            for line in refreshed.lines:
-                session.expire(line, ["allocations"])
-                link = _ensure_debt_inclusion(
-                    session,
-                    supply_request,
-                    line,
-                    user_id=user_id,
-                    require_confirmation=False,
-                )
-                _apply_debt_for_line(
-                    session,
-                    supply_request,
-                    line,
-                    link,
-                    user_id=user_id,
-                    comment="Отправлено в простом режиме",
-                )
-            _finish_request_status(
-                session,
-                supply_request,
-                user_id=user_id,
-                explicit_action=True,
-            )
         supply_request.version += 1
         session.commit()
         if simple_mode:
@@ -2902,17 +2873,40 @@ def fulfill_supply_request_as_planned(
     refreshed = get_supply_request(session, request_id)
     try:
         now = datetime.now(timezone.utc)
+        simple_mode_request = False
         for line in refreshed.lines:
             link = _ensure_debt_inclusion(
                 session, supply_request, line,
                 user_id=user_id,
                 require_confirmation=True,
             )
+            simple_mode_allocation = next(
+                (
+                    allocation
+                    for allocation in line.allocations
+                    if allocation.action == "PURCHASE"
+                    and allocation.comment == SIMPLE_MODE_ALLOCATION_COMMENT
+                ),
+                None,
+            )
+            simple_mode_request = (
+                simple_mode_request or simple_mode_allocation is not None
+            )
             for allocation in line.allocations:
                 if allocation.action in {"TRANSFER", "PURCHASE"}:
-                    allocation.fulfilled_quantity = allocation.planned_quantity
-                    allocation.fulfilled_at = now
-                    allocation.fulfilled_by_user_id = user_id
+                    fulfilled_quantity = (
+                        line.send_quantity
+                        if allocation is simple_mode_allocation
+                        and line.send_quantity is not None
+                        else allocation.planned_quantity
+                    )
+                    allocation.fulfilled_quantity = fulfilled_quantity
+                    allocation.fulfilled_at = (
+                        now if fulfilled_quantity > 0 else None
+                    )
+                    allocation.fulfilled_by_user_id = (
+                        user_id if fulfilled_quantity > 0 else None
+                    )
             session.flush()
             _apply_debt_for_line(
                 session, supply_request, line, link,
@@ -2923,6 +2917,8 @@ def fulfill_supply_request_as_planned(
         )
         supply_request.version += 1
         session.commit()
+        if simple_mode_request:
+            session.expire_all()
     except Exception:
         session.rollback()
         raise

@@ -1073,7 +1073,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             "SUPPLY_REQUEST_NOT_EDITABLE",
         )
 
-    def test_simple_send_preserves_request_and_creates_remainder_debt(
+    def test_simple_send_plans_without_fact_or_debt_then_completes_partial(
         self,
     ) -> None:
         raw_text = "Молоко 10 л"
@@ -1158,13 +1158,18 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(planned.status_code, 200, planned.text)
         planned_body = planned.json()
         planned_line = planned_body["lines"][0]
-        self.assertEqual(planned_body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(planned_body["status"], "PLANNED")
         self.assertEqual(Decimal(planned_line["planned_transfer"]), Decimal("0"))
         self.assertEqual(planned_line["planned_purchase"], "10.000")
         self.assertEqual(Decimal(planned_line["planned_cancel"]), Decimal("0"))
-        self.assertEqual(planned_line["fulfilled_total"], "8.000")
-        self.assertEqual(planned_line["unresolved_quantity"], "2.000")
+        self.assertEqual(planned_line["fulfilled_total"], "0.000")
+        self.assertEqual(planned_line["unresolved_quantity"], "10.000")
+        self.assertIsNone(planned_line["active_debt_id"])
         self.assertEqual(len(planned_line["allocations"]), 1)
+        self.assertEqual(
+            self.client.get("/supply/debts?status=ACTIVE").json()["total"],
+            0,
+        )
 
         repeated = self.client.post(
             f"/supply/requests/{created['id']}/plan",
@@ -1176,11 +1181,18 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(repeated.status_code, 409)
         self.assertEqual(
             repeated.json()["detail"]["code"],
-            "SUPPLY_REQUEST_NOT_EDITABLE",
+            "SUPPLY_REQUEST_ALREADY_PLANNED",
         )
-        fulfilled_line = self.client.get(
-            f"/supply/requests/{created['id']}"
-        ).json()["lines"][0]
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned_body["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        completed_body = completed.json()
+        fulfilled_line = completed_body["lines"][0]
+        self.assertEqual(completed_body["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(fulfilled_line["fulfilled_total"], "8.000")
+        self.assertEqual(fulfilled_line["unresolved_quantity"], "2.000")
         debt = self.client.get(
             f"/supply/debts/{fulfilled_line['active_debt_id']}"
         )
@@ -1265,7 +1277,13 @@ class SupplyMatchingApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.status_code, 200, result.text)
-        return result.json()
+        planned = result.json()
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        return completed.json()
 
     def test_simple_send_above_request_fulfills_without_debt(self) -> None:
         body = self._simple_send("Молоко 50 л", "100")
@@ -1334,7 +1352,14 @@ class SupplyMatchingApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.status_code, 200, result.text)
-        body = result.json()
+        planned = result.json()
+        self.assertEqual(planned["status"], "PLANNED")
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        body = completed.json()
         self.assertEqual(body["status"], "FULFILLED")
         self.assertEqual(body["lines"][0]["quantity"], "10.000")
         self.assertEqual(body["lines"][0]["send_quantity"], "10.000")
@@ -1371,7 +1396,19 @@ class SupplyMatchingApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.status_code, 200, result.text)
-        body = result.json()
+        planned = result.json()
+        self.assertEqual(planned["status"], "PLANNED")
+        self.assertEqual(
+            Decimal(planned["lines"][0]["fulfilled_total"]),
+            Decimal("0"),
+        )
+        self.assertIsNone(planned["lines"][0]["active_debt_id"])
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        body = completed.json()
         self.assertEqual(body["status"], "PARTIALLY_FULFILLED")
         self.assertEqual(
             Decimal(body["lines"][0]["fulfilled_total"]),
@@ -1414,7 +1451,13 @@ class SupplyMatchingApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.status_code, 200, result.text)
-        body = result.json()
+        planned = result.json()
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        body = completed.json()
         self.assertEqual(body["lines"][0]["quantity"], "2.500")
         self.assertEqual(body["lines"][0]["fulfilled_total"], "1.500")
         debt = self.client.get(
@@ -1472,7 +1515,13 @@ class SupplyMatchingApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.status_code, 200, result.text)
-        result_line = result.json()["lines"][0]
+        planned = result.json()
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        result_line = completed.json()["lines"][0]
         debt = self.client.get(
             f"/supply/debts/{result_line['active_debt_id']}"
         ).json()
