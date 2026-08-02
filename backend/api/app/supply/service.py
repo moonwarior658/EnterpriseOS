@@ -30,6 +30,7 @@ from app.schemas.supply import (
     SupplyLineWorkingValuesUpdate,
     SupplyLineAllocationsUpdate,
     SupplyLineFulfillmentUpdate,
+    SupplyRequestFulfillmentItem,
     SupplyDebtInclusionConfirm,
     SupplyLineMatchAction,
     SupplyDuplicateResolutionAction,
@@ -2862,6 +2863,7 @@ def fulfill_supply_request_as_planned(
     *,
     expected_version: int,
     user_id: int,
+    items: list[SupplyRequestFulfillmentItem] | None = None,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session, request_id, expected_version=expected_version
@@ -2871,6 +2873,15 @@ def fulfill_supply_request_as_planned(
     if supply_request.status != "PLANNED":
         raise SupplyRequestNotFulfillableError
     refreshed = get_supply_request(session, request_id)
+    fulfilled_by_line = (
+        {item.line_id: item.fulfilled_quantity for item in items}
+        if items is not None else None
+    )
+    if fulfilled_by_line is not None and (
+        len(fulfilled_by_line) != len(refreshed.lines)
+        or set(fulfilled_by_line) != {line.id for line in refreshed.lines}
+    ):
+        raise SupplyFulfillmentInvalidActionError
     try:
         now = datetime.now(timezone.utc)
         simple_mode_request = False
@@ -2892,8 +2903,49 @@ def fulfill_supply_request_as_planned(
             simple_mode_request = (
                 simple_mode_request or simple_mode_allocation is not None
             )
-            for allocation in line.allocations:
-                if allocation.action in {"TRANSFER", "PURCHASE"}:
+            physical_allocations = [
+                allocation for allocation in line.allocations
+                if allocation.action in {"TRANSFER", "PURCHASE"}
+            ]
+            if fulfilled_by_line is not None:
+                fulfilled_quantity = fulfilled_by_line[line.id]
+                if (
+                    line.quantity is None
+                    or fulfilled_quantity > line.quantity
+                    or fulfilled_quantity > sum(
+                        (
+                            allocation.planned_quantity
+                            for allocation in physical_allocations
+                        ),
+                        Decimal("0"),
+                    )
+                ):
+                    raise SupplyFulfillmentExceedsPlannedError
+                if (
+                    line.requested_unit is None
+                    or (
+                        not line.requested_unit.allows_fraction
+                        and fulfilled_quantity
+                        != fulfilled_quantity.to_integral_value()
+                    )
+                ):
+                    raise SupplySendQuantityInvalidError
+                line.send_quantity = fulfilled_quantity
+                remaining = fulfilled_quantity
+                for allocation in physical_allocations:
+                    allocation_quantity = min(
+                        remaining, allocation.planned_quantity
+                    )
+                    remaining -= allocation_quantity
+                    allocation.fulfilled_quantity = allocation_quantity
+                    allocation.fulfilled_at = (
+                        now if allocation_quantity > 0 else None
+                    )
+                    allocation.fulfilled_by_user_id = (
+                        user_id if allocation_quantity > 0 else None
+                    )
+            else:
+                for allocation in physical_allocations:
                     fulfilled_quantity = (
                         line.send_quantity
                         if allocation is simple_mode_allocation

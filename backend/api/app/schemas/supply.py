@@ -702,6 +702,32 @@ class SupplyLineFulfillmentUpdate(SupplyExpectedVersion):
         return value
 
 
+class SupplyRequestFulfillmentItem(BaseModel):
+    line_id: UUID
+    fulfilled_quantity: Decimal = Field(
+        ge=0, max_digits=18, decimal_places=3
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyRequestFulfillmentUpdate(SupplyExpectedVersion):
+    items: list[SupplyRequestFulfillmentItem] | None = None
+
+    @field_validator("items")
+    @classmethod
+    def unique_lines(
+        cls,
+        value: list[SupplyRequestFulfillmentItem] | None,
+    ) -> list[SupplyRequestFulfillmentItem] | None:
+        if (
+            value is not None
+            and len({item.line_id for item in value}) != len(value)
+        ):
+            raise ValueError("Каждая строка заявки передаётся только один раз")
+        return value
+
+
 class SupplyDebtInclusionConfirm(SupplyExpectedVersion):
     included_quantity: Decimal = Field(
         ge=0, max_digits=18, decimal_places=3

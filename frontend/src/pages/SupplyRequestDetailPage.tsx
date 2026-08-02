@@ -383,6 +383,7 @@ function SupplyRequestDetailPage() {
   const mappingInputRefs = useRef(new Map<string, HTMLInputElement>())
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
+  const [fulfillment, setFulfillment] = useState<Record<string, string>>({})
 
   const editable = request
     ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
@@ -398,6 +399,7 @@ function SupplyRequestDetailPage() {
     .map((line) => line.id) ?? [], [request, working])
   const dirtySet = useMemo(() => new Set(dirtyIds), [dirtyIds])
   const hasDirty = dirtyIds.length > 0
+  const hasFulfillmentDraft = Object.keys(fulfillment).length > 0
   const invalidDirty = request?.lines.some((line) => {
     if (!dirtySet.has(line.id)) return false
     const draft = working[line.id]
@@ -414,6 +416,15 @@ function SupplyRequestDetailPage() {
       && line.requested_unit
       && !['SUSPECTED', 'CONFIRMED'].includes(line.duplicate_status)
     ))
+  const invalidFulfillment = request?.status === 'PLANNED'
+    && request.lines.some((line) => {
+      const fulfilled = supplyQuantityMillis(fulfillment[line.id] ?? '0')
+      const approved = supplyQuantityMillis(line.quantity ?? '')
+      return fulfilled === null
+        || approved === null
+        || fulfilled > approved
+        || (!line.requested_unit?.allows_fraction && fulfilled % 1000 !== 0)
+    })
   const matchProgress = useMemo(
     () => supplyMatchProgress(request?.lines ?? []),
     [request],
@@ -422,6 +433,7 @@ function SupplyRequestDetailPage() {
   async function reload(): Promise<SupplyRequest> {
     const item = await getSupplyRequest(requestId)
     setRequest(item)
+    setFulfillment({})
     setState('ready')
     return item
   }
@@ -433,6 +445,7 @@ function SupplyRequestDetailPage() {
       setRequest(null)
       setMapping({})
       setWorking({})
+      setFulfillment({})
       void (async () => {
         try {
           const [loadedRequest, unitItems] = await Promise.all([
@@ -475,11 +488,11 @@ function SupplyRequestDetailPage() {
   }, [requestId])
 
   useEffect(() => {
-    if (!hasDirty) return
+    if (!hasDirty && !hasFulfillmentDraft) return
     const handler = (event: BeforeUnloadEvent) => event.preventDefault()
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [hasDirty])
+  }, [hasDirty, hasFulfillmentDraft])
 
   function changeWorking(
     line: SupplyLine,
@@ -603,19 +616,32 @@ function SupplyRequestDetailPage() {
   }
 
   async function fulfillAsPlanned() {
-    if (!request || busy) return
+    if (!request || busy || invalidFulfillment) return
     setBusy(true)
     setMessage('')
     try {
-      setRequest(await fulfillSupplyAsPlanned(request.id, request.version))
+      setRequest(await fulfillSupplyAsPlanned(
+        request.id,
+        request.version,
+        request.lines.map((line) => ({
+          line_id: line.id,
+          fulfilled_quantity: fulfillment[line.id] ?? '0',
+        })),
+      ))
+      setFulfillment({})
       setMessage('Заявка завершена')
     } catch (error) {
-      setMessage(
-        error instanceof SupplyApiError
-        && error.code === 'SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED'
-          ? 'Для одной из строк сначала подтвердите включение старого долга'
-          : 'Не удалось завершить заявку',
-      )
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED:
+          'Для одной из строк сначала подтвердите включение старого долга',
+        SUPPLY_FULFILLMENT_EXCEEDS_PLANNED:
+          'Отправленное количество не может превышать утверждённое.',
+        SUPPLY_SEND_QUANTITY_INVALID:
+          'Для этой единицы разрешено только целое количество.',
+        SUPPLY_REQUEST_VERSION_CONFLICT:
+          'Заявка изменилась. Обновите карточку и повторите.',
+      } as Record<string, string>)[code ?? ''] ?? 'Не удалось завершить заявку')
     } finally {
       setBusy(false)
     }
@@ -751,7 +777,11 @@ function SupplyRequestDetailPage() {
         <div className="supply-simple-table" role="table">
           <div className="supply-simple-table-head" role="row">
             <span role="columnheader">Название</span>
-            <span role="columnheader">Отправить</span>
+            <span role="columnheader">
+              {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(
+                request.status,
+              ) ? 'Отправлено' : 'Отправить'}
+            </span>
             <span role="columnheader">Фасовка / единица</span>
             <span aria-hidden="true" />
           </div>
@@ -791,6 +821,9 @@ function SupplyRequestDetailPage() {
             const sendDiffers = requested !== null
               && sending !== null
               && requested !== sending
+            const fulfillmentMillis = supplyQuantityMillis(
+              fulfillment[line.id] ?? '0',
+            )
             return (
               <div
                 className={[
@@ -840,17 +873,58 @@ function SupplyRequestDetailPage() {
                         { quantity: event.target.value },
                       )}
                     />
+                  ) : request.status === 'PLANNED' ? (
+                    <input
+                      className="supply-simple-quantity"
+                      aria-label={`Отправлено, строка ${line.position}`}
+                      type="number"
+                      min="0"
+                      max={line.quantity ?? undefined}
+                      step={line.requested_unit?.allows_fraction ? '0.001' : '1'}
+                      inputMode={line.requested_unit?.allows_fraction
+                        ? 'decimal'
+                        : 'numeric'}
+                      value={fulfillment[line.id] ?? '0'}
+                      disabled={busy}
+                      onChange={(event) => setFulfillment((current) => ({
+                        ...current,
+                        [line.id]: event.target.value,
+                      }))}
+                    />
+                  ) : ['PARTIALLY_FULFILLED', 'FULFILLED'].includes(
+                    request.status,
+                  ) ? (
+                    <>
+                      <span>{line.fulfilled_total}</span>
+                      <small className="supply-send-summary">
+                        Остаток: {line.unresolved_quantity}
+                      </small>
+                    </>
                   ) : (
                     <span>{line.send_quantity ?? line.quantity ?? '—'}</span>
                   )}
-                  {sendDiffers && expectedDebt !== null && expectedDebt > 0 && (
+                  {request.status === 'PLANNED'
+                    && requested !== null
+                    && fulfillmentMillis !== null && (
+                    <small className="supply-send-summary">
+                      Утверждено: {line.quantity}
+                      {' · '}остаток:{' '}
+                      {formatSupplyQuantityMillis(Math.max(
+                        requested - fulfillmentMillis,
+                        0,
+                      ))}
+                    </small>
+                  )}
+                  {editable && sendDiffers
+                    && expectedDebt !== null && expectedDebt > 0 && (
                     <small className="supply-send-summary">
                       Запрошено: {line.quantity}
                       {' · '}долг после отправки:{' '}
                       {formatSupplyQuantityMillis(expectedDebt)}
                     </small>
                   )}
-                  {sendDiffers && sendExcess !== null && sendExcess > 0 && (
+                  {editable && sendDiffers
+                    && sendExcess !== null && sendExcess > 0 && (
                     <small className="supply-send-summary">
                       Отправлено больше запроса на{' '}
                       {formatSupplyQuantityMillis(sendExcess)} единиц
@@ -983,11 +1057,16 @@ function SupplyRequestDetailPage() {
           <button
             className="supply-primary-action"
             type="button"
-            disabled={busy}
+            disabled={busy || invalidFulfillment}
             onClick={() => void fulfillAsPlanned()}
           >
             {busy ? 'Завершаем…' : 'Завершить заявку'}
           </button>
+        )}
+        {request.status === 'PLANNED' && invalidFulfillment && (
+          <small className="request-message-error">
+            Проверьте фактически отправленное количество.
+          </small>
         )}
       </div>
     </section>

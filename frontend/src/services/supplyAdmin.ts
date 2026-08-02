@@ -9,6 +9,7 @@ export type SupplyUnit = {
   code: string
   name_ru: string
   short_name_ru: string
+  allows_fraction: boolean
   is_active: boolean
 }
 
@@ -390,11 +391,13 @@ export function saveSupplyFulfillment(
 }
 
 export function fulfillSupplyAsPlanned(
-  requestId: string, expectedVersion: number,
+  requestId: string,
+  expectedVersion: number,
+  items: Array<{ line_id: string; fulfilled_quantity: string }>,
 ): Promise<SupplyRequest> {
   return request(`/supply/requests/${requestId}/fulfill-as-planned`, {
     method: 'POST',
-    body: JSON.stringify({ expected_version: expectedVersion }),
+    body: JSON.stringify({ expected_version: expectedVersion, items }),
   })
 }
 

@@ -26,6 +26,7 @@ from app.schemas.supply import (
     DepartmentRead,
     SupplyDuplicateGroupResolve,
     SupplyExpectedVersion,
+    SupplyRequestFulfillmentUpdate,
     SupplyLineFulfillmentUpdate,
     SupplyDebtInclusionConfirm,
     SupplyDebtClose,
@@ -232,6 +233,9 @@ def _fulfillment_error(error: Exception) -> HTTPException:
         status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     elif isinstance(error, SupplyFulfillmentDecreaseCommentRequiredError):
         code = "SUPPLY_FULFILLMENT_DECREASE_COMMENT_REQUIRED"
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(error, SupplySendQuantityInvalidError):
+        code = "SUPPLY_SEND_QUANTITY_INVALID"
         status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     elif isinstance(error, SupplyDebtInclusionConfirmationRequiredError):
         code = "SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED"
@@ -1207,7 +1211,7 @@ def update_line_fulfillment(
 )
 def fulfill_as_planned(
     request_id: UUID,
-    payload: SupplyExpectedVersion,
+    payload: SupplyRequestFulfillmentUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyRequest:
@@ -1217,6 +1221,7 @@ def fulfill_as_planned(
             request_id,
             expected_version=payload.expected_version,
             user_id=current_admin.id,
+            items=payload.items,
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
@@ -1229,6 +1234,9 @@ def fulfill_as_planned(
     except (
         SupplyRequestNotFulfillableError,
         SupplyRequestAlreadyFulfilledError,
+        SupplyFulfillmentExceedsPlannedError,
+        SupplyFulfillmentInvalidActionError,
+        SupplySendQuantityInvalidError,
         SupplyDebtInclusionConfirmationRequiredError,
         SupplyDebtInclusionInvalidError,
     ) as error:
