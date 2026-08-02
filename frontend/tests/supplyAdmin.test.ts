@@ -4,9 +4,11 @@ import test from 'node:test'
 import {
   getSupplyRequests,
   getSupplyDebts,
+  getSupplyProducts,
   fulfillSupplyAsPlanned,
   matchSupplyLine,
   planSupplyRequest,
+  recognizeSupplyRequest,
   saveSupplyAllocations,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
@@ -19,10 +21,13 @@ import {
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
   isSupplyLineWorkingDraftDirty,
+  nextSupplyLineToMatch,
+  requiresSupplyLineMatch,
   saveDirtySupplyLines,
   supplyLineWorkingBaseline,
   supplyExpectedDebtMillis,
   supplySendExcessMillis,
+  supplyMatchProgress,
   suggestSupplyWorkingName,
   formatSupplyQuantityMillis,
   supplyQuantityMillis,
@@ -217,51 +222,58 @@ test('editable state сопоставления изолирован по дву
     new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
     'utf8',
   )
-  assert.doesNotMatch(detail, /productSearch/)
-  assert.match(detail, /value=\{mappingDraft\.searchQuery\}/)
+  assert.match(detail, /getSupplyProducts\(query, controller\.signal\)/)
+  assert.match(detail, /new AbortController\(\)/)
+  assert.match(detail, /}, 300\)/)
+  assert.doesNotMatch(detail, /getSupplyProducts\('', controller\.signal\)/)
+  assert.doesNotMatch(detail, /products\.filter/)
+  assert.match(detail, /value=\{draft\.searchQuery\}/)
   assert.match(
     detail,
     /clearSupplyLineMappingDraft\(current, line\.id\)/,
   )
 
-  const first = createSupplyLineMappingDraft('unit-1', '1')
-  const second = createSupplyLineMappingDraft('unit-2', '2')
+  const first = createSupplyLineMappingDraft('Картофель', 'unit-1', '1')
+  const second = createSupplyLineMappingDraft('Молоко', 'unit-2', '2')
   let state: SupplyLineMappingState = {}
 
   state = updateSupplyLineMappingDraft(state, 'line-1', first, {
     searchQuery: 'Картофель',
   })
   assert.equal(
-    getSupplyLineMappingDraft(state, 'line-1', 'unit-1', '1').searchQuery,
+    getSupplyLineMappingDraft(
+      state, 'line-1', 'Картофель', 'unit-1', '1',
+    ).searchQuery,
     'Картофель',
   )
   assert.equal(
-    getSupplyLineMappingDraft(state, 'line-2', 'unit-2', '2').searchQuery,
-    '',
+    getSupplyLineMappingDraft(
+      state, 'line-2', 'Молоко', 'unit-2', '2',
+    ).searchQuery,
+    'Молоко',
   )
 
   state = updateSupplyLineMappingDraft(state, 'line-1', first, {
     productId: 'product-1',
     quantity: '3.5',
-    saveAlias: true,
     status: 'loading',
   })
   assert.deepEqual(
     {
       productId: state['line-1'].productId,
       quantity: state['line-1'].quantity,
-      saveAlias: state['line-1'].saveAlias,
       status: state['line-1'].status,
     },
     {
       productId: 'product-1',
       quantity: '3.5',
-      saveAlias: true,
       status: 'loading',
     },
   )
   assert.deepEqual(
-    getSupplyLineMappingDraft(state, 'line-2', 'unit-2', '2'),
+    getSupplyLineMappingDraft(
+      state, 'line-2', 'Молоко', 'unit-2', '2',
+    ),
     second,
   )
 
@@ -278,6 +290,36 @@ test('editable state сопоставления изолирован по дву
   assert.equal(state['line-2'].productId, 'product-2')
   assert.equal(state['line-2'].quantity, '7')
   assert.equal(state['line-2'].error, 'Ошибка второй строки')
+})
+
+test('рабочее место показывает нужные строки, прогресс и следующий фокус', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(detail, /requiresSupplyLineMatch\(line\)/)
+  assert.match(detail, /Сопоставить с товаром EOS/)
+  assert.match(detail, /Выбран товар EOS/)
+  assert.match(detail, /nextSupplyLineToMatch/)
+  assert.match(detail, /scrollIntoView/)
+  assert.match(detail, /recognizeSupplyRequest/)
+  assert.doesNotMatch(detail, /Сопоставить с iiko/)
+
+  const lines = [
+    { id: 'one', match_status: 'MATCHED' },
+    { id: 'two', match_status: 'UNPROCESSED' },
+    { id: 'three', match_status: 'NEEDS_REVIEW' },
+    { id: 'four', match_status: 'REJECTED' },
+  ] as SupplyLine[]
+  assert.equal(requiresSupplyLineMatch(lines[1]), true)
+  assert.equal(requiresSupplyLineMatch(lines[2]), true)
+  assert.deepEqual(supplyMatchProgress(lines), {
+    matched: 1,
+    total: 4,
+    needsReview: 2,
+  })
+  assert.equal(nextSupplyLineToMatch(lines, 'two'), 'three')
+  assert.equal(nextSupplyLineToMatch(lines, 'three'), 'two')
 })
 
 test('реестр обновляется раз в 10 секунд и при возврате на вкладку', () => {
@@ -387,7 +429,6 @@ test('API-клиент передаёт фильтры, expected_version, али
       product_id: 'product',
       unit_id: 'unit',
       quantity: '2',
-      save_alias: true,
     })
     await saveSupplyLineWorkingValues('request', 'line', {
       request_version: 5,
@@ -409,12 +450,20 @@ test('API-клиент передаёт фильтры, expected_version, али
     await fulfillSupplyAsPlanned('request', 8)
     await planSupplyRequest('request', 9, true)
     await getSupplyDebts(new URLSearchParams({ severity: 'CRITICAL' }))
+    await getSupplyProducts('Молоко')
+    await recognizeSupplyRequest('request', 10)
   } finally {
     globalThis.fetch = originalFetch
   }
   assert.match(calls[0].url, /has_needs_review=true/)
   assert.match(calls[0].url, /_ts=/)
-  assert.equal(JSON.parse(String(calls[1].options.body)).save_alias, true)
+  assert.deepEqual(JSON.parse(String(calls[1].options.body)), {
+    expected_version: 4,
+    product_id: 'product',
+    unit_id: 'unit',
+    quantity: '2',
+    action: 'MATCH',
+  })
   const workingBody = JSON.parse(String(calls[2].options.body))
   assert.equal(workingBody.request_version, 5)
   assert.equal(workingBody.requested_quantity, '3')
@@ -433,4 +482,10 @@ test('API-клиент передаёт фильтры, expected_version, али
   assert.equal(planBody.simple_mode, true)
   assert.match(calls[7].url, /severity=CRITICAL/)
   assert.match(calls[7].url, /_ts=/)
+  assert.match(calls[8].url, /active=true/)
+  assert.match(calls[8].url, /search=%D0%9C%D0%BE%D0%BB%D0%BE%D0%BA%D0%BE/)
+  assert.match(calls[8].url, /limit=20/)
+  assert.match(calls[8].url, /offset=0/)
+  assert.equal(JSON.parse(String(calls[9].options.body)).expected_version, 10)
+  assert.equal(Object.hasOwn(JSON.parse(String(calls[9].options.body)), 'force'), false)
 })
