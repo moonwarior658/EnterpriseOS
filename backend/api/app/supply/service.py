@@ -841,10 +841,12 @@ def list_supply_products(
                 SupplyProductAlias.product_id == SupplyProduct.id,
                 SupplyProductAlias.tenant_id == settings.default_tenant_id,
                 SupplyProductAlias.normalized_alias == normalized_search,
+                SupplyProductAlias.status == "APPROVED",
             )
             prefix_alias = exists().where(
                 SupplyProductAlias.product_id == SupplyProduct.id,
                 SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.status == "APPROVED",
                 SupplyProductAlias.normalized_alias.startswith(
                     normalized_search
                 ),
@@ -852,6 +854,7 @@ def list_supply_products(
             partial_alias = exists().where(
                 SupplyProductAlias.product_id == SupplyProduct.id,
                 SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.status == "APPROVED",
                 SupplyProductAlias.normalized_alias.contains(
                     normalized_search
                 ),
