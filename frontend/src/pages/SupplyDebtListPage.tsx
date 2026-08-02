@@ -6,7 +6,6 @@ import {
 } from '../components/EosFormControls'
 import {
   cancelSupplyDebt,
-  closeSupplyDebt,
   getSupplyDebt,
   getSupplyDebts,
   SupplyApiError,
@@ -14,10 +13,9 @@ import {
 } from '../services/supplyAdmin'
 
 const SEVERITY_LABELS = {
-  YELLOW: 'Новый',
-  PURPLE: 'После следующего цикла',
-  RED: 'После двух циклов',
-  CRITICAL: 'Критический',
+  NONE: 'Первый недовоз',
+  YELLOW: 'Второй недовоз',
+  RED: 'Третий недовоз и далее',
 } as const
 
 const STATUS_LABELS = {
@@ -123,34 +121,6 @@ function SupplyDebtListPage() {
     const next = new URLSearchParams(searchParams)
     next.delete('open')
     setSearchParams(next)
-  }
-
-  async function closeDebt(debt: SupplyDebt) {
-    const quantity = window.prompt(
-      `Количество для закрытия (доступно ${debt.outstanding_quantity})`,
-      debt.outstanding_quantity,
-    )
-    if (!quantity) return
-    const comment = window.prompt('Комментарий к закрытию')
-    if (!comment?.trim()) return
-    setBusy(true)
-    try {
-      const updated = await closeSupplyDebt(
-        debt.id, debt.version, quantity, comment.trim(),
-      )
-      setSelected(updated)
-      setMessage('Долг обновлён')
-      await load(true)
-    } catch (error) {
-      setMessage(
-        error instanceof SupplyApiError
-        && error.code === 'SUPPLY_DEBT_VERSION_CONFLICT'
-          ? 'Долг уже изменился. Обновите страницу.'
-          : 'Не удалось закрыть долг',
-      )
-    } finally {
-      setBusy(false)
-    }
   }
 
   async function cancelDebt(debt: SupplyDebt) {
@@ -260,16 +230,19 @@ function SupplyDebtListPage() {
             <dl className="request-facts">
               <div><dt>Осталось</dt><dd>{selected.outstanding_quantity} {selected.unit.short_name_ru}</dd></div>
               <div><dt>Исходно</dt><dd>{selected.original_quantity} {selected.unit.short_name_ru}</dd></div>
-              <div><dt>Циклов</dt><dd>{selected.cycle_count}</dd></div>
+              <div><dt>Недовозов подряд</dt><dd>{selected.cycle_count}</dd></div>
               <div><dt>Статус</dt><dd>{STATUS_LABELS[selected.status]}</dd></div>
               <div><dt>Первая заявка</dt><dd><Link to={`/supply/requests/${selected.first_request_id}`}>Открыть</Link></dd></div>
               <div><dt>Последняя заявка</dt><dd><Link to={`/supply/requests/${selected.latest_request_id}`}>Открыть</Link></dd></div>
             </dl>
+            {!selected.product && (
+              <p className="request-message request-message-warning">
+                Требуется ручное сопоставление товара EOS. Откройте первую
+                заявку и сопоставьте строку долга.
+              </p>
+            )}
             {selected.status === 'ACTIVE' && (
               <div className="supply-card-actions">
-                <button type="button" disabled={busy} onClick={() => void closeDebt(selected)}>
-                  Закрыть частично или полностью
-                </button>
                 <button type="button" disabled={busy} onClick={() => void cancelDebt(selected)}>
                   Отменить долг
                 </button>

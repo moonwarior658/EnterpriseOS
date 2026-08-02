@@ -100,8 +100,10 @@ from app.supply.service import (
     SupplyDebtVersionConflictError,
     SupplyDebtNotActiveError,
     SupplyDebtCloseExceedsOutstandingError,
+    SupplyDebtManualCloseDisabledError,
     SupplyDebtInclusionConfirmationRequiredError,
     SupplyDebtInclusionInvalidError,
+    SupplyDebtProductRequiredError,
     SupplyRequestAlreadyPlannedError,
     SupplyRequestCancelledError,
     PublicNumberGenerationError,
@@ -242,6 +244,8 @@ def _fulfillment_error(error: Exception) -> HTTPException:
     elif isinstance(error, SupplyDebtInclusionInvalidError):
         code = "SUPPLY_DEBT_INCLUSION_INVALID"
         status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(error, SupplyDebtProductRequiredError):
+        code = "SUPPLY_DEBT_PRODUCT_REQUIRED"
     return HTTPException(status_code=status_code, detail={"code": code})
 
 
@@ -1201,6 +1205,7 @@ def update_line_fulfillment(
         SupplyFulfillmentDecreaseCommentRequiredError,
         SupplyDebtInclusionConfirmationRequiredError,
         SupplyDebtInclusionInvalidError,
+        SupplyDebtProductRequiredError,
     ) as error:
         raise _fulfillment_error(error) from error
 
@@ -1239,6 +1244,7 @@ def fulfill_as_planned(
         SupplySendQuantityInvalidError,
         SupplyDebtInclusionConfirmationRequiredError,
         SupplyDebtInclusionInvalidError,
+        SupplyDebtProductRequiredError,
     ) as error:
         raise _fulfillment_error(error) from error
 
@@ -1433,6 +1439,11 @@ def close_debt(
     except SupplyDebtNotActiveError as error:
         raise HTTPException(
             status_code=409, detail={"code": "SUPPLY_DEBT_NOT_ACTIVE"}
+        ) from error
+    except SupplyDebtManualCloseDisabledError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SUPPLY_DEBT_MANUAL_CLOSE_DISABLED"},
         ) from error
     except SupplyDebtCloseExceedsOutstandingError as error:
         raise HTTPException(

@@ -193,7 +193,7 @@ function DashboardPage() {
         <p className="eyebrow">КРИТИЧНО</p>
         <h2>Критические долги</h2>
         <strong>{supplySummary?.critical_debts ?? 0}</strong>
-        <Link className="dashboard-widget-action" to="/supply/debts?status=ACTIVE&severity=CRITICAL">Открыть</Link>
+        <Link className="dashboard-widget-action" to="/supply/debts?status=ACTIVE&severity=RED">Открыть</Link>
       </>
     ),
   }

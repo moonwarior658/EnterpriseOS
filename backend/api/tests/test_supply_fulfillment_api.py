@@ -138,8 +138,10 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         purchase: str = "2",
         cancel: str = "0",
         public_token: str | None = None,
+        unit: SupplyUnit | None = None,
     ) -> dict:
         self.counter += 1
+        request_unit = unit or self.unit
         now = datetime.now(timezone.utc)
         with self.session_factory.begin() as session:
             cycle = SupplyRequestCycle(
@@ -178,7 +180,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
                 position=1,
                 raw_text=f"Сахар {requested} кг",
                 product_id=self.product.id,
-                requested_unit_id=self.unit.id,
+                requested_unit_id=request_unit.id,
                 quantity=Decimal(requested),
                 match_status="MATCHED",
                 match_method="MANUAL",
@@ -200,7 +202,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
                     request_line_id=line.id,
                     action=action,
                     planned_quantity=Decimal(quantity),
-                    unit_id=self.unit.id,
+                    unit_id=request_unit.id,
                     created_by_user_id=2,
                 )
                 session.add(allocation)
@@ -286,8 +288,11 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
                 ],
             },
         )
-        self.assertEqual(no_op.status_code, 200, no_op.text)
-        self.assertEqual(no_op.json()["version"], body["version"])
+        self.assertEqual(no_op.status_code, 409, no_op.text)
+        self.assertEqual(
+            no_op.json()["detail"]["code"],
+            "SUPPLY_REQUEST_ALREADY_FULFILLED",
+        )
         debts = self.client.get("/supply/debts").json()
         self.assertEqual(debts["total"], 1)
         self.assertEqual(
@@ -311,25 +316,29 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             {"active_debts"},
         )
 
-    def test_validation_rollback_and_full_fulfillment(self) -> None:
+    def test_overfulfillment_is_saved_and_fulfills_without_debt(self) -> None:
         request = self.create_planned_request()
-        excessive = self.fulfill(request, TRANSFER="7")
-        self.assertEqual(excessive.status_code, 422, excessive.text)
-        card = self.client.get(f"/supply/requests/{request['id']}").json()
-        self.assertEqual(card["version"], request["version"])
-        self.assertEqual(Decimal(card["lines"][0]["fulfilled_total"]), Decimal("0"))
-
-        complete = self.client.post(
+        excessive = self.client.post(
             f"/supply/requests/{request['id']}/fulfill-as-planned",
-            json={"expected_version": request["version"]},
+            json={
+                "expected_version": request["version"],
+                "items": [{
+                    "line_id": request["line_id"],
+                    "fulfilled_quantity": "11",
+                }],
+            },
         )
-        self.assertEqual(complete.status_code, 200, complete.text)
-        self.assertEqual(complete.json()["status"], "PARTIALLY_FULFILLED")
+        self.assertEqual(excessive.status_code, 200, excessive.text)
+        self.assertEqual(excessive.json()["status"], "FULFILLED")
+        card = self.client.get(f"/supply/requests/{request['id']}").json()
+        self.assertEqual(card["version"], request["version"] + 1)
         self.assertEqual(
-            Decimal(complete.json()["lines"][0]["unresolved_quantity"]),
-            Decimal("2"),
+            Decimal(card["lines"][0]["fulfilled_total"]), Decimal("11")
         )
-        self.assertEqual(self.client.get("/supply/debts").json()["total"], 1)
+        self.assertEqual(
+            Decimal(card["lines"][0]["unresolved_quantity"]), Decimal("0")
+        )
+        self.assertEqual(self.client.get("/supply/debts").json()["total"], 0)
 
         fully_planned = self.create_planned_request(transfer="8", purchase="2")
         fulfilled = self.client.post(
@@ -341,33 +350,38 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         immutable = self.fulfill(fully_planned, TRANSFER="5")
         self.assertEqual(immutable.status_code, 409)
 
-    def test_debt_inclusion_closes_old_debt_first(self) -> None:
+    def test_larger_next_request_recalculates_debt_from_confirmed_quantity(
+        self,
+    ) -> None:
         first = self.create_planned_request()
-        first_result = self.fulfill(first, TRANSFER="4", PURCHASE="1").json()
+        self.fulfill(first, TRANSFER="4", PURCHASE="1")
         debt = self.client.get("/supply/debts").json()["items"][0]
 
-        second = self.create_planned_request(requested="7", transfer="7")
+        second = self.create_planned_request(
+            requested="8", transfer="8", purchase="0",
+        )
         second_card = self.client.get(f"/supply/requests/{second['id']}").json()
         self.assertEqual(
             second_card["lines"][0]["debt_inclusion_status"],
             "COVERED_BY_REQUEST",
         )
-        second_result = self.client.post(
-            f"/supply/requests/{second['id']}/fulfill-as-planned",
-            json={"expected_version": second["version"]},
-        )
+        second_result = self.fulfill(second, TRANSFER="6")
         self.assertEqual(second_result.status_code, 200, second_result.text)
-        self.assertEqual(second_result.json()["status"], "FULFILLED")
-        closed = self.client.get(f"/supply/debts/{debt['id']}").json()
-        self.assertEqual(closed["status"], "CLOSED")
-        self.assertEqual(Decimal(closed["outstanding_quantity"]), Decimal("0"))
+        recalculated = self.client.get(f"/supply/debts/{debt['id']}").json()
+        self.assertEqual(recalculated["status"], "ACTIVE")
+        self.assertEqual(
+            Decimal(recalculated["outstanding_quantity"]), Decimal("2")
+        )
+        self.assertEqual(recalculated["cycle_count"], 2)
+        self.assertEqual(recalculated["severity"], "YELLOW")
         self.assertIn(
             "INCLUDED_IN_REQUEST",
-            [event["event_type"] for event in closed["events"]],
+            [event["event_type"] for event in recalculated["events"]],
         )
-        self.assertEqual(first_result["version"], first["version"] + 1)
 
-    def test_smaller_request_requires_and_persists_partial_inclusion(self) -> None:
+    def test_smaller_next_request_replaces_obligation_before_recalculation(
+        self,
+    ) -> None:
         first = self.create_planned_request()
         self.fulfill(first, TRANSFER="4", PURCHASE="1")
         debt_before = self.client.get("/supply/debts").json()["items"][0]
@@ -387,7 +401,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             f"/supply/requests/{second['id']}/lines/{second['line_id']}/confirm-debt-inclusion",
             json={
                 "expected_version": second["version"],
-                "included_quantity": "2",
+                "included_quantity": "3",
             },
         )
         self.assertEqual(confirmed.status_code, 200, confirmed.text)
@@ -395,109 +409,86 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             confirmed.json()["lines"][0]["debt_inclusion_status"],
             "CONFIRMED_PARTIAL",
         )
-        fulfilled = self.client.post(
-            f"/supply/requests/{second['id']}/fulfill-as-planned",
-            json={"expected_version": confirmed.json()["version"]},
-        )
+        second["version"] = confirmed.json()["version"]
+        fulfilled = self.fulfill(second, TRANSFER="2")
         self.assertEqual(fulfilled.status_code, 200, fulfilled.text)
         debt_after = self.client.get(
             f"/supply/debts/{debt_before['id']}"
         ).json()
         self.assertEqual(
-            Decimal(debt_after["outstanding_quantity"]), Decimal("3")
+            Decimal(debt_after["outstanding_quantity"]), Decimal("1")
         )
-        self.assertEqual(debt_after["cycle_count"], 1)
-        self.assertEqual(debt_after["severity"], "PURPLE")
+        self.assertEqual(debt_after["cycle_count"], 2)
+        self.assertEqual(debt_after["severity"], "YELLOW")
 
-    def test_decreasing_fact_requires_comment_and_recalculates_contribution(self) -> None:
+    def test_partially_fulfilled_fact_and_debt_are_immutable(self) -> None:
         request = self.create_planned_request()
         first = self.fulfill(request, TRANSFER="4", PURCHASE="1").json()
-        without_comment = self.client.put(
-            f"/supply/requests/{request['id']}/lines/{request['line_id']}/fulfillment",
-            json={
-                "expected_version": first["version"],
-                "items": [{
-                    "allocation_id": request["allocations"]["TRANSFER"],
-                    "fulfilled_quantity": "3",
-                    "comment": None,
-                }],
-            },
-        )
-        self.assertEqual(without_comment.status_code, 422)
-        decreased = self.client.put(
-            f"/supply/requests/{request['id']}/lines/{request['line_id']}/fulfillment",
-            json={
-                "expected_version": first["version"],
-                "items": [{
-                    "allocation_id": request["allocations"]["TRANSFER"],
-                    "fulfilled_quantity": "3",
-                    "comment": "исправление факта",
-                }],
-            },
-        )
-        self.assertEqual(decreased.status_code, 200, decreased.text)
-        self.assertEqual(
-            Decimal(decreased.json()["lines"][0]["unresolved_quantity"]),
-            Decimal("6"),
-        )
-        debt = self.client.get("/supply/debts").json()["items"][0]
-        self.assertEqual(Decimal(debt["outstanding_quantity"]), Decimal("6"))
+        debt_before = self.client.get("/supply/debts").json()["items"][0]
 
-    def test_manual_partial_close_cancel_version_and_tenant_isolation(self) -> None:
+        for quantity in ("3", "5"):
+            with self.subTest(quantity=quantity):
+                response = self.client.put(
+                    f"/supply/requests/{request['id']}/lines/"
+                    f"{request['line_id']}/fulfillment",
+                    json={
+                        "expected_version": first["version"],
+                        "items": [{
+                            "allocation_id": request["allocations"]["TRANSFER"],
+                            "fulfilled_quantity": quantity,
+                            "comment": "попытка изменить старый факт",
+                        }],
+                    },
+                )
+                self.assertEqual(response.status_code, 409, response.text)
+                self.assertEqual(
+                    response.json()["detail"]["code"],
+                    "SUPPLY_REQUEST_ALREADY_FULFILLED",
+                )
+
+        unchanged = self.client.get(f"/supply/requests/{request['id']}").json()
+        self.assertEqual(unchanged["version"], first["version"])
+        self.assertEqual(
+            Decimal(unchanged["lines"][0]["fulfilled_total"]), Decimal("5")
+        )
+        debt_after = self.client.get(f"/supply/debts/{debt_before['id']}").json()
+        self.assertEqual(debt_after["version"], debt_before["version"])
+        self.assertEqual(
+            Decimal(debt_after["outstanding_quantity"]), Decimal("5")
+        )
+        self.assertEqual(
+            [event["event_type"] for event in debt_after["events"]],
+            ["CREATED"],
+        )
+
+    def test_manual_debt_close_is_disabled_without_confirmed_basis(self) -> None:
         request = self.create_planned_request()
         self.fulfill(request, TRANSFER="4", PURCHASE="1")
-        debt = self.client.get("/supply/debts").json()["items"][0]
-        stale = self.client.post(
-            f"/supply/debts/{debt['id']}/close",
+        debt_before = self.client.get("/supply/debts").json()["items"][0]
+        blocked = self.client.post(
+            f"/supply/debts/{debt_before['id']}/close",
             json={
-                "expected_version": debt["version"] + 1,
-                "quantity": "1",
-                "comment": "вне заявки",
-            },
-        )
-        self.assertEqual(stale.status_code, 409)
-        partial = self.client.post(
-            f"/supply/debts/{debt['id']}/close",
-            json={
-                "expected_version": debt["version"],
+                "expected_version": debt_before["version"],
                 "quantity": "2",
-                "comment": "доставлено отдельно",
+                "comment": "нет подтверждённого перемещения",
             },
         )
-        self.assertEqual(partial.status_code, 200, partial.text)
+        self.assertEqual(blocked.status_code, 409, blocked.text)
         self.assertEqual(
-            Decimal(partial.json()["outstanding_quantity"]), Decimal("3")
+            blocked.json()["detail"]["code"],
+            "SUPPLY_DEBT_MANUAL_CLOSE_DISABLED",
         )
-        cancelled = self.client.post(
-            f"/supply/debts/{debt['id']}/cancel",
-            json={
-                "expected_version": partial.json()["version"],
-                "comment": "потребность отменена",
-            },
-        )
-        self.assertEqual(cancelled.status_code, 200, cancelled.text)
-        self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        debt_after = self.client.get(
+            f"/supply/debts/{debt_before['id']}"
+        ).json()
+        self.assertEqual(debt_after["status"], "ACTIVE")
+        self.assertEqual(debt_after["version"], debt_before["version"])
         self.assertEqual(
-            Decimal(cancelled.json()["outstanding_quantity"]), Decimal("0")
+            Decimal(debt_after["outstanding_quantity"]), Decimal("5")
         )
         self.assertEqual(
-            self.client.get("/supply/debts", params={"status": "ACTIVE"}).json()["total"],
-            0,
-        )
-        second_request = self.create_planned_request()
-        self.fulfill(second_request, TRANSFER="4", PURCHASE="1")
-        all_debts = self.client.get("/supply/debts")
-        self.assertEqual(all_debts.status_code, 200, all_debts.text)
-        self.assertEqual(all_debts.json()["total"], 2)
-        self.assertEqual(
-            {item["status"] for item in all_debts.json()["items"]},
-            {"ACTIVE", "CANCELLED"},
-        )
-        self.assertEqual(
-            self.client.get(
-                "/supply/debts", params={"status": "CANCELLED"}
-            ).json()["total"],
-            1,
+            [event["event_type"] for event in debt_after["events"]],
+            ["CREATED"],
         )
 
     def test_debt_lock_targets_only_base_row_with_optional_product_joins(
@@ -538,31 +529,89 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         self.assertNotIn("allocation_id", serialized)
         self.assertNotIn("fulfilled_by_user_id", serialized)
 
-    def test_debt_severity_filters_and_critical_summary(self) -> None:
-        request = self.create_planned_request()
-        self.fulfill(request, TRANSFER="4", PURCHASE="1")
-        debt = self.client.get("/supply/debts").json()["items"][0]
-        expected = {
-            0: "YELLOW",
-            1: "PURPLE",
-            2: "RED",
-            3: "CRITICAL",
-        }
-        for cycle_count, severity in expected.items():
-            with self.session_factory.begin() as session:
-                stored = session.get(SupplyDepartmentDebt, UUID(debt["id"]))
-                stored.cycle_count = cycle_count
-            response = self.client.get(
-                "/supply/debts",
-                params={"severity": severity},
-            )
-            self.assertEqual(response.status_code, 200, response.text)
-            self.assertEqual(response.json()["total"], 1)
-            self.assertEqual(response.json()["items"][0]["severity"], severity)
+    def test_consecutive_shortfalls_escalate_reset_and_restart(self) -> None:
+        first = self.create_planned_request()
+        self.fulfill(first, TRANSFER="4", PURCHASE="1")
+        first_debt = self.client.get("/supply/debts").json()["items"][0]
+        self.assertEqual(first_debt["cycle_count"], 1)
+        self.assertEqual(first_debt["severity"], "NONE")
 
-        summary = self.client.get("/supply/summary/dashboard")
-        self.assertEqual(summary.status_code, 200, summary.text)
-        self.assertEqual(summary.json()["critical_debts"], 1)
+        second = self.create_planned_request(
+            requested="5", transfer="5", purchase="0",
+        )
+        self.fulfill(second, TRANSFER="4")
+        second_debt = self.client.get(
+            f"/supply/debts/{first_debt['id']}"
+        ).json()
+        self.assertEqual(second_debt["cycle_count"], 2)
+        self.assertEqual(second_debt["severity"], "YELLOW")
+
+        third = self.create_planned_request(
+            requested="1", transfer="1", purchase="0",
+        )
+        self.fulfill(third, TRANSFER="0.5")
+        third_debt = self.client.get(
+            f"/supply/debts/{first_debt['id']}"
+        ).json()
+        self.assertEqual(third_debt["cycle_count"], 3)
+        self.assertEqual(third_debt["severity"], "RED")
+
+        closing = self.create_planned_request(
+            requested="0.5", transfer="0.5", purchase="0",
+        )
+        closed = self.fulfill(closing, TRANSFER="0.5")
+        self.assertEqual(closed.status_code, 200, closed.text)
+        closed_debt = self.client.get(
+            f"/supply/debts/{first_debt['id']}"
+        ).json()
+        self.assertEqual(closed_debt["status"], "CLOSED")
+        self.assertEqual(closed_debt["cycle_count"], 0)
+
+        later = self.create_planned_request(
+            requested="2", transfer="2", purchase="0",
+        )
+        self.fulfill(later, TRANSFER="1")
+        active = self.client.get(
+            "/supply/debts", params={"status": "ACTIVE"},
+        ).json()["items"][0]
+        self.assertNotEqual(active["id"], first_debt["id"])
+        self.assertEqual(active["cycle_count"], 1)
+        self.assertEqual(active["severity"], "NONE")
+        self.assertGreater(len(closed_debt["events"]), 1)
+
+    def test_same_product_debts_remain_separate_for_different_units(
+        self,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            pack = SupplyUnit(
+                tenant_id="eclair",
+                code="PACK",
+                name_ru="упаковка",
+                short_name_ru="уп",
+                allows_fraction=False,
+            )
+            session.add(pack)
+            session.flush()
+
+        kilograms = self.create_planned_request(
+            requested="10", transfer="10", purchase="0",
+        )
+        self.fulfill(kilograms, TRANSFER="5")
+        packs = self.create_planned_request(
+            requested="5", transfer="5", purchase="0", unit=pack,
+        )
+        self.fulfill(packs, TRANSFER="3")
+
+        debts = self.client.get(
+            "/supply/debts", params={"status": "ACTIVE"},
+        ).json()["items"]
+        self.assertEqual(len(debts), 2)
+        by_unit = {debt["unit"]["code"]: debt for debt in debts}
+        self.assertEqual(set(by_unit), {"KG", "PACK"})
+        self.assertEqual(by_unit["KG"]["outstanding_quantity"], "5.000")
+        self.assertEqual(by_unit["PACK"]["outstanding_quantity"], "2.000")
+        self.assertEqual(by_unit["KG"]["cycle_count"], 1)
+        self.assertEqual(by_unit["PACK"]["cycle_count"], 1)
 
     def test_fulfillment_and_debt_endpoints_require_admin(self) -> None:
         request = self.create_planned_request()

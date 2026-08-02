@@ -267,11 +267,19 @@ class SupplyDebtCloseExceedsOutstandingError(ValueError):
     pass
 
 
+class SupplyDebtManualCloseDisabledError(ValueError):
+    pass
+
+
 class SupplyDebtInclusionConfirmationRequiredError(ValueError):
     pass
 
 
 class SupplyDebtInclusionInvalidError(ValueError):
+    pass
+
+
+class SupplyDebtProductRequiredError(ValueError):
     pass
 
 
@@ -377,34 +385,7 @@ def _advance_debts_for_closed_cycle(
     session: Session,
     cycle: SupplyRequestCycle,
 ) -> None:
-    debts = session.scalars(
-        select(SupplyDepartmentDebt)
-        .join(SupplyProduct)
-        .where(
-            SupplyDepartmentDebt.tenant_id == cycle.tenant_id,
-            SupplyDepartmentDebt.status == "ACTIVE",
-            SupplyProduct.request_direction_id == cycle.direction_id,
-            SupplyDepartmentDebt.opened_at < cycle.closes_at,
-            or_(
-                SupplyDepartmentDebt.last_cycle_id.is_(None),
-                SupplyDepartmentDebt.last_cycle_id != cycle.id,
-            ),
-        )
-        .with_for_update()
-    ).all()
-    for debt in debts:
-        debt.cycle_count += 1
-        debt.last_cycle_id = cycle.id
-        _add_debt_event(
-            session, debt,
-            event_type="ADJUSTED",
-            before=debt.outstanding_quantity,
-            after=debt.outstanding_quantity,
-            supply_request=None,
-            line=None,
-            user_id=None,
-            comment="Наступил следующий релевантный цикл",
-        )
+    return None
 
 
 def create_supply_request_cycle(
@@ -1286,7 +1267,11 @@ def _populate_active_debt_context(
     for request in requests:
         for line in request.lines:
             line._active_debt = by_key.get(
-                (request.department_id, line.product_id, line.requested_unit_id)
+                (
+                    request.department_id,
+                    line.product_id,
+                    line.requested_unit_id,
+                )
             )
 
 
@@ -2006,7 +1991,6 @@ def _recognize_line(
     if product is None or method is None:
         line.match_status = "NEEDS_REVIEW"
         return
-
     line.product_id = product.id
     line.requested_unit_id = unit.id
     line.quantity = parsed.quantity
@@ -2100,6 +2084,8 @@ def manually_match_supply_request_line(
     late_match_statuses = {"PLANNED", "PARTIALLY_FULFILLED", "FULFILLED"}
     if supply_request.status not in editable_statuses | late_match_statuses:
         raise SupplyRequestStateError
+    if line.debt_link and line.debt_link.inclusion_confirmed:
+        raise SupplyRequestStateError
     late_match = supply_request.status in late_match_statuses
     if late_match and payload.action != SupplyLineMatchAction.MATCH:
         raise SupplyRequestStateError
@@ -2113,8 +2099,22 @@ def manually_match_supply_request_line(
         )
         unit = _get_supply_unit(session, payload.unit_id)
         validate_quantity_for_unit(payload.quantity, unit)
+        debt_link = line.debt_link
+        legacy_debts: list[SupplyDepartmentDebt] = []
+        legacy_debt_ids: set[UUID] = set()
+        for debt in (
+            debt_link.debt if debt_link else None,
+            debt_link.included_debt if debt_link else None,
+        ):
+            if (
+                debt is not None
+                and debt.product_id is None
+                and debt.id not in legacy_debt_ids
+            ):
+                legacy_debts.append(debt)
+                legacy_debt_ids.add(debt.id)
         if late_match and (
-            line.product_id is not None
+            (line.product_id is not None and not legacy_debts)
             or line.requested_unit_id != unit.id
             or line.quantity != payload.quantity
         ):
@@ -2128,6 +2128,36 @@ def manually_match_supply_request_line(
         line.matched_at = now
         line.matched_by_user_id = matched_by_user_id
         line.match_notes = payload.notes
+        for debt in legacy_debts:
+            conflicting_debt = session.scalar(
+                select(SupplyDepartmentDebt).where(
+                    SupplyDepartmentDebt.tenant_id
+                    == settings.default_tenant_id,
+                    SupplyDepartmentDebt.department_id
+                    == supply_request.department_id,
+                    SupplyDepartmentDebt.product_id == product.id,
+                    SupplyDepartmentDebt.unit_id == unit.id,
+                    SupplyDepartmentDebt.status == "ACTIVE",
+                    SupplyDepartmentDebt.id != debt.id,
+                ).with_for_update()
+            )
+            if conflicting_debt is not None:
+                raise SupplyRequestStateError
+            debt.product_id = product.id
+            debt.unit_id = unit.id
+            debt.working_name = product.name
+            debt.version += 1
+            _add_debt_event(
+                session,
+                debt,
+                event_type="ADJUSTED",
+                before=debt.outstanding_quantity,
+                after=debt.outstanding_quantity,
+                supply_request=supply_request,
+                line=line,
+                user_id=matched_by_user_id,
+                comment="Выполнено ручное сопоставление долга",
+            )
         alias_text = line.parsed_name or supply_line_product_name(line.raw_text)
         normalized_alias = normalize_product_text(alias_text)
         existing = session.scalar(
@@ -2197,9 +2227,12 @@ def update_supply_line_working_values(
     )
     if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
         raise SupplyRequestStateError
+    if line.debt_link and line.debt_link.inclusion_confirmed:
+        raise SupplyRequestStateError
 
     unit = _get_supply_unit(session, payload.requested_unit_id)
-    requested_quantity = line.quantity
+    original_requested_quantity = line.quantity
+    requested_quantity = original_requested_quantity
     if requested_quantity is None:
         if payload.requested_quantity is None:
             raise SupplyRequestPlanningIncompleteError
@@ -2210,7 +2243,10 @@ def update_supply_line_working_values(
         payload.requested_quantity is not None
         and payload.requested_quantity != requested_quantity
     ):
-        raise SupplyRequestedQuantityImmutableError
+        if payload.requested_quantity < requested_quantity:
+            raise SupplyRequestedQuantityImmutableError
+        requested_quantity = payload.requested_quantity
+        line.quantity = requested_quantity
     validate_quantity_for_unit(requested_quantity, unit)
     if (
         not unit.allows_fraction
@@ -2222,7 +2258,8 @@ def update_supply_line_working_values(
     old_values = {
         "working_name": line.working_name,
         "requested_quantity": (
-            str(line.quantity) if line.quantity is not None else None
+            str(original_requested_quantity)
+            if original_requested_quantity is not None else None
         ),
         "send_quantity": (
             str(line.send_quantity)
@@ -2417,6 +2454,14 @@ def plan_supply_request(
             line.planning_status != "COMPLETE" for line in refreshed.lines
         ):
             raise SupplyRequestPlanningIncompleteError
+        for line in refreshed.lines:
+            _ensure_debt_inclusion(
+                session,
+                supply_request,
+                line,
+                user_id=user_id,
+                require_confirmation=True,
+            )
         supply_request.status = "PLANNED"
         supply_request.planned_at = datetime.now(timezone.utc)
         supply_request.planned_by_user_id = user_id
@@ -2462,19 +2507,8 @@ def _active_debt_for_line(
     supply_request: SupplyRequest,
     line: SupplyRequestLine,
 ) -> SupplyDepartmentDebt | None:
-    if line.requested_unit_id is None:
+    if line.product_id is None or line.requested_unit_id is None:
         return None
-    if line.product_id is None:
-        return session.scalar(
-            select(SupplyDepartmentDebt)
-            .where(
-                SupplyDepartmentDebt.tenant_id == settings.default_tenant_id,
-                SupplyDepartmentDebt.first_request_line_id == line.id,
-                SupplyDepartmentDebt.product_id.is_(None),
-                SupplyDepartmentDebt.status == "ACTIVE",
-            )
-            .with_for_update()
-        )
     return session.scalar(
         select(SupplyDepartmentDebt)
         .where(
@@ -2502,18 +2536,6 @@ def _line_debt_link_for_update(
     )
 
 
-def _touch_debt_cycle(
-    debt: SupplyDepartmentDebt,
-    supply_request: SupplyRequest,
-) -> None:
-    if (
-        supply_request.cycle_id is not None
-        and debt.last_cycle_id != supply_request.cycle_id
-    ):
-        debt.cycle_count += 1
-        debt.last_cycle_id = supply_request.cycle_id
-
-
 def _ensure_debt_inclusion(
     session: Session,
     supply_request: SupplyRequest,
@@ -2530,20 +2552,19 @@ def _ensure_debt_inclusion(
         )
         session.add(link)
         session.flush()
-    if link.included_debt_id is not None:
+    if link.inclusion_confirmed or link.included_debt_id is not None:
         return link
 
     debt = _active_debt_for_line(session, supply_request, line)
-    if debt is None or debt.first_request_line_id == line.id:
-        return link
     requested = line.quantity or Decimal("0")
+    if debt is None or debt.first_request_line_id == line.id:
+        link.included_quantity = requested
+        return link
     if requested < debt.outstanding_quantity and require_confirmation:
         raise SupplyDebtInclusionConfirmationRequiredError
-    included = min(requested, debt.outstanding_quantity)
     link.included_debt_id = debt.id
-    link.included_quantity = included
+    link.included_quantity = requested
     link.inclusion_confirmed = False
-    _touch_debt_cycle(debt, supply_request)
     _add_debt_event(
         session, debt,
         event_type="INCLUDED_IN_REQUEST",
@@ -2570,7 +2591,7 @@ def confirm_supply_debt_inclusion(
         line_id=line_id,
         expected_version=payload.expected_version,
     )
-    if supply_request.status not in {"PLANNED", "PARTIALLY_FULFILLED"}:
+    if supply_request.status not in {"SUBMITTED", "IN_REVIEW", "PLANNED"}:
         raise SupplyRequestNotFulfillableError
     link = _line_debt_link_for_update(session, line.id)
     debt = (
@@ -2580,8 +2601,13 @@ def confirm_supply_debt_inclusion(
     )
     if debt is None or debt.status != "ACTIVE":
         raise SupplyDebtInclusionInvalidError
-    maximum = min(line.quantity or Decimal("0"), debt.outstanding_quantity)
-    if payload.included_quantity > maximum:
+    if debt.unit_id != line.requested_unit_id:
+        raise SupplyDebtInclusionInvalidError
+    requested = line.quantity or Decimal("0")
+    if (
+        requested >= debt.outstanding_quantity
+        or payload.included_quantity != requested
+    ):
         raise SupplyDebtInclusionInvalidError
     if (
         link is not None
@@ -2599,7 +2625,23 @@ def confirm_supply_debt_inclusion(
     link.included_debt_id = debt.id
     link.included_quantity = payload.included_quantity
     link.inclusion_confirmed = True
-    _touch_debt_cycle(debt, supply_request)
+    before = debt.outstanding_quantity
+    if before != payload.included_quantity:
+        debt.outstanding_quantity = payload.included_quantity
+        debt.latest_request_id = supply_request.id
+        debt.latest_request_line_id = line.id
+        debt.version += 1
+        _add_debt_event(
+            session,
+            debt,
+            event_type="ADJUSTED",
+            before=before,
+            after=payload.included_quantity,
+            supply_request=supply_request,
+            line=line,
+            user_id=user_id,
+            comment="Подтверждено меньшее актуальное обязательство",
+        )
     _add_debt_event(
         session, debt,
         event_type="INCLUDED_IN_REQUEST",
@@ -2628,126 +2670,112 @@ def _apply_debt_for_line(
     user_id: int,
     comment: str | None,
 ) -> None:
-    requested = line.quantity or Decimal("0")
+    target = link.included_quantity
     fulfilled = line.fulfilled_total
-    included = link.included_quantity
-    new_applied = min(fulfilled, included)
-    included_debt = (
+    remaining = max(target - fulfilled, Decimal("0"))
+    debt = (
         session.get(SupplyDepartmentDebt, link.included_debt_id)
         if link.included_debt_id else None
     )
-    if included_debt is not None:
-        delta = new_applied - link.applied_included_quantity
-        if delta != 0:
-            before = included_debt.outstanding_quantity
-            after = before - delta
-            if after < 0:
-                raise SupplyDebtInclusionInvalidError
-            included_debt.outstanding_quantity = after
-            included_debt.latest_request_id = supply_request.id
-            included_debt.latest_request_line_id = line.id
-            included_debt.version += 1
-            _add_debt_event(
-                session, included_debt,
-                event_type=(
-                    "PARTIALLY_CLOSED" if delta > 0 else "INCREASED"
-                ),
-                before=before,
-                after=after,
-                supply_request=supply_request,
-                line=line,
-                user_id=user_id,
-                comment=comment,
-            )
-            link.applied_included_quantity = new_applied
-
-    fact_for_new = max(fulfilled - included, Decimal("0"))
-    new_need = max(requested - included, Decimal("0"))
-    contribution = max(
-        new_need - fact_for_new - line.planned_cancel,
-        Decimal("0"),
-    )
-    contribution_debt = (
-        session.get(SupplyDepartmentDebt, link.debt_id)
-        if link.debt_id else None
-    )
-    if contribution_debt is None and contribution > 0:
-        contribution_debt = _active_debt_for_line(session, supply_request, line)
+    if debt is None and link.debt_id is not None:
+        debt = session.get(SupplyDepartmentDebt, link.debt_id)
+    if debt is not None and debt.unit_id != line.requested_unit_id:
+        raise SupplyDebtInclusionInvalidError
+    if remaining > 0:
+        if line.product_id is None or line.product is None:
+            raise SupplyDebtProductRequiredError
+        if debt is None:
+            debt = _active_debt_for_line(session, supply_request, line)
         now = datetime.now(timezone.utc)
-        if contribution_debt is None:
-            contribution_debt = SupplyDepartmentDebt(
+        if debt is None:
+            debt = SupplyDepartmentDebt(
                 tenant_id=settings.default_tenant_id,
                 department_id=supply_request.department_id,
                 product_id=line.product_id,
-                working_name=line.working_name,
+                working_name=line.product.name,
                 unit_id=line.requested_unit_id,
-                outstanding_quantity=contribution,
-                original_quantity=contribution,
+                outstanding_quantity=remaining,
+                original_quantity=remaining,
                 first_request_id=supply_request.id,
                 latest_request_id=supply_request.id,
                 first_request_line_id=line.id,
                 latest_request_line_id=line.id,
                 opened_at=now,
+                cycle_count=1,
                 last_cycle_id=supply_request.cycle_id,
             )
-            session.add(contribution_debt)
+            session.add(debt)
             session.flush()
             _add_debt_event(
-                session, contribution_debt,
+                session, debt,
                 event_type="CREATED",
                 before=Decimal("0"),
-                after=contribution,
+                after=remaining,
                 supply_request=supply_request,
                 line=line,
                 user_id=user_id,
                 comment=comment,
             )
-            link.debt_id = contribution_debt.id
-            link.contributed_quantity = contribution
         else:
-            link.debt_id = contribution_debt.id
-
-    if contribution_debt is not None:
-        delta = contribution - link.contributed_quantity
-        if delta != 0:
-            before = contribution_debt.outstanding_quantity
-            after = before + delta
-            if after < 0:
-                raise SupplyDebtInclusionInvalidError
-            contribution_debt.outstanding_quantity = after
-            contribution_debt.latest_request_id = supply_request.id
-            contribution_debt.latest_request_line_id = line.id
-            contribution_debt.version += 1
-            _add_debt_event(
-                session, contribution_debt,
-                event_type="INCREASED" if delta > 0 else "PARTIALLY_CLOSED",
-                before=before,
-                after=after,
-                supply_request=supply_request,
-                line=line,
-                user_id=user_id,
-                comment=comment,
-            )
-        link.contributed_quantity = contribution
-
-    affected = {debt for debt in (included_debt, contribution_debt) if debt}
-    for debt in affected:
-        if debt.outstanding_quantity == 0 and debt.status == "ACTIVE":
-            debt.status = "CLOSED"
-            debt.closed_at = datetime.now(timezone.utc)
-            debt.closed_by_user_id = user_id
-            debt.close_comment = comment
+            before = debt.outstanding_quantity
+            debt.outstanding_quantity = remaining
+            debt.latest_request_id = supply_request.id
+            debt.latest_request_line_id = line.id
+            debt.cycle_count += 1
+            debt.last_cycle_id = supply_request.cycle_id
             debt.version += 1
             _add_debt_event(
-                session, debt,
-                event_type="CLOSED",
-                before=Decimal("0"),
+                session,
+                debt,
+                event_type=(
+                    "INCREASED" if remaining > before
+                    else "PARTIALLY_CLOSED" if remaining < before
+                    else "ADJUSTED"
+                ),
+                before=before,
+                after=remaining,
+                supply_request=supply_request,
+                line=line,
+                user_id=user_id,
+                comment=comment,
+            )
+        link.debt_id = debt.id
+        link.contributed_quantity = remaining
+    elif debt is not None and debt.status == "ACTIVE":
+        before = debt.outstanding_quantity
+        debt.outstanding_quantity = Decimal("0")
+        debt.status = "CLOSED"
+        debt.closed_at = datetime.now(timezone.utc)
+        debt.closed_by_user_id = user_id
+        debt.close_comment = comment
+        debt.cycle_count = 0
+        debt.latest_request_id = supply_request.id
+        debt.latest_request_line_id = line.id
+        debt.version += 1
+        if before != 0:
+            _add_debt_event(
+                session,
+                debt,
+                event_type="PARTIALLY_CLOSED",
+                before=before,
                 after=Decimal("0"),
                 supply_request=supply_request,
                 line=line,
                 user_id=user_id,
                 comment=comment,
             )
+        _add_debt_event(
+            session,
+            debt,
+            event_type="CLOSED",
+            before=Decimal("0"),
+            after=Decimal("0"),
+            supply_request=supply_request,
+            line=line,
+            user_id=user_id,
+            comment=comment,
+        )
+    link.applied_included_quantity = min(fulfilled, target)
 
 
 def _finish_request_status(
@@ -2791,9 +2819,9 @@ def update_supply_line_fulfillment(
         line_id=line_id,
         expected_version=payload.expected_version,
     )
-    if supply_request.status == "FULFILLED":
+    if supply_request.status in {"PARTIALLY_FULFILLED", "FULFILLED"}:
         raise SupplyRequestAlreadyFulfilledError
-    if supply_request.status not in {"PLANNED", "PARTIALLY_FULFILLED"}:
+    if supply_request.status != "PLANNED":
         raise SupplyRequestNotFulfillableError
     allocations = list(session.scalars(
         select(SupplyLineAllocation)
@@ -2811,8 +2839,6 @@ def update_supply_line_fulfillment(
         allocation = by_id.get(item.allocation_id)
         if allocation is None or allocation.action == "CANCEL":
             raise SupplyFulfillmentInvalidActionError
-        if item.fulfilled_quantity > allocation.planned_quantity:
-            raise SupplyFulfillmentExceedsPlannedError
         if (
             item.fulfilled_quantity < allocation.fulfilled_quantity
             and not item.comment
@@ -2909,18 +2935,10 @@ def fulfill_supply_request_as_planned(
             ]
             if fulfilled_by_line is not None:
                 fulfilled_quantity = fulfilled_by_line[line.id]
-                if (
-                    line.quantity is None
-                    or fulfilled_quantity > line.quantity
-                    or fulfilled_quantity > sum(
-                        (
-                            allocation.planned_quantity
-                            for allocation in physical_allocations
-                        ),
-                        Decimal("0"),
-                    )
+                if line.quantity is None or (
+                    fulfilled_quantity > 0 and not physical_allocations
                 ):
-                    raise SupplyFulfillmentExceedsPlannedError
+                    raise SupplyFulfillmentInvalidActionError
                 if (
                     line.requested_unit is None
                     or (
@@ -2932,9 +2950,11 @@ def fulfill_supply_request_as_planned(
                     raise SupplySendQuantityInvalidError
                 line.send_quantity = fulfilled_quantity
                 remaining = fulfilled_quantity
-                for allocation in physical_allocations:
-                    allocation_quantity = min(
-                        remaining, allocation.planned_quantity
+                for index, allocation in enumerate(physical_allocations):
+                    allocation_quantity = (
+                        remaining
+                        if index == len(physical_allocations) - 1
+                        else min(remaining, allocation.planned_quantity)
                     )
                     remaining -= allocation_quantity
                     allocation.fulfilled_quantity = allocation_quantity
@@ -3082,13 +3102,11 @@ def list_supply_debts(
         filters.append(SupplyDepartmentDebt.product_id == product_id)
     if debt_status:
         filters.append(SupplyDepartmentDebt.status == debt_status)
-    if severity == "YELLOW":
-        filters.append(SupplyDepartmentDebt.cycle_count == 0)
-    elif severity == "PURPLE":
-        filters.append(SupplyDepartmentDebt.cycle_count == 1)
-    elif severity == "RED":
+    if severity == "NONE":
+        filters.append(SupplyDepartmentDebt.cycle_count <= 1)
+    elif severity == "YELLOW":
         filters.append(SupplyDepartmentDebt.cycle_count == 2)
-    elif severity == "CRITICAL":
+    elif severity == "RED":
         filters.append(SupplyDepartmentDebt.cycle_count >= 3)
     if search:
         term = f"%{search.strip()}%"
@@ -3108,8 +3126,7 @@ def list_supply_debts(
     severity_order = case(
         (SupplyDepartmentDebt.cycle_count >= 3, 0),
         (SupplyDepartmentDebt.cycle_count == 2, 1),
-        (SupplyDepartmentDebt.cycle_count == 1, 2),
-        else_=3,
+        else_=2,
     )
     items = list(session.scalars(
         select(SupplyDepartmentDebt)
@@ -3137,40 +3154,7 @@ def close_supply_debt(
     comment: str,
     user_id: int,
 ) -> SupplyDepartmentDebt:
-    debt = get_supply_debt(session, debt_id, for_update=True)
-    if debt.version != expected_version:
-        raise SupplyDebtVersionConflictError(debt.version, expected_version)
-    if debt.status != "ACTIVE":
-        raise SupplyDebtNotActiveError
-    if quantity > debt.outstanding_quantity:
-        raise SupplyDebtCloseExceedsOutstandingError
-    before = debt.outstanding_quantity
-    after = before - quantity
-    debt.outstanding_quantity = after
-    debt.version += 1
-    event_type = "PARTIALLY_CLOSED"
-    if after == 0:
-        debt.status = "CLOSED"
-        debt.closed_at = datetime.now(timezone.utc)
-        debt.closed_by_user_id = user_id
-        debt.close_comment = comment
-        event_type = "CLOSED"
-    _add_debt_event(
-        session, debt,
-        event_type=event_type,
-        before=before,
-        after=after,
-        supply_request=None,
-        line=None,
-        user_id=user_id,
-        comment=comment,
-    )
-    try:
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    return get_supply_debt(session, debt_id)
+    raise SupplyDebtManualCloseDisabledError
 
 
 def cancel_supply_debt(

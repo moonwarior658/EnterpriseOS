@@ -5,18 +5,21 @@
 Stage 3 Supply.
 
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. Stage 3.1A is completed at 100%,
-deployed to production, and manually verified. After several days of real
-operation and collection of factual issues, the next sub-stage is Stage 3.1B.
+Supply domain model — completed at 100%. The main manual contour of Stage
+3.1A is deployed to production and manually verified, but the code audit of
+2 August 2026 found required stabilization before Stage 3.1B continues.
+Local Stage 3.1B / 1–3 code already exists; it is not connected to Supply
+3.1A.
 
 ## Current state
 
 - Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.
 - Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
 - ADR-002 принят владельцем проекта 27 июля 2026 года.
-- Stage 3.1A завершён на 100%: публичная Supply-форма, реестр заявок,
-  упрощённое исполнение, частичное исполнение и долги, Dashboard и отдельный
-  реестр долгов работают в едином контуре.
+- Основной ручной контур Stage 3.1A работает: публичная Supply-форма, реестр
+  заявок, рабочее место сопоставления, обязательные алиасы, серверный поиск
+  товаров, `PLANNED` как «В работе», отдельное завершение, ввод факта,
+  `FULFILLED` / `PARTIALLY_FULFILLED`, Dashboard и реестр долгов.
 - Supply-циклы автоматически открываются и закрываются actions Automation
   Core; дни недели, время и параметры периода настраивает администратор.
 - Выполнен UX-polish сценариев Supply и Repair.
@@ -24,20 +27,29 @@ operation and collection of factual issues, the next sub-stage is Stage 3.1B.
   публичный URL временно перенаправляет на Supply-форму. Repair-контур
   сохранён.
 - `PARTIALLY_FULFILLED` считается завершённой заявкой; дальнейшая работа с
-  незакрытым объёмом ведётся через долг подразделения.
+  незакрытым объёмом должна вестись через долг подразделения. Текущая
+  реализация ещё допускает изменение факта такой заявки с пересчётом долга;
+  это обязательный пункт стабилизации.
 - Stage 3.1A развёрнут в production, основной сценарий проверен вручную.
-- Локальный baseline: `main`, commit `12186e2`
-  (`fix(dashboard): exclude fulfilled supply requests from attention`).
-- Локальный Alembic head: `20260728_0017`.
-- Следующий шаг: несколько дней реальной эксплуатации, сбор фактических
-  проблем, затем переход к Stage 3.1B.
+- В текущем коде локально присутствуют read-only iiko, остатки и явный
+  mapping Stage 3.1B / 1–3; Supply 3.1A их не использует, write-операций iiko,
+  перемещений, документов и печати нет.
+- Следующий шаг: закрыть обязательную стабилизацию Stage 3.1A, начиная с
+  неизменяемости старой заявки после создания долга и безопасной семантики
+  ручного `close`; до этого не продолжать Stage 3.1B / 4.
 
 Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
 автоматизирован. В backlog отложены таймеры, edit lock,
 пользовательское уточнение неизвестной единицы, очередь mapping candidates,
-настройка кодов подразделений. iiko относится к Stage 3.1B; реальные остатки,
-supplier aliases, фасовки и альтернативные единицы, поставщики и закупочные
-документы относятся к последующим подэтапам.
+настройка кодов подразделений. Перед продолжением 3.1B также нужно выровнять
+UI/API сверхвыдачи, фильтровать серверный поиск по `APPROVED`-алиасам и
+определить устойчивую идентичность несопоставленного долга.
+
+Отдельное фактическое погашение долга относится к Stage 3.1B / 5: долг не
+уменьшается до подтверждения фактической передачи и возврата подписанного
+документа. Реальные остатки относятся к 3.1B / 4, перемещения, документы iiko,
+PDF, печать и подтверждение получения — к 3.1B / 5, supplier aliases и
+поставщики — к 3.1C.
 
 ## Architecture
 

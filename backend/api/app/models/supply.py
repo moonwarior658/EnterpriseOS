@@ -934,11 +934,17 @@ class SupplyRequestLine(Base):
     @property
     def unresolved_quantity(self) -> Decimal:
         return max(
-            (self.quantity or Decimal("0"))
+            self.effective_quantity
             - self.fulfilled_total
             - self.planned_cancel,
             Decimal("0"),
         )
+
+    @property
+    def effective_quantity(self) -> Decimal:
+        if self.debt_link and self.debt_link.inclusion_confirmed:
+            return self.debt_link.included_quantity
+        return self.quantity or Decimal("0")
 
     @property
     def active_debt(self) -> "SupplyDepartmentDebt | None":
@@ -965,6 +971,10 @@ class SupplyRequestLine(Base):
             self.active_debt.outstanding_quantity
             if self.active_debt else Decimal("0")
         )
+
+    @property
+    def active_debt_requires_matching(self) -> bool:
+        return self.active_debt is not None and self.active_debt.product_id is None
 
     @property
     def debt_quantity_included(self) -> Decimal:
@@ -1017,8 +1027,7 @@ class SupplyLineAllocation(Base):
             name="ck_supply_line_allocations_quantity_positive",
         ),
         CheckConstraint(
-            "fulfilled_quantity >= 0 AND "
-            "fulfilled_quantity <= planned_quantity",
+            "fulfilled_quantity >= 0",
             name="ck_supply_line_allocations_fulfilled_quantity",
         ),
         UniqueConstraint(
@@ -1162,13 +1171,11 @@ class SupplyDepartmentDebt(Base):
 
     @property
     def severity(self) -> str:
-        if self.cycle_count <= 0:
-            return "YELLOW"
-        if self.cycle_count == 1:
-            return "PURPLE"
+        if self.cycle_count <= 1:
+            return "NONE"
         if self.cycle_count == 2:
-            return "RED"
-        return "CRITICAL"
+            return "YELLOW"
+        return "RED"
 
 
 class SupplyDepartmentDebtEvent(Base):

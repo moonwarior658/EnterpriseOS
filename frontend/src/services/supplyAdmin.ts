@@ -59,6 +59,7 @@ export type SupplyLine = {
   unresolved_quantity: string
   active_debt_id: string | null
   active_debt_quantity: string
+  active_debt_requires_matching: boolean
   debt_inclusion_status:
     | 'NONE' | 'COVERED_BY_REQUEST' | 'REQUEST_BELOW_DEBT' | 'CONFIRMED_PARTIAL'
   debt_quantity_included: string
@@ -127,7 +128,7 @@ export type SupplyDebt = {
   opened_at: string
   updated_at: string
   cycle_count: number
-  severity: 'YELLOW' | 'PURPLE' | 'RED' | 'CRITICAL'
+  severity: 'NONE' | 'YELLOW' | 'RED'
   close_comment: string | null
   cancel_comment: string | null
   events: SupplyDebtEvent[]

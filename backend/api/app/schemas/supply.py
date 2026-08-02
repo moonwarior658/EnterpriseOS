@@ -495,6 +495,7 @@ class SupplyRequestLineRead(BaseModel):
     unresolved_quantity: Decimal
     active_debt_id: UUID | None
     active_debt_quantity: Decimal
+    active_debt_requires_matching: bool
     debt_inclusion_status: "SupplyDebtInclusionStatus"
     debt_quantity_included: Decimal
     requires_debt_confirmation: bool
@@ -622,10 +623,9 @@ class SupplyDebtStatus(StrEnum):
 
 
 class SupplyDebtSeverity(StrEnum):
+    NONE = "NONE"
     YELLOW = "YELLOW"
-    PURPLE = "PURPLE"
     RED = "RED"
-    CRITICAL = "CRITICAL"
 
 
 class SupplyDebtInclusionStatus(StrEnum):

@@ -826,7 +826,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             "SUPPLY_REQUEST_PLANNING_INCOMPLETE",
         )
 
-    def test_unmatched_line_can_be_planned_fulfilled_indebted_and_late_matched(
+    def test_unmatched_line_must_be_late_matched_before_debt_is_created(
         self,
     ) -> None:
         created = self.create_request("Редкий ингредиент 10 кг")
@@ -899,51 +899,58 @@ class SupplyMatchingApiTests(unittest.TestCase):
                 ],
             },
         )
-        self.assertEqual(fulfilled.status_code, 200, fulfilled.text)
-        fulfilled_body = fulfilled.json()
-        fulfilled_line = fulfilled_body["lines"][0]
-        self.assertEqual(fulfilled_body["status"], "PARTIALLY_FULFILLED")
-        self.assertEqual(Decimal(fulfilled_line["fulfilled_total"]), Decimal("5"))
-        self.assertEqual(Decimal(fulfilled_line["unresolved_quantity"]), Decimal("4"))
-        debt_id = fulfilled_line["active_debt_id"]
-        self.assertIsNotNone(debt_id)
-        debt = self.client.get(f"/supply/debts/{debt_id}").json()
-        self.assertIsNone(debt["product"])
-        self.assertEqual(debt["working_name"], "Редкий ингредиент")
-        self.assertEqual(Decimal(debt["outstanding_quantity"]), Decimal("4"))
-        self.assertEqual([event["event_type"] for event in debt["events"]], ["CREATED"])
-        debt_page = self.client.get(
-            "/supply/debts",
-            params={"status": "ACTIVE", "search": "Редкий ингредиент"},
-        )
-        self.assertEqual(debt_page.status_code, 200, debt_page.text)
-        self.assertEqual(debt_page.json()["total"], 1)
-        self.assertEqual(debt_page.json()["items"][0]["id"], debt_id)
+        self.assertEqual(fulfilled.status_code, 409, fulfilled.text)
         self.assertEqual(
-            debt_page.headers["cache-control"],
-            "no-store, no-cache, must-revalidate, max-age=0",
+            fulfilled.json()["detail"]["code"],
+            "SUPPLY_DEBT_PRODUCT_REQUIRED",
         )
+        self.assertEqual(
+            self.client.get("/supply/debts?status=ACTIVE").json()["total"],
+            0,
+        )
+
+        with self.session_factory.begin() as session:
+            product = self._add_product(
+                session, "Редкий ингредиент EOS", "KG",
+            )
+            session.flush()
+            product_id = str(product.id)
 
         late_match = self.match(
             created["id"],
             line["id"],
             {
                 "action": "MATCH",
-                "product_id": str(self.milk.id),
+                "product_id": product_id,
                 "unit_id": str(self.units["KG"].id),
                 "quantity": "10",
             },
         )
         self.assertEqual(late_match.status_code, 200, late_match.text)
-        final = self.client.get(f"/supply/requests/{created['id']}").json()
-        final_line = final["lines"][0]
-        self.assertEqual(final_line["product_id"], str(self.milk.id))
-        self.assertEqual(final_line["planned_total"], "10.000")
-        self.assertEqual(final_line["fulfilled_total"], "5.000")
-        self.assertEqual(final_line["active_debt_id"], debt_id)
-        preserved_debt = self.client.get(f"/supply/debts/{debt_id}").json()
-        self.assertEqual(preserved_debt["working_name"], "Редкий ингредиент")
-        self.assertEqual(len(preserved_debt["events"]), 1)
+        matched = self.client.get(f"/supply/requests/{created['id']}").json()
+        retry_payload = {
+            "expected_version": matched["version"],
+            "items": [
+                {
+                    "allocation_id": physical["TRANSFER"],
+                    "fulfilled_quantity": "4",
+                    "comment": "частичная отправка",
+                },
+                {
+                    "allocation_id": physical["PURCHASE"],
+                    "fulfilled_quantity": "1",
+                    "comment": "частичная закупка",
+                },
+            ],
+        }
+        completed = self.client.put(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/fulfillment",
+            json=retry_payload,
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        completed_line = completed.json()["lines"][0]
+        self.assertEqual(completed_line["product_id"], product_id)
+        self.assertEqual(completed_line["active_debt_quantity"], "5.000")
 
     def test_admin_corrects_unparsed_line_for_unmatched_planning(self) -> None:
         raw_text = "мусорные пакеты 30л 3 рулона"
@@ -1201,44 +1208,45 @@ class SupplyMatchingApiTests(unittest.TestCase):
         debts = self.client.get("/supply/debts?status=ACTIVE").json()
         self.assertEqual(debts["total"], 1)
 
-    def test_unmatched_simple_send_three_to_two_is_visible_everywhere(
+    def test_unmatched_simple_shortfall_does_not_create_debt(
         self,
     ) -> None:
-        body = self._simple_send("Редкий ингредиент 3 кг", "2")
-        line = body["lines"][0]
-        self.assertIsNone(line["product_id"])
-        self.assertEqual(body["status"], "PARTIALLY_FULFILLED")
-        self.assertEqual(line["unresolved_quantity"], "1.000")
-        self.assertIsNotNone(line["active_debt_id"])
-        self.assertEqual(line["active_debt_quantity"], "1.000")
-
-        debts = self.client.get(
-            "/supply/debts",
-            params={
-                "status": "ACTIVE",
-                "search": "Редкий ингредиент",
+        created = self.create_request("Редкий ингредиент 3 кг")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line = submitted["lines"][0]
+        corrected = self.client.patch(
+            f"/supply/requests/{created['id']}/lines/{line['id']}/working-values",
+            json={
+                "request_version": submitted["version"],
+                "working_name": line["working_name"],
+                "send_quantity": "2",
+                "requested_unit_id": line["requested_unit"]["id"],
             },
+        ).json()
+        planned = self.client.post(
+            f"/supply/requests/{created['id']}/plan",
+            json={
+                "expected_version": corrected["request_version"],
+                "simple_mode": True,
+            },
+        ).json()
+        completed = self.client.post(
+            f"/supply/requests/{created['id']}/fulfill-as-planned",
+            json={"expected_version": planned["version"]},
         )
-        self.assertEqual(debts.status_code, 200, debts.text)
-        self.assertEqual(debts.json()["total"], 1)
-        debt = debts.json()["items"][0]
-        self.assertIsNone(debt["product"])
-        self.assertEqual(debt["working_name"], "Редкий ингредиент")
-        self.assertEqual(debt["outstanding_quantity"], "1.000")
-        self.assertEqual(debt["department"]["id"], str(self.department.id))
-
-        dashboard = self.client.get("/supply/summary/dashboard")
-        self.assertEqual(dashboard.status_code, 200, dashboard.text)
-        self.assertEqual(dashboard.json()["active_debts"], 1)
-
-        repeated = self.client.post(
-            f"/supply/requests/{body['id']}/plan",
-            json={"expected_version": body["version"], "simple_mode": True},
+        self.assertEqual(completed.status_code, 409, completed.text)
+        self.assertEqual(
+            completed.json()["detail"]["code"],
+            "SUPPLY_DEBT_PRODUCT_REQUIRED",
         )
-        self.assertEqual(repeated.status_code, 409)
         self.assertEqual(
             self.client.get("/supply/debts?status=ACTIVE").json()["total"],
-            1,
+            0,
         )
 
     def _simple_send(
@@ -1419,7 +1427,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         ).json()
         self.assertEqual(debt["outstanding_quantity"], "10.000")
 
-    def test_simple_send_fractional_unmatched_line_uses_working_identity(
+    def test_fractional_unmatched_shortfall_requires_product_matching(
         self,
     ) -> None:
         created = self.create_request("Редкий крем 2.5 кг")
@@ -1456,17 +1464,15 @@ class SupplyMatchingApiTests(unittest.TestCase):
             f"/supply/requests/{created['id']}/fulfill-as-planned",
             json={"expected_version": planned["version"]},
         )
-        self.assertEqual(completed.status_code, 200, completed.text)
-        body = completed.json()
-        self.assertEqual(body["lines"][0]["quantity"], "2.500")
-        self.assertEqual(body["lines"][0]["fulfilled_total"], "1.500")
-        debt = self.client.get(
-            f"/supply/debts/{body['lines'][0]['active_debt_id']}"
-        ).json()
-        self.assertIsNone(debt["product"])
-        self.assertEqual(debt["working_name"], "Крем особый")
-        self.assertEqual(debt["unit"]["code"], "KG")
-        self.assertEqual(debt["outstanding_quantity"], "1.000")
+        self.assertEqual(completed.status_code, 409, completed.text)
+        self.assertEqual(
+            completed.json()["detail"]["code"],
+            "SUPPLY_DEBT_PRODUCT_REQUIRED",
+        )
+        self.assertEqual(
+            self.client.get("/supply/debts?status=ACTIVE").json()["total"],
+            0,
+        )
 
     def test_simple_send_can_change_before_finalization(self) -> None:
         created = self.create_request("Молоко 10 л")

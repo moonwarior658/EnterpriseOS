@@ -290,11 +290,13 @@ function FulfillmentEditor({
         SUPPLY_REQUEST_VERSION_CONFLICT:
           'Заявка изменилась. Обновите карточку.',
         SUPPLY_FULFILLMENT_EXCEEDS_PLANNED:
-          'Отправленное количество не может превышать план.',
+          'Не удалось сохранить фактически отправленное количество.',
         SUPPLY_FULFILLMENT_DECREASE_COMMENT_REQUIRED:
           'При уменьшении факта обязателен комментарий.',
         SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED:
           'Сначала подтвердите включение старого долга.',
+        SUPPLY_DEBT_PRODUCT_REQUIRED:
+          'Сначала сопоставьте строку с товаром EOS.',
       } as Record<string, string>)[code ?? ''] ?? 'Не удалось сохранить факт')
     } finally {
       setSaving(false)
@@ -317,10 +319,9 @@ function FulfillmentEditor({
             <input
               type="number"
               min="0"
-              max={allocation.planned_quantity}
               step="0.001"
               value={values[allocation.id]?.quantity ?? '0'}
-              disabled={saving || request.status === 'FULFILLED'}
+              disabled={saving || request.status !== 'PLANNED'}
               onChange={(event) => setValues({
                 ...values,
                 [allocation.id]: {
@@ -334,7 +335,7 @@ function FulfillmentEditor({
             <span>Комментарий</span>
             <input
               value={values[allocation.id]?.comment ?? ''}
-              disabled={saving || request.status === 'FULFILLED'}
+              disabled={saving || request.status !== 'PLANNED'}
               onChange={(event) => setValues({
                 ...values,
                 [allocation.id]: {
@@ -359,7 +360,7 @@ function FulfillmentEditor({
       <button
         type="button"
         disabled={
-          saving || !dirty || invalid || request.status === 'FULFILLED'
+          saving || !dirty || invalid || request.status !== 'PLANNED'
         }
         onClick={() => void save()}
       >
@@ -367,6 +368,20 @@ function FulfillmentEditor({
       </button>
       {invalid && <small>Введите количество с точностью до трёх знаков</small>}
       {message && <small>{message}</small>}
+    </div>
+  )
+}
+
+function SupplyExcessFact({ line }: { line: SupplyLine }) {
+  const excess = supplySendExcessMillis(
+    line.quantity ?? '',
+    line.fulfilled_total,
+  )
+  if (excess === null || excess <= 0) return null
+  return (
+    <div>
+      <dt>Сверх заявки</dt>
+      <dd>{formatSupplyQuantityMillis(excess)}</dd>
     </div>
   )
 }
@@ -414,6 +429,7 @@ function SupplyRequestDetailPage() {
       ['MATCHED', 'NEEDS_REVIEW'].includes(line.match_status)
       && line.quantity
       && line.requested_unit
+      && !line.requires_debt_confirmation
       && !['SUSPECTED', 'CONFIRMED'].includes(line.duplicate_status)
     ))
   const invalidFulfillment = request?.status === 'PLANNED'
@@ -422,7 +438,6 @@ function SupplyRequestDetailPage() {
       const approved = supplyQuantityMillis(line.quantity ?? '')
       return fulfilled === null
         || approved === null
-        || fulfilled > approved
         || (!line.requested_unit?.allows_fraction && fulfilled % 1000 !== 0)
     })
   const matchProgress = useMemo(
@@ -587,7 +602,7 @@ function SupplyRequestDetailPage() {
         SUPPLY_REQUEST_PLANNING_INCOMPLETE:
           'Проверьте название, количество и фасовку каждой строки.',
         SUPPLY_SEND_QUANTITY_INVALID:
-          'Количество к отправке не может превышать запрошенное.',
+          'Для этой единицы разрешено только целое количество.',
       } as Record<string, string>)[code ?? '']
         ?? 'Не удалось отправить заявку в работу')
     } finally {
@@ -635,8 +650,8 @@ function SupplyRequestDetailPage() {
       setMessage(({
         SUPPLY_DEBT_INCLUSION_CONFIRMATION_REQUIRED:
           'Для одной из строк сначала подтвердите включение старого долга',
-        SUPPLY_FULFILLMENT_EXCEEDS_PLANNED:
-          'Отправленное количество не может превышать утверждённое.',
+        SUPPLY_DEBT_PRODUCT_REQUIRED:
+          'Сначала сопоставьте строку с товаром EOS.',
         SUPPLY_SEND_QUANTITY_INVALID:
           'Для этой единицы разрешено только целое количество.',
         SUPPLY_REQUEST_VERSION_CONFLICT:
@@ -648,27 +663,68 @@ function SupplyRequestDetailPage() {
   }
 
   async function confirmDebt(line: SupplyLine) {
-    if (!request || busy) return
-    const maximum = Math.min(
-      Number(line.quantity ?? 0),
-      Number(line.active_debt_quantity),
+    if (!request || busy || !line.quantity) return
+    const confirmed = window.confirm(
+      `Подтвердить актуальное обязательство ${line.quantity} `
+      + `${line.requested_unit?.short_name_ru ?? ''}?`,
     )
-    const entered = window.prompt(
-      `Сколько старого долга включено в эту заявку? Максимум ${maximum}`,
-      String(maximum),
-    )
-    if (entered === null || entered.trim() === '') return
+    if (!confirmed) return
     setBusy(true)
     try {
       setRequest(await confirmSupplyDebtInclusion(
         request.id,
         line.id,
         request.version,
-        entered,
+        line.quantity,
       ))
-      setMessage('Включение долга подтверждено')
+      setMessage('Актуальное обязательство подтверждено')
     } catch {
       setMessage('Не удалось подтвердить включение долга')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function increaseRequestToDebt(line: SupplyLine) {
+    if (
+      !request || busy || hasDirty || !line.requested_unit
+      || !line.quantity || !line.active_debt_id
+    ) return
+    const entered = window.prompt(
+      `Увеличьте количество заявки минимум до ${line.active_debt_quantity}`,
+      line.active_debt_quantity,
+    )
+    if (entered === null || entered.trim() === '') return
+    const enteredMillis = supplyQuantityMillis(entered)
+    const debtMillis = supplyQuantityMillis(line.active_debt_quantity)
+    if (enteredMillis === null || debtMillis === null || enteredMillis < debtMillis) {
+      setMessage('Количество заявки должно быть не меньше активного долга')
+      return
+    }
+    setBusy(true)
+    setMessage('')
+    try {
+      const result = await saveSupplyLineWorkingValues(
+        request.id,
+        line.id,
+        {
+          request_version: request.version,
+          working_name: line.working_name,
+          requested_quantity: entered,
+          send_quantity: line.send_quantity ?? line.quantity,
+          requested_unit_id: line.requested_unit.id,
+        },
+      )
+      setRequest({
+        ...request,
+        version: result.request_version,
+        lines: request.lines.map((item) => (
+          item.id === line.id ? result.line : item
+        )),
+      })
+      setMessage('Количество заявки увеличено')
+    } catch (error) {
+      setMessage(workingSaveError(error))
     } finally {
       setBusy(false)
     }
@@ -786,6 +842,15 @@ function SupplyRequestDetailPage() {
             <span aria-hidden="true" />
           </div>
           {request.lines.map((line) => {
+            const lineEditable = editable
+              && line.debt_inclusion_status !== 'CONFIRMED_PARTIAL'
+            const canMapLine = lineEditable || (
+              line.active_debt_requires_matching
+              && !!line.active_debt_id
+              && ['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(
+                request.status,
+              )
+            )
             const baseline = supplyLineWorkingBaseline(line)
             const draft = getSupplyLineWorkingDraft(
               working,
@@ -824,6 +889,10 @@ function SupplyRequestDetailPage() {
             const fulfillmentMillis = supplyQuantityMillis(
               fulfillment[line.id] ?? '0',
             )
+            const completedExcess = supplySendExcessMillis(
+              line.quantity ?? '',
+              line.fulfilled_total,
+            )
             return (
               <div
                 className={[
@@ -835,7 +904,7 @@ function SupplyRequestDetailPage() {
                 key={line.id}
               >
                 <div className="supply-simple-name" role="cell">
-                  {editable ? (
+                  {lineEditable ? (
                     <input
                       aria-label={`Название, строка ${line.position}`}
                       value={draft.workingName}
@@ -854,7 +923,7 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <div role="cell">
-                  {editable ? (
+                  {lineEditable ? (
                     <input
                       className="supply-simple-quantity"
                       aria-label={`Отправить, строка ${line.position}`}
@@ -879,7 +948,6 @@ function SupplyRequestDetailPage() {
                       aria-label={`Отправлено, строка ${line.position}`}
                       type="number"
                       min="0"
-                      max={line.quantity ?? undefined}
                       step={line.requested_unit?.allows_fraction ? '0.001' : '1'}
                       inputMode={line.requested_unit?.allows_fraction
                         ? 'decimal'
@@ -899,6 +967,12 @@ function SupplyRequestDetailPage() {
                       <small className="supply-send-summary">
                         Остаток: {line.unresolved_quantity}
                       </small>
+                      {completedExcess !== null && completedExcess > 0 && (
+                        <small className="supply-send-summary">
+                          Сверх заявки:{' '}
+                          {formatSupplyQuantityMillis(completedExcess)}
+                        </small>
+                      )}
                     </>
                   ) : (
                     <span>{line.send_quantity ?? line.quantity ?? '—'}</span>
@@ -915,7 +989,7 @@ function SupplyRequestDetailPage() {
                       ))}
                     </small>
                   )}
-                  {editable && sendDiffers
+                  {lineEditable && sendDiffers
                     && expectedDebt !== null && expectedDebt > 0 && (
                     <small className="supply-send-summary">
                       Запрошено: {line.quantity}
@@ -923,7 +997,7 @@ function SupplyRequestDetailPage() {
                       {formatSupplyQuantityMillis(expectedDebt)}
                     </small>
                   )}
-                  {editable && sendDiffers
+                  {lineEditable && sendDiffers
                     && sendExcess !== null && sendExcess > 0 && (
                     <small className="supply-send-summary">
                       Отправлено больше запроса на{' '}
@@ -932,7 +1006,7 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <div role="cell">
-                  {editable ? (
+                  {lineEditable ? (
                     <EosSelect
                       aria-label={`Фасовка, строка ${line.position}`}
                       value={draft.unitId}
@@ -959,11 +1033,12 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <span role="cell" aria-hidden="true" />
-                {requiresSupplyLineMatch(line) && (
+                {(requiresSupplyLineMatch(line)
+                  || line.active_debt_requires_matching) && (
                   <SupplyLineMappingEditor
                     line={line}
                     draft={mappingDraft}
-                    disabled={busy || hasDirty || !editable}
+                    disabled={busy || hasDirty || !canMapLine}
                     onChange={updateMapping}
                     onMatch={() => void mapLine(line)}
                     inputRef={(element) => {
@@ -977,6 +1052,32 @@ function SupplyRequestDetailPage() {
                 )}
                 {draft.error && (
                   <small className="supply-line-error">{draft.error}</small>
+                )}
+                {line.active_debt_id && (
+                  <div className="request-message request-message-warning">
+                    Активный долг: {line.active_debt_quantity}{' '}
+                    {line.requested_unit?.short_name_ru ?? ''}.
+                    {line.requires_debt_confirmation && (
+                      <>
+                        {' '}Увеличьте заявку либо подтвердите меньшее
+                        актуальное количество.
+                        <button
+                          type="button"
+                          disabled={busy || hasDirty}
+                          onClick={() => void increaseRequestToDebt(line)}
+                        >
+                          Увеличить заявку
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || hasDirty}
+                          onClick={() => void confirmDebt(line)}
+                        >
+                          Подтвердить меньшее количество
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )
@@ -995,6 +1096,7 @@ function SupplyRequestDetailPage() {
               <div><dt>Утверждено</dt><dd>{line.quantity ?? '—'}</dd></div>
               <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
               <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
+              <SupplyExcessFact line={line} />
               {line.active_debt_id && (
                 <div>
                   <dt>Активный долг</dt>
@@ -1003,9 +1105,9 @@ function SupplyRequestDetailPage() {
               )}
             </dl>
             {line.requires_debt_confirmation
-              && request.status !== 'FULFILLED' && (
+              && request.status === 'PLANNED' && (
               <div className="request-message request-message-warning">
-                Подтвердите, какая часть старого долга включена.
+                Подтвердите актуальное обязательство.
                 <button
                   type="button"
                   disabled={busy}
@@ -1020,7 +1122,7 @@ function SupplyRequestDetailPage() {
                 Открыть долг
               </Link>
             )}
-            {line.send_quantity === null && (
+            {line.send_quantity === null && request.status === 'PLANNED' && (
               <FulfillmentEditor
                 request={request}
                 line={line}
