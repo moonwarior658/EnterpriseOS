@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -523,6 +524,12 @@ class SupplyProductAlias(Base):
 class SupplyRequest(Base):
     __tablename__ = "supply_requests"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["iiko_source_warehouse_mapping_id"],
+            ["iiko_warehouse_mappings.id"],
+            name="fk_supply_requests_iiko_source_warehouse_mapping",
+            ondelete="RESTRICT",
+        ).ddl_if(dialect="postgresql"),
         UniqueConstraint(
             "tenant_id",
             "public_number",
@@ -586,6 +593,10 @@ class SupplyRequest(Base):
     )
     cycle_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("supply_request_cycles.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    iiko_source_warehouse_mapping_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(

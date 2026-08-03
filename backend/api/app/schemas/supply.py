@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.models.iiko import IikoWarehouseRole
 from app.models.supply import LegalContour
 
 
@@ -846,6 +847,39 @@ class SupplyRequestRead(BaseModel):
     lines: list[SupplyRequestLineRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyIikoSourceWarehouseRead(BaseModel):
+    mapping_id: UUID
+    iiko_warehouse_id: UUID
+    name: str
+    role: IikoWarehouseRole
+    legal_contour: LegalContour
+
+
+class SupplyIikoStockLineRead(BaseModel):
+    line_id: UUID
+    position: int
+    product_name: str
+    requested_quantity: Decimal | None
+    requested_unit: SupplyUnitRead | None
+    stock_quantity: Decimal | None
+    is_sufficient: bool | None
+    deficit: Decimal | None
+    unavailable_reason: str | None
+
+
+class SupplyIikoStockCheckRead(BaseModel):
+    request_version: int
+    legal_contour: LegalContour | None
+    available_sources: list[SupplyIikoSourceWarehouseRead]
+    selected_source: SupplyIikoSourceWarehouseRead | None
+    last_sync_at: datetime | None
+    lines: list[SupplyIikoStockLineRead]
+
+
+class SupplyIikoSourceWarehouseSelect(SupplyExpectedVersion):
+    mapping_id: UUID
 
 
 class SupplyDebtEventRead(BaseModel):

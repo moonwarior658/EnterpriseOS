@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin, get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.supply import (
     Department,
@@ -64,6 +65,8 @@ from app.schemas.supply import (
     SupplyRequestLineRead,
     SupplyRequestListItem,
     SupplyRequestRead,
+    SupplyIikoSourceWarehouseSelect,
+    SupplyIikoStockCheckRead,
     SupplyRequestCancel,
     SupplyRequestStatus,
     SupplyUnitRead,
@@ -168,6 +171,14 @@ from app.supply.service import (
     close_supply_debt,
     cancel_supply_debt,
     get_supply_dashboard_summary,
+)
+from app.supply.iiko_stock import (
+    SupplyIikoRequestNotFoundError,
+    SupplyIikoSourceNotAllowedError,
+    SupplyIikoTerminalRequestError,
+    SupplyIikoVersionConflictError,
+    get_stock_check,
+    select_source_warehouse,
 )
 
 
@@ -900,6 +911,66 @@ def read_request(
         return get_supply_request(db, request_id)
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
+
+
+@router.get(
+    "/requests/{request_id}/iiko-stock-check",
+    response_model=SupplyIikoStockCheckRead,
+)
+def read_iiko_stock_check(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyIikoStockCheckRead:
+    try:
+        return get_stock_check(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+        )
+    except SupplyIikoRequestNotFoundError as error:
+        raise _not_found() from error
+
+
+@router.put(
+    "/requests/{request_id}/iiko-source-warehouse",
+    response_model=SupplyIikoStockCheckRead,
+)
+def update_iiko_source_warehouse(
+    request_id: UUID,
+    payload: SupplyIikoSourceWarehouseSelect,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyIikoStockCheckRead:
+    try:
+        return select_source_warehouse(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+            mapping_id=payload.mapping_id,
+            expected_version=payload.expected_version,
+        )
+    except SupplyIikoRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyIikoSourceNotAllowedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_IIKO_SOURCE_NOT_ALLOWED"},
+        ) from error
+    except SupplyIikoTerminalRequestError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_IIKO_SOURCE_TERMINAL_REQUEST"},
+        ) from error
+    except SupplyIikoVersionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_REQUEST_VERSION_CONFLICT",
+                "current_version": error.current_version,
+                "expected_version": error.expected_version,
+            },
+        ) from error
 
 
 @router.post(

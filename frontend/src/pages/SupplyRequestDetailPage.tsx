@@ -5,6 +5,7 @@ import {
   cancelSupplyRequest,
   confirmSupplyDebtInclusion,
   fulfillSupplyAsPlanned,
+  getSupplyIikoStockCheck,
   getSupplyProducts,
   getSupplyRequest,
   getSupplyUnits,
@@ -13,8 +14,10 @@ import {
   recognizeSupplyRequest,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
+  selectSupplyIikoSourceWarehouse,
   SupplyApiError,
   type SupplyLine,
+  type SupplyIikoStockCheck,
   type SupplyProduct,
   type SupplyRequest,
   type SupplyUnit,
@@ -399,10 +402,17 @@ function SupplyRequestDetailPage() {
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
   const [fulfillment, setFulfillment] = useState<Record<string, string>>({})
+  const [stockCheck, setStockCheck] = useState<SupplyIikoStockCheck | null>(null)
+  const [stockState, setStockState] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  )
 
   const editable = request
     ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
     : false
+  const sourceSelectionLocked = request
+    ? ['PARTIALLY_FULFILLED', 'FULFILLED', 'CANCELLED'].includes(request.status)
+    : true
   const dirtyIds = useMemo(() => request?.lines
     .filter((line) => {
       const draft = working[line.id]
@@ -501,6 +511,19 @@ function SupplyRequestDetailPage() {
       controller.abort()
     }
   }, [requestId])
+
+  useEffect(() => {
+    if (!request) return
+    const controller = new AbortController()
+    getSupplyIikoStockCheck(request.id, controller.signal).then((result) => {
+      if (controller.signal.aborted) return
+      setStockCheck(result)
+      setStockState('ready')
+    }).catch(() => {
+      if (!controller.signal.aborted) setStockState('error')
+    })
+    return () => controller.abort()
+  }, [request])
 
   useEffect(() => {
     if (!hasDirty && !hasFulfillmentDraft) return
@@ -625,6 +648,39 @@ function SupplyRequestDetailPage() {
       setMessage('Заявка отменена')
     } catch {
       setMessage('Не удалось отменить заявку')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function selectSourceWarehouse(mappingId: string) {
+    if (!request || !mappingId || busy || hasDirty || sourceSelectionLocked) return
+    setBusy(true)
+    setMessage('')
+    try {
+      const result = await selectSupplyIikoSourceWarehouse(
+        request.id,
+        mappingId,
+        request.version,
+      )
+      setStockCheck(result)
+      setStockState('ready')
+      setRequest((current) => current ? {
+        ...current,
+        version: result.request_version,
+      } : current)
+      setMessage('Склад-источник выбран')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_REQUEST_VERSION_CONFLICT:
+          'Заявка изменилась. Обновите карточку и повторите.',
+        SUPPLY_IIKO_SOURCE_NOT_ALLOWED:
+          'Этот склад нельзя использовать для заявки.',
+        SUPPLY_IIKO_SOURCE_TERMINAL_REQUEST:
+          'Для завершённой заявки нельзя изменить склад-источник.',
+      } as Record<string, string>)[code ?? '']
+        ?? 'Не удалось выбрать склад-источник')
     } finally {
       setBusy(false)
     }
@@ -829,6 +885,82 @@ function SupplyRequestDetailPage() {
           </strong>
           <span>Требуют проверки: {matchProgress.needsReview}</span>
         </div>
+
+        <section className="supply-iiko-stock-check" aria-label="Остатки iiko">
+          <div className="supply-iiko-stock-heading">
+            <div>
+              <strong>Сверка с остатками iiko</strong>
+              <small>
+                Последняя синхронизация:{' '}
+                {stockCheck?.last_sync_at
+                  ? formatDate(stockCheck.last_sync_at)
+                  : 'нет данных'}
+              </small>
+            </div>
+            <label>
+              <span>Склад-источник</span>
+              <EosSelect
+                aria-label="Склад-источник iiko"
+                value={stockCheck?.selected_source?.mapping_id ?? ''}
+                disabled={busy || hasDirty || sourceSelectionLocked
+                  || stockState !== 'ready'
+                  || !stockCheck?.legal_contour}
+                onChange={(event) => void selectSourceWarehouse(
+                  event.target.value,
+                )}
+              >
+                <option value="">Выберите склад</option>
+                {stockCheck?.available_sources.map((source) => (
+                  <option value={source.mapping_id} key={source.mapping_id}>
+                    {source.name}
+                  </option>
+                ))}
+              </EosSelect>
+            </label>
+          </div>
+          {stockState === 'loading' && <p>Загружаем остатки…</p>}
+          {stockState === 'error' && (
+            <p className="request-message-error">
+              Не удалось загрузить сверку остатков.
+            </p>
+          )}
+          {stockState === 'ready' && !stockCheck?.legal_contour && (
+            <p>Расчёт невозможен: у подразделения не указан legal contour.</p>
+          )}
+          {stockState === 'ready' && stockCheck?.legal_contour
+            && stockCheck.available_sources.length === 0 && (
+            <p>Нет допустимых подтверждённых складов-источников.</p>
+          )}
+          {stockState === 'ready' && stockCheck
+            && stockCheck.lines.length > 0 && (
+            <div className="supply-iiko-stock-lines">
+              {stockCheck.lines.map((line) => (
+                <div className="supply-iiko-stock-line" key={line.line_id}>
+                  <strong>{line.product_name}</strong>
+                  <span>
+                    Запрошено: {line.requested_quantity ?? '—'}{' '}
+                    {line.requested_unit?.short_name_ru ?? ''}
+                  </span>
+                  {line.unavailable_reason ? (
+                    <span className="supply-iiko-stock-unavailable">
+                      Расчёт невозможен: {line.unavailable_reason}
+                    </span>
+                  ) : (
+                    <>
+                      <span>Остаток iiko: {line.stock_quantity}</span>
+                      <strong className={line.is_sufficient
+                        ? 'supply-iiko-stock-enough'
+                        : 'supply-iiko-stock-shortage'}>
+                        {line.is_sufficient ? 'Хватает' : 'Не хватает'}
+                      </strong>
+                      <span>Дефицит: {line.deficit}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div className="supply-simple-table" role="table">
           <div className="supply-simple-table-head" role="row">

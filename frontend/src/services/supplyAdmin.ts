@@ -102,6 +102,35 @@ export type SupplyRequest = SupplyRequestSummary & {
   lines: SupplyLine[]
 }
 
+export type SupplyIikoSourceWarehouse = {
+  mapping_id: string
+  iiko_warehouse_id: string
+  name: string
+  role: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD' | 'FIXED_ASSETS' | 'OTHER'
+  legal_contour: 'IP' | 'OOO'
+}
+
+export type SupplyIikoStockLine = {
+  line_id: string
+  position: number
+  product_name: string
+  requested_quantity: string | null
+  requested_unit: SupplyUnit | null
+  stock_quantity: string | null
+  is_sufficient: boolean | null
+  deficit: string | null
+  unavailable_reason: string | null
+}
+
+export type SupplyIikoStockCheck = {
+  request_version: number
+  legal_contour: 'IP' | 'OOO' | null
+  available_sources: SupplyIikoSourceWarehouse[]
+  selected_source: SupplyIikoSourceWarehouse | null
+  last_sync_at: string | null
+  lines: SupplyIikoStockLine[]
+}
+
 export type SupplyDebtEvent = {
   id: string
   event_type: string
@@ -247,6 +276,30 @@ export function getSupplyRequest(
   return request(`/supply/requests/${id}?${query.toString()}`, {
     cache: 'no-store',
     signal,
+  })
+}
+
+export function getSupplyIikoStockCheck(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SupplyIikoStockCheck> {
+  return request(`/supply/requests/${id}/iiko-stock-check`, {
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export function selectSupplyIikoSourceWarehouse(
+  id: string,
+  mappingId: string,
+  expectedVersion: number,
+): Promise<SupplyIikoStockCheck> {
+  return request(`/supply/requests/${id}/iiko-source-warehouse`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      mapping_id: mappingId,
+      expected_version: expectedVersion,
+    }),
   })
 }
 
