@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.models.supply import SupplyRequest, SupplyRequestCycle
 from app.schemas.supply import (
     PublicSupplyCycleRead,
+    PublicSupplyClarificationSelect,
     PublicSupplyDepartmentRead,
     PublicSupplyExpectedVersion,
     PublicSupplyLinesUpdate,
@@ -33,10 +34,12 @@ from app.supply.public_service import (
     hash_public_token,
     hash_source_ip,
     list_public_cycles,
+    list_public_clarification_options,
     list_public_departments,
     list_public_schedule_summaries,
     recognize_public_request,
     replace_public_request_lines,
+    select_public_line_clarification,
     submit_public_request,
 )
 from app.supply.service import (
@@ -196,6 +199,7 @@ def _line_message(match_status: str, duplicate_status: str) -> str:
 
 
 def _request_payload(
+    session: Session,
     supply_request: SupplyRequest,
     *,
     now: datetime,
@@ -242,6 +246,14 @@ def _request_payload(
                     line.match_status,
                     line.duplicate_status,
                 ),
+                "clarification_options": [
+                    {"product_id": product.id, "product_name": product.name}
+                    for product in list_public_clarification_options(
+                        session,
+                        department_id=supply_request.department_id,
+                        phrase=line.parsed_name,
+                    )
+                ] if line.match_status == "NEEDS_REVIEW" else [],
             }
             for line in supply_request.lines
         ],
@@ -387,7 +399,7 @@ def create_request(
                 "message": "Не удалось создать заявку. Попробуйте ещё раз",
             },
         ) from error
-    return _request_payload(supply_request, now=now, public_token=token)
+    return _request_payload(db, supply_request, now=now, public_token=token)
 
 
 @router.get(
@@ -404,7 +416,7 @@ def read_request(
         supply_request = get_public_request(db, public_token, now=now)
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
-    return _request_payload(supply_request, now=now)
+    return _request_payload(db, supply_request, now=now)
 
 
 @router.post(
@@ -432,7 +444,7 @@ def recognize_request(
         SupplyRequestStateError,
     ) as error:
         raise _mutating_error(error) from error
-    return _request_payload(supply_request, now=now)
+    return _request_payload(db, supply_request, now=now)
 
 
 @router.put(
@@ -460,7 +472,37 @@ def update_request_lines(
         SupplyRequestStateError,
     ) as error:
         raise _mutating_error(error) from error
-    return _request_payload(supply_request, now=now)
+    return _request_payload(db, supply_request, now=now)
+
+
+@router.post(
+    "/requests/{public_token}/lines/{line_id}/clarification",
+    response_model=PublicSupplyRequestRead,
+)
+def select_line_clarification(
+    public_token: str,
+    line_id: UUID,
+    payload: PublicSupplyClarificationSelect,
+    db: Annotated[Session, Depends(get_db)],
+):
+    _check_token_rate(public_token)
+    now = datetime.now(timezone.utc)
+    try:
+        supply_request = select_public_line_clarification(
+            db,
+            public_token,
+            line_id=line_id,
+            payload=payload,
+            now=now,
+        )
+    except (
+        SupplyRequestNotFoundError,
+        SupplyRequestVersionConflictError,
+        SupplyRequestCycleUnavailableError,
+        SupplyRequestStateError,
+    ) as error:
+        raise _mutating_error(error) from error
+    return _request_payload(db, supply_request, now=now)
 
 
 @router.post(
@@ -508,4 +550,4 @@ def submit_request(
         SupplyRequestStateError,
     ) as error:
         raise _mutating_error(error) from error
-    return _request_payload(supply_request, now=now)
+    return _request_payload(db, supply_request, now=now)

@@ -12,6 +12,7 @@ import {
   getSupplyRequest,
   getSupplyUnits,
   matchSupplyLine,
+  confirmSupplyContextMapping,
   planSupplyRequest,
   recognizeSupplyRequest,
   saveSupplyFulfillment,
@@ -831,7 +832,7 @@ function SupplyRequestDetailPage() {
       { status: 'loading', error: '' },
     ))
     try {
-      await matchSupplyLine(request.id, line.id, {
+      const matchedLine = await matchSupplyLine(request.id, line.id, {
         expected_version: request.version,
         product_id: draft.productId,
         unit_id: draft.unitId,
@@ -839,6 +840,18 @@ function SupplyRequestDetailPage() {
       })
       setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
       const updated = await reload()
+      if (matchedLine.context_mapping_suggestion) {
+        setRequest({
+          ...updated,
+          lines: updated.lines.map((item) => item.id === line.id
+            ? {
+                ...item,
+                context_mapping_suggestion:
+                  matchedLine.context_mapping_suggestion,
+              }
+            : item),
+        })
+      }
       setMessage('Строка сопоставлена')
       const nextLineId = nextSupplyLineToMatch(updated.lines, line.id)
       if (nextLineId) {
@@ -862,6 +875,32 @@ function SupplyRequestDetailPage() {
             : 'Не удалось сопоставить строку.',
         },
       ))
+    }
+  }
+
+  async function confirmContextMapping(line: SupplyLine) {
+    const suggestion = line.context_mapping_suggestion
+    if (!request || !suggestion || busy) return
+    setBusy(true)
+    setMessage('')
+    try {
+      await confirmSupplyContextMapping(
+        request.id,
+        line.id,
+        suggestion.product_id,
+        suggestion.mapping_version,
+      )
+      setRequest({
+        ...request,
+        lines: request.lines.map((item) => item.id === line.id
+          ? { ...item, context_mapping_suggestion: null }
+          : item),
+      })
+      setMessage('Контекстное правило сохранено для подразделения')
+    } catch {
+      setMessage('Не удалось сохранить контекстное правило')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1226,6 +1265,22 @@ function SupplyRequestDetailPage() {
                 )}
                 {draft.error && (
                   <small className="supply-line-error">{draft.error}</small>
+                )}
+                {line.context_mapping_suggestion && (
+                  <div className="request-message request-message-warning">
+                    Вы уже {line.context_mapping_suggestion.correction_count}
+                    {' '}раза сопоставили «{line.context_mapping_suggestion.phrase}»
+                    {' '}с товаром «{line.context_mapping_suggestion.product_name}»
+                    для этого подразделения. Сохранить правило для следующих
+                    заявок?
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void confirmContextMapping(line)}
+                    >
+                      Сохранить контекстное правило
+                    </button>
+                  </div>
                 )}
                 {line.active_debt_id && (
                   <div className="request-message request-message-warning">

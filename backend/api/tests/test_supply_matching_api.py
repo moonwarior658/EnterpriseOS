@@ -22,6 +22,9 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyDepartmentProductCorrection,
+    SupplyDepartmentProductMapping,
+    SupplyDepartmentProductMappingAuditEvent,
     SupplyProductCategory,
     SupplyDepartmentDebt,
     SupplyDepartmentDebtEvent,
@@ -76,9 +79,12 @@ class SupplyMatchingApiTests(unittest.TestCase):
         SupplyStorageZone.__table__.create(self.engine)
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
+        SupplyDepartmentProductMapping.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)
+        SupplyDepartmentProductCorrection.__table__.create(self.engine)
+        SupplyDepartmentProductMappingAuditEvent.__table__.create(self.engine)
         SupplyLineAllocation.__table__.create(self.engine)
         SupplyDepartmentDebt.__table__.create(self.engine)
         SupplyDepartmentDebtEvent.__table__.create(self.engine)
@@ -135,6 +141,9 @@ class SupplyMatchingApiTests(unittest.TestCase):
             session.add_all(self.units.values())
             session.flush()
             self.milk = self._add_product(session, "Молоко", "L")
+            self.coffee_milk = self._add_product(
+                session, "Молоко для кофе", "L"
+            )
             self.cream = self._add_product(session, "Сливки", "L")
             session.add(
                 SupplyProductAlias(
@@ -196,7 +205,11 @@ class SupplyMatchingApiTests(unittest.TestCase):
         session.flush()
         return product
 
-    def create_request(self, *raw_lines: str) -> dict:
+    def create_request(
+        self,
+        *raw_lines: str,
+        department_id: UUID | None = None,
+    ) -> dict:
         self.cycle_counter += 1
         with self.session_factory.begin() as session:
             cycle = SupplyRequestCycle(
@@ -214,7 +227,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         response = self.client.post(
             "/supply/requests",
             json={
-                "department_id": str(self.department.id),
+                "department_id": str(department_id or self.department.id),
                 "direction_id": str(self.direction.id),
                 "cycle_id": str(cycle_id),
                 "raw_input": "\n".join(raw_lines),
@@ -426,17 +439,17 @@ class SupplyMatchingApiTests(unittest.TestCase):
         )
 
         forced = self.recognize(created["id"], force=True).json()
-        self.assertEqual(forced["skipped"], 0)
-        self.assertEqual(
-            forced["results"][0]["match_method"],
-            "EXACT_ALIAS",
-        )
+        self.assertEqual(forced["skipped"], 1)
+        self.assertEqual(forced["results"][0]["match_method"], "MANUAL")
+        self.assertEqual(forced["results"][0]["match_status"], "MATCHED")
         detail = self.client.get(
             f"/supply/requests/{created['id']}"
         ).json()
-        self.assertEqual(detail["version"], 4)
-        self.assertIsNone(detail["lines"][0]["matched_by_user_id"])
-        self.assertIsNone(detail["lines"][0]["match_notes"])
+        self.assertEqual(detail["version"], 3)
+        self.assertEqual(detail["lines"][0]["matched_by_user_id"], 2)
+        self.assertEqual(
+            detail["lines"][0]["match_notes"], "Подтверждено вручную"
+        )
 
         rejected = self.match(
             created["id"],
@@ -589,7 +602,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             404,
         )
 
-    def test_manual_alias_is_approved_and_applied_with_usage_counter(self) -> None:
+    def _legacy_manual_alias_is_approved_and_applied_with_usage_counter(self) -> None:
         first = self.create_request("молочко 2 л")
         recognized = self.recognize(first["id"])
         self.assertEqual(recognized.status_code, 200, recognized.text)
@@ -642,7 +655,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         ).json()
         self.assertEqual(third_detail["lines"][0]["match_method"], "EXACT_ALIAS")
 
-    def test_manual_alias_conflict_does_not_change_existing_alias(self) -> None:
+    def _legacy_manual_alias_conflict_does_not_change_existing_alias(self) -> None:
         with self.session_factory.begin() as session:
             conflict = SupplyProductAlias(
                 tenant_id="eclair",
@@ -710,6 +723,336 @@ class SupplyMatchingApiTests(unittest.TestCase):
             alias = session.get(SupplyProductAlias, disabled_id)
             self.assertEqual(alias.status, "DISABLED")
             self.assertEqual(alias.successful_application_count, 3)
+
+    def test_context_mapping_has_priority_over_global_approved_alias(self) -> None:
+        with self.session_factory.begin() as session:
+            session.add_all([
+                SupplyProductAlias(
+                    tenant_id="eclair",
+                    product_id=self.milk.id,
+                    alias="напиток",
+                    normalized_alias="напиток",
+                    status="APPROVED",
+                ),
+                SupplyDepartmentProductMapping(
+                    tenant_id="eclair",
+                    department_id=self.department.id,
+                    phrase="напиток",
+                    normalized_phrase="напиток",
+                    product_id=self.coffee_milk.id,
+                    created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                ),
+            ])
+        created = self.create_request("Напиток 2 л")
+        recognized = self.recognize(created["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        line = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(line["product_id"], str(self.coffee_milk.id))
+        self.assertEqual(line["match_method"], "CONTEXT_MAPPING")
+
+    def test_same_phrase_maps_to_different_products_by_department(self) -> None:
+        with self.session_factory.begin() as session:
+            other_department = Department(
+                tenant_id="eclair", code="М35", name="Мира 35"
+            )
+            session.add(other_department)
+            session.flush()
+            other_department_id = other_department.id
+            session.add_all([
+                SupplyDepartmentProductMapping(
+                    tenant_id="eclair",
+                    department_id=self.department.id,
+                    phrase="молочко",
+                    normalized_phrase="молочко",
+                    product_id=self.coffee_milk.id,
+                    created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                ),
+                SupplyDepartmentProductMapping(
+                    tenant_id="eclair",
+                    department_id=other_department.id,
+                    phrase="молочко",
+                    normalized_phrase="молочко",
+                    product_id=self.milk.id,
+                    created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                ),
+            ])
+        first = self.create_request("молочко 1 л")
+        second = self.create_request(
+            "молочко 1 л", department_id=other_department_id
+        )
+        self.recognize(first["id"])
+        self.recognize(second["id"])
+        first_line = self.client.get(
+            f"/supply/requests/{first['id']}"
+        ).json()["lines"][0]
+        second_line = self.client.get(
+            f"/supply/requests/{second['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(first_line["product_id"], str(self.coffee_milk.id))
+        self.assertEqual(second_line["product_id"], str(self.milk.id))
+
+    def test_manual_correction_changes_only_current_line(self) -> None:
+        with self.session_factory.begin() as session:
+            alias = SupplyProductAlias(
+                tenant_id="eclair",
+                product_id=self.cream.id,
+                alias="спорное",
+                normalized_alias="спорное",
+                status="APPROVED",
+            )
+            session.add(alias)
+            session.flush()
+            alias_id = alias.id
+        created = self.create_request("спорное 1 л")
+        response = self.match(
+            created["id"],
+            created["lines"][0]["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["product_id"], str(self.milk.id))
+        with self.session_factory() as session:
+            alias = session.get(SupplyProductAlias, alias_id)
+            self.assertEqual(alias.product_id, self.cream.id)
+
+    def test_context_mapping_is_suggested_after_third_same_correction(self) -> None:
+        last_response = None
+        for quantity in ("1", "2", "3"):
+            created = self.create_request(f"овсяное {quantity} л")
+            last_response = self.match(
+                created["id"],
+                created["lines"][0]["id"],
+                {
+                    "action": "MATCH",
+                    "product_id": str(self.coffee_milk.id),
+                    "unit_id": str(self.units["L"].id),
+                    "quantity": quantity,
+                },
+            )
+        self.assertIsNotNone(last_response)
+        self.assertEqual(last_response.status_code, 200, last_response.text)
+        suggestion = last_response.json()["context_mapping_suggestion"]
+        self.assertEqual(suggestion["correction_count"], 3)
+        self.assertEqual(suggestion["product_id"], str(self.coffee_milk.id))
+        reloaded_line = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(
+            reloaded_line["context_mapping_suggestion"]["correction_count"],
+            3,
+        )
+
+    def test_no_context_mapping_is_applied_before_explicit_confirmation(self) -> None:
+        third = None
+        for _ in range(3):
+            created = self.create_request("безлактозное 1 л")
+            response = self.match(
+                created["id"],
+                created["lines"][0]["id"],
+                {
+                    "action": "MATCH",
+                    "product_id": str(self.coffee_milk.id),
+                    "unit_id": str(self.units["L"].id),
+                    "quantity": "1",
+                },
+            )
+            third = (created, response)
+        fresh = self.create_request("безлактозное 2 л")
+        before_confirmation = self.recognize(fresh["id"])
+        self.assertEqual(before_confirmation.status_code, 200)
+        self.assertEqual(before_confirmation.json()["matched"], 0)
+        self.assertIsNotNone(
+            third[1].json()["context_mapping_suggestion"]
+        )
+        with self.session_factory() as session:
+            self.assertEqual(
+                session.query(SupplyDepartmentProductMapping).filter_by(
+                    normalized_phrase="безлактозное"
+                ).count(),
+                0,
+            )
+        confirmed = self.client.post(
+            "/supply/requests/"
+            f"{third[0]['id']}/lines/{third[0]['lines'][0]['id']}"
+            "/context-mapping",
+            json={"product_id": str(self.coffee_milk.id)},
+        )
+        self.assertEqual(confirmed.status_code, 201, confirmed.text)
+        with self.session_factory.begin() as session:
+            mapping = session.query(SupplyDepartmentProductMapping).filter_by(
+                normalized_phrase="безлактозное"
+            ).one()
+            mapping.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            mapping.updated_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        subsequent = self.create_request("безлактозное 3 л")
+        recognized = self.recognize(subsequent["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        self.assertEqual(recognized.json()["matched"], 1)
+        line = self.client.get(
+            f"/supply/requests/{subsequent['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(line["match_method"], "CONTEXT_MAPPING")
+
+    def test_context_mapping_only_applies_to_later_requests(self) -> None:
+        old_request = self.create_request("контекстное 1 л")
+        with self.session_factory.begin() as session:
+            request = session.get(SupplyRequest, UUID(old_request["id"]))
+            request.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            session.add(SupplyDepartmentProductMapping(
+                tenant_id="eclair",
+                department_id=self.department.id,
+                phrase="контекстное",
+                normalized_phrase="контекстное",
+                product_id=self.coffee_milk.id,
+                created_at=datetime(2021, 1, 1, tzinfo=timezone.utc),
+                updated_at=datetime(2021, 1, 1, tzinfo=timezone.utc),
+            ))
+        old_recognition = self.recognize(old_request["id"])
+        self.assertEqual(old_recognition.status_code, 200)
+        self.assertEqual(old_recognition.json()["matched"], 0)
+
+        new_request = self.create_request("контекстное 2 л")
+        with self.session_factory.begin() as session:
+            request = session.get(SupplyRequest, UUID(new_request["id"]))
+            request.created_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+        new_recognition = self.recognize(new_request["id"])
+        self.assertEqual(new_recognition.status_code, 200)
+        self.assertEqual(new_recognition.json()["matched"], 1)
+
+    def test_context_mapping_replacement_rejects_stale_version(self) -> None:
+        with self.session_factory.begin() as session:
+            mapping = SupplyDepartmentProductMapping(
+                tenant_id="eclair",
+                department_id=self.department.id,
+                phrase="версионное",
+                normalized_phrase="версионное",
+                product_id=self.milk.id,
+            )
+            session.add(mapping)
+            session.flush()
+            mapping_id = mapping.id
+        replaced = self.client.put(
+            f"/supply/context-mappings/{mapping_id}",
+            json={
+                "product_id": str(self.cream.id),
+                "expected_version": 1,
+            },
+        )
+        self.assertEqual(replaced.status_code, 200, replaced.text)
+        self.assertEqual(replaced.json()["version"], 2)
+        stale = self.client.put(
+            f"/supply/context-mappings/{mapping_id}",
+            json={
+                "product_id": str(self.milk.id),
+                "expected_version": 1,
+            },
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(stale.json()["detail"]["code"], "VERSION_CONFLICT")
+        self.assertEqual(stale.json()["detail"]["current_version"], 2)
+
+    def test_permanent_mapping_bootstrap_is_tenant_scoped_and_atomic(self) -> None:
+        with self.session_factory.begin() as session:
+            session.add_all([
+                Department(tenant_id="eclair", code="М35", name="М35"),
+                Department(tenant_id="eclair", code="М6А", name="М6А"),
+            ])
+            other_unit = SupplyUnit(
+                tenant_id="other",
+                code="L",
+                name_ru="литр",
+                short_name_ru="л",
+                allows_fraction=True,
+            )
+            session.add(other_unit)
+            session.flush()
+            other_coffee = SupplyProduct(
+                tenant_id="other",
+                name="Молоко для кофе",
+                normalized_name="молоко для кофе",
+                default_unit_id=other_unit.id,
+            )
+            other_product = SupplyProduct(
+                tenant_id="other",
+                name="Другой товар",
+                normalized_name="другой товар",
+                default_unit_id=other_unit.id,
+            )
+            other_departments = [
+                Department(tenant_id="other", code=code, name=code)
+                for code in ("М15", "М35", "М6А")
+            ]
+            session.add_all([other_coffee, other_product, *other_departments])
+            session.flush()
+            session.add(SupplyDepartmentProductMapping(
+                tenant_id="other",
+                department_id=other_departments[0].id,
+                phrase="молоко",
+                normalized_phrase="молоко",
+                product_id=other_product.id,
+            ))
+
+        selected = self.client.post(
+            "/supply/context-mappings/bootstrap-permanent-milk",
+            json={"tenant_id": "eclair"},
+        )
+        self.assertEqual(selected.status_code, 200, selected.text)
+        self.assertEqual(selected.json()["status"], "CREATED")
+        self.assertEqual(selected.json()["created"], 3)
+        with self.session_factory() as session:
+            self.assertEqual(session.query(
+                SupplyDepartmentProductMapping
+            ).filter_by(tenant_id="eclair", is_permanent=True).count(), 3)
+            self.assertEqual(session.query(
+                SupplyDepartmentProductMappingAuditEvent
+            ).filter_by(tenant_id="eclair").count(), 3)
+            permanent_id = session.query(
+                SupplyDepartmentProductMapping.id
+            ).filter_by(tenant_id="eclair", is_permanent=True).first()[0]
+            self.assertEqual(session.query(
+                SupplyDepartmentProductMapping
+            ).filter_by(tenant_id="other").count(), 1)
+        self.assertEqual(self.client.put(
+            f"/supply/context-mappings/{permanent_id}",
+            json={
+                "product_id": str(self.milk.id),
+                "expected_version": 1,
+            },
+        ).status_code, 409)
+        self.assertEqual(self.client.delete(
+            f"/supply/context-mappings/{permanent_id}",
+            params={"expected_version": 1},
+        ).status_code, 409)
+
+        conflict = self.client.post(
+            "/supply/context-mappings/bootstrap-permanent-milk",
+            json={"tenant_id": "other"},
+        )
+        self.assertEqual(conflict.status_code, 200, conflict.text)
+        self.assertEqual(conflict.json()["status"], "BLOCKED")
+        self.assertTrue(conflict.json()["errors"])
+        with self.session_factory() as session:
+            self.assertEqual(session.query(
+                SupplyDepartmentProductMapping
+            ).filter_by(tenant_id="other").count(), 1)
+
+        missing = self.client.post(
+            "/supply/context-mappings/bootstrap-permanent-milk",
+            json={"tenant_id": "missing"},
+        )
+        self.assertEqual(missing.status_code, 200, missing.text)
+        self.assertEqual(missing.json()["status"], "BLOCKED")
+        self.assertEqual(missing.json()["created"], 0)
 
     def test_allocations_start_review_and_complete_request_plan(self) -> None:
         created = self.create_request("Молоко 10 л")

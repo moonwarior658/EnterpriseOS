@@ -65,6 +65,7 @@ class SupplyLineMatchStatus(StrEnum):
 
 
 class SupplyLineMatchMethod(StrEnum):
+    CONTEXT_MAPPING = "CONTEXT_MAPPING"
     EXACT_PRODUCT = "EXACT_PRODUCT"
     EXACT_ALIAS = "EXACT_ALIAS"
     MANUAL = "MANUAL"
@@ -504,6 +505,7 @@ class SupplyRequestLineRead(BaseModel):
     planning_status: str
     created_at: datetime
     updated_at: datetime
+    context_mapping_suggestion: "SupplyContextMappingSuggestion | None" = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -536,6 +538,68 @@ class SupplyLineManualMatch(BaseModel):
                 "Для REJECT и RESET товар, единица и количество не передаются"
             )
         return self
+
+
+class SupplyContextMappingSuggestion(BaseModel):
+    mapping_id: UUID | None = None
+    mapping_version: int | None = Field(default=None, ge=1)
+    department_id: UUID
+    phrase: str
+    product_id: UUID
+    product_name: str
+    correction_count: int = Field(ge=3)
+
+
+class SupplyContextMappingConfirm(BaseModel):
+    product_id: UUID
+    expected_version: int | None = Field(default=None, ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyContextMappingReplace(BaseModel):
+    product_id: UUID
+    expected_version: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyContextMappingRead(BaseModel):
+    id: UUID
+    department_id: UUID
+    phrase: str
+    normalized_phrase: str
+    product_id: UUID
+    is_permanent: bool
+    version: int
+    created_by_user_id: int | None
+    updated_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyContextMappingBootstrapRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("tenant_id")
+    @classmethod
+    def validate_tenant_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if stripped != value:
+            raise ValueError("tenant_id не должен содержать внешние пробелы")
+        return stripped
+
+
+class SupplyContextMappingBootstrapRead(BaseModel):
+    tenant_id: str
+    status: str
+    created: int = Field(ge=0)
+    already_configured: int = Field(ge=0)
+    errors: list[str] = Field(default_factory=list)
 
 
 class SupplyLineWorkingValuesUpdate(BaseModel):
@@ -1129,6 +1193,18 @@ class PublicSupplyLineRead(BaseModel):
     match_status: SupplyLineMatchStatus
     duplicate_status: SupplyDuplicateStatus
     public_message: str
+    clarification_options: list["PublicSupplyClarificationOption"] = Field(
+        default_factory=list
+    )
+
+
+class PublicSupplyClarificationOption(BaseModel):
+    product_id: UUID
+    product_name: str
+
+
+class PublicSupplyClarificationSelect(PublicSupplyExpectedVersion):
+    product_id: UUID
 
 
 class PublicSupplyRequestRead(BaseModel):

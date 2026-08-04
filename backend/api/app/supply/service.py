@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.config import settings
 from app.models.supply import (
     Department,
+    SupplyContextMappingAuditAction,
+    SupplyDepartmentProductCorrection,
+    SupplyDepartmentProductMapping,
+    SupplyDepartmentProductMappingAuditEvent,
     SupplyDepartmentDebt,
     SupplyDepartmentDebtEvent,
     SupplyProduct,
@@ -26,6 +30,7 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.schemas.supply import (
+    SupplyContextMappingBootstrapRead,
     SupplyLineManualMatch,
     SupplyLineWorkingValuesUpdate,
     SupplyLineAllocationsUpdate,
@@ -62,6 +67,17 @@ class SupplyRequestNotFoundError(LookupError):
 
 class SupplyRequestLineNotFoundError(LookupError):
     pass
+
+
+class SupplyContextMappingVersionConflictError(ValueError):
+    def __init__(
+        self,
+        current_version: int | None,
+        expected_version: int | None,
+    ):
+        self.current_version = current_version
+        self.expected_version = expected_version
+        super().__init__("Supply contextual mapping version conflict")
 
 
 class DepartmentNotFoundError(LookupError):
@@ -1294,6 +1310,7 @@ def get_supply_request(
     if supply_request is None:
         raise SupplyRequestNotFoundError
     _populate_active_debt_context(session, [supply_request])
+    _populate_context_mapping_suggestions(session, supply_request)
     return supply_request
 
 
@@ -1955,10 +1972,39 @@ def _find_exact_product(
     return None, None
 
 
+def _find_context_product(
+    session: Session,
+    *,
+    department_id: UUID,
+    normalized_phrase: str,
+    request_created_at: datetime,
+) -> SupplyProduct | None:
+    return session.scalar(
+        select(SupplyProduct)
+        .join(
+            SupplyDepartmentProductMapping,
+            SupplyDepartmentProductMapping.product_id == SupplyProduct.id,
+        )
+        .where(
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+            SupplyDepartmentProductMapping.department_id == department_id,
+            SupplyDepartmentProductMapping.normalized_phrase
+            == normalized_phrase,
+            SupplyDepartmentProductMapping.created_at < request_created_at,
+            SupplyDepartmentProductMapping.updated_at < request_created_at,
+            SupplyProduct.tenant_id == settings.default_tenant_id,
+            SupplyProduct.is_active.is_(True),
+        )
+    )
+
+
 def _recognize_line(
     session: Session,
     line: SupplyRequestLine,
     *,
+    department_id: UUID,
+    request_created_at: datetime,
     now: datetime,
 ) -> None:
     parsed = parse_supply_line(line.raw_text)
@@ -1987,10 +2033,16 @@ def _recognize_line(
     line.parsed_unit_id = unit.id
     line.requested_unit_id = unit.id
     line.quantity = parsed.quantity
-    product, method = _find_exact_product(
+    normalized_phrase = normalize_product_text(parsed.name)
+    product = _find_context_product(
         session,
-        normalize_product_text(parsed.name),
+        department_id=department_id,
+        normalized_phrase=normalized_phrase,
+        request_created_at=request_created_at,
     )
+    method = "CONTEXT_MAPPING" if product is not None else None
+    if product is None:
+        product, method = _find_exact_product(session, normalized_phrase)
     if product is None or method is None:
         line.match_status = "NEEDS_REVIEW"
         return
@@ -2027,9 +2079,15 @@ def recognize_supply_request(
     results: list[SupplyRecognitionResult] = []
     changed = False
     for line in lines:
-        skipped = not force and line.match_method == "MANUAL"
+        skipped = line.match_method == "MANUAL"
         if not skipped:
-            _recognize_line(session, line, now=now)
+            _recognize_line(
+                session,
+                line,
+                department_id=supply_request.department_id,
+                request_created_at=supply_request.created_at,
+                now=now,
+            )
             changed = True
         results.append(
             SupplyRecognitionResult(
@@ -2161,30 +2219,22 @@ def manually_match_supply_request_line(
                 user_id=matched_by_user_id,
                 comment="Выполнено ручное сопоставление долга",
             )
-        alias_text = line.parsed_name or supply_line_product_name(line.raw_text)
-        normalized_alias = normalize_product_text(alias_text)
-        existing = session.scalar(
-            select(SupplyProductAlias).where(
-                SupplyProductAlias.tenant_id == settings.default_tenant_id,
-                SupplyProductAlias.normalized_alias == normalized_alias,
+        phrase = line.parsed_name or supply_line_product_name(line.raw_text)
+        normalized_phrase = normalize_product_text(phrase)
+        correction_exists = session.scalar(
+            select(SupplyDepartmentProductCorrection.id).where(
+                SupplyDepartmentProductCorrection.request_line_id == line.id,
+                SupplyDepartmentProductCorrection.product_id == product.id,
             )
         )
-        if existing is not None:
-            if existing.product_id != product.id or existing.status != "APPROVED":
-                session.rollback()
-                raise DuplicateSupplyProductAliasError
-            existing.successful_application_count += 1
-            existing.last_applied_at = now
-        else:
-            session.add(SupplyProductAlias(
+        if correction_exists is None:
+            session.add(SupplyDepartmentProductCorrection(
                 tenant_id=settings.default_tenant_id,
+                department_id=supply_request.department_id,
+                normalized_phrase=normalized_phrase,
                 product_id=product.id,
-                alias=alias_text,
-                normalized_alias=normalized_alias,
-                status="APPROVED",
-                successful_application_count=1,
-                last_applied_at=now,
-                created_by_user_id=matched_by_user_id,
+                request_line_id=line.id,
+                corrected_by_user_id=matched_by_user_id,
             ))
     elif payload.action == SupplyLineMatchAction.REJECT:
         _clear_confirmed_match(line)
@@ -2207,10 +2257,409 @@ def manually_match_supply_request_line(
         session.rollback()
         raise
     refreshed_request = get_supply_request(session, request_id)
-    return next(
+    refreshed_line = next(
         request_line
         for request_line in refreshed_request.lines
         if request_line.id == line_id
+    )
+    if payload.action == SupplyLineMatchAction.MATCH:
+        suggestion = get_context_mapping_suggestion(
+            session,
+            request_id=request_id,
+            line_id=line_id,
+        )
+        if suggestion is not None:
+            refreshed_line.context_mapping_suggestion = suggestion
+    return refreshed_line
+
+
+def get_context_mapping_suggestion(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+) -> dict | None:
+    row = session.execute(
+        select(SupplyRequestLine, SupplyRequest)
+        .join(SupplyRequest, SupplyRequest.id == SupplyRequestLine.request_id)
+        .where(
+            SupplyRequest.id == request_id,
+            SupplyRequestLine.id == line_id,
+            SupplyRequest.tenant_id == settings.default_tenant_id,
+        )
+    ).one_or_none()
+    if row is None:
+        raise SupplyRequestLineNotFoundError
+    line, supply_request = row
+    if line.product_id is None or line.match_method != "MANUAL":
+        return None
+    phrase = line.parsed_name or supply_line_product_name(line.raw_text)
+    normalized_phrase = normalize_product_text(phrase)
+    existing_mapping = session.scalar(
+        select(SupplyDepartmentProductMapping).where(
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+            SupplyDepartmentProductMapping.department_id
+            == supply_request.department_id,
+            SupplyDepartmentProductMapping.normalized_phrase
+            == normalized_phrase,
+        )
+    )
+    if existing_mapping is not None and (
+        existing_mapping.product_id == line.product_id
+        or existing_mapping.is_permanent
+    ):
+        return None
+    correction_count = int(session.scalar(
+        select(func.count(SupplyDepartmentProductCorrection.id)).where(
+            SupplyDepartmentProductCorrection.tenant_id
+            == settings.default_tenant_id,
+            SupplyDepartmentProductCorrection.department_id
+            == supply_request.department_id,
+            SupplyDepartmentProductCorrection.normalized_phrase
+            == normalized_phrase,
+            SupplyDepartmentProductCorrection.product_id == line.product_id,
+        )
+    ) or 0)
+    if correction_count < 3:
+        return None
+    product = get_supply_product(session, line.product_id)
+    return {
+        "mapping_id": existing_mapping.id if existing_mapping else None,
+        "mapping_version": (
+            existing_mapping.version if existing_mapping else None
+        ),
+        "department_id": supply_request.department_id,
+        "phrase": phrase,
+        "product_id": product.id,
+        "product_name": product.name,
+        "correction_count": correction_count,
+    }
+
+
+def confirm_context_mapping_for_line(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+    product_id: UUID,
+    expected_version: int | None,
+    actor_user_id: int,
+) -> SupplyDepartmentProductMapping:
+    suggestion = get_context_mapping_suggestion(
+        session, request_id=request_id, line_id=line_id
+    )
+    if suggestion is None or suggestion["product_id"] != product_id:
+        raise SupplyRequestStateError
+    if suggestion["mapping_id"] is not None:
+        return replace_context_mapping(
+            session,
+            mapping_id=suggestion["mapping_id"],
+            product_id=product_id,
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+        )
+    if expected_version is not None:
+        raise SupplyContextMappingVersionConflictError(None, expected_version)
+    mapping = SupplyDepartmentProductMapping(
+        tenant_id=settings.default_tenant_id,
+        department_id=suggestion["department_id"],
+        phrase=suggestion["phrase"],
+        normalized_phrase=normalize_product_text(suggestion["phrase"]),
+        product_id=product_id,
+        created_by_user_id=actor_user_id,
+        updated_by_user_id=actor_user_id,
+    )
+    try:
+        with session.begin_nested():
+            session.add(mapping)
+            session.flush()
+            session.add(SupplyDepartmentProductMappingAuditEvent(
+                tenant_id=settings.default_tenant_id,
+                mapping_id=mapping.id,
+                action=SupplyContextMappingAuditAction.CREATED,
+                department_id=mapping.department_id,
+                normalized_phrase=mapping.normalized_phrase,
+                previous_product_id=None,
+                product_id=mapping.product_id,
+                actor_user_id=actor_user_id,
+            ))
+            session.flush()
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        current_version = session.scalar(
+            select(SupplyDepartmentProductMapping.version).where(
+                SupplyDepartmentProductMapping.tenant_id
+                == settings.default_tenant_id,
+                SupplyDepartmentProductMapping.department_id
+                == suggestion["department_id"],
+                SupplyDepartmentProductMapping.normalized_phrase
+                == normalize_product_text(suggestion["phrase"]),
+            )
+        )
+        raise SupplyContextMappingVersionConflictError(
+            current_version, expected_version
+        ) from error
+    except Exception:
+        session.rollback()
+        raise
+    return mapping
+
+
+def replace_context_mapping(
+    session: Session,
+    *,
+    mapping_id: UUID,
+    product_id: UUID,
+    expected_version: int,
+    actor_user_id: int,
+) -> SupplyDepartmentProductMapping:
+    mapping = session.scalar(
+        select(SupplyDepartmentProductMapping).where(
+            SupplyDepartmentProductMapping.id == mapping_id,
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+        ).with_for_update()
+    )
+    if mapping is None or mapping.is_permanent:
+        raise SupplyRequestStateError
+    if mapping.version != expected_version:
+        raise SupplyContextMappingVersionConflictError(
+            mapping.version, expected_version
+        )
+    department_exists = session.scalar(select(Department.id).where(
+        Department.id == mapping.department_id,
+        Department.tenant_id == mapping.tenant_id,
+    ))
+    current_product_exists = session.scalar(select(SupplyProduct.id).where(
+        SupplyProduct.id == mapping.product_id,
+        SupplyProduct.tenant_id == mapping.tenant_id,
+    ))
+    if department_exists is None or current_product_exists is None:
+        raise SupplyRequestStateError
+    product = get_supply_product(session, product_id, require_active=True)
+    previous_product_id = mapping.product_id
+    mapping.product_id = product.id
+    mapping.updated_by_user_id = actor_user_id
+    mapping.version += 1
+    session.add(SupplyDepartmentProductMappingAuditEvent(
+        tenant_id=settings.default_tenant_id,
+        mapping_id=mapping.id,
+        action=SupplyContextMappingAuditAction.REPLACED,
+        department_id=mapping.department_id,
+        normalized_phrase=mapping.normalized_phrase,
+        previous_product_id=previous_product_id,
+        product_id=product.id,
+        actor_user_id=actor_user_id,
+    ))
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return mapping
+
+
+def delete_context_mapping(
+    session: Session,
+    *,
+    mapping_id: UUID,
+    expected_version: int,
+    actor_user_id: int,
+) -> None:
+    mapping = session.scalar(
+        select(SupplyDepartmentProductMapping).where(
+            SupplyDepartmentProductMapping.id == mapping_id,
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+        ).with_for_update()
+    )
+    if mapping is None or mapping.is_permanent:
+        raise SupplyRequestStateError
+    if mapping.version != expected_version:
+        raise SupplyContextMappingVersionConflictError(
+            mapping.version, expected_version
+        )
+    if session.scalar(select(Department.id).where(
+        Department.id == mapping.department_id,
+        Department.tenant_id == mapping.tenant_id,
+    )) is None or session.scalar(select(SupplyProduct.id).where(
+        SupplyProduct.id == mapping.product_id,
+        SupplyProduct.tenant_id == mapping.tenant_id,
+    )) is None:
+        raise SupplyRequestStateError
+    session.add(SupplyDepartmentProductMappingAuditEvent(
+        tenant_id=settings.default_tenant_id,
+        mapping_id=mapping.id,
+        action=SupplyContextMappingAuditAction.DELETED,
+        department_id=mapping.department_id,
+        normalized_phrase=mapping.normalized_phrase,
+        previous_product_id=mapping.product_id,
+        product_id=None,
+        actor_user_id=actor_user_id,
+    ))
+    session.delete(mapping)
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _populate_context_mapping_suggestions(
+    session: Session,
+    supply_request: SupplyRequest,
+) -> None:
+    for line in supply_request.lines:
+        if line.match_method != "MANUAL" or line.product_id is None:
+            continue
+        suggestion = get_context_mapping_suggestion(
+            session,
+            request_id=supply_request.id,
+            line_id=line.id,
+        )
+        if suggestion is not None:
+            line.context_mapping_suggestion = suggestion
+
+
+PERMANENT_MILK_DEPARTMENT_CODES = ("М15", "М35", "М6А")
+PERMANENT_MILK_PHRASE = "молоко"
+PERMANENT_MILK_PRODUCT_NAME = "молоко для кофе"
+
+
+def bootstrap_permanent_milk_context_mappings(
+    session: Session,
+    *,
+    tenant_id: str,
+    actor_user_id: int,
+) -> SupplyContextMappingBootstrapRead:
+    errors: list[str] = []
+    departments = list(session.scalars(
+        select(Department)
+        .where(
+            Department.tenant_id == tenant_id,
+            Department.code.in_(PERMANENT_MILK_DEPARTMENT_CODES),
+        )
+        .order_by(Department.code)
+        .with_for_update()
+    ).all())
+    departments_by_code = {item.code: item for item in departments}
+    missing_codes = [
+        code for code in PERMANENT_MILK_DEPARTMENT_CODES
+        if code not in departments_by_code
+    ]
+    if missing_codes:
+        errors.append(
+            "Не найдены подразделения: " + ", ".join(missing_codes)
+        )
+    inactive_codes = [item.code for item in departments if not item.is_active]
+    if inactive_codes:
+        errors.append(
+            "Неактивные подразделения: " + ", ".join(inactive_codes)
+        )
+    products = list(session.scalars(
+        select(SupplyProduct)
+        .where(
+            SupplyProduct.tenant_id == tenant_id,
+            SupplyProduct.normalized_name == PERMANENT_MILK_PRODUCT_NAME,
+            SupplyProduct.is_active.is_(True),
+        )
+        .with_for_update()
+    ).all())
+    if len(products) != 1:
+        errors.append(
+            "Нужен ровно один активный товар «Молоко для кофе»; "
+            f"найдено: {len(products)}"
+        )
+    product = products[0] if len(products) == 1 else None
+    department_ids = [item.id for item in departments]
+    existing = list(session.scalars(
+        select(SupplyDepartmentProductMapping)
+        .where(
+            SupplyDepartmentProductMapping.tenant_id == tenant_id,
+            SupplyDepartmentProductMapping.department_id.in_(department_ids),
+            SupplyDepartmentProductMapping.normalized_phrase
+            == PERMANENT_MILK_PHRASE,
+        )
+        .with_for_update()
+    ).all()) if department_ids else []
+    if product is not None:
+        conflicts = [
+            item for item in existing
+            if item.product_id != product.id or not item.is_permanent
+        ]
+        if conflicts:
+            conflict_codes = sorted(
+                next(
+                    department.code
+                    for department in departments
+                    if department.id == item.department_id
+                )
+                for item in conflicts
+            )
+            errors.append(
+                "Конфликтующие contextual mapping: "
+                + ", ".join(conflict_codes)
+            )
+    if errors:
+        session.rollback()
+        return SupplyContextMappingBootstrapRead(
+            tenant_id=tenant_id,
+            status="BLOCKED",
+            created=0,
+            already_configured=0,
+            errors=errors,
+        )
+    existing_department_ids = {item.department_id for item in existing}
+    missing_departments = [
+        item for item in departments if item.id not in existing_department_ids
+    ]
+    try:
+        for department in missing_departments:
+            mapping = SupplyDepartmentProductMapping(
+                tenant_id=tenant_id,
+                department_id=department.id,
+                phrase=PERMANENT_MILK_PHRASE,
+                normalized_phrase=PERMANENT_MILK_PHRASE,
+                product_id=product.id,
+                is_permanent=True,
+                created_by_user_id=actor_user_id,
+                updated_by_user_id=actor_user_id,
+            )
+            session.add(mapping)
+            session.flush()
+            session.add(SupplyDepartmentProductMappingAuditEvent(
+                tenant_id=tenant_id,
+                mapping_id=mapping.id,
+                action=SupplyContextMappingAuditAction.CREATED,
+                department_id=department.id,
+                normalized_phrase=PERMANENT_MILK_PHRASE,
+                previous_product_id=None,
+                product_id=product.id,
+                actor_user_id=actor_user_id,
+            ))
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        return SupplyContextMappingBootstrapRead(
+            tenant_id=tenant_id,
+            status="BLOCKED",
+            created=0,
+            already_configured=0,
+            errors=[
+                "Правила изменились параллельно; обновите данные и повторите"
+            ],
+        )
+    except Exception:
+        session.rollback()
+        raise
+    return SupplyContextMappingBootstrapRead(
+        tenant_id=tenant_id,
+        status=("CREATED" if missing_departments else "ALREADY_CONFIGURED"),
+        created=len(missing_departments),
+        already_configured=len(existing),
+        errors=[],
     )
 
 

@@ -39,6 +39,10 @@ export type PublicSupplyLine = {
   match_status: 'UNPROCESSED' | 'PARSED' | 'MATCHED' | 'NEEDS_REVIEW' | 'REJECTED'
   duplicate_status: 'NONE' | 'SUSPECTED' | 'CONFIRMED' | 'RESOLVED'
   public_message: string
+  clarification_options: Array<{
+    product_id: string
+    product_name: string
+  }>
 }
 
 export type PublicSupplyRequest = {
@@ -150,6 +154,20 @@ export function updatePublicSupplyLines(
     `/requests/${encodeURIComponent(token)}/lines`,
     {
       method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function selectPublicSupplyClarification(
+  token: string,
+  lineId: string,
+  input: { expected_version: number; product_id: string },
+): Promise<PublicSupplyRequest> {
+  return publicSupplyRequest(
+    `/requests/${encodeURIComponent(token)}/lines/${lineId}/clarification`,
+    {
+      method: 'POST',
       body: JSON.stringify(input),
     },
   )

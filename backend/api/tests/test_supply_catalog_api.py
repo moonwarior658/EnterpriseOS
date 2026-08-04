@@ -22,6 +22,9 @@ from app.models.supply import (
     Department,
     SupplyProduct,
     SupplyProductAlias,
+    SupplyDepartmentProductCorrection,
+    SupplyDepartmentProductMapping,
+    SupplyDepartmentProductMappingAuditEvent,
     SupplyProductCategory,
     SupplyDepartmentDebt,
     SupplyDepartmentDebtEvent,
@@ -79,9 +82,12 @@ class SupplyCatalogApiTests(unittest.TestCase):
         SupplyStorageZone.__table__.create(self.engine)
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
+        SupplyDepartmentProductMapping.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)
+        SupplyDepartmentProductCorrection.__table__.create(self.engine)
+        SupplyDepartmentProductMappingAuditEvent.__table__.create(self.engine)
         SupplyLineAllocation.__table__.create(self.engine)
         SupplyDepartmentDebt.__table__.create(self.engine)
         SupplyDepartmentDebtEvent.__table__.create(self.engine)

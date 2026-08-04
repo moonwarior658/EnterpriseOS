@@ -12,6 +12,7 @@ import {
   getPublicSupplyRequest,
   getPublicSupplySchedule,
   PublicSupplyApiError,
+  selectPublicSupplyClarification,
   submitPublicSupplyRequest,
   updatePublicSupplyLines,
   type PublicSupplyCycle,
@@ -260,6 +261,23 @@ function PublicSupplyRequestPage() {
     }
   }
 
+  async function handleClarification(lineId: string, productId: string) {
+    if (!request || !publicToken || isBusy) return
+    setIsBusy(true)
+    setError('')
+    try {
+      applyRequest(await selectPublicSupplyClarification(publicToken, lineId, {
+        expected_version: request.version,
+        product_id: productId,
+      }))
+      setConfirmUnrecognized(false)
+    } catch (caught) {
+      setError(safeMessage(caught))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <main className="public-request-page">
@@ -449,6 +467,25 @@ function PublicSupplyRequestPage() {
                         </span>
                       </div>
                       <em>{line.public_message}</em>
+                      {line.clarification_options.length > 1 && !submitted && (
+                        <div className="supply-clarification">
+                          <span>Уточните, какой товар нужен:</span>
+                          {line.clarification_options.map((option) => (
+                            <button
+                              key={option.product_id}
+                              type="button"
+                              className="secondary-action"
+                              disabled={isBusy}
+                              onClick={() => void handleClarification(
+                                line.id,
+                                option.product_id,
+                              )}
+                            >
+                              {option.product_name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status) && (
                         <dl className="public-supply-result">
                           <div><dt>Принято к отправке</dt><dd>{line.confirmed_quantity}</dd></div>

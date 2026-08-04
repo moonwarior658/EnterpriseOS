@@ -12,12 +12,15 @@ from app.core.config import settings
 from app.models.automation import AutomationSchedule
 from app.models.supply import (
     Department,
+    SupplyDepartmentProductMapping,
+    SupplyProduct,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
 )
 from app.schemas.supply import (
+    PublicSupplyClarificationSelect,
     PublicSupplyRequestCreate,
     PublicSupplyLinesUpdate,
 )
@@ -37,6 +40,7 @@ from app.supply.service import (
     _request_options,
     _validate_cycle_for_new_request,
 )
+from app.supply.normalization import normalize_product_text
 
 
 PUBLIC_TOKEN_TECHNICAL_GRACE = timedelta(hours=24)
@@ -392,7 +396,13 @@ def create_public_request(
         session.add(supply_request)
         session.flush()
         for line in supply_request.lines:
-            _recognize_line(session, line, now=current_time)
+            _recognize_line(
+                session,
+                line,
+                department_id=department.id,
+                request_created_at=supply_request.created_at,
+                now=current_time,
+            )
         _apply_duplicate_detection(supply_request, supply_request.lines)
         session.flush()
         session.commit()
@@ -446,7 +456,13 @@ def recognize_public_request(
     previous_matched_at = [line.matched_at for line in lines]
     for line in lines:
         if line.match_method != "MANUAL":
-            _recognize_line(session, line, now=current_time)
+            _recognize_line(
+                session,
+                line,
+                department_id=supply_request.department_id,
+                request_created_at=supply_request.created_at,
+                now=current_time,
+            )
     _apply_duplicate_detection(supply_request, lines)
     after = [
         (
@@ -507,7 +523,13 @@ def replace_public_request_lines(
         ]
         session.flush()
         for line in supply_request.lines:
-            _recognize_line(session, line, now=current_time)
+            _recognize_line(
+                session,
+                line,
+                department_id=supply_request.department_id,
+                request_created_at=supply_request.created_at,
+                now=current_time,
+            )
         _apply_duplicate_detection(supply_request, supply_request.lines)
         supply_request.version += 1
         session.flush()
@@ -515,6 +537,89 @@ def replace_public_request_lines(
     except Exception:
         session.rollback()
         raise
+    return get_public_request(session, token, now=current_time)
+
+
+def list_public_clarification_options(
+    session: Session,
+    *,
+    department_id: UUID,
+    phrase: str | None,
+) -> list[SupplyProduct]:
+    if not phrase:
+        return []
+    normalized_phrase = normalize_product_text(phrase)
+    current_mapping = session.scalar(
+        select(SupplyDepartmentProductMapping.id).where(
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+            SupplyDepartmentProductMapping.department_id == department_id,
+            SupplyDepartmentProductMapping.normalized_phrase
+            == normalized_phrase,
+        )
+    )
+    if current_mapping is not None:
+        return []
+    products = list(session.scalars(
+        select(SupplyProduct)
+        .join(
+            SupplyDepartmentProductMapping,
+            SupplyDepartmentProductMapping.product_id == SupplyProduct.id,
+        )
+        .where(
+            SupplyDepartmentProductMapping.tenant_id
+            == settings.default_tenant_id,
+            SupplyDepartmentProductMapping.normalized_phrase
+            == normalized_phrase,
+            SupplyProduct.tenant_id == settings.default_tenant_id,
+            SupplyProduct.is_active.is_(True),
+        )
+        .distinct()
+        .order_by(SupplyProduct.name.asc(), SupplyProduct.id.asc())
+    ).all())
+    return products if len(products) > 1 else []
+
+
+def select_public_line_clarification(
+    session: Session,
+    token: str,
+    *,
+    line_id: UUID,
+    payload: PublicSupplyClarificationSelect,
+    now: datetime | None = None,
+) -> SupplyRequest:
+    current_time = now or datetime.now(timezone.utc)
+    supply_request = _get_public_request_for_update(
+        session,
+        token,
+        expected_version=payload.expected_version,
+        now=current_time,
+    )
+    _assert_draft_and_open(supply_request, now=current_time)
+    line = next((item for item in supply_request.lines if item.id == line_id), None)
+    if line is None:
+        raise SupplyRequestNotFoundError
+    options = list_public_clarification_options(
+        session,
+        department_id=supply_request.department_id,
+        phrase=line.parsed_name,
+    )
+    product = next(
+        (item for item in options if item.id == payload.product_id), None
+    )
+    if product is None or line.parsed_unit_id is None or line.parsed_quantity is None:
+        raise SupplyRequestStateError
+    line.product_id = product.id
+    line.requested_unit_id = line.parsed_unit_id
+    line.quantity = line.parsed_quantity
+    line.match_status = "MATCHED"
+    line.match_method = "MANUAL"
+    line.match_confidence = 1
+    line.matched_at = current_time
+    line.matched_by_user_id = None
+    line.match_notes = "Уточнено автором заявки"
+    supply_request.version += 1
+    session.commit()
     return get_public_request(session, token, now=current_time)
 
 

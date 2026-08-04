@@ -27,6 +27,10 @@ from app.models.iiko import (
 )
 from app.models.supply import (
     Department,
+    SupplyContextMappingAuditAction,
+    SupplyDepartmentProductCorrection,
+    SupplyDepartmentProductMapping,
+    SupplyDepartmentProductMappingAuditEvent,
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
@@ -72,6 +76,10 @@ __all__ = [
     "IikoWarehouseRole",
     "ScheduleAuditEventType",
     "Department",
+    "SupplyContextMappingAuditAction",
+    "SupplyDepartmentProductCorrection",
+    "SupplyDepartmentProductMapping",
+    "SupplyDepartmentProductMappingAuditEvent",
     "SupplyProduct",
     "SupplyProductAlias",
     "SupplyProductCategory",

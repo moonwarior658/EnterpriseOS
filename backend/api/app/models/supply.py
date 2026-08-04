@@ -44,9 +44,18 @@ class SupplyProductSourceAuditAction(StrEnum):
     REPLACED = "REPLACED"
 
 
+class SupplyContextMappingAuditAction(StrEnum):
+    CREATED = "CREATED"
+    REPLACED = "REPLACED"
+    DELETED = "DELETED"
+
+
 class Department(Base):
     __tablename__ = "departments"
     __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_departments_tenant_id"
+        ),
         UniqueConstraint(
             "tenant_id",
             "code",
@@ -392,6 +401,9 @@ class SupplyProduct(Base):
     __tablename__ = "supply_products"
     __table_args__ = (
         UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_products_tenant_id"
+        ),
+        UniqueConstraint(
             "tenant_id",
             "normalized_name",
             name="uq_supply_products_tenant_normalized_name",
@@ -532,6 +544,169 @@ class SupplyProductAlias(Base):
     )
 
     product: Mapped[SupplyProduct] = relationship(back_populates="aliases")
+
+
+class SupplyDepartmentProductMapping(Base):
+    __tablename__ = "supply_department_product_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "department_id", "normalized_phrase",
+            name="uq_supply_department_product_mapping_context",
+        ),
+        Index(
+            "ix_supply_department_product_mapping_phrase",
+            "tenant_id", "normalized_phrase",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_supply_context_mapping_tenant_department",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_context_mapping_tenant_product",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "version >= 1", name="ck_supply_context_mapping_version"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    department_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    phrase: Mapped[str] = mapped_column(String(240), nullable=False)
+    normalized_phrase: Mapped[str] = mapped_column(String(240), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    is_permanent: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False
+    )
+
+    department: Mapped[Department] = relationship(overlaps="product")
+    product: Mapped[SupplyProduct] = relationship(overlaps="department")
+
+
+class SupplyDepartmentProductCorrection(Base):
+    __tablename__ = "supply_department_product_corrections"
+    __table_args__ = (
+        UniqueConstraint(
+            "request_line_id", "product_id",
+            name="uq_supply_department_product_correction_line_product",
+        ),
+        Index(
+            "ix_supply_department_product_correction_count",
+            "tenant_id", "department_id", "normalized_phrase", "product_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_supply_context_correction_tenant_department",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_context_correction_tenant_product",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    department_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    normalized_phrase: Mapped[str] = mapped_column(String(240), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    request_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_request_lines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    corrected_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SupplyDepartmentProductMappingAuditEvent(Base):
+    __tablename__ = "supply_department_product_mapping_audit_events"
+    __table_args__ = (
+        Index(
+            "ix_supply_department_product_mapping_audit",
+            "tenant_id", "mapping_id", "created_at",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_supply_context_audit_tenant_department",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    mapping_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    action: Mapped[SupplyContextMappingAuditAction] = mapped_column(
+        SqlEnum(
+            SupplyContextMappingAuditAction,
+            name="supply_context_mapping_audit_action",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=16,
+        ),
+        nullable=False,
+    )
+    department_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    normalized_phrase: Mapped[str] = mapped_column(String(240), nullable=False)
+    previous_product_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    product_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class SupplyProductSourceMapping(Base):
@@ -907,7 +1082,7 @@ class SupplyRequestLine(Base):
         ),
         CheckConstraint(
             "match_method IS NULL OR match_method IN "
-            "('EXACT_PRODUCT', 'EXACT_ALIAS', 'MANUAL')",
+            "('CONTEXT_MAPPING', 'EXACT_PRODUCT', 'EXACT_ALIAS', 'MANUAL')",
             name="ck_supply_request_lines_match_method",
         ),
         CheckConstraint(

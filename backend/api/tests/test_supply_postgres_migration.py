@@ -45,6 +45,7 @@ from app.models.supply import (
     Department,
     LegalContour,
     SupplyDepartmentDebt,
+    SupplyDepartmentProductMapping,
     SupplyProduct,
     SupplyProductSourceMapping,
     SupplyProductSourceMappingAuditEvent,
@@ -71,7 +72,14 @@ from app.models.automation import (
 )
 from app.supply.normalization import normalize_product_text
 from app.supply.public_service import list_public_schedule_summaries
-from app.supply.service import plan_supply_request
+from app.supply.service import (
+    SupplyContextMappingVersionConflictError,
+    bootstrap_permanent_milk_context_mappings,
+    delete_context_mapping,
+    plan_supply_request,
+    recognize_supply_request,
+    replace_context_mapping,
+)
 from app.supply import source_mapping as source_mapping_service
 from app.supply.source_mapping import (
     SupplyProductSourceConcurrentAssignmentError,
@@ -1486,13 +1494,397 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         )
         assert_revision_0025()
 
+    def test_01c_contextual_mapping_migration_cycle(self) -> None:
+        command.upgrade(self.alembic_config, "20260804_0026")
+        if self._current_revision() == "20260804_0026":
+            command.downgrade(self.alembic_config, "20260803_0025")
+        self.assertEqual(self._current_revision(), "20260803_0025")
+
+        actor_id = 93011
+        request_id = uuid4()
+        line_id = uuid4()
+        with self.engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO users
+                    (id, username, display_name, hashed_password,
+                     is_active, is_admin)
+                VALUES
+                    (:actor_id, 'context-cycle-admin', 'Context cycle admin',
+                     'unused', true, true)
+                ON CONFLICT (id) DO NOTHING
+            """), {"actor_id": actor_id})
+            connection.execute(text("""
+                INSERT INTO supply_requests
+                    (id, tenant_id, public_number, department_id,
+                     direction_id, status, source_type, raw_input,
+                     version, created_by_user_id)
+                SELECT
+                    :request_id, 'eclair', :public_number, department.id,
+                    direction.id, 'DRAFT', 'INTERNAL', 'молоко 1 л',
+                    1, :actor_id
+                FROM departments AS department
+                CROSS JOIN supply_request_directions AS direction
+                WHERE department.tenant_id = 'eclair'
+                  AND department.code = 'М15'
+                  AND direction.tenant_id = 'eclair'
+                  AND direction.code = 'MAIN'
+            """), {
+                "request_id": request_id,
+                "public_number": f"CTX-CYCLE-{request_id}",
+                "actor_id": actor_id,
+            })
+            connection.execute(text("""
+                INSERT INTO supply_request_lines
+                    (id, request_id, position, raw_text)
+                VALUES (:line_id, :request_id, 1, 'молоко 1 л')
+            """), {"line_id": line_id, "request_id": request_id})
+
+        command.upgrade(self.alembic_config, "20260804_0026")
+        self.assertEqual(self._current_revision(), "20260804_0026")
+        inspector = inspect(self.engine)
+        mapping_columns = {
+            column["name"]: column
+            for column in inspector.get_columns(
+                "supply_department_product_mappings"
+            )
+        }
+        self.assertFalse(mapping_columns["version"]["nullable"])
+        self.assertIn("1", str(mapping_columns["version"]["default"]))
+        self.assertIn(
+            "ck_supply_context_mapping_version",
+            {
+                item["name"]
+                for item in inspector.get_check_constraints(
+                    "supply_department_product_mappings"
+                )
+            },
+        )
+        mapping_foreign_keys = {
+            (
+                key["name"],
+                tuple(key["constrained_columns"]),
+                key["referred_table"],
+                tuple(key["referred_columns"]),
+            )
+            for key in inspector.get_foreign_keys(
+                "supply_department_product_mappings"
+            )
+        }
+        self.assertIn(
+            (
+                "fk_supply_context_mapping_tenant_department",
+                ("tenant_id", "department_id"),
+                "departments",
+                ("tenant_id", "id"),
+            ),
+            mapping_foreign_keys,
+        )
+        self.assertIn(
+            (
+                "fk_supply_context_mapping_tenant_product",
+                ("tenant_id", "product_id"),
+                "supply_products",
+                ("tenant_id", "id"),
+            ),
+            mapping_foreign_keys,
+        )
+        with self.engine.begin() as connection:
+            self.assertEqual(connection.scalar(text(
+                "SELECT count(*) FROM supply_department_product_mappings"
+            )), 0)
+            result = connection.execute(text("""
+                UPDATE supply_request_lines
+                SET match_method = 'CONTEXT_MAPPING'
+                WHERE id = :line_id
+            """), {"line_id": line_id})
+            self.assertEqual(result.rowcount, 1)
+
+        command.downgrade(self.alembic_config, "20260803_0025")
+        self.assertEqual(self._current_revision(), "20260803_0025")
+        self.assertNotIn(
+            "supply_department_product_mappings",
+            inspect(self.engine).get_table_names(),
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(connection.scalar(text("""
+                SELECT match_method
+                FROM supply_request_lines
+                WHERE id = :line_id
+            """), {"line_id": line_id}), "MANUAL")
+
+        command.upgrade(self.alembic_config, "20260804_0026")
+        self.assertEqual(self._current_revision(), "20260804_0026")
+        with self.engine.connect() as connection:
+            self.assertEqual(connection.scalar(text(
+                "SELECT count(*) FROM supply_department_product_mappings"
+            )), 0)
+
+    def test_01d_contextual_mapping_postgres_contracts(self) -> None:
+        command.upgrade(self.alembic_config, "20260804_0026")
+        self.assertEqual(self._current_revision(), "20260804_0026")
+        previous_tenant_id = settings.default_tenant_id
+        tenant_suffix = uuid4().hex[:8]
+        primary_tenant = f"context-primary-{tenant_suffix}"
+        settings.default_tenant_id = primary_tenant
+        actor_id = 93001
+        now = datetime.now(timezone.utc)
+        old_request_id = uuid4()
+        old_line_id = uuid4()
+        new_request_id = uuid4()
+        new_line_id = uuid4()
+        second_product_id = uuid4()
+        conflict_tenant = f"context-conflict-{tenant_suffix}"
+        other_tenant = f"context-other-{tenant_suffix}"
+        try:
+            with self.sessions.begin() as session:
+                if session.get(User, actor_id) is None:
+                    session.add(User(
+                        id=actor_id,
+                        username="context-admin",
+                        display_name="Context admin",
+                        hashed_password="unused",
+                        is_active=True,
+                        is_admin=True,
+                    ))
+                unit = SupplyUnit(
+                    tenant_id=primary_tenant,
+                    code="L",
+                    name_ru="Литр",
+                    short_name_ru="л",
+                    allows_fraction=True,
+                )
+                direction = SupplyRequestDirection(
+                    tenant_id=primary_tenant,
+                    code="MAIN",
+                    name="Основная заявка",
+                )
+                departments = [
+                    Department(
+                        tenant_id=primary_tenant,
+                        code=code,
+                        name=f"{primary_tenant} {code}",
+                    )
+                    for code in ("М15", "М35", "М6А", "ATO")
+                ]
+                session.add_all([unit, direction, *departments])
+                session.flush()
+                department = next(
+                    item for item in departments if item.code == "М15"
+                )
+                coffee_product = SupplyProduct(
+                    tenant_id=primary_tenant,
+                    name="Молоко для кофе",
+                    normalized_name="молоко для кофе",
+                    default_unit_id=unit.id,
+                )
+                second_product = SupplyProduct(
+                    id=second_product_id,
+                    tenant_id=primary_tenant,
+                    name="Молоко альтернативное",
+                    normalized_name="молоко альтернативное",
+                    default_unit_id=unit.id,
+                )
+                session.add_all([coffee_product, second_product])
+                session.flush()
+                coffee_product_id = coffee_product.id
+                session.add(SupplyRequest(
+                    id=old_request_id,
+                    tenant_id=primary_tenant,
+                    public_number=f"CTX-OLD-{old_request_id}",
+                    department_id=department.id,
+                    direction_id=direction.id,
+                    status="DRAFT",
+                    source_type="INTERNAL",
+                    raw_input="молоко 1 л",
+                    version=1,
+                    created_by_user_id=actor_id,
+                    created_at=now - timedelta(minutes=5),
+                    lines=[SupplyRequestLine(
+                        id=old_line_id,
+                        position=1,
+                        raw_text="молоко 1 л",
+                    )],
+                ))
+
+            with self.sessions() as session:
+                report = bootstrap_permanent_milk_context_mappings(
+                    session,
+                    tenant_id=primary_tenant,
+                    actor_user_id=actor_id,
+                )
+                self.assertEqual(report.status, "CREATED")
+                self.assertEqual(report.created, 3)
+
+            with self.sessions.begin() as session:
+                department = session.scalar(select(Department).where(
+                    Department.tenant_id == primary_tenant,
+                    Department.code == "М15",
+                ))
+                direction = session.scalar(select(SupplyRequestDirection).where(
+                    SupplyRequestDirection.tenant_id == primary_tenant,
+                    SupplyRequestDirection.code == "MAIN",
+                ))
+                session.add(SupplyRequest(
+                    id=new_request_id,
+                    tenant_id=primary_tenant,
+                    public_number=f"CTX-NEW-{new_request_id}",
+                    department_id=department.id,
+                    direction_id=direction.id,
+                    status="DRAFT",
+                    source_type="INTERNAL",
+                    raw_input="молоко 2 л",
+                    version=1,
+                    created_by_user_id=actor_id,
+                    created_at=datetime.now(timezone.utc) + timedelta(seconds=1),
+                    lines=[SupplyRequestLine(
+                        id=new_line_id,
+                        position=1,
+                        raw_text="молоко 2 л",
+                    )],
+                ))
+
+            with self.sessions() as session:
+                old_result = recognize_supply_request(
+                    session, old_request_id, expected_version=1
+                )
+                self.assertEqual(old_result.matched, 0)
+            with self.sessions() as session:
+                new_result = recognize_supply_request(
+                    session, new_request_id, expected_version=1
+                )
+                self.assertEqual(new_result.matched, 1)
+                matched = session.get(SupplyRequestLine, new_line_id)
+                self.assertEqual(matched.product_id, coffee_product_id)
+                self.assertEqual(matched.match_method, "CONTEXT_MAPPING")
+
+            with self.sessions.begin() as session:
+                department = session.scalar(select(Department).where(
+                    Department.tenant_id == primary_tenant,
+                    Department.code == "ATO",
+                ))
+                versioned_mapping = SupplyDepartmentProductMapping(
+                    tenant_id=primary_tenant,
+                    department_id=department.id,
+                    phrase="версия",
+                    normalized_phrase="версия",
+                    product_id=coffee_product_id,
+                )
+                session.add(versioned_mapping)
+                session.flush()
+                versioned_mapping_id = versioned_mapping.id
+            with self.sessions() as session:
+                replaced = replace_context_mapping(
+                    session,
+                    mapping_id=versioned_mapping_id,
+                    product_id=second_product_id,
+                    expected_version=1,
+                    actor_user_id=actor_id,
+                )
+                self.assertEqual(replaced.version, 2)
+            with self.sessions() as session:
+                with self.assertRaises(SupplyContextMappingVersionConflictError):
+                    replace_context_mapping(
+                        session,
+                        mapping_id=versioned_mapping_id,
+                        product_id=coffee_product_id,
+                        expected_version=1,
+                        actor_user_id=actor_id,
+                    )
+            with self.sessions() as session:
+                with self.assertRaises(SupplyContextMappingVersionConflictError):
+                    delete_context_mapping(
+                        session,
+                        mapping_id=versioned_mapping_id,
+                        expected_version=1,
+                        actor_user_id=actor_id,
+                    )
+
+            with self.sessions.begin() as session:
+                for tenant_id in (other_tenant, conflict_tenant):
+                    unit = SupplyUnit(
+                        tenant_id=tenant_id,
+                        code="L",
+                        name_ru="Литр",
+                        short_name_ru="л",
+                        allows_fraction=True,
+                    )
+                    session.add(unit)
+                    session.flush()
+                    product = SupplyProduct(
+                        tenant_id=tenant_id,
+                        name="Молоко для кофе",
+                        normalized_name="молоко для кофе",
+                        default_unit_id=unit.id,
+                    )
+                    alternate = SupplyProduct(
+                        tenant_id=tenant_id,
+                        name="Другой товар",
+                        normalized_name="другой товар",
+                        default_unit_id=unit.id,
+                    )
+                    session.add_all([product, alternate])
+                    session.flush()
+                    for code in ("М15", "М35", "М6А"):
+                        session.add(Department(
+                            tenant_id=tenant_id,
+                            code=code,
+                            name=f"{tenant_id} {code}",
+                        ))
+                    session.flush()
+                    if tenant_id == conflict_tenant:
+                        conflict_department = session.scalar(
+                            select(Department).where(
+                                Department.tenant_id == tenant_id,
+                                Department.code == "М15",
+                            )
+                        )
+                        session.add(SupplyDepartmentProductMapping(
+                            tenant_id=tenant_id,
+                            department_id=conflict_department.id,
+                            phrase="молоко",
+                            normalized_phrase="молоко",
+                            product_id=alternate.id,
+                        ))
+
+            with self.sessions() as session:
+                selected = bootstrap_permanent_milk_context_mappings(
+                    session,
+                    tenant_id=other_tenant,
+                    actor_user_id=actor_id,
+                )
+                self.assertEqual(selected.created, 3)
+            with self.sessions() as session:
+                self.assertEqual(session.scalar(select(func.count()).select_from(
+                    SupplyDepartmentProductMapping
+                ).where(
+                    SupplyDepartmentProductMapping.tenant_id == conflict_tenant,
+                    SupplyDepartmentProductMapping.is_permanent.is_(True),
+                )), 0)
+                blocked = bootstrap_permanent_milk_context_mappings(
+                    session,
+                    tenant_id=conflict_tenant,
+                    actor_user_id=actor_id,
+                )
+                self.assertEqual(blocked.status, "BLOCKED")
+                self.assertTrue(blocked.errors)
+            with self.sessions() as session:
+                missing = bootstrap_permanent_milk_context_mappings(
+                    session,
+                    tenant_id=f"context-missing-{tenant_suffix}",
+                    actor_user_id=actor_id,
+                )
+                self.assertEqual(missing.status, "BLOCKED")
+                self.assertEqual(missing.created, 0)
+        finally:
+            settings.default_tenant_id = previous_tenant_id
+
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260803_0025")
+        self.assertEqual(self._current_revision(), "20260804_0026")
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()
-        self._assert_iiko_warehouse_destination_schema()
+        self._assert_iiko_warehouse_legal_contour_schema()
 
         previous_tenant_id = settings.default_tenant_id
         settings.default_tenant_id = "eclair"
@@ -2067,6 +2459,16 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             unit = session.query(SupplyUnit).filter_by(
                 tenant_id="eclair", code="KG"
             ).one()
+            product_name = f"Редкий ингредиент EOS {uuid4().hex[:8]}"
+            product = SupplyProduct(
+                tenant_id="eclair",
+                name=product_name,
+                normalized_name=normalize_product_text(product_name),
+                default_unit_id=unit.id,
+            )
+            session.add(product)
+            session.flush()
+            product_id = product.id
             cycle = SupplyRequestCycle(
                 tenant_id="eclair",
                 direction_id=direction.id,
@@ -2099,8 +2501,9 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 quantity=3,
                 send_quantity=2,
                 requested_unit_id=unit.id,
-                product_id=None,
-                match_status="NEEDS_REVIEW",
+                product_id=product_id,
+                match_status="MATCHED",
+                match_method="MANUAL",
             )
             session.add(line)
             session.flush()
@@ -2161,8 +2564,8 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             self.assertEqual(detail_line["unresolved_quantity"], "1.000")
             self.assertEqual(detail_line["active_debt_quantity"], "1.000")
             self.assertEqual(debts.json()["total"], 1)
-            self.assertIsNone(debt["product"])
-            self.assertEqual(debt["working_name"], "Редкий ингредиент")
+            self.assertEqual(debt["product"]["id"], str(product_id))
+            self.assertEqual(debt["working_name"], product_name)
             self.assertEqual(debt["outstanding_quantity"], "1.000")
             self.assertEqual(dashboard.json()["active_debts"], 1)
             with session_factory() as session:

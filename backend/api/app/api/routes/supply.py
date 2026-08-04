@@ -39,6 +39,11 @@ from app.schemas.supply import (
     SupplyDashboardSummary,
     SupplyProductAliasCreate,
     SupplyProductAliasRead,
+    SupplyContextMappingConfirm,
+    SupplyContextMappingBootstrapRead,
+    SupplyContextMappingBootstrapRequest,
+    SupplyContextMappingRead,
+    SupplyContextMappingReplace,
     SupplyProductCreate,
     SupplyProductPage,
     SupplyProductRead,
@@ -128,6 +133,7 @@ from app.supply.service import (
     SupplyRequestDuplicatesPresentError,
     SupplyRequestStateError,
     SupplyRequestVersionConflictError,
+    SupplyContextMappingVersionConflictError,
     SupplyUnitNotFoundError,
     SupplyStorageZoneNotFoundError,
     archive_supply_product,
@@ -156,6 +162,10 @@ from app.supply.service import (
     plan_supply_request,
     cancel_supply_request,
     manually_match_supply_request_line,
+    confirm_context_mapping_for_line,
+    bootstrap_permanent_milk_context_mappings,
+    delete_context_mapping,
+    replace_context_mapping,
     update_supply_line_working_values,
     detect_supply_request_duplicates,
     recognize_supply_request,
@@ -1226,6 +1236,135 @@ def match_request_line(
         raise _invalid_product_reference(
             "Для выбранной единицы допустимо только целое количество"
         ) from error
+
+
+@router.post(
+    "/requests/{request_id}/lines/{line_id}/context-mapping",
+    response_model=SupplyContextMappingRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def confirm_line_context_mapping(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyContextMappingConfirm,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    try:
+        return confirm_context_mapping_for_line(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            product_id=payload.product_id,
+            expected_version=payload.expected_version,
+            actor_user_id=current_admin.id,
+        )
+    except (SupplyRequestLineNotFoundError, SupplyProductNotFoundError) as error:
+        raise _not_found() from error
+    except (SupplyRequestStateError, IntegrityError) as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_CONTEXT_MAPPING_NOT_AVAILABLE"},
+        ) from error
+    except SupplyContextMappingVersionConflictError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_version": error.current_version,
+                "expected_version": error.expected_version,
+            },
+        ) from error
+
+
+@router.post(
+    "/context-mappings/bootstrap-permanent-milk",
+    response_model=SupplyContextMappingBootstrapRead,
+)
+def bootstrap_permanent_milk_mappings(
+    payload: SupplyContextMappingBootstrapRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    return bootstrap_permanent_milk_context_mappings(
+        db,
+        tenant_id=payload.tenant_id,
+        actor_user_id=current_admin.id,
+    )
+
+
+@router.put(
+    "/context-mappings/{mapping_id}",
+    response_model=SupplyContextMappingRead,
+)
+def replace_department_context_mapping(
+    mapping_id: UUID,
+    payload: SupplyContextMappingReplace,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    try:
+        return replace_context_mapping(
+            db,
+            mapping_id=mapping_id,
+            product_id=payload.product_id,
+            expected_version=payload.expected_version,
+            actor_user_id=current_admin.id,
+        )
+    except SupplyContextMappingVersionConflictError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_version": error.current_version,
+                "expected_version": error.expected_version,
+            },
+        ) from error
+    except (SupplyRequestStateError, SupplyProductNotFoundError) as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_CONTEXT_MAPPING_NOT_EDITABLE"},
+        ) from error
+
+
+@router.delete(
+    "/context-mappings/{mapping_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_department_context_mapping(
+    mapping_id: UUID,
+    expected_version: Annotated[int, Query(ge=1)],
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> Response:
+    try:
+        delete_context_mapping(
+            db,
+            mapping_id=mapping_id,
+            expected_version=expected_version,
+            actor_user_id=current_admin.id,
+        )
+    except SupplyContextMappingVersionConflictError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_version": error.current_version,
+                "expected_version": error.expected_version,
+            },
+        ) from error
+    except SupplyRequestStateError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_CONTEXT_MAPPING_NOT_EDITABLE"},
+        ) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch(

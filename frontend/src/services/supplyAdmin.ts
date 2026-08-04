@@ -66,6 +66,15 @@ export type SupplyLine = {
   requires_debt_confirmation: boolean
   unallocated_quantity: string
   planning_status: string
+  context_mapping_suggestion: {
+    mapping_id: string | null
+    mapping_version: number | null
+    department_id: string
+    phrase: string
+    product_id: string
+    product_name: string
+    correction_count: number
+  } | null
 }
 
 export type SupplyRequestSummary = {
@@ -424,6 +433,24 @@ export function matchSupplyLine(
     method: 'POST',
     body: JSON.stringify({ ...input, action: 'MATCH' }),
   })
+}
+
+export function confirmSupplyContextMapping(
+  requestId: string,
+  lineId: string,
+  productId: string,
+  expectedVersion: number | null,
+): Promise<{ id: string }> {
+  return request(
+    `/supply/requests/${requestId}/lines/${lineId}/context-mapping`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        product_id: productId,
+        expected_version: expectedVersion,
+      }),
+    },
+  )
 }
 
 export function recognizeSupplyRequest(
