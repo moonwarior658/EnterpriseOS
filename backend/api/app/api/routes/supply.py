@@ -67,6 +67,10 @@ from app.schemas.supply import (
     SupplyRequestRead,
     SupplyIikoSourceWarehouseSelect,
     SupplyIikoStockCheckRead,
+    SupplyProductSourceAssign,
+    SupplyProductSourceBootstrapRead,
+    SupplyProductSourceMappingRead,
+    SupplyProductSourcePreviewRead,
     SupplyRequestCancel,
     SupplyRequestStatus,
     SupplyUnitRead,
@@ -179,6 +183,19 @@ from app.supply.iiko_stock import (
     SupplyIikoVersionConflictError,
     get_stock_check,
     select_source_warehouse,
+)
+from app.supply.source_mapping import (
+    SupplyProductSourceConcurrentAssignmentError,
+    SupplyProductSourceNotAllowedError,
+    SupplyProductSourceProductNotEligibleError,
+    SupplyProductSourceReplacementCommentRequiredError,
+    SupplyProductSourceRequestNotFoundError,
+    SupplyProductSourceResolutionBlockedError,
+    SupplyProductSourceVersionConflictError,
+    assign_product_source,
+    bootstrap_product_source_mappings,
+    get_product_source_preview,
+    resolve_supply_request_sources,
 )
 
 
@@ -969,6 +986,119 @@ def update_iiko_source_warehouse(
                 "code": "SUPPLY_REQUEST_VERSION_CONFLICT",
                 "current_version": error.current_version,
                 "expected_version": error.expected_version,
+            },
+        ) from error
+
+
+@router.post(
+    "/product-source-mappings/bootstrap",
+    response_model=SupplyProductSourceBootstrapRead,
+)
+def bootstrap_source_mappings(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSourceBootstrapRead:
+    return bootstrap_product_source_mappings(
+        db,
+        tenant_id=settings.default_tenant_id,
+        actor_user_id=user.id,
+    )
+
+
+@router.put(
+    "/products/{product_id}/source-mapping",
+    response_model=SupplyProductSourceMappingRead,
+)
+def update_product_source_mapping(
+    product_id: UUID,
+    payload: SupplyProductSourceAssign,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSourceMappingRead:
+    try:
+        return assign_product_source(
+            db,
+            tenant_id=settings.default_tenant_id,
+            product_id=product_id,
+            legal_contour=payload.legal_contour,
+            source_mapping_id=payload.source_mapping_id,
+            actor_user_id=user.id,
+            expected_version=payload.expected_version,
+            comment=payload.comment,
+        )
+    except SupplyProductSourceProductNotEligibleError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_PRODUCT_SOURCE_PRODUCT_NOT_ELIGIBLE"},
+        ) from error
+    except SupplyProductSourceNotAllowedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_PRODUCT_SOURCE_NOT_ALLOWED"},
+        ) from error
+    except SupplyProductSourceReplacementCommentRequiredError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_PRODUCT_SOURCE_REPLACEMENT_COMMENT_REQUIRED"},
+        ) from error
+    except SupplyProductSourceVersionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_version": error.current_version,
+                "expected_version": error.expected_version,
+            },
+        ) from error
+    except SupplyProductSourceConcurrentAssignmentError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_PRODUCT_SOURCE_CONFLICT"},
+        ) from error
+
+
+@router.get(
+    "/requests/{request_id}/source-groups-preview",
+    response_model=SupplyProductSourcePreviewRead,
+)
+def read_source_groups_preview(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSourcePreviewRead:
+    try:
+        return get_product_source_preview(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+        )
+    except SupplyProductSourceRequestNotFoundError as error:
+        raise _not_found() from error
+
+
+@router.post(
+    "/requests/{request_id}/source-resolution/resolve",
+    response_model=SupplyProductSourcePreviewRead,
+)
+def resolve_request_sources(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSourcePreviewRead:
+    try:
+        return resolve_supply_request_sources(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+        )
+    except SupplyProductSourceRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyProductSourceResolutionBlockedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "SUPPLY_PRODUCT_SOURCE_RESOLUTION_INCOMPLETE",
+                "preview": error.preview.model_dump(mode="json"),
             },
         ) from error
 

@@ -131,6 +131,53 @@ export type SupplyIikoStockCheck = {
   lines: SupplyIikoStockLine[]
 }
 
+export type SupplyProductSourceOption = {
+  mapping_id: string
+  iiko_warehouse_id: string
+  name: string
+  role: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD'
+  legal_contour: 'IP' | 'OOO'
+}
+
+export type SupplyProductSourcePreview = {
+  request_id: string
+  legal_contour: 'IP' | 'OOO' | null
+  assigned_products: number
+  total_products: number
+  ready_for_shipment: boolean
+  blocking_reasons: string[]
+  products: Array<{
+    product_id: string
+    product_name: string
+    role: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD' | null
+    iiko_mapping_confirmed: boolean
+    assigned_source: SupplyProductSourceOption | null
+    mapping_version: number | null
+    available_sources: SupplyProductSourceOption[]
+    blocking_reason: string | null
+  }>
+  groups: Array<{
+    source: SupplyProductSourceOption
+    lines: Array<{
+      line_id: string
+      position: number
+      product_id: string
+      product_name: string
+      quantity: string | null
+      unit: SupplyUnit | null
+    }>
+  }>
+}
+
+export type SupplyProductSourceBootstrap = {
+  created: number
+  already_mapped: number
+  conflicts: number
+  missing_source: number
+  ambiguous_source: number
+  unsupported_prefix: number
+}
+
 export type SupplyDebtEvent = {
   id: string
   event_type: string
@@ -300,6 +347,40 @@ export function selectSupplyIikoSourceWarehouse(
       mapping_id: mappingId,
       expected_version: expectedVersion,
     }),
+  })
+}
+
+export function getSupplyProductSourcePreview(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<SupplyProductSourcePreview> {
+  return request(`/supply/requests/${requestId}/source-groups-preview`, {
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export function assignSupplyProductSource(
+  productId: string,
+  legalContour: 'IP' | 'OOO',
+  sourceMappingId: string,
+  expectedVersion: number | null,
+  comment: string | null,
+): Promise<unknown> {
+  return request(`/supply/products/${productId}/source-mapping`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      legal_contour: legalContour,
+      source_mapping_id: sourceMappingId,
+      expected_version: expectedVersion,
+      comment,
+    }),
+  })
+}
+
+export function bootstrapSupplyProductSources(): Promise<SupplyProductSourceBootstrap> {
+  return request('/supply/product-source-mappings/bootstrap', {
+    method: 'POST',
   })
 }
 

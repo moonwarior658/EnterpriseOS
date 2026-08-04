@@ -3,8 +3,9 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from threading import Barrier
-from uuid import uuid4
+from threading import Barrier, Event, local
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -42,13 +43,23 @@ from app.db.session import get_db
 from app.main import app
 from app.models.supply import (
     Department,
+    LegalContour,
     SupplyDepartmentDebt,
     SupplyProduct,
+    SupplyProductSourceMapping,
+    SupplyProductSourceMappingAuditEvent,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyUnit,
+)
+from app.models.iiko import (
+    IikoMappingStatus,
+    IikoProductMapping,
+    IikoWarehouseDestinationType,
+    IikoWarehouseMapping,
+    IikoWarehouseRole,
 )
 from app.models.user import User
 from app.models.automation import (
@@ -61,6 +72,13 @@ from app.models.automation import (
 from app.supply.normalization import normalize_product_text
 from app.supply.public_service import list_public_schedule_summaries
 from app.supply.service import plan_supply_request
+from app.supply import source_mapping as source_mapping_service
+from app.supply.source_mapping import (
+    SupplyProductSourceConcurrentAssignmentError,
+    SupplyProductSourceVersionConflictError,
+    assign_product_source,
+    bootstrap_product_source_mappings,
+)
 
 
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
@@ -121,6 +139,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         cls.alembic_config = Config(
             str(Path(__file__).parents[1] / "alembic.ini")
         )
+        cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -148,6 +167,73 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             (column["name"], str(column["type"]), column["nullable"])
             for column in inspect(self.engine).get_columns(table_name)
         ]
+
+    def _seed_product_source_rows(
+        self,
+        *,
+        tenant_id: str,
+        product_ids: list[UUID],
+        source_count: int = 1,
+    ) -> tuple[int, list[UUID]]:
+        actor_id = 10_000 + (uuid4().int % 1_000_000_000)
+        unit_id = uuid4()
+        source_ids: list[UUID] = []
+        with self.sessions.begin() as session:
+            session.add(User(
+                id=actor_id,
+                username=f"source-{tenant_id}",
+                display_name="PostgreSQL SOURCE test",
+                hashed_password="unused",
+                is_active=True,
+                is_admin=True,
+            ))
+            session.add(SupplyUnit(
+                id=unit_id,
+                tenant_id=tenant_id,
+                code="KG",
+                name_ru="Килограмм",
+                short_name_ru="кг",
+                allows_fraction=True,
+            ))
+            for position, product_id in enumerate(product_ids, start=1):
+                session.add(SupplyProduct(
+                    id=product_id,
+                    tenant_id=tenant_id,
+                    name=f"Товар {position}",
+                    normalized_name=f"товар {position}",
+                    default_unit_id=unit_id,
+                ))
+                session.add(IikoProductMapping(
+                    tenant_id=tenant_id,
+                    iiko_product_id=uuid4(),
+                    eos_product_id=product_id,
+                    status=IikoMappingStatus.CONFIRMED,
+                    source_name=f"т Товар {position}",
+                ))
+            for position in range(1, source_count + 1):
+                source = IikoWarehouseMapping(
+                    tenant_id=tenant_id,
+                    iiko_warehouse_id=uuid4(),
+                    destination_type=IikoWarehouseDestinationType.SOURCE,
+                    role=IikoWarehouseRole.MAIN,
+                    legal_contour=LegalContour.IP,
+                    status=IikoMappingStatus.CONFIRMED,
+                    source_name=f"SOURCE {position}",
+                )
+                session.add(source)
+                session.flush()
+                source_ids.append(source.id)
+        return actor_id, source_ids
+
+    def _postgres_session(self):
+        connection = self.engine.connect()
+        connection.execute(text("SET lock_timeout = '5s'"))
+        connection.execute(text("SET statement_timeout = '15s'"))
+        connection.commit()
+        return connection, sessionmaker(
+            bind=connection,
+            expire_on_commit=False,
+        )()
 
     def _assert_supply_schema_and_seed(self) -> None:
         inspector = inspect(self.engine)
@@ -1303,9 +1389,106 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         self.assertEqual(self._current_revision(), "20260727_0007")
         self._assert_supply_schema_and_seed()
 
+    def test_01b_product_source_migration_cycle(self) -> None:
+        current_revision = self._current_revision()
+        if current_revision == "20260803_0025":
+            command.downgrade(self.alembic_config, "20260803_0024")
+        else:
+            command.upgrade(self.alembic_config, "20260803_0024")
+        self.assertEqual(self._current_revision(), "20260803_0024")
+        self.assertNotIn(
+            "supply_product_source_mappings",
+            inspect(self.engine).get_table_names(),
+        )
+
+        def assert_revision_0025() -> None:
+            command.upgrade(self.alembic_config, "20260803_0025")
+            self.assertEqual(self._current_revision(), "20260803_0025")
+            inspector = inspect(self.engine)
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns(
+                    "supply_product_source_mappings"
+                )
+            }
+            self.assertFalse(columns["version"]["nullable"])
+            self.assertIn("1", str(columns["version"]["default"]))
+            unique_constraints = {
+                constraint["name"]: constraint["column_names"]
+                for constraint in inspector.get_unique_constraints(
+                    "supply_product_source_mappings"
+                )
+            }
+            self.assertEqual(
+                unique_constraints[
+                    "uq_supply_product_source_mapping_product_contour"
+                ],
+                ["tenant_id", "eos_product_id", "legal_contour"],
+            )
+            check_constraints = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints(
+                    "supply_product_source_mappings"
+                )
+            }
+            self.assertTrue({
+                "ck_supply_product_source_mapping_version",
+                "supply_product_source_legal_contour",
+                "supply_product_source_role",
+            } <= check_constraints)
+            foreign_keys = {
+                (
+                    tuple(key["constrained_columns"]),
+                    key["referred_table"],
+                    tuple(key["referred_columns"]),
+                )
+                for key in inspector.get_foreign_keys(
+                    "supply_product_source_mappings"
+                )
+            }
+            self.assertIn(
+                (("eos_product_id",), "supply_products", ("id",)),
+                foreign_keys,
+            )
+            self.assertIn(
+                (
+                    ("source_warehouse_mapping_id",),
+                    "iiko_warehouse_mappings",
+                    ("id",),
+                ),
+                foreign_keys,
+            )
+            self.assertIn(
+                (("assigned_by_user_id",), "users", ("id",)),
+                foreign_keys,
+            )
+            audit_foreign_keys = {
+                (
+                    tuple(key["constrained_columns"]),
+                    key["referred_table"],
+                    tuple(key["referred_columns"]),
+                )
+                for key in inspector.get_foreign_keys(
+                    "supply_product_source_mapping_audit_events"
+                )
+            }
+            self.assertTrue({
+                (("mapping_id",), "supply_product_source_mappings", ("id",)),
+                (("actor_user_id",), "users", ("id",)),
+            } <= audit_foreign_keys)
+
+        assert_revision_0025()
+        command.downgrade(self.alembic_config, "20260803_0024")
+        self.assertEqual(self._current_revision(), "20260803_0024")
+        self.assertNotIn(
+            "supply_product_source_mappings",
+            inspect(self.engine).get_table_names(),
+        )
+        assert_revision_0025()
+
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260730_0020")
+        self.assertEqual(self._current_revision(), "20260803_0025")
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()
@@ -1468,6 +1651,236 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             normalized = " ".join(statement.upper().split())
             self.assertNotIn(" JOIN ", normalized)
             self.assertIn("FOR UPDATE OF SUPPLY_REQUESTS", normalized)
+
+    def test_02a_product_source_bootstrap_and_manual_do_not_deadlock(
+        self,
+    ) -> None:
+        command.upgrade(self.alembic_config, "head")
+        tenant_id = f"source-deadlock-{uuid4()}"
+        first_product_id = UUID("31000000-0000-0000-0000-000000000001")
+        second_product_id = UUID("31000000-0000-0000-0000-000000000002")
+        actor_id, source_ids = self._seed_product_source_rows(
+            tenant_id=tenant_id,
+            product_ids=[first_product_id, second_product_id],
+        )
+        bootstrap_has_source = Event()
+        manual_before_source = Event()
+        thread_state = local()
+        original_locked_source = source_mapping_service._locked_valid_source
+
+        def coordinated_locked_source(*args, **kwargs):
+            worker = getattr(thread_state, "worker", None)
+            if worker == "bootstrap" and not getattr(
+                thread_state, "source_paused", False
+            ):
+                source = original_locked_source(*args, **kwargs)
+                thread_state.source_paused = True
+                bootstrap_has_source.set()
+                if not manual_before_source.wait(timeout=5):
+                    raise AssertionError(
+                        "Manual assignment did not reach SOURCE lock"
+                    )
+                return source
+            if worker == "manual":
+                manual_before_source.set()
+            return original_locked_source(*args, **kwargs)
+
+        def run_bootstrap():
+            connection, session = self._postgres_session()
+            thread_state.worker = "bootstrap"
+            try:
+                return bootstrap_product_source_mappings(
+                    session,
+                    tenant_id=tenant_id,
+                    actor_user_id=actor_id,
+                )
+            finally:
+                session.close()
+                connection.close()
+
+        def run_manual():
+            if not bootstrap_has_source.wait(timeout=5):
+                raise AssertionError("Bootstrap did not acquire SOURCE lock")
+            connection, session = self._postgres_session()
+            thread_state.worker = "manual"
+            try:
+                return assign_product_source(
+                    session,
+                    tenant_id=tenant_id,
+                    product_id=second_product_id,
+                    legal_contour=LegalContour.IP,
+                    source_mapping_id=source_ids[0],
+                    actor_user_id=actor_id,
+                    expected_version=None,
+                    comment=None,
+                )
+            finally:
+                session.close()
+                connection.close()
+
+        with patch.object(
+            source_mapping_service,
+            "_locked_valid_source",
+            side_effect=coordinated_locked_source,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                bootstrap_future = executor.submit(run_bootstrap)
+                manual_future = executor.submit(run_manual)
+                bootstrap_result = bootstrap_future.result(timeout=15)
+                manual_result = manual_future.result(timeout=15)
+
+        self.assertEqual(manual_result.version, 1)
+        self.assertEqual(bootstrap_result.created, 1)
+        self.assertEqual(bootstrap_result.already_mapped, 1)
+        self.assertEqual(bootstrap_result.conflicts, 0)
+        with self.sessions() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyProductSourceMapping.id)).where(
+                    SupplyProductSourceMapping.tenant_id == tenant_id
+                )),
+                2,
+            )
+            self.assertEqual(
+                session.scalar(select(func.count(
+                    SupplyProductSourceMappingAuditEvent.id
+                )).where(
+                    SupplyProductSourceMappingAuditEvent.tenant_id == tenant_id
+                )),
+                2,
+            )
+
+    def test_02b_product_source_concurrent_first_assignment_is_safe(
+        self,
+    ) -> None:
+        command.upgrade(self.alembic_config, "head")
+        tenant_id = f"source-first-{uuid4()}"
+        product_id = UUID("32000000-0000-0000-0000-000000000001")
+        actor_id, source_ids = self._seed_product_source_rows(
+            tenant_id=tenant_id,
+            product_ids=[product_id],
+        )
+        barrier = Barrier(2)
+
+        def assign_once():
+            connection, session = self._postgres_session()
+            try:
+                barrier.wait(timeout=5)
+                try:
+                    result = assign_product_source(
+                        session,
+                        tenant_id=tenant_id,
+                        product_id=product_id,
+                        legal_contour=LegalContour.IP,
+                        source_mapping_id=source_ids[0],
+                        actor_user_id=actor_id,
+                        expected_version=None,
+                        comment=None,
+                    )
+                    return "created", result.version
+                except SupplyProductSourceVersionConflictError as error:
+                    return "version_conflict", error.current_version
+                except SupplyProductSourceConcurrentAssignmentError:
+                    return "unique_conflict", None
+            finally:
+                session.close()
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = [
+                future.result(timeout=15)
+                for future in [executor.submit(assign_once) for _ in range(2)]
+            ]
+        self.assertEqual(sum(result[0] == "created" for result in results), 1)
+        self.assertEqual(
+            sum(result[0] in {"version_conflict", "unique_conflict"} for result in results),
+            1,
+        )
+        with self.sessions() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyProductSourceMapping.id)).where(
+                    SupplyProductSourceMapping.tenant_id == tenant_id
+                )),
+                1,
+            )
+            self.assertEqual(
+                session.scalar(select(func.count(
+                    SupplyProductSourceMappingAuditEvent.id
+                )).where(
+                    SupplyProductSourceMappingAuditEvent.tenant_id == tenant_id
+                )),
+                1,
+            )
+
+    def test_02c_product_source_stale_replacement_is_safe(self) -> None:
+        command.upgrade(self.alembic_config, "head")
+        tenant_id = f"source-stale-{uuid4()}"
+        product_id = UUID("33000000-0000-0000-0000-000000000001")
+        actor_id, source_ids = self._seed_product_source_rows(
+            tenant_id=tenant_id,
+            product_ids=[product_id],
+            source_count=3,
+        )
+        with self.sessions() as session:
+            initial = assign_product_source(
+                session,
+                tenant_id=tenant_id,
+                product_id=product_id,
+                legal_contour=LegalContour.IP,
+                source_mapping_id=source_ids[0],
+                actor_user_id=actor_id,
+                expected_version=None,
+                comment=None,
+            )
+        self.assertEqual(initial.version, 1)
+        barrier = Barrier(2)
+
+        def replace_once(source_id: UUID):
+            connection, session = self._postgres_session()
+            try:
+                barrier.wait(timeout=5)
+                try:
+                    result = assign_product_source(
+                        session,
+                        tenant_id=tenant_id,
+                        product_id=product_id,
+                        legal_contour=LegalContour.IP,
+                        source_mapping_id=source_id,
+                        actor_user_id=actor_id,
+                        expected_version=1,
+                        comment="PostgreSQL concurrent replacement",
+                    )
+                    return "replaced", result.version
+                except SupplyProductSourceVersionConflictError as error:
+                    return "version_conflict", error.current_version
+            finally:
+                session.close()
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(replace_once, source_id)
+                for source_id in source_ids[1:]
+            ]
+            results = [future.result(timeout=15) for future in futures]
+        self.assertEqual(sum(result[0] == "replaced" for result in results), 1)
+        self.assertEqual(sum(
+            result[0] == "version_conflict" for result in results
+        ), 1)
+        with self.sessions() as session:
+            mapping = session.scalar(select(SupplyProductSourceMapping).where(
+                SupplyProductSourceMapping.tenant_id == tenant_id,
+                SupplyProductSourceMapping.eos_product_id == product_id,
+                SupplyProductSourceMapping.legal_contour == LegalContour.IP,
+            ))
+            self.assertEqual(mapping.version, 2)
+            self.assertEqual(
+                session.scalar(select(func.count(
+                    SupplyProductSourceMappingAuditEvent.id
+                )).where(
+                    SupplyProductSourceMappingAuditEvent.tenant_id == tenant_id
+                )),
+                2,
+            )
 
     def test_03_parallel_cycle_ensure_uses_unique_race_guard(self) -> None:
         command.upgrade(self.alembic_config, "head")

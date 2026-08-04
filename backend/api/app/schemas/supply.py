@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.iiko import IikoWarehouseRole
-from app.models.supply import LegalContour
+from app.models.supply import LegalContour, SupplyProductSourceRole
 
 
 MAX_RAW_INPUT_LENGTH = 20_000
@@ -880,6 +880,79 @@ class SupplyIikoStockCheckRead(BaseModel):
 
 class SupplyIikoSourceWarehouseSelect(SupplyExpectedVersion):
     mapping_id: UUID
+
+
+class SupplyProductSourceOptionRead(BaseModel):
+    mapping_id: UUID
+    iiko_warehouse_id: UUID
+    name: str
+    role: SupplyProductSourceRole
+    legal_contour: LegalContour
+
+
+class SupplyProductSourceMappingRead(BaseModel):
+    id: UUID
+    product_id: UUID
+    product_name: str
+    legal_contour: LegalContour
+    role: SupplyProductSourceRole
+    source: SupplyProductSourceOptionRead
+    version: int
+    updated_at: datetime
+
+
+class SupplyProductSourceAssign(BaseModel):
+    legal_contour: LegalContour
+    source_mapping_id: UUID
+    expected_version: int | None = Field(ge=1)
+    comment: str | None = Field(default=None, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyProductSourceBootstrapRead(BaseModel):
+    created: int
+    already_mapped: int
+    conflicts: int
+    missing_source: int
+    ambiguous_source: int
+    unsupported_prefix: int
+
+
+class SupplyProductSourceProductRead(BaseModel):
+    product_id: UUID
+    product_name: str
+    role: SupplyProductSourceRole | None
+    iiko_mapping_confirmed: bool
+    assigned_source: SupplyProductSourceOptionRead | None
+    mapping_version: int | None
+    available_sources: list[SupplyProductSourceOptionRead]
+    blocking_reason: str | None
+
+
+class SupplyProductSourceLineRead(BaseModel):
+    line_id: UUID
+    position: int
+    product_id: UUID
+    product_name: str
+    quantity: Decimal | None
+    unit: SupplyUnitRead | None
+
+
+class SupplyProductSourceGroupRead(BaseModel):
+    source: SupplyProductSourceOptionRead
+    lines: list[SupplyProductSourceLineRead]
+
+
+class SupplyProductSourcePreviewRead(BaseModel):
+    request_id: UUID
+    legal_contour: LegalContour | None
+    assigned_products: int
+    total_products: int
+    ready_for_shipment: bool
+    blocking_reasons: list[str]
+    products: list[SupplyProductSourceProductRead]
+    groups: list[SupplyProductSourceGroupRead]
 
 
 class SupplyDebtEventRead(BaseModel):
