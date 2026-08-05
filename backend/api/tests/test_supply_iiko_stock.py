@@ -23,6 +23,9 @@ from app.models.iiko import (
     IikoMappingStatus,
     IikoProductMapping,
     IikoRawEntity,
+    IikoStockBalanceSnapshotLine,
+    IikoStockBalanceSnapshotSource,
+    IikoStockBalanceSnapshotSourceStatus,
     IikoSyncRun,
     IikoSyncStatus,
     IikoSyncType,
@@ -74,6 +77,8 @@ class SupplyIikoStockTests(unittest.TestCase):
             IikoProductMapping.__table__,
             IikoUnitMapping.__table__,
             IikoWarehouseMapping.__table__,
+            IikoStockBalanceSnapshotSource.__table__,
+            IikoStockBalanceSnapshotLine.__table__,
             SupplyProductSourceMapping.__table__,
             SupplyRequest.__table__,
             SupplyRequestLine.__table__,
@@ -166,6 +171,7 @@ class SupplyIikoStockTests(unittest.TestCase):
             session.flush()
             request.iiko_source_warehouse_mapping_id = source.id
             self.request_id = request.id
+            self.department_id = department.id
             self.unit_id = unit.id
             self.source_id = source.id
             self.product_id = product.id
@@ -197,29 +203,36 @@ class SupplyIikoStockTests(unittest.TestCase):
             ])
             run = IikoSyncRun(
                 tenant_id="tenant-a",
-                sync_type=IikoSyncType.STOCK_BALANCES,
+                sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
                 status=IikoSyncStatus.SUCCEEDED,
                 source_api_type="iiko_server",
                 finished_at=self.initial_sync_at,
                 parameters={
-                    "warehouse_external_ids": [str(self.iiko_warehouse_id)],
+                    "snapshot_at": self.initial_sync_at.isoformat(),
+                    "completed_source_warehouse_mapping_ids": [str(source.id)],
                 },
             )
             session.add(run)
             session.flush()
-            session.add(IikoRawEntity(
+            session.add(IikoStockBalanceSnapshotSource(
                 tenant_id="tenant-a",
                 sync_run_id=run.id,
-                entity_type="stock_balance",
-                external_id=f"{self.iiko_warehouse_id}:{self.iiko_product_id}",
-                organization_external_id=str(self.iiko_warehouse_id),
-                payload={
-                    "store": str(self.iiko_warehouse_id),
-                    "product": str(self.iiko_product_id),
-                    "amount": "8.000",
-                },
-                payload_hash="stock-8",
-                is_active=True,
+                department_id=department.id,
+                source_warehouse_mapping_id=source.id,
+                snapshot_at=self.initial_sync_at,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotLine(
+                tenant_id="tenant-a",
+                sync_run_id=run.id,
+                department_id=department.id,
+                source_warehouse_mapping_id=source.id,
+                iiko_warehouse_id=self.iiko_warehouse_id,
+                iiko_product_id=self.iiko_product_id,
+                iiko_unit_id=self.iiko_unit_id,
+                quantity=Decimal("8.000"),
+                snapshot_at=self.initial_sync_at,
             ))
 
     def _add_stock_sync(
@@ -234,30 +247,37 @@ class SupplyIikoStockTests(unittest.TestCase):
             run = IikoSyncRun(
                 id=run_id or uuid4(),
                 tenant_id="tenant-a",
-                sync_type=IikoSyncType.STOCK_BALANCES,
+                sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
                 status=IikoSyncStatus.SUCCEEDED,
                 source_api_type="iiko_server",
                 started_at=started_at or finished_at,
                 finished_at=finished_at,
                 parameters={
-                    "warehouse_external_ids": [str(self.iiko_warehouse_id)],
+                    "snapshot_at": finished_at.isoformat(),
+                    "completed_source_warehouse_mapping_ids": [str(self.source_id)],
                 },
             )
             session.add(run)
             session.flush()
-            session.add(IikoRawEntity(
+            session.add(IikoStockBalanceSnapshotSource(
                 tenant_id="tenant-a",
                 sync_run_id=run.id,
-                entity_type="stock_balance",
-                external_id=f"{self.iiko_warehouse_id}:{self.iiko_product_id}",
-                organization_external_id=str(self.iiko_warehouse_id),
-                payload={
-                    "store": str(self.iiko_warehouse_id),
-                    "product": str(self.iiko_product_id),
-                    "amount": amount,
-                },
-                payload_hash=f"stock-{amount}-{finished_at.isoformat()}",
-                is_active=True,
+                department_id=self.department_id,
+                source_warehouse_mapping_id=self.source_id,
+                snapshot_at=finished_at,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotLine(
+                tenant_id="tenant-a",
+                sync_run_id=run.id,
+                department_id=self.department_id,
+                source_warehouse_mapping_id=self.source_id,
+                iiko_warehouse_id=self.iiko_warehouse_id,
+                iiko_product_id=self.iiko_product_id,
+                iiko_unit_id=self.iiko_unit_id,
+                quantity=Decimal(amount),
+                snapshot_at=finished_at,
             ))
 
     def tearDown(self) -> None:
@@ -425,31 +445,46 @@ class SupplyIikoStockTests(unittest.TestCase):
                 ),
             ]
             for status, finished_at, warehouse_id, amount, payload_hash in runs:
+                source_mapping_id = (
+                    self.source_id
+                    if warehouse_id == self.iiko_warehouse_id
+                    else uuid4()
+                )
+                snapshot_at = finished_at or self.initial_sync_at + timedelta(hours=4)
                 run = IikoSyncRun(
                     tenant_id="tenant-a",
-                    sync_type=IikoSyncType.STOCK_BALANCES,
+                    sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
                     status=status,
                     source_api_type="iiko_server",
                     finished_at=finished_at,
                     parameters={
-                        "warehouse_external_ids": [str(warehouse_id)],
+                        "snapshot_at": snapshot_at.isoformat(),
+                        "completed_source_warehouse_mapping_ids": [
+                            str(source_mapping_id)
+                        ],
                     },
                 )
                 session.add(run)
                 session.flush()
-                session.add(IikoRawEntity(
+                session.add(IikoStockBalanceSnapshotSource(
                     tenant_id="tenant-a",
                     sync_run_id=run.id,
-                    entity_type="stock_balance",
-                    external_id=f"{warehouse_id}:{self.iiko_product_id}",
-                    organization_external_id=str(warehouse_id),
-                    payload={
-                        "store": str(warehouse_id),
-                        "product": str(self.iiko_product_id),
-                        "amount": amount,
-                    },
-                    payload_hash=payload_hash,
-                    is_active=True,
+                    department_id=self.department_id,
+                    source_warehouse_mapping_id=source_mapping_id,
+                    snapshot_at=snapshot_at,
+                    status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+                ))
+                session.flush()
+                session.add(IikoStockBalanceSnapshotLine(
+                    tenant_id="tenant-a",
+                    sync_run_id=run.id,
+                    department_id=self.department_id,
+                    source_warehouse_mapping_id=source_mapping_id,
+                    iiko_warehouse_id=warehouse_id,
+                    iiko_product_id=self.iiko_product_id,
+                    iiko_unit_id=self.iiko_unit_id,
+                    quantity=Decimal(amount),
+                    snapshot_at=snapshot_at,
                 ))
 
         with self.sessions() as session:
@@ -518,6 +553,19 @@ class SupplyIikoStockTests(unittest.TestCase):
         line = response.json()["groups"][0]["lines"][0]
         self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("3"))
         self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("2"))
+
+    def test_negative_stock_is_preserved_but_not_transferable(self) -> None:
+        with self.sessions.begin() as session:
+            stock_line = session.scalar(select(IikoStockBalanceSnapshotLine))
+            stock_line.quantity = Decimal("-2.000000")
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["available_quantity"]), Decimal("-2"))
+        self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("0"))
+        self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("5"))
 
     def test_manual_transferable_decrease_is_persisted(self) -> None:
         calculated = self.client.post(
@@ -654,8 +702,10 @@ class SupplyIikoStockTests(unittest.TestCase):
                 source_warehouse_mapping_id=self.source_id,
                 assigned_by_user_id=1,
             ))
-            for raw in session.scalars(select(IikoRawEntity)).all():
-                raw.is_active = False
+            for line in session.scalars(
+                select(IikoStockBalanceSnapshotLine)
+            ).all():
+                session.delete(line)
         without_balance = self.client.post(
             f"/supply/requests/{self.request_id}/stock-calculation/calculate"
         )
@@ -747,7 +797,8 @@ class SupplyIikoStockTests(unittest.TestCase):
         current_line = current.json()["groups"][0]["lines"][0]
         self.assertEqual(current.json()["status"], "CONFIRMED")
         self.assertEqual(
-            current_line["available_quantity"], original["available_quantity"]
+            Decimal(current_line["available_quantity"]),
+            Decimal(original["available_quantity"]),
         )
         self.assertEqual(
             current_line["transferable_quantity"],

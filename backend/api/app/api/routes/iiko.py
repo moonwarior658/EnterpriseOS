@@ -24,10 +24,12 @@ from app.integrations.iiko.exceptions import (
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import IikoPage
 from app.integrations.iiko.service import (
+    IikoStockSnapshotScopeError,
     get_sync_run,
     latest_run,
     list_sync_runs,
     sync_reference_snapshot,
+    sync_stock_balance_snapshot,
     sync_stock_balances,
     sync_warehouses,
     test_connection,
@@ -36,6 +38,7 @@ from app.models.iiko import IikoSyncRun, IikoSyncStatus, IikoSyncType
 from app.models.user import User
 from app.schemas.iiko import (
     IikoStatusRead,
+    IikoStockBalanceSnapshotSyncRequest,
     IikoStockBalanceSyncRequest,
     IikoSyncRunRead,
 )
@@ -152,7 +155,7 @@ def read_iiko_status(
     stock = latest_run(
         db,
         tenant_id=tenant_id,
-        sync_type=IikoSyncType.STOCK_BALANCES,
+        sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
         statuses={IikoSyncStatus.SUCCEEDED},
     )
     last_error = latest_run(
@@ -447,6 +450,41 @@ async def sync_iiko_stock_balances(
             include_zero=request.include_zero,
             include_deleted=request.include_deleted,
         )
+    except IikoError as error:
+        raise integration_error(error) from error
+    return IikoSyncRunRead.model_validate(run)
+
+
+@router.post(
+    "/sync/stock-balance-snapshot",
+    response_model=IikoSyncRunRead,
+)
+async def sync_iiko_stock_balance_snapshot(
+    request: IikoStockBalanceSnapshotSyncRequest,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> IikoSyncRunRead:
+    config = get_iiko_settings()
+    try:
+        config.validate_enabled()
+        run = await sync_stock_balance_snapshot(
+            db,
+            provider,
+            tenant_id=settings.default_tenant_id,
+            requested_by=current_admin.id,
+            source_api_type=config.api_type,
+            snapshot_at=request.snapshot_at,
+            department_id=request.department_id,
+            source_warehouse_mapping_ids=(
+                request.source_warehouse_mapping_ids
+            ),
+        )
+    except IikoStockSnapshotScopeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
     except IikoError as error:
         raise integration_error(error) from error
     return IikoSyncRunRead.model_validate(run)

@@ -3,22 +3,31 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.integrations.iiko.exceptions import IikoError
+from app.integrations.iiko.exceptions import IikoContractError, IikoError
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import IikoRecord
 from app.models.iiko import (
+    IikoMappingStatus,
     IikoRawEntity,
+    IikoStockBalanceSnapshotLine,
+    IikoStockBalanceSnapshotSource,
+    IikoStockBalanceSnapshotSourceStatus,
     IikoSyncRun,
     IikoSyncStatus,
     IikoSyncType,
+    IikoWarehouseDestinationType,
+    IikoWarehouseMapping,
 )
+from app.models.supply import Department
 
 
 FORBIDDEN_PAYLOAD_KEYS = {
@@ -31,6 +40,29 @@ FORBIDDEN_PAYLOAD_KEYS = {
     "clientsecret",
     "client_secret",
 }
+
+
+class IikoStockSnapshotScopeError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class _StockSnapshotLineValue:
+    iiko_warehouse_id: UUID
+    iiko_product_id: UUID
+    iiko_unit_id: UUID
+    quantity: Decimal
+
+
+@dataclass(frozen=True)
+class _StockSnapshotSourceResult:
+    source_mapping_id: UUID
+    iiko_warehouse_id: UUID
+    status: IikoStockBalanceSnapshotSourceStatus
+    lines: tuple[_StockSnapshotLineValue, ...]
+    records_received: int
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 def safe_error_message(error: Exception) -> str:
@@ -183,6 +215,197 @@ async def sync_stock_balances(
             run.error_message = "Остатки iiko не сохранены"
             session.commit()
         raise
+
+
+async def sync_stock_balance_snapshot(
+    session: Session,
+    provider: IikoProvider,
+    *,
+    tenant_id: str,
+    requested_by: int | None,
+    source_api_type: str,
+    snapshot_at: datetime,
+    department_id: UUID,
+    source_warehouse_mapping_ids: Sequence[UUID],
+) -> IikoSyncRun:
+    started_at = datetime.now(timezone.utc)
+    if snapshot_at.tzinfo is None or snapshot_at.utcoffset() is None:
+        raise IikoStockSnapshotScopeError("SNAPSHOT_TIMEZONE_REQUIRED")
+    source_ids = list(source_warehouse_mapping_ids)
+    if not source_ids:
+        raise IikoStockSnapshotScopeError("SOURCE_REQUIRED")
+    if len(source_ids) != len(set(source_ids)):
+        raise IikoStockSnapshotScopeError("SOURCE_DUPLICATE")
+    department = session.scalar(select(Department).where(
+        Department.id == department_id,
+        Department.tenant_id == tenant_id,
+        Department.is_active.is_(True),
+    ))
+    if department is None:
+        raise IikoStockSnapshotScopeError("DEPARTMENT_NOT_FOUND")
+    sources = list(session.scalars(select(IikoWarehouseMapping).where(
+        IikoWarehouseMapping.id.in_(source_ids),
+        IikoWarehouseMapping.tenant_id == tenant_id,
+        IikoWarehouseMapping.destination_type
+        == IikoWarehouseDestinationType.SOURCE,
+        IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
+        IikoWarehouseMapping.is_deleted.is_(False),
+    )))
+    sources_by_id = {source.id: source for source in sources}
+    if set(sources_by_id) != set(source_ids):
+        raise IikoStockSnapshotScopeError("SOURCE_NOT_FOUND_OR_NOT_CONFIRMED")
+    if department.legal_contour is None or any(
+        source.legal_contour != department.legal_contour
+        for source in sources
+    ):
+        raise IikoStockSnapshotScopeError("SOURCE_LEGAL_CONTOUR_MISMATCH")
+
+    source_scopes = [
+        (source_id, sources_by_id[source_id].iiko_warehouse_id)
+        for source_id in source_ids
+    ]
+    source_results: list[_StockSnapshotSourceResult] = []
+    first_error: Exception | None = None
+    for source_id, iiko_warehouse_id in source_scopes:
+        try:
+            records = await provider.get_stock_balances(
+                snapshot_at=snapshot_at,
+                warehouse_external_ids=[str(iiko_warehouse_id)],
+                include_zero=True,
+                include_deleted=False,
+            )
+            lines: list[_StockSnapshotLineValue] = []
+            seen_products: set[UUID] = set()
+            for record in records:
+                dto = record.dto
+                try:
+                    warehouse_id = UUID(dto.warehouse_external_id)
+                    product_id = UUID(dto.product_external_id)
+                    unit_id = (
+                        UUID(dto.unit_external_id)
+                        if dto.unit_external_id else None
+                    )
+                except (TypeError, ValueError) as error:
+                    raise IikoContractError(
+                        "Invalid stock snapshot UUID"
+                    ) from error
+                if warehouse_id != iiko_warehouse_id or unit_id is None:
+                    raise IikoContractError(
+                        "IIKO_STOCK_SNAPSHOT_ROW_INVALID"
+                    )
+                decimal_places = max(-dto.quantity.as_tuple().exponent, 0)
+                if decimal_places > 6:
+                    raise IikoContractError(
+                        "IIKO_STOCK_SNAPSHOT_QUANTITY_SCALE_INVALID"
+                    )
+                if product_id in seen_products:
+                    raise IikoContractError(
+                        "IIKO_STOCK_SNAPSHOT_PRODUCT_DUPLICATE"
+                    )
+                seen_products.add(product_id)
+                lines.append(_StockSnapshotLineValue(
+                    iiko_warehouse_id=warehouse_id,
+                    iiko_product_id=product_id,
+                    iiko_unit_id=unit_id,
+                    quantity=dto.quantity,
+                ))
+            source_results.append(_StockSnapshotSourceResult(
+                source_mapping_id=source_id,
+                iiko_warehouse_id=iiko_warehouse_id,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+                lines=tuple(lines),
+                records_received=len(records),
+            ))
+        except Exception as error:
+            first_error = first_error or error
+            source_results.append(_StockSnapshotSourceResult(
+                source_mapping_id=source_id,
+                iiko_warehouse_id=iiko_warehouse_id,
+                status=IikoStockBalanceSnapshotSourceStatus.FAILED,
+                lines=(),
+                records_received=0,
+                error_code=safe_error_message(error),
+                error_message="Остатки SOURCE не получены или невалидны",
+            ))
+
+    completed = [
+        str(result.source_mapping_id) for result in source_results
+        if result.status == IikoStockBalanceSnapshotSourceStatus.SUCCEEDED
+    ]
+    failed = [
+        str(result.source_mapping_id) for result in source_results
+        if result.status == IikoStockBalanceSnapshotSourceStatus.FAILED
+    ]
+    if failed and completed:
+        run_status = IikoSyncStatus.PARTIALLY_SUCCEEDED
+    elif failed:
+        run_status = IikoSyncStatus.FAILED
+    else:
+        run_status = IikoSyncStatus.SUCCEEDED
+    finished_at = datetime.now(timezone.utc)
+    run = IikoSyncRun(
+        tenant_id=tenant_id,
+        sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
+        status=run_status,
+        started_at=started_at,
+        finished_at=finished_at,
+        requested_by=requested_by,
+        source_api_type=source_api_type,
+        parameters={
+            "snapshot_at": snapshot_at.isoformat(),
+            "department_id": str(department_id),
+            "source_warehouse_mapping_ids": [str(value) for value in source_ids],
+            "completed_source_warehouse_mapping_ids": completed,
+            "failed_source_warehouse_mapping_ids": failed,
+            "scope": "explicit_sources",
+        },
+        records_received=sum(
+            result.records_received for result in source_results
+        ),
+        records_created=sum(len(result.lines) for result in source_results),
+        records_failed=len(failed),
+        error_code=(safe_error_message(first_error) if first_error else None),
+        error_message=(
+            "Остатки сохранены не для всех SOURCE" if first_error else None
+        ),
+    )
+    session.rollback()
+    try:
+        with session.begin():
+            session.add(run)
+            session.flush()
+            for result in source_results:
+                session.add(IikoStockBalanceSnapshotSource(
+                    tenant_id=tenant_id,
+                    sync_run_id=run.id,
+                    department_id=department_id,
+                    source_warehouse_mapping_id=result.source_mapping_id,
+                    snapshot_at=snapshot_at,
+                    status=result.status,
+                    error_code=result.error_code,
+                    error_message=result.error_message,
+                ))
+                if result.status == IikoStockBalanceSnapshotSourceStatus.SUCCEEDED:
+                    session.add_all([
+                        IikoStockBalanceSnapshotLine(
+                            tenant_id=tenant_id,
+                            sync_run_id=run.id,
+                            department_id=department_id,
+                            source_warehouse_mapping_id=result.source_mapping_id,
+                            iiko_warehouse_id=line.iiko_warehouse_id,
+                            iiko_product_id=line.iiko_product_id,
+                            iiko_unit_id=line.iiko_unit_id,
+                            quantity=line.quantity,
+                            snapshot_at=snapshot_at,
+                        )
+                        for line in result.lines
+                    ])
+            session.flush()
+    except Exception:
+        session.rollback()
+        raise
+    session.refresh(run)
+    return run
 
 
 async def test_connection(

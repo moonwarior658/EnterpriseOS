@@ -348,8 +348,9 @@ class IikoServerClient(IikoProvider):
     async def get_stock_balances(
         self,
         *,
-        balance_date: date,
         warehouse_external_ids: Sequence[str],
+        balance_date: date | None = None,
+        snapshot_at: datetime | None = None,
         product_external_ids: Sequence[str] | None = None,
         include_zero: bool = True,
         include_deleted: bool = True,
@@ -370,10 +371,19 @@ class IikoServerClient(IikoProvider):
                 if value.strip()
             )
         )
-        calculated_at = datetime.combine(
-            balance_date,
-            time(23, 59, 59),
-        )
+        if snapshot_at is not None and balance_date is not None:
+            raise IikoContractError(
+                "Use either snapshot_at or balance_date, not both"
+            )
+        if snapshot_at is None:
+            if balance_date is None:
+                raise IikoContractError("Stock balance timestamp is required")
+            calculated_at = datetime.combine(
+                balance_date,
+                time(23, 59, 59),
+            )
+        else:
+            calculated_at = snapshot_at
         params: list[tuple[str, str]] = [
             ("timestamp", calculated_at.isoformat())
         ]

@@ -67,6 +67,9 @@ from app.models.iiko import (
     IikoMappingStatus,
     IikoProductMapping,
     IikoRawEntity,
+    IikoStockBalanceSnapshotLine,
+    IikoStockBalanceSnapshotSource,
+    IikoStockBalanceSnapshotSourceStatus,
     IikoSyncRun,
     IikoSyncStatus,
     IikoSyncType,
@@ -386,35 +389,44 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             run = IikoSyncRun(
                 id=sync_run_id or uuid4(),
                 tenant_id=tenant_id,
-                sync_type=IikoSyncType.STOCK_BALANCES,
+                sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
                 status=IikoSyncStatus.SUCCEEDED,
                 source_api_type="iiko_server",
                 started_at=started_at,
                 finished_at=finished_at,
                 parameters={
-                    "warehouse_external_ids": [str(source.iiko_warehouse_id)]
+                    "snapshot_at": finished_at.isoformat(),
+                    "completed_source_warehouse_mapping_ids": [str(source.id)],
                 },
             )
             session.add(run)
             session.flush()
-            session.add(IikoRawEntity(
+            session.add(IikoStockBalanceSnapshotSource(
                 tenant_id=tenant_id,
                 sync_run_id=run.id,
-                entity_type="stock_balance",
-                external_id=f"{source.iiko_warehouse_id}:{iiko_product_id}",
-                organization_external_id=str(source.iiko_warehouse_id),
-                payload={
-                    "store": str(source.iiko_warehouse_id),
-                    "product": str(iiko_product_id),
-                    "amount": str(available),
-                },
-                payload_hash=f"stock-{uuid4().hex}",
-                is_active=True,
+                department_id=department.id,
+                source_warehouse_mapping_id=source.id,
+                snapshot_at=finished_at,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotLine(
+                tenant_id=tenant_id,
+                sync_run_id=run.id,
+                department_id=department.id,
+                source_warehouse_mapping_id=source.id,
+                iiko_warehouse_id=source.iiko_warehouse_id,
+                iiko_product_id=iiko_product_id,
+                iiko_unit_id=iiko_unit_id,
+                quantity=available,
+                snapshot_at=finished_at,
             ))
             return {
                 "tenant_id": tenant_id,
                 "actor_id": actor_id,
                 "unit_id": unit.id,
+                "department_id": department.id,
+                "iiko_unit_id": iiko_unit_id,
                 "product_id": product.id,
                 "source_id": source.id,
                 "warehouse_id": source.iiko_warehouse_id,
@@ -2199,9 +2211,215 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 "SELECT count(*) FROM supply_stock_calculations"
             )), 0)
 
+    def test_01f_stock_snapshot_migration_cycle_and_constraints(self) -> None:
+        command.upgrade(self.alembic_config, "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+        inspector = inspect(self.engine)
+        self.assertTrue({
+            "iiko_stock_balance_snapshot_sources",
+            "iiko_stock_balance_snapshot_lines",
+        } <= set(inspector.get_table_names()))
+        self.assertIn(
+            "ix_iiko_stock_snapshot_source_latest",
+            {index["name"] for index in inspector.get_indexes(
+                "iiko_stock_balance_snapshot_sources"
+            )},
+        )
+        self.assertIn(
+            "ix_iiko_stock_snapshot_line_run_product",
+            {index["name"] for index in inspector.get_indexes(
+                "iiko_stock_balance_snapshot_lines"
+            )},
+        )
+
+        command.downgrade(self.alembic_config, "20260804_0027")
+        self.assertEqual(self._current_revision(), "20260804_0027")
+        self.assertNotIn(
+            "iiko_stock_balance_snapshot_sources",
+            inspect(self.engine).get_table_names(),
+        )
+        command.upgrade(self.alembic_config, "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+
+        tenant_id = f"snapshot-{uuid4().hex[:12]}"
+        department_id = uuid4()
+        source_mapping_id = uuid4()
+        cross_source_mapping_id = uuid4()
+        warehouse_id = uuid4()
+        run_id = uuid4()
+        product_id = uuid4()
+        unit_id = uuid4()
+        snapshot_at = datetime.now(timezone.utc)
+        with self.sessions.begin() as session:
+            session.add(Department(
+                id=department_id,
+                tenant_id=tenant_id,
+                code="SNAPSHOT",
+                name="Snapshot department",
+                legal_contour=LegalContour.IP,
+            ))
+            session.add_all([
+                IikoWarehouseMapping(
+                    id=source_mapping_id,
+                    tenant_id=tenant_id,
+                    iiko_warehouse_id=warehouse_id,
+                    destination_type=IikoWarehouseDestinationType.SOURCE,
+                    role=IikoWarehouseRole.MAIN,
+                    legal_contour=LegalContour.IP,
+                    status=IikoMappingStatus.CONFIRMED,
+                    source_name="Snapshot SOURCE",
+                ),
+                IikoWarehouseMapping(
+                    id=cross_source_mapping_id,
+                    tenant_id=tenant_id,
+                    iiko_warehouse_id=uuid4(),
+                    destination_type=IikoWarehouseDestinationType.SOURCE,
+                    role=IikoWarehouseRole.PACKAGING,
+                    legal_contour=LegalContour.IP,
+                    status=IikoMappingStatus.CONFIRMED,
+                    source_name="Cross-tenant SOURCE",
+                ),
+            ])
+            session.add(IikoSyncRun(
+                id=run_id,
+                tenant_id=tenant_id,
+                sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
+                status=IikoSyncStatus.SUCCEEDED,
+                source_api_type="iiko_server",
+                started_at=snapshot_at,
+                finished_at=snapshot_at,
+                parameters={},
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotSource(
+                tenant_id=tenant_id,
+                sync_run_id=run_id,
+                department_id=department_id,
+                source_warehouse_mapping_id=source_mapping_id,
+                snapshot_at=snapshot_at,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotLine(
+                tenant_id=tenant_id,
+                sync_run_id=run_id,
+                department_id=department_id,
+                source_warehouse_mapping_id=source_mapping_id,
+                iiko_warehouse_id=warehouse_id,
+                iiko_product_id=product_id,
+                iiko_unit_id=unit_id,
+                quantity=Decimal("-1.123456"),
+                snapshot_at=snapshot_at,
+            ))
+
+        with self.engine.begin() as connection:
+            duplicate_source_sql = text("""
+                INSERT INTO iiko_stock_balance_snapshot_sources
+                    (id, tenant_id, sync_run_id, department_id,
+                     source_warehouse_mapping_id, snapshot_at, status)
+                VALUES
+                    (:id, :tenant_id, :run_id, :department_id,
+                     :source_id, :snapshot_at, 'SUCCEEDED')
+            """)
+            with self.assertRaises(IntegrityError):
+                with connection.begin_nested():
+                    connection.execute(duplicate_source_sql, {
+                        "id": uuid4(),
+                        "tenant_id": tenant_id,
+                        "run_id": run_id,
+                        "department_id": department_id,
+                        "source_id": source_mapping_id,
+                        "snapshot_at": snapshot_at,
+                    })
+            with self.assertRaises(IntegrityError):
+                with connection.begin_nested():
+                    connection.execute(duplicate_source_sql, {
+                        "id": uuid4(),
+                        "tenant_id": f"{tenant_id}-other",
+                        "run_id": run_id,
+                        "department_id": department_id,
+                        "source_id": cross_source_mapping_id,
+                        "snapshot_at": snapshot_at,
+                    })
+            with self.assertRaises(IntegrityError):
+                with connection.begin_nested():
+                    connection.execute(text("""
+                        INSERT INTO iiko_stock_balance_snapshot_lines
+                            (id, tenant_id, sync_run_id, department_id,
+                             source_warehouse_mapping_id, iiko_warehouse_id,
+                             iiko_product_id, iiko_unit_id, quantity, snapshot_at)
+                        VALUES
+                            (:id, :tenant_id, :run_id, :department_id,
+                             :source_id, :warehouse_id, :product_id,
+                             :unit_id, 2, :snapshot_at)
+                    """), {
+                        "id": uuid4(),
+                        "tenant_id": tenant_id,
+                        "run_id": run_id,
+                        "department_id": department_id,
+                        "source_id": source_mapping_id,
+                        "warehouse_id": warehouse_id,
+                        "product_id": product_id,
+                        "unit_id": unit_id,
+                        "snapshot_at": snapshot_at,
+                    })
+            connection.execute(text("SET LOCAL enable_seqscan = off"))
+            plan = "\n".join(connection.execute(text("""
+                EXPLAIN (COSTS OFF)
+                SELECT source.id
+                FROM iiko_stock_balance_snapshot_sources AS source
+                JOIN iiko_sync_runs AS run ON run.id = source.sync_run_id
+                WHERE source.tenant_id = :tenant_id
+                  AND source.source_warehouse_mapping_id = :source_id
+                  AND source.status = 'SUCCEEDED'
+                  AND run.tenant_id = :tenant_id
+                  AND run.sync_type = 'STOCK_BALANCE_SNAPSHOT'
+                  AND run.status = 'SUCCEEDED'
+                  AND run.finished_at IS NOT NULL
+                ORDER BY source.snapshot_at DESC, run.finished_at DESC,
+                         run.started_at DESC, run.id DESC
+                LIMIT 1
+            """), {
+                "tenant_id": tenant_id,
+                "source_id": source_mapping_id,
+            }).scalars())
+            self.assertIn("ix_iiko_stock_snapshot_source_latest", plan)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Cannot downgrade while STOCK_BALANCE_SNAPSHOT runs exist",
+        ):
+            command.downgrade(self.alembic_config, "20260804_0027")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+        self.assertTrue({
+            "iiko_stock_balance_snapshot_sources",
+            "iiko_stock_balance_snapshot_lines",
+        } <= set(inspect(self.engine).get_table_names()))
+
+        with self.sessions.begin() as session:
+            session.query(IikoStockBalanceSnapshotLine).filter_by(
+                sync_run_id=run_id
+            ).delete(synchronize_session=False)
+            session.query(IikoStockBalanceSnapshotSource).filter_by(
+                sync_run_id=run_id
+            ).delete(synchronize_session=False)
+            session.query(IikoSyncRun).filter_by(id=run_id).delete(
+                synchronize_session=False
+            )
+            session.query(IikoWarehouseMapping).filter_by(
+                tenant_id=tenant_id
+            ).delete(synchronize_session=False)
+            session.query(Department).filter_by(id=department_id).delete(
+                synchronize_session=False
+            )
+        command.downgrade(self.alembic_config, "20260804_0027")
+        self.assertEqual(self._current_revision(), "20260804_0027")
+        command.upgrade(self.alembic_config, "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260804_0027")
+        self.assertEqual(self._current_revision(), "20260805_0028")
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()
@@ -2789,33 +3007,39 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             run = IikoSyncRun(
                 id=high_run_id,
                 tenant_id=tied_case["tenant_id"],
-                sync_type=IikoSyncType.STOCK_BALANCES,
+                sync_type=IikoSyncType.STOCK_BALANCE_SNAPSHOT,
                 status=IikoSyncStatus.SUCCEEDED,
                 source_api_type="iiko_server",
                 started_at=tied_at,
                 finished_at=tied_at,
-                parameters={"warehouse_external_ids": [str(
-                    tied_case["warehouse_id"]
-                )]},
+                parameters={
+                    "snapshot_at": tied_at.isoformat(),
+                    "completed_source_warehouse_mapping_ids": [str(
+                        tied_case["source_id"]
+                    )],
+                },
             )
             session.add(run)
             session.flush()
-            session.add(IikoRawEntity(
+            session.add(IikoStockBalanceSnapshotSource(
                 tenant_id=tied_case["tenant_id"],
                 sync_run_id=run.id,
-                entity_type="stock_balance",
-                external_id=(
-                    f"{tied_case['warehouse_id']}:"
-                    f"{tied_case['iiko_product_id']}"
-                ),
-                organization_external_id=str(tied_case["warehouse_id"]),
-                payload={
-                    "store": str(tied_case["warehouse_id"]),
-                    "product": str(tied_case["iiko_product_id"]),
-                    "amount": "7.000",
-                },
-                payload_hash=f"stock-{uuid4().hex}",
-                is_active=True,
+                department_id=tied_case["department_id"],
+                source_warehouse_mapping_id=tied_case["source_id"],
+                snapshot_at=tied_at,
+                status=IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
+            ))
+            session.flush()
+            session.add(IikoStockBalanceSnapshotLine(
+                tenant_id=tied_case["tenant_id"],
+                sync_run_id=run.id,
+                department_id=tied_case["department_id"],
+                source_warehouse_mapping_id=tied_case["source_id"],
+                iiko_warehouse_id=tied_case["warehouse_id"],
+                iiko_product_id=tied_case["iiko_product_id"],
+                iiko_unit_id=tied_case["iiko_unit_id"],
+                quantity=Decimal("7.000"),
+                snapshot_at=tied_at,
             ))
         with self.sessions() as session:
             tied_calc = calculate_stock(

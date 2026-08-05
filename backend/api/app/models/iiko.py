@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     JSON,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -46,7 +49,13 @@ class IikoSyncType(StrEnum):
     UNITS = "UNITS"
     PACKAGES = "PACKAGES"
     STOCK_BALANCES = "STOCK_BALANCES"
+    STOCK_BALANCE_SNAPSHOT = "STOCK_BALANCE_SNAPSHOT"
     FULL_REFERENCE_SNAPSHOT = "FULL_REFERENCE_SNAPSHOT"
+
+
+class IikoStockBalanceSnapshotSourceStatus(StrEnum):
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
 
 
 class IikoMappingStatus(StrEnum):
@@ -94,6 +103,9 @@ json_type = JSON().with_variant(JSONB(), "postgresql")
 class IikoSyncRun(Base):
     __tablename__ = "iiko_sync_runs"
     __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_iiko_sync_runs_tenant_id",
+        ),
         Index(
             "ix_iiko_sync_runs_tenant_type_started",
             "tenant_id",
@@ -211,6 +223,11 @@ class IikoSyncRun(Base):
     raw_entities: Mapped[list["IikoRawEntity"]] = relationship(
         back_populates="sync_run",
     )
+    stock_balance_sources: Mapped[
+        list["IikoStockBalanceSnapshotSource"]
+    ] = (
+        relationship(back_populates="sync_run")
+    )
 
 
 class IikoRawEntity(Base):
@@ -280,6 +297,141 @@ class IikoRawEntity(Base):
 
     sync_run: Mapped[IikoSyncRun] = relationship(
         back_populates="raw_entities",
+    )
+
+
+class IikoStockBalanceSnapshotSource(Base):
+    __tablename__ = "iiko_stock_balance_snapshot_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "sync_run_id",
+            "source_warehouse_mapping_id",
+            name="uq_iiko_stock_snapshot_source_run_source",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "sync_run_id",
+            "department_id",
+            "source_warehouse_mapping_id",
+            name="uq_iiko_stock_snapshot_source_tenant_scope",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "sync_run_id"],
+            ["iiko_sync_runs.tenant_id", "iiko_sync_runs.id"],
+            name="fk_iiko_stock_snapshot_tenant_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_iiko_stock_snapshot_tenant_department",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_warehouse_mapping_id"],
+            ["iiko_warehouse_mappings.tenant_id", "iiko_warehouse_mappings.id"],
+            name="fk_iiko_stock_snapshot_tenant_source",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_iiko_stock_snapshot_source_latest",
+            "tenant_id",
+            "source_warehouse_mapping_id",
+            "status",
+            "snapshot_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sync_run_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    department_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    source_warehouse_mapping_id: Mapped[UUID] = mapped_column(
+        Uuid, nullable=False,
+    )
+    snapshot_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    status: Mapped[IikoStockBalanceSnapshotSourceStatus] = mapped_column(
+        SqlEnum(
+            IikoStockBalanceSnapshotSourceStatus,
+            name="iiko_stock_snapshot_source_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        nullable=False,
+    )
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    sync_run: Mapped[IikoSyncRun] = relationship(
+        back_populates="stock_balance_sources",
+    )
+    lines: Mapped[list["IikoStockBalanceSnapshotLine"]] = relationship(
+        back_populates="snapshot_source",
+    )
+
+
+class IikoStockBalanceSnapshotLine(Base):
+    __tablename__ = "iiko_stock_balance_snapshot_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "sync_run_id",
+            "source_warehouse_mapping_id",
+            "iiko_product_id",
+            name="uq_iiko_stock_snapshot_run_source_product",
+        ),
+        ForeignKeyConstraint(
+            [
+                "tenant_id",
+                "sync_run_id",
+                "department_id",
+                "source_warehouse_mapping_id",
+            ],
+            [
+                "iiko_stock_balance_snapshot_sources.tenant_id",
+                "iiko_stock_balance_snapshot_sources.sync_run_id",
+                "iiko_stock_balance_snapshot_sources.department_id",
+                "iiko_stock_balance_snapshot_sources.source_warehouse_mapping_id",
+            ],
+            name="fk_iiko_stock_snapshot_line_source_scope",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_iiko_stock_snapshot_line_run_product",
+            "tenant_id",
+            "sync_run_id",
+            "iiko_product_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sync_run_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    department_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    source_warehouse_mapping_id: Mapped[UUID] = mapped_column(
+        Uuid, nullable=False,
+    )
+    iiko_warehouse_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_product_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_unit_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
+    snapshot_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    snapshot_source: Mapped[IikoStockBalanceSnapshotSource] = relationship(
+        back_populates="lines",
     )
 
 

@@ -279,7 +279,7 @@ def calculate_stock(
             source_stock[source.id] = _latest_balances(
                 session,
                 tenant_id=tenant_id,
-                warehouse_id=source.iiko_warehouse_id,
+                source_warehouse_mapping_id=source.id,
             )
 
     eligible: dict[UUID, _EligibleLine] = {}

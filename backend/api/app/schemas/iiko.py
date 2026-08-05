@@ -58,3 +58,25 @@ class IikoStockBalanceSyncRequest(BaseModel):
         if values is not None and any(not value.strip() for value in values):
             raise ValueError("iiko identifiers must not be blank")
         return values
+
+
+class IikoStockBalanceSnapshotSyncRequest(BaseModel):
+    snapshot_at: datetime
+    department_id: UUID
+    source_warehouse_mapping_ids: Annotated[
+        list[UUID], Field(min_length=1, max_length=100)
+    ]
+
+    @field_validator("snapshot_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("snapshot_at must include a timezone")
+        return value
+
+    @field_validator("source_warehouse_mapping_ids")
+    @classmethod
+    def reject_duplicate_sources(cls, values: list[UUID]) -> list[UUID]:
+        if len(values) != len(set(values)):
+            raise ValueError("source_warehouse_mapping_ids must be unique")
+        return values

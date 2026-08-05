@@ -1,6 +1,8 @@
 import os
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -9,7 +11,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -26,7 +28,17 @@ from app.integrations.iiko.mapper import (
 )
 from app.integrations.iiko.provider import IikoProvider
 from app.main import app
-from app.models.iiko import IikoRawEntity, IikoSyncRun
+from app.models.iiko import (
+    IikoMappingStatus,
+    IikoRawEntity,
+    IikoStockBalanceSnapshotLine,
+    IikoStockBalanceSnapshotSource,
+    IikoSyncRun,
+    IikoWarehouseDestinationType,
+    IikoWarehouseMapping,
+    IikoWarehouseRole,
+)
+from app.models.supply import Department, LegalContour
 from app.models.user import User
 
 
@@ -133,8 +145,12 @@ class IikoApiTests(unittest.TestCase):
             connect_args={"check_same_thread": False},
         )
         User.__table__.create(self.engine)
+        Department.__table__.create(self.engine)
         IikoSyncRun.__table__.create(self.engine)
         IikoRawEntity.__table__.create(self.engine)
+        IikoWarehouseMapping.__table__.create(self.engine)
+        IikoStockBalanceSnapshotSource.__table__.create(self.engine)
+        IikoStockBalanceSnapshotLine.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
             expire_on_commit=False,
@@ -313,3 +329,72 @@ class IikoApiTests(unittest.TestCase):
             "2026-07-29",
         )
         self.assertEqual(stock.json()["records_created"], 2)
+
+    def test_manual_stock_balance_snapshot_endpoint(self) -> None:
+        department_id = uuid4()
+        source_id = uuid4()
+        warehouse_id = uuid4()
+        product_id = uuid4()
+        unit_id = uuid4()
+        with self.session_factory.begin() as session:
+            session.add(Department(
+                id=department_id,
+                tenant_id="tenant-a",
+                code="M15",
+                name="М15",
+                legal_contour=LegalContour.IP,
+            ))
+            session.add(IikoWarehouseMapping(
+                id=source_id,
+                tenant_id="tenant-a",
+                iiko_warehouse_id=warehouse_id,
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                role=IikoWarehouseRole.MAIN,
+                legal_contour=LegalContour.IP,
+                status=IikoMappingStatus.CONFIRMED,
+                source_name="Источник",
+            ))
+
+        class SnapshotApiProvider(ApiProvider):
+            async def get_stock_balances(self, **kwargs):
+                return [map_stock_balance(
+                    {
+                        "store": str(warehouse_id),
+                        "product": str(product_id),
+                        "amount": "4.250",
+                    },
+                    calculated_at=kwargs["snapshot_at"],
+                    product=type("Product", (), {
+                        "base_unit_external_id": str(unit_id),
+                        "name": "Товар",
+                    })(),
+                )]
+
+        app.dependency_overrides[
+            iiko_routes.get_iiko_provider
+        ] = lambda: SnapshotApiProvider()
+        snapshot_at = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+        duplicate = self.client.post(
+            "/integrations/iiko/sync/stock-balance-snapshot",
+            json={
+                "snapshot_at": snapshot_at.isoformat(),
+                "department_id": str(department_id),
+                "source_warehouse_mapping_ids": [str(source_id), str(source_id)],
+            },
+        )
+        self.assertEqual(duplicate.status_code, 422, duplicate.text)
+        response = self.client.post(
+            "/integrations/iiko/sync/stock-balance-snapshot",
+            json={
+                "snapshot_at": snapshot_at.isoformat(),
+                "department_id": str(department_id),
+                "source_warehouse_mapping_ids": [str(source_id)],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["sync_type"], "STOCK_BALANCE_SNAPSHOT")
+        self.assertEqual(response.json()["status"], "SUCCEEDED")
+        with self.session_factory() as session:
+            line = session.scalar(select(IikoStockBalanceSnapshotLine))
+        self.assertEqual(line.source_warehouse_mapping_id, source_id)
+        self.assertEqual(line.quantity, Decimal("4.250000"))

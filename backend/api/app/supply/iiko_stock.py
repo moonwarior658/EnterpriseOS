@@ -1,5 +1,5 @@
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session, joinedload, lazyload, selectinload
 from app.models.iiko import (
     IikoMappingStatus,
     IikoProductMapping,
-    IikoRawEntity,
+    IikoStockBalanceSnapshotLine,
+    IikoStockBalanceSnapshotSource,
+    IikoStockBalanceSnapshotSourceStatus,
     IikoSyncRun,
     IikoSyncStatus,
     IikoSyncType,
@@ -228,53 +230,53 @@ def _latest_balances(
     session: Session,
     *,
     tenant_id: str,
-    warehouse_id: UUID,
+    source_warehouse_mapping_id: UUID,
 ) -> tuple[dict[UUID, Decimal], datetime | None]:
-    runs = session.scalars(
-        select(IikoSyncRun)
+    latest = session.execute(
+        select(IikoStockBalanceSnapshotSource, IikoSyncRun)
+        .join(
+            IikoSyncRun,
+            IikoSyncRun.id == IikoStockBalanceSnapshotSource.sync_run_id,
+        )
         .where(
             IikoSyncRun.tenant_id == tenant_id,
-            IikoSyncRun.sync_type == IikoSyncType.STOCK_BALANCES,
+            IikoSyncRun.sync_type
+            == IikoSyncType.STOCK_BALANCE_SNAPSHOT,
             IikoSyncRun.status == IikoSyncStatus.SUCCEEDED,
             IikoSyncRun.finished_at.is_not(None),
+            IikoStockBalanceSnapshotSource.tenant_id == tenant_id,
+            IikoStockBalanceSnapshotSource.source_warehouse_mapping_id
+            == source_warehouse_mapping_id,
+            IikoStockBalanceSnapshotSource.status
+            == IikoStockBalanceSnapshotSourceStatus.SUCCEEDED,
         )
         .order_by(
+            IikoStockBalanceSnapshotSource.snapshot_at.desc(),
             IikoSyncRun.finished_at.desc(),
             IikoSyncRun.started_at.desc(),
             IikoSyncRun.id.desc(),
         )
-    ).all()
-    warehouse_text = str(warehouse_id)
-    run = next((item for item in runs if warehouse_text in {
-        str(value) for value in item.parameters.get("warehouse_external_ids", [])
-    }), None)
-    if run is None:
+        .limit(1)
+    ).first()
+    if latest is None:
         return {}, None
+    source_snapshot, run = latest
     records = session.scalars(
-        select(IikoRawEntity)
+        select(IikoStockBalanceSnapshotLine)
         .where(
-            IikoRawEntity.tenant_id == tenant_id,
-            IikoRawEntity.sync_run_id == run.id,
-            IikoRawEntity.entity_type == "stock_balance",
-            IikoRawEntity.organization_external_id == warehouse_text,
-            IikoRawEntity.is_active.is_(True),
+            IikoStockBalanceSnapshotLine.tenant_id == tenant_id,
+            IikoStockBalanceSnapshotLine.sync_run_id == run.id,
+            IikoStockBalanceSnapshotLine.source_warehouse_mapping_id
+            == source_warehouse_mapping_id,
         )
-        .order_by(IikoRawEntity.received_at.desc(), IikoRawEntity.id.desc())
+        .order_by(IikoStockBalanceSnapshotLine.id)
     ).all()
-    balances: dict[UUID, Decimal] = {}
-    last_sync_at = run.finished_at or max(
-        (item.received_at for item in records),
-        default=None,
+    balances = {record.iiko_product_id: record.quantity for record in records}
+    snapshot_at = min(
+        (record.snapshot_at for record in records),
+        default=source_snapshot.snapshot_at,
     )
-    for record in records:
-        try:
-            product_id = UUID(str(record.payload["product"]))
-            quantity = Decimal(str(record.payload["amount"]))
-        except (KeyError, TypeError, ValueError, InvalidOperation):
-            continue
-        if quantity.is_finite() and product_id not in balances:
-            balances[product_id] = quantity
-    return balances, last_sync_at
+    return balances, snapshot_at
 
 
 def _unavailable_line(
@@ -343,7 +345,7 @@ def get_stock_check(
     balances, last_sync_at = _latest_balances(
         session,
         tenant_id=tenant_id,
-        warehouse_id=selected.iiko_warehouse_id,
+        source_warehouse_mapping_id=selected.id,
     )
     result_lines: list[SupplyIikoStockLineRead] = []
     for line in matched_lines:

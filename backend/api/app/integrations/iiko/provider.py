@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 
 from app.integrations.iiko.schemas import (
     IikoOrganizationDto,
@@ -80,13 +80,14 @@ class IikoProvider(ABC):
     async def get_stock_balances(
         self,
         *,
-        balance_date: date,
         warehouse_external_ids: Sequence[str],
+        balance_date: date | None = None,
+        snapshot_at: datetime | None = None,
         product_external_ids: Sequence[str] | None = None,
         include_zero: bool = True,
         include_deleted: bool = True,
     ) -> list[IikoRecord[IikoStockBalanceDto]]:
-        """Return stock balances for an explicitly bounded scope."""
+        """Return stock balances for an explicit scope and timestamp."""
 
     @abstractmethod
     async def aclose(self) -> None:
