@@ -72,6 +72,9 @@ from app.schemas.supply import (
     SupplyRequestRead,
     SupplyIikoSourceWarehouseSelect,
     SupplyIikoStockCheckRead,
+    SupplyStockCalculationRead,
+    SupplyStockCalculationConfirm,
+    SupplyStockTransferQuantityUpdate,
     SupplyProductSourceAssign,
     SupplyProductSourceBootstrapRead,
     SupplyProductSourceMappingRead,
@@ -206,6 +209,19 @@ from app.supply.source_mapping import (
     bootstrap_product_source_mappings,
     get_product_source_preview,
     resolve_supply_request_sources,
+)
+from app.supply.stock_calculation import (
+    SupplyStockCalculationConfirmedError,
+    SupplyStockCalculationBlockedError,
+    SupplyStockCalculationNotFoundError,
+    SupplyStockCalculationUnavailableError,
+    SupplyStockCalculationVersionConflictError,
+    SupplyStockTransferFractionInvalidError,
+    SupplyStockTransferQuantityInvalidError,
+    adjust_transferable_quantity,
+    calculate_stock,
+    confirm_stock_calculation,
+    get_stock_calculation,
 )
 
 
@@ -996,6 +1012,163 @@ def update_iiko_source_warehouse(
                 "code": "SUPPLY_REQUEST_VERSION_CONFLICT",
                 "current_version": error.current_version,
                 "expected_version": error.expected_version,
+            },
+        ) from error
+
+
+@router.get(
+    "/requests/{request_id}/stock-calculation",
+    response_model=SupplyStockCalculationRead | None,
+)
+def read_stock_calculation(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStockCalculationRead | None:
+    try:
+        return get_stock_calculation(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+        )
+    except SupplyStockCalculationNotFoundError as error:
+        raise _not_found() from error
+
+
+@router.post(
+    "/requests/{request_id}/stock-calculation/calculate",
+    response_model=SupplyStockCalculationRead,
+)
+def calculate_request_stock(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStockCalculationRead:
+    try:
+        return calculate_stock(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+            actor_user_id=user.id,
+        )
+    except SupplyStockCalculationNotFoundError as error:
+        raise _not_found() from error
+    except SupplyStockCalculationUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_STOCK_CALCULATION_NO_MATCHED_LINES"},
+        ) from error
+
+
+@router.patch(
+    "/requests/{request_id}/stock-calculation/lines/{line_id}",
+    response_model=SupplyStockCalculationRead,
+)
+def update_request_stock_transferable(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyStockTransferQuantityUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStockCalculationRead:
+    try:
+        return adjust_transferable_quantity(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+            calculation_id=payload.calculation_id,
+            expected_revision=payload.expected_revision,
+            expected_version=payload.expected_version,
+            line_id=line_id,
+            expected_line_version=payload.expected_line_version,
+            quantity=payload.quantity,
+            actor_user_id=user.id,
+        )
+    except SupplyStockCalculationNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "SUPPLY_STOCK_CALCULATION_NOT_FOUND"},
+        ) from error
+    except SupplyStockCalculationConfirmedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_STOCK_CALCULATION_CONFIRMED"},
+        ) from error
+    except SupplyStockCalculationVersionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_calculation_id": (
+                    str(error.current_calculation_id)
+                    if error.current_calculation_id is not None else None
+                ),
+                "current_revision": error.current_revision,
+                "current_version": error.current_version,
+                "current_line_version": error.current_line_version,
+            },
+        ) from error
+    except SupplyStockTransferQuantityInvalidError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE"},
+        ) from error
+    except SupplyStockTransferFractionInvalidError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "SUPPLY_STOCK_TRANSFER_FRACTION_NOT_ALLOWED"},
+        ) from error
+
+
+@router.post(
+    "/requests/{request_id}/stock-calculation/confirm",
+    response_model=SupplyStockCalculationRead,
+)
+def confirm_request_stock_calculation(
+    request_id: UUID,
+    payload: SupplyStockCalculationConfirm,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_admin)],
+) -> SupplyStockCalculationRead:
+    try:
+        return confirm_stock_calculation(
+            db,
+            tenant_id=settings.default_tenant_id,
+            request_id=request_id,
+            calculation_id=payload.calculation_id,
+            expected_revision=payload.expected_revision,
+            expected_version=payload.expected_version,
+            actor_user_id=user.id,
+        )
+    except SupplyStockCalculationNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "SUPPLY_STOCK_CALCULATION_NOT_FOUND"},
+        ) from error
+    except SupplyStockCalculationConfirmedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_STOCK_CALCULATION_CONFIRMED"},
+        ) from error
+    except SupplyStockCalculationVersionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "current_calculation_id": (
+                    str(error.current_calculation_id)
+                    if error.current_calculation_id is not None else None
+                ),
+                "current_revision": error.current_revision,
+                "current_version": error.current_version,
+            },
+        ) from error
+    except SupplyStockCalculationBlockedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "SUPPLY_STOCK_CALCULATION_BLOCKED",
+                "reasons": error.reasons,
             },
         ) from error
 

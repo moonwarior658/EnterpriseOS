@@ -6,7 +6,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.iiko import IikoWarehouseRole
-from app.models.supply import LegalContour, SupplyProductSourceRole
+from app.models.supply import (
+    LegalContour,
+    SupplyProductSourceRole,
+    SupplyStockCalculationStatus,
+)
 
 
 MAX_RAW_INPUT_LENGTH = 20_000
@@ -944,6 +948,64 @@ class SupplyIikoStockCheckRead(BaseModel):
 
 class SupplyIikoSourceWarehouseSelect(SupplyExpectedVersion):
     mapping_id: UUID
+
+
+class SupplyStockCalculationLineRead(BaseModel):
+    id: UUID
+    version: int
+    request_line_id: UUID
+    position: int
+    product_id: UUID
+    product_name: str
+    requested_unit: SupplyUnitRead | None
+    requested_quantity: Decimal | None
+    source_warehouse_mapping_id: UUID | None
+    source_name: str | None
+    iiko_snapshot_at: datetime | None
+    available_quantity: Decimal | None
+    transferable_quantity: Decimal | None
+    deficit_quantity: Decimal | None
+    unavailable_reason: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyStockCalculationGroupRead(BaseModel):
+    source_mapping_id: UUID | None
+    source_name: str | None
+    snapshot_at: datetime | None
+    lines: list[SupplyStockCalculationLineRead]
+
+
+class SupplyStockCalculationRead(BaseModel):
+    id: UUID
+    request_id: UUID
+    revision: int
+    version: int
+    status: SupplyStockCalculationStatus
+    is_preliminary: bool
+    calculated_at: datetime
+    snapshot_at: datetime | None
+    confirmed_at: datetime | None
+    groups: list[SupplyStockCalculationGroupRead]
+
+
+class SupplyStockTransferQuantityUpdate(BaseModel):
+    calculation_id: UUID
+    expected_revision: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+    expected_line_version: int = Field(ge=1)
+    quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=3)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyStockCalculationConfirm(BaseModel):
+    calculation_id: UUID
+    expected_revision: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SupplyProductSourceOptionRead(BaseModel):

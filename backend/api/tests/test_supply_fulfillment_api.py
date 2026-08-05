@@ -182,6 +182,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             session.add(request)
             session.flush()
             line = SupplyRequestLine(
+                tenant_id="eclair",
                 request_id=request.id,
                 position=1,
                 raw_text=f"Сахар {requested} кг",

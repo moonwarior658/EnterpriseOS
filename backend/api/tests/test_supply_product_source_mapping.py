@@ -166,6 +166,7 @@ class SupplyProductSourceMappingTests(unittest.TestCase):
         session.flush()
         for position, product in enumerate(products, start=1):
             session.add(SupplyRequestLine(
+                tenant_id="tenant-a",
                 request_id=request.id,
                 position=position,
                 raw_text=f"Строка {position}",
@@ -300,6 +301,7 @@ class SupplyProductSourceMappingTests(unittest.TestCase):
             session.flush()
             session.add_all([
                 SupplyRequestLine(
+                    tenant_id="tenant-a",
                     request_id=request.id,
                     position=1,
                     raw_text="Молоко 1 кг",
@@ -311,6 +313,7 @@ class SupplyProductSourceMappingTests(unittest.TestCase):
                     match_method="MANUAL",
                 ),
                 SupplyRequestLine(
+                    tenant_id="tenant-a",
                     request_id=request.id,
                     position=2,
                     raw_text="Стакан 1 кг",

@@ -386,7 +386,11 @@ def create_public_request(
             source_ip_hash=source_ip_hash,
             public_created_at=current_time,
             lines=[
-                SupplyRequestLine(position=index, raw_text=line)
+                SupplyRequestLine(
+                    tenant_id=settings.default_tenant_id,
+                    position=index,
+                    raw_text=line,
+                )
                 for index, line in enumerate(
                     payload.multiline_text.splitlines(),
                     start=1,
@@ -515,7 +519,11 @@ def replace_public_request_lines(
         session.flush()
         supply_request.raw_input = payload.multiline_text
         supply_request.lines = [
-            SupplyRequestLine(position=index, raw_text=line)
+            SupplyRequestLine(
+                tenant_id=supply_request.tenant_id,
+                position=index,
+                raw_text=line,
+            )
             for index, line in enumerate(
                 payload.multiline_text.splitlines(),
                 start=1,

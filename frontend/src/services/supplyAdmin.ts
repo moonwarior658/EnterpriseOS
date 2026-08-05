@@ -140,6 +140,42 @@ export type SupplyIikoStockCheck = {
   lines: SupplyIikoStockLine[]
 }
 
+export type SupplyStockCalculationLine = {
+  id: string
+  version: number
+  request_line_id: string
+  position: number
+  product_id: string
+  product_name: string
+  requested_unit: SupplyUnit | null
+  requested_quantity: string | null
+  source_warehouse_mapping_id: string | null
+  source_name: string | null
+  iiko_snapshot_at: string | null
+  available_quantity: string | null
+  transferable_quantity: string | null
+  deficit_quantity: string | null
+  unavailable_reason: string | null
+}
+
+export type SupplyStockCalculation = {
+  id: string
+  request_id: string
+  revision: number
+  version: number
+  status: 'PRELIMINARY' | 'CONFIRMED'
+  is_preliminary: boolean
+  calculated_at: string
+  snapshot_at: string | null
+  confirmed_at: string | null
+  groups: Array<{
+    source_mapping_id: string | null
+    source_name: string | null
+    snapshot_at: string | null
+    lines: SupplyStockCalculationLine[]
+  }>
+}
+
 export type SupplyProductSourceOption = {
   mapping_id: string
   iiko_warehouse_id: string
@@ -355,6 +391,57 @@ export function selectSupplyIikoSourceWarehouse(
     body: JSON.stringify({
       mapping_id: mappingId,
       expected_version: expectedVersion,
+    }),
+  })
+}
+
+export function getSupplyStockCalculation(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SupplyStockCalculation | null> {
+  return request(`/supply/requests/${id}/stock-calculation`, {
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export function calculateSupplyStock(id: string): Promise<SupplyStockCalculation> {
+  return request(`/supply/requests/${id}/stock-calculation/calculate`, {
+    method: 'POST',
+  })
+}
+
+export function updateSupplyStockTransferable(
+  requestId: string,
+  calculation: SupplyStockCalculation,
+  line: SupplyStockCalculationLine,
+  quantity: string,
+): Promise<SupplyStockCalculation> {
+  return request(
+    `/supply/requests/${requestId}/stock-calculation/lines/${line.id}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        calculation_id: calculation.id,
+        expected_revision: calculation.revision,
+        expected_version: calculation.version,
+        expected_line_version: line.version,
+        quantity,
+      }),
+    },
+  )
+}
+
+export function confirmSupplyStockCalculation(
+  id: string,
+  calculation: SupplyStockCalculation,
+): Promise<SupplyStockCalculation> {
+  return request(`/supply/requests/${id}/stock-calculation/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({
+      calculation_id: calculation.id,
+      expected_revision: calculation.revision,
+      expected_version: calculation.version,
     }),
   })
 }

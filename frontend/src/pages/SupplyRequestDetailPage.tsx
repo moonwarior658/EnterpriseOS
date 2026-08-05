@@ -5,9 +5,12 @@ import {
   cancelSupplyRequest,
   assignSupplyProductSource,
   bootstrapSupplyProductSources,
+  calculateSupplyStock,
   confirmSupplyDebtInclusion,
+  confirmSupplyStockCalculation,
   fulfillSupplyAsPlanned,
   getSupplyProductSourcePreview,
+  getSupplyStockCalculation,
   getSupplyProducts,
   getSupplyRequest,
   getSupplyUnits,
@@ -17,11 +20,13 @@ import {
   recognizeSupplyRequest,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
+  updateSupplyStockTransferable,
   SupplyApiError,
   type SupplyLine,
   type SupplyProductSourcePreview,
   type SupplyProduct,
   type SupplyRequest,
+  type SupplyStockCalculation,
   type SupplyUnit,
 } from '../services/supplyAdmin'
 import {
@@ -408,6 +413,11 @@ function SupplyRequestDetailPage() {
   const [sourceState, setSourceState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   )
+  const [stockCalculation, setStockCalculation] = useState<SupplyStockCalculation | null>(null)
+  const [stockCalculationState, setStockCalculationState] = useState<
+    'loading' | 'ready' | 'error'
+  >('loading')
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({})
 
   const editable = request
     ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
@@ -453,6 +463,13 @@ function SupplyRequestDetailPage() {
     () => supplyMatchProgress(request?.lines ?? []),
     [request],
   )
+  const hasStockDraft = stockCalculation?.groups.some((group) => (
+    group.lines.some((line) => line.transferable_quantity !== null
+      && stockDrafts[line.id] !== line.transferable_quantity)
+  )) ?? false
+  const hasBlockedStock = stockCalculation?.groups.some((group) => (
+    group.lines.some((line) => line.unavailable_reason !== null)
+  )) ?? false
 
   async function reload(): Promise<SupplyRequest> {
     const item = await getSupplyRequest(requestId)
@@ -514,12 +531,25 @@ function SupplyRequestDetailPage() {
   useEffect(() => {
     if (!request) return
     const controller = new AbortController()
-    getSupplyProductSourcePreview(request.id, controller.signal).then((result) => {
+    Promise.all([
+      getSupplyProductSourcePreview(request.id, controller.signal),
+      getSupplyStockCalculation(request.id, controller.signal),
+    ]).then(([preview, calculation]) => {
       if (controller.signal.aborted) return
-      setSourcePreview(result)
+      setSourcePreview(preview)
       setSourceState('ready')
+      setStockCalculation(calculation)
+      setStockDrafts(Object.fromEntries(
+        calculation?.groups.flatMap((group) => group.lines)
+          .filter((line) => line.transferable_quantity !== null)
+          .map((line) => [line.id, line.transferable_quantity as string]) ?? [],
+      ))
+      setStockCalculationState('ready')
     }).catch(() => {
-      if (!controller.signal.aborted) setSourceState('error')
+      if (!controller.signal.aborted) {
+        setSourceState('error')
+        setStockCalculationState('error')
+      }
     })
     return () => controller.abort()
   }, [request])
@@ -714,6 +744,110 @@ function SupplyRequestDetailPage() {
       )
     } catch {
       setMessage('Не удалось выполнить bootstrap SOURCE')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function applyStockCalculation(calculation: SupplyStockCalculation) {
+    setStockCalculation(calculation)
+    setStockDrafts(Object.fromEntries(
+      calculation.groups.flatMap((group) => group.lines)
+        .filter((line) => line.transferable_quantity !== null)
+        .map((line) => [line.id, line.transferable_quantity as string]),
+    ))
+    setStockCalculationState('ready')
+  }
+
+  async function calculateStock() {
+    if (!request || busy || hasDirty) return
+    setBusy(true)
+    setMessage('')
+    try {
+      applyStockCalculation(await calculateSupplyStock(request.id))
+      setMessage(stockCalculation
+        ? 'Остатки пересчитаны. Результат предварительный.'
+        : 'Остатки рассчитаны. Результат предварительный.')
+    } catch {
+      setMessage('Не удалось рассчитать остатки')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveStockTransferable(lineId: string) {
+    if (
+      !request || !stockCalculation || busy
+      || stockCalculation.status !== 'PRELIMINARY'
+    ) return
+    const line = stockCalculation.groups.flatMap((group) => group.lines)
+      .find((item) => item.id === lineId)
+    const quantity = stockDrafts[lineId]
+    if (!line || quantity === line.transferable_quantity) return
+    setBusy(true)
+    setMessage('')
+    try {
+      applyStockCalculation(await updateSupplyStockTransferable(
+        request.id,
+        stockCalculation,
+        line,
+        quantity,
+      ))
+      setMessage('Количество к перемещению сохранено')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setStockDrafts((current) => ({
+        ...current,
+        [lineId]: line.transferable_quantity ?? '',
+      }))
+      if (code === 'VERSION_CONFLICT') {
+        const current = await getSupplyStockCalculation(request.id)
+        if (current) applyStockCalculation(current)
+      }
+      setMessage(({
+        VERSION_CONFLICT:
+          'Расчёт уже изменился. Данные обновлены, повторите действие.',
+        SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE:
+          'Нельзя превысить количество строки или доступный остаток SOURCE.',
+        SUPPLY_STOCK_TRANSFER_FRACTION_NOT_ALLOWED:
+          'Для этой единицы разрешено только целое количество.',
+        SUPPLY_STOCK_CALCULATION_CONFIRMED:
+          'Расчёт уже подтверждён и недоступен для изменения.',
+      } as Record<string, string>)[code ?? '']
+        ?? 'Не удалось сохранить количество к перемещению')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmStock() {
+    if (
+      !request || !stockCalculation || busy || hasBlockedStock
+      || stockCalculation.status !== 'PRELIMINARY'
+    ) return
+    setBusy(true)
+    setMessage('')
+    try {
+      applyStockCalculation(await confirmSupplyStockCalculation(
+        request.id,
+        stockCalculation,
+      ))
+      setMessage('Расчёт подтверждён')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      if (code === 'VERSION_CONFLICT') {
+        const current = await getSupplyStockCalculation(request.id)
+        if (current) applyStockCalculation(current)
+      }
+      setMessage(({
+        VERSION_CONFLICT:
+          'Расчёт уже изменился. Данные обновлены, проверьте его повторно.',
+        SUPPLY_STOCK_CALCULATION_BLOCKED:
+          'Подтверждение невозможно: устраните причины в заблокированных строках.',
+        SUPPLY_STOCK_CALCULATION_CONFIRMED:
+          'Этот расчёт уже подтверждён.',
+      } as Record<string, string>)[code ?? '']
+        ?? 'Не удалось подтвердить расчёт')
     } finally {
       setBusy(false)
     }
@@ -1041,6 +1175,94 @@ function SupplyRequestDetailPage() {
               <small>Каждая будущая накладная/ВП — только для одного SOURCE.</small>
             </div>
           ) : null}
+        </section>
+
+        <section className="supply-stock-calculation" aria-label="Сверка остатков">
+          <div className="supply-iiko-stock-heading">
+            <div>
+              <strong>Сверка остатков</strong>
+              <small>
+                {stockCalculation?.is_preliminary
+                  ? 'Предварительный расчёт'
+                  : stockCalculation ? 'Расчёт подтверждён' : 'Расчёт ещё не выполнен'}
+              </small>
+            </div>
+            <div className="supply-stock-actions">
+              <button
+                type="button"
+                disabled={busy || hasDirty || hasStockDraft}
+                onClick={() => void calculateStock()}
+              >
+                Рассчитать по остаткам
+              </button>
+              <button
+                type="button"
+                disabled={busy || hasDirty || hasStockDraft
+                  || hasBlockedStock || !stockCalculation
+                  || stockCalculation.status !== 'PRELIMINARY'}
+                onClick={() => void confirmStock()}
+              >
+                Подтвердить расчёт
+              </button>
+            </div>
+          </div>
+          {stockCalculationState === 'loading' && <p>Загружаем расчёт…</p>}
+          {stockCalculationState === 'error' && (
+            <p className="request-message-error">Не удалось загрузить расчёт остатков.</p>
+          )}
+          {stockCalculation?.status === 'CONFIRMED' && (
+            <p className="supply-stock-dates">
+              Дата расчёта: {formatDate(stockCalculation.calculated_at)} · Дата снимка iiko:{' '}
+              {formatDate(stockCalculation.snapshot_at)}
+            </p>
+          )}
+          {stockCalculation?.groups.map((group) => (
+            <div className="supply-stock-group" key={group.source_mapping_id ?? 'blocked'}>
+              <div className="supply-stock-group-title">
+                <strong>{group.source_name ?? 'Заблокированные строки'}</strong>
+                {stockCalculation.status === 'CONFIRMED' && group.snapshot_at && (
+                  <small>Снимок iiko: {formatDate(group.snapshot_at)}</small>
+                )}
+              </div>
+              <div className="supply-stock-grid supply-stock-grid-head" role="row">
+                <span>Товар</span>
+                <span>Запрошено</span>
+                <span>Остаток</span>
+                <span>К перемещению</span>
+                <span>Дефицит</span>
+              </div>
+              {group.lines.map((line) => (
+                <div className="supply-stock-grid" key={line.id} role="row">
+                  <strong>{line.product_name}</strong>
+                  <span>
+                    {line.requested_quantity ?? '—'} {line.requested_unit?.short_name_ru ?? ''}
+                  </span>
+                  <span>{line.available_quantity ?? '—'}</span>
+                  {line.unavailable_reason ? (
+                    <span className="supply-iiko-stock-unavailable">
+                      {line.unavailable_reason}
+                    </span>
+                  ) : (
+                    <input
+                      aria-label={`К перемещению для ${line.product_name}`}
+                      type="number"
+                      min="0"
+                      max={line.requested_quantity ?? undefined}
+                      step={line.requested_unit?.allows_fraction ? '0.001' : '1'}
+                      value={stockDrafts[line.id] ?? ''}
+                      disabled={busy || stockCalculation.status === 'CONFIRMED'}
+                      onChange={(event) => setStockDrafts((current) => ({
+                        ...current,
+                        [line.id]: event.target.value,
+                      }))}
+                      onBlur={() => void saveStockTransferable(line.id)}
+                    />
+                  )}
+                  {!line.unavailable_reason && <span>{line.deficit_quantity ?? '—'}</span>}
+                </div>
+              ))}
+            </div>
+          ))}
         </section>
 
         <div className="supply-simple-table" role="table">

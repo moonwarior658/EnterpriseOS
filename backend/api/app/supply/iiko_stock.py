@@ -238,7 +238,11 @@ def _latest_balances(
             IikoSyncRun.status == IikoSyncStatus.SUCCEEDED,
             IikoSyncRun.finished_at.is_not(None),
         )
-        .order_by(IikoSyncRun.finished_at.desc(), IikoSyncRun.started_at.desc())
+        .order_by(
+            IikoSyncRun.finished_at.desc(),
+            IikoSyncRun.started_at.desc(),
+            IikoSyncRun.id.desc(),
+        )
     ).all()
     warehouse_text = str(warehouse_id)
     run = next((item for item in runs if warehouse_text in {

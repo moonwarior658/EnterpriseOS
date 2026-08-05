@@ -587,7 +587,9 @@ class SupplyApiTests(unittest.TestCase):
                 source_type="INTERNAL",
                 raw_input="Скрытая заявка",
             )
-            other.lines = [SupplyRequestLine(position=1, raw_text="Скрыто")]
+            other.lines = [SupplyRequestLine(
+                tenant_id="other", position=1, raw_text="Скрыто"
+            )]
             session.add(other)
             session.flush()
             other_id = other.id

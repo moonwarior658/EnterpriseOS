@@ -44,6 +44,18 @@ class SupplyProductSourceAuditAction(StrEnum):
     REPLACED = "REPLACED"
 
 
+class SupplyStockCalculationStatus(StrEnum):
+    PRELIMINARY = "PRELIMINARY"
+    CONFIRMED = "CONFIRMED"
+
+
+class SupplyStockCalculationAuditAction(StrEnum):
+    AUTO_CALCULATED = "AUTO_CALCULATED"
+    MANUALLY_ADJUSTED = "MANUALLY_ADJUSTED"
+    CONFIRMED = "CONFIRMED"
+    RECALCULATED = "RECALCULATED"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -242,6 +254,9 @@ class SupplyUnit(Base):
             "tenant_id",
             "code",
             name="uq_supply_units_tenant_code",
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_units_tenant_id"
         ),
         Index(
             "ix_supply_units_tenant_active_code",
@@ -828,6 +843,290 @@ class SupplyProductSourceMappingAuditEvent(Base):
     )
 
 
+class SupplyStockCalculation(Base):
+    __tablename__ = "supply_stock_calculations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "request_id", "revision",
+            name="uq_supply_stock_calculation_request_revision",
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_stock_calculation_tenant_id",
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", "request_id",
+            name="uq_supply_stock_calculation_tenant_id_request",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "request_id"],
+            ["supply_requests.tenant_id", "supply_requests.id"],
+            name="fk_supply_stock_calculation_tenant_request",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "revision >= 1", name="ck_supply_stock_calculation_revision",
+        ),
+        CheckConstraint(
+            "version >= 1", name="ck_supply_stock_calculation_version",
+        ),
+        CheckConstraint(
+            "(status = 'PRELIMINARY' AND confirmed_at IS NULL "
+            "AND confirmed_by_user_id IS NULL) OR "
+            "(status = 'CONFIRMED' AND confirmed_at IS NOT NULL "
+            "AND confirmed_by_user_id IS NOT NULL)",
+            name="ck_supply_stock_calculation_confirmation_state",
+        ),
+        Index(
+            "ix_supply_stock_calculation_request_revision",
+            "request_id", "revision",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    status: Mapped[SupplyStockCalculationStatus] = mapped_column(
+        SqlEnum(
+            SupplyStockCalculationStatus,
+            name="supply_stock_calculation_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=16,
+        ),
+        default=SupplyStockCalculationStatus.PRELIMINARY,
+        nullable=False,
+    )
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    snapshot_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    calculated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    lines: Mapped[list["SupplyStockCalculationLine"]] = relationship(
+        back_populates="calculation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SupplyStockCalculationLine.position",
+    )
+
+
+class SupplyStockCalculationLine(Base):
+    __tablename__ = "supply_stock_calculation_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "calculation_id", "request_line_id",
+            name="uq_supply_stock_calculation_line_request_line",
+        ),
+        UniqueConstraint(
+            "tenant_id", "calculation_id", "id",
+            name="uq_supply_stock_calculation_line_tenant_calculation_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "calculation_id", "request_id"],
+            [
+                "supply_stock_calculations.tenant_id",
+                "supply_stock_calculations.id",
+                "supply_stock_calculations.request_id",
+            ],
+            name="fk_supply_stock_line_tenant_calculation_request",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "request_id", "request_line_id"],
+            [
+                "supply_request_lines.tenant_id",
+                "supply_request_lines.request_id",
+                "supply_request_lines.id",
+            ],
+            name="fk_supply_stock_line_tenant_request_line",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_stock_line_tenant_product",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "requested_unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_stock_line_tenant_unit",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_warehouse_mapping_id"],
+            ["iiko_warehouse_mappings.tenant_id", "iiko_warehouse_mappings.id"],
+            name="fk_supply_stock_line_tenant_source",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "requested_quantity IS NULL OR requested_quantity >= 0",
+            name="ck_supply_stock_calculation_line_requested_nonnegative",
+        ),
+        CheckConstraint(
+            "transferable_quantity IS NULL OR transferable_quantity >= 0",
+            name="ck_supply_stock_calculation_line_transferable_nonnegative",
+        ),
+        CheckConstraint(
+            "deficit_quantity IS NULL OR deficit_quantity >= 0",
+            name="ck_supply_stock_calculation_line_deficit_nonnegative",
+        ),
+        CheckConstraint(
+            "transferable_quantity IS NULL OR "
+            "transferable_quantity <= requested_quantity",
+            name="ck_supply_stock_calculation_line_transferable_requested",
+        ),
+        CheckConstraint(
+            "(unavailable_reason IS NOT NULL "
+            "AND transferable_quantity IS NULL AND deficit_quantity IS NULL) "
+            "OR (unavailable_reason IS NULL "
+            "AND requested_quantity IS NOT NULL "
+            "AND available_quantity IS NOT NULL "
+            "AND transferable_quantity IS NOT NULL "
+            "AND deficit_quantity IS NOT NULL "
+            "AND deficit_quantity = requested_quantity - transferable_quantity)",
+            name="ck_supply_stock_calculation_line_state",
+        ),
+        CheckConstraint(
+            "version >= 1",
+            name="ck_supply_stock_calculation_line_version",
+        ),
+        Index(
+            "ix_supply_stock_calculation_line_position",
+            "calculation_id", "position",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    calculation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    request_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    requested_unit_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    requested_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    source_warehouse_mapping_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    source_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    iiko_snapshot_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    available_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    transferable_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    deficit_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    unavailable_reason: Mapped[str | None] = mapped_column(
+        String(500), nullable=True
+    )
+
+    calculation: Mapped[SupplyStockCalculation] = relationship(
+        back_populates="lines"
+    )
+    requested_unit: Mapped[SupplyUnit | None] = relationship(
+        overlaps="calculation,lines"
+    )
+
+
+class SupplyStockCalculationAuditEvent(Base):
+    __tablename__ = "supply_stock_calculation_audit_events"
+    __table_args__ = (
+        Index(
+            "ix_supply_stock_calculation_audit_created",
+            "tenant_id", "calculation_id", "created_at",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "calculation_id"],
+            [
+                "supply_stock_calculations.tenant_id",
+                "supply_stock_calculations.id",
+            ],
+            name="fk_supply_stock_audit_tenant_calculation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "calculation_id", "calculation_line_id"],
+            [
+                "supply_stock_calculation_lines.tenant_id",
+                "supply_stock_calculation_lines.calculation_id",
+                "supply_stock_calculation_lines.id",
+            ],
+            name="fk_supply_stock_audit_tenant_calculation_line",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    calculation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    action: Mapped[SupplyStockCalculationAuditAction] = mapped_column(
+        SqlEnum(
+            SupplyStockCalculationAuditAction,
+            name="supply_stock_calculation_audit_action",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=24,
+        ),
+        nullable=False,
+    )
+    calculation_line_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    previous_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 3), nullable=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class SupplyRequest(Base):
     __tablename__ = "supply_requests"
     __table_args__ = (
@@ -841,6 +1140,9 @@ class SupplyRequest(Base):
             "tenant_id",
             "public_number",
             name="uq_supply_requests_tenant_public_number",
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_requests_tenant_id"
         ),
         UniqueConstraint(
             "tenant_id",
@@ -1063,6 +1365,19 @@ class SupplyRequestLine(Base):
             "position",
             name="uq_supply_request_lines_request_position",
         ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_request_lines_tenant_id",
+        ),
+        UniqueConstraint(
+            "tenant_id", "request_id", "id",
+            name="uq_supply_request_lines_tenant_request_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "request_id"],
+            ["supply_requests.tenant_id", "supply_requests.id"],
+            name="fk_supply_request_lines_tenant_request",
+            ondelete="CASCADE",
+        ),
         CheckConstraint(
             "position >= 1",
             name="ck_supply_request_lines_position",
@@ -1106,10 +1421,8 @@ class SupplyRequestLine(Base):
         primary_key=True,
         default=uuid4,
     )
-    request_id: Mapped[UUID] = mapped_column(
-        ForeignKey("supply_requests.id", ondelete="CASCADE"),
-        nullable=False,
-    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     parsed_name: Mapped[str | None] = mapped_column(Text, nullable=True)

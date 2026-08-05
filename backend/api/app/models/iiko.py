@@ -445,6 +445,9 @@ class IikoWarehouseMapping(Base):
             "iiko_warehouse_id",
             name="uq_iiko_warehouse_mappings_tenant_external",
         ),
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_iiko_warehouse_mappings_tenant_id",
+        ),
         Index(
             "ix_iiko_warehouse_mappings_queue",
             "tenant_id",

@@ -1640,6 +1640,7 @@ def create_supply_request(
                     validate_quantity_for_unit(line.quantity, unit)
                 request_lines.append(
                     SupplyRequestLine(
+                        tenant_id=settings.default_tenant_id,
                         position=position,
                         raw_text=line.raw_text,
                         product_id=product.id if product is not None else None,

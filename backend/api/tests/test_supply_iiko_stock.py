@@ -2,7 +2,7 @@ import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -35,10 +35,15 @@ from app.models.supply import (
     Department,
     LegalContour,
     SupplyProduct,
+    SupplyProductSourceMapping,
+    SupplyProductSourceRole,
     SupplyRequest,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyUnit,
+    SupplyStockCalculation,
+    SupplyStockCalculationAuditEvent,
+    SupplyStockCalculationLine,
 )
 from app.models.user import User
 from app.supply.iiko_stock import (
@@ -69,8 +74,12 @@ class SupplyIikoStockTests(unittest.TestCase):
             IikoProductMapping.__table__,
             IikoUnitMapping.__table__,
             IikoWarehouseMapping.__table__,
+            SupplyProductSourceMapping.__table__,
             SupplyRequest.__table__,
             SupplyRequestLine.__table__,
+            SupplyStockCalculation.__table__,
+            SupplyStockCalculationLine.__table__,
+            SupplyStockCalculationAuditEvent.__table__,
         ):
             table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -142,6 +151,7 @@ class SupplyIikoStockTests(unittest.TestCase):
                 raw_input="Молоко 5 кг",
             )
             line = SupplyRequestLine(
+                tenant_id="tenant-a",
                 request=request,
                 position=1,
                 raw_text="Молоко 5 кг",
@@ -158,13 +168,23 @@ class SupplyIikoStockTests(unittest.TestCase):
             self.request_id = request.id
             self.unit_id = unit.id
             self.source_id = source.id
+            self.product_id = product.id
+            self.line_id = line.id
+            session.add(SupplyProductSourceMapping(
+                tenant_id="tenant-a",
+                eos_product_id=product.id,
+                legal_contour=LegalContour.IP,
+                role=SupplyProductSourceRole.MAIN,
+                source_warehouse_mapping_id=source.id,
+                assigned_by_user_id=admin.id,
+            ))
             session.add_all([
                 IikoProductMapping(
                     tenant_id="tenant-a",
                     iiko_product_id=self.iiko_product_id,
                     eos_product_id=product.id,
                     status=IikoMappingStatus.CONFIRMED,
-                    source_name="Молоко iiko",
+                    source_name="Т Молоко iiko",
                     source_unit_id=self.iiko_unit_id,
                 ),
                 IikoUnitMapping(
@@ -199,6 +219,44 @@ class SupplyIikoStockTests(unittest.TestCase):
                     "amount": "8.000",
                 },
                 payload_hash="stock-8",
+                is_active=True,
+            ))
+
+    def _add_stock_sync(
+        self,
+        amount: str,
+        finished_at: datetime,
+        *,
+        run_id: UUID | None = None,
+        started_at: datetime | None = None,
+    ) -> None:
+        with self.sessions.begin() as session:
+            run = IikoSyncRun(
+                id=run_id or uuid4(),
+                tenant_id="tenant-a",
+                sync_type=IikoSyncType.STOCK_BALANCES,
+                status=IikoSyncStatus.SUCCEEDED,
+                source_api_type="iiko_server",
+                started_at=started_at or finished_at,
+                finished_at=finished_at,
+                parameters={
+                    "warehouse_external_ids": [str(self.iiko_warehouse_id)],
+                },
+            )
+            session.add(run)
+            session.flush()
+            session.add(IikoRawEntity(
+                tenant_id="tenant-a",
+                sync_run_id=run.id,
+                entity_type="stock_balance",
+                external_id=f"{self.iiko_warehouse_id}:{self.iiko_product_id}",
+                organization_external_id=str(self.iiko_warehouse_id),
+                payload={
+                    "store": str(self.iiko_warehouse_id),
+                    "product": str(self.iiko_product_id),
+                    "amount": amount,
+                },
+                payload_hash=f"stock-{amount}-{finished_at.isoformat()}",
                 is_active=True,
             ))
 
@@ -437,6 +495,264 @@ class SupplyIikoStockTests(unittest.TestCase):
                 result.lines[0].unavailable_reason,
                 "Единица заявки не совпадает с unit_id iiko",
             )
+
+    def test_calculation_available_more_than_requested(self) -> None:
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["requested_quantity"]), Decimal("5"))
+        self.assertEqual(Decimal(line["available_quantity"]), Decimal("8"))
+        self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("5"))
+        self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("0"))
+
+    def test_calculation_available_less_than_requested(self) -> None:
+        self._add_stock_sync(
+            "3.000", self.initial_sync_at + timedelta(hours=1)
+        )
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("3"))
+        self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("2"))
+
+    def test_manual_transferable_decrease_is_persisted(self) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        calculation = calculated.json()
+        line = calculation["groups"][0]["lines"][0]
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json={
+                "calculation_id": calculation["id"],
+                "expected_revision": calculation["revision"],
+                "expected_version": calculation["version"],
+                "expected_line_version": line["version"],
+                "quantity": "2.000",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("2"))
+        self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("3"))
+        self.assertEqual(response.json()["version"], calculation["version"] + 1)
+        self.assertEqual(line["version"], 2)
+
+    def test_stale_patch_returns_version_conflict(self) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        line = calculated["groups"][0]["lines"][0]
+        payload = {
+            "calculation_id": calculated["id"],
+            "expected_revision": calculated["revision"],
+            "expected_version": calculated["version"],
+            "expected_line_version": line["version"],
+            "quantity": "2.000",
+        }
+        first = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json=payload,
+        )
+        stale = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json=payload,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(stale.json()["detail"]["code"], "VERSION_CONFLICT")
+
+    def test_integer_unit_rejects_fractional_patch(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyUnit, self.unit_id).allows_fraction = False
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        line = calculated["groups"][0]["lines"][0]
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+                "expected_line_version": line["version"],
+                "quantity": "1.500",
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_STOCK_TRANSFER_FRACTION_NOT_ALLOWED",
+        )
+
+    def test_manual_transferable_cannot_exceed_source_balance(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        calculation = calculated.json()
+        line = calculation["groups"][0]["lines"][0]
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json={
+                "calculation_id": calculation["id"],
+                "expected_revision": calculation["revision"],
+                "expected_version": calculation["version"],
+                "expected_line_version": line["version"],
+                "quantity": "9.000",
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE",
+        )
+
+    def test_manual_transferable_cannot_exceed_requested_line_quantity(self) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        line = calculated["groups"][0]["lines"][0]
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/stock-calculation/lines/{line['id']}",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+                "expected_line_version": line["version"],
+                "quantity": "6.000",
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE",
+        )
+
+    def test_calculation_blocks_missing_source_and_missing_balance(self) -> None:
+        with self.sessions.begin() as session:
+            mapping = session.scalar(select(SupplyProductSourceMapping))
+            session.delete(mapping)
+        without_source = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(without_source.status_code, 200, without_source.text)
+        blocked = without_source.json()["groups"][0]["lines"][0]
+        self.assertIn("SOURCE", blocked["unavailable_reason"])
+
+        with self.sessions.begin() as session:
+            session.add(SupplyProductSourceMapping(
+                tenant_id="tenant-a",
+                eos_product_id=self.product_id,
+                legal_contour=LegalContour.IP,
+                role=SupplyProductSourceRole.MAIN,
+                source_warehouse_mapping_id=self.source_id,
+                assigned_by_user_id=1,
+            ))
+            for raw in session.scalars(select(IikoRawEntity)).all():
+                raw.is_active = False
+        without_balance = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(without_balance.status_code, 200, without_balance.text)
+        blocked = without_balance.json()["groups"][0]["lines"][0]
+        self.assertIn("Нет остатка", blocked["unavailable_reason"])
+
+    def test_blocked_calculation_cannot_be_confirmed(self) -> None:
+        with self.sessions.begin() as session:
+            session.delete(session.scalar(select(SupplyProductSourceMapping)))
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "SUPPLY_STOCK_CALCULATION_BLOCKED",
+        )
+
+    def test_stale_confirm_after_recalculation_returns_version_conflict(self) -> None:
+        stale = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        current = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": stale["id"],
+                "expected_revision": stale["revision"],
+                "expected_version": stale["version"],
+            },
+        )
+        self.assertEqual(current["revision"], stale["revision"] + 1)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "VERSION_CONFLICT")
+
+    def test_tied_sync_timestamps_use_highest_run_id(self) -> None:
+        timestamp = self.initial_sync_at + timedelta(hours=2)
+        self._add_stock_sync(
+            "2.000",
+            timestamp,
+            run_id=UUID("00000000-0000-0000-0000-000000000001"),
+            started_at=timestamp,
+        )
+        self._add_stock_sync(
+            "7.000",
+            timestamp,
+            run_id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            started_at=timestamp,
+        )
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(calculated.status_code, 200, calculated.text)
+        line = calculated.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["available_quantity"]), Decimal("7"))
+
+    def test_confirmed_calculation_does_not_change_after_new_sync(self) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        original = calculated.json()["groups"][0]["lines"][0]
+        confirmed = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": calculated.json()["id"],
+                "expected_revision": calculated.json()["revision"],
+                "expected_version": calculated.json()["version"],
+            },
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self._add_stock_sync(
+            "1.000", self.initial_sync_at + timedelta(hours=1)
+        )
+        current = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        current_line = current.json()["groups"][0]["lines"][0]
+        self.assertEqual(current.json()["status"], "CONFIRMED")
+        self.assertEqual(
+            current_line["available_quantity"], original["available_quantity"]
+        )
+        self.assertEqual(
+            current_line["transferable_quantity"],
+            original["transferable_quantity"],
+        )
 
 
 if __name__ == "__main__":
