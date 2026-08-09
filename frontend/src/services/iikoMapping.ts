@@ -68,9 +68,26 @@ export type IikoCatalogBootstrapResult = {
   skipped: number
 }
 
+export type IikoSyncStatus =
+  | 'RUNNING' | 'SUCCEEDED' | 'PARTIALLY_SUCCEEDED' | 'FAILED'
+
 type IikoSyncRun = {
-  status: 'RUNNING' | 'SUCCEEDED' | 'PARTIALLY_SUCCEEDED' | 'FAILED'
+  status: IikoSyncStatus
   error_message: string | null
+}
+
+export type IikoStockBalanceSnapshotRun = {
+  status: IikoSyncStatus
+  records_created: number
+  records_failed: number
+  error_message: string | null
+  parameters: {
+    snapshot_at: string
+    department_id: string
+    source_warehouse_mapping_ids: string[]
+    completed_source_warehouse_mapping_ids: string[]
+    failed_source_warehouse_mapping_ids: string[]
+  }
 }
 
 type IikoGenerationStatus = {
@@ -119,19 +136,21 @@ async function request<T>(
 async function referenceRequest<T>(
   path: string,
   options: RequestInit = {},
+  failureMessage = 'Не удалось обновить данные iiko',
 ): Promise<T> {
   const token = getStoredToken()
   if (!token) throw new IikoMappingApiError('Сессия не найдена')
   const headers = new Headers(options.headers)
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', 'application/json')
+  if (options.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(`/api/integrations/iiko${path}`, {
     ...options,
     headers,
     cache: 'no-store',
   })
   if (!response.ok) {
-    throw new IikoMappingApiError('Не удалось обновить данные iiko')
+    throw new IikoMappingApiError(failureMessage, response.status)
   }
   return response.json() as Promise<T>
 }
@@ -195,6 +214,48 @@ export function getUnitMappings(query: URLSearchParams) {
 export function getWarehouseMappings(query: URLSearchParams) {
   return request<IikoMappingPage<IikoWarehouseMapping>>(
     `/warehouses?${query}`,
+  )
+}
+
+export async function getConfirmedSourceWarehouseMappings(): Promise<
+  IikoWarehouseMapping[]
+> {
+  const limit = 200
+  let offset = 0
+  const sources: IikoWarehouseMapping[] = []
+  while (true) {
+    const page = await getWarehouseMappings(mappingQuery({
+      status: 'CONFIRMED',
+      limit,
+      offset,
+    }))
+    sources.push(...page.items.filter((item) => (
+      item.destination_type === 'SOURCE'
+      && item.status === 'CONFIRMED'
+      && !item.is_deleted
+    )))
+    offset += page.items.length
+    if (offset >= page.total || page.items.length === 0) break
+  }
+  return sources
+}
+
+export function takeIikoStockBalanceSnapshot(
+  departmentId: string,
+  sourceWarehouseMappingIds: string[],
+  snapshotAt: Date = new Date(),
+): Promise<IikoStockBalanceSnapshotRun> {
+  return referenceRequest(
+    '/sync/stock-balance-snapshot',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        snapshot_at: snapshotAt.toISOString(),
+        department_id: departmentId,
+        source_warehouse_mapping_ids: sourceWarehouseMappingIds,
+      }),
+    },
+    'Не удалось снять остатки',
   )
 }
 

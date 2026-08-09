@@ -175,6 +175,7 @@ from app.supply.service import (
     update_supply_line_working_values,
     detect_supply_request_duplicates,
     recognize_supply_request,
+    reparse_supply_request_line,
     restore_supply_product,
     resolve_supply_duplicate_group,
     submit_supply_request,
@@ -437,9 +438,9 @@ def update_request_cycle(
 @router.get("/units", response_model=list[SupplyUnitRead])
 def read_supply_units(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> list[SupplyUnit]:
-    return list_supply_units(db)
+    return list_supply_units(db, tenant_id=current_admin.tenant_id)
 
 
 @router.get("/product-categories", response_model=SupplyReferencePage)
@@ -599,7 +600,7 @@ def update_storage_zone(
 @router.get("/products", response_model=SupplyProductPage)
 def read_supply_products(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
     active: bool | None = None,
     search: Annotated[str | None, Query(max_length=240)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -611,6 +612,7 @@ def read_supply_products(
         search=search,
         limit=limit,
         offset=offset,
+        tenant_id=current_admin.tenant_id,
     )
     return SupplyProductPage(
         items=items,
@@ -811,9 +813,9 @@ def delete_product_alias(
 @router.get("/departments", response_model=list[DepartmentRead])
 def read_departments(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> list[Department]:
-    return list_departments(db)
+    return list_departments(db, tenant_id=current_admin.tenant_id)
 
 
 @router.get(
@@ -1034,12 +1036,12 @@ def update_iiko_source_warehouse(
 def read_stock_calculation(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyStockCalculationRead | None:
     try:
         return get_stock_calculation(
             db,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=current_admin.tenant_id,
             request_id=request_id,
         )
     except SupplyStockCalculationNotFoundError as error:
@@ -1058,7 +1060,7 @@ def calculate_request_stock(
     try:
         return calculate_stock(
             db,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=user.tenant_id,
             request_id=request_id,
             actor_user_id=user.id,
         )
@@ -1258,12 +1260,12 @@ def update_product_source_mapping(
 def read_source_groups_preview(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyProductSourcePreviewRead:
     try:
         return get_product_source_preview(
             db,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=current_admin.tenant_id,
             request_id=request_id,
         )
     except SupplyProductSourceRequestNotFoundError as error:
@@ -1277,12 +1279,12 @@ def read_source_groups_preview(
 def resolve_request_sources(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyProductSourcePreviewRead:
     try:
         return resolve_supply_request_sources(
             db,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=current_admin.tenant_id,
             request_id=request_id,
         )
     except SupplyProductSourceRequestNotFoundError as error:
@@ -1386,6 +1388,7 @@ def match_request_line(
             line_id=line_id,
             payload=payload,
             matched_by_user_id=current_admin.id,
+            tenant_id=current_admin.tenant_id,
         )
     except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
         raise _not_found() from error
@@ -1420,6 +1423,41 @@ def match_request_line(
         raise _invalid_product_reference(
             "Для выбранной единицы допустимо только целое количество"
         ) from error
+
+
+@router.post(
+    "/requests/{request_id}/lines/{line_id}/reparse",
+    response_model=SupplyLineWorkingValuesRead,
+)
+def reparse_request_line(
+    request_id: UUID,
+    line_id: UUID,
+    payload: SupplyExpectedVersion,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyLineWorkingValuesRead:
+    try:
+        request_version, line = reparse_supply_request_line(
+            db,
+            request_id=request_id,
+            line_id=line_id,
+            expected_version=payload.expected_version,
+            actor_user_id=current_admin.id,
+            tenant_id=current_admin.tenant_id,
+        )
+        return SupplyLineWorkingValuesRead(
+            request_version=request_version,
+            line=line,
+        )
+    except (SupplyRequestNotFoundError, SupplyRequestLineNotFoundError) as error:
+        raise _not_found() from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_LINE_REPARSE_NOT_ALLOWED"},
+        ) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
 
 
 @router.post(

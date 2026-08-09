@@ -471,7 +471,7 @@ async def sync_iiko_stock_balance_snapshot(
         run = await sync_stock_balance_snapshot(
             db,
             provider,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=current_admin.tenant_id,
             requested_by=current_admin.id,
             source_api_type=config.api_type,
             snapshot_at=request.snapshot_at,

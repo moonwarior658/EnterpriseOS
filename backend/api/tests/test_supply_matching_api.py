@@ -104,6 +104,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
                         hashed_password="unused",
                         is_active=True,
                         is_admin=False,
+                        tenant_id="eclair",
                     ),
                     User(
                         id=2,
@@ -112,6 +113,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
                         hashed_password="unused",
                         is_active=True,
                         is_admin=True,
+                        tenant_id="eclair",
                     ),
                 ]
             )
@@ -328,6 +330,240 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertIsNone(line["parsed_name"])
         self.assertIsNone(line["parsed_quantity"])
         self.assertIsNone(line["parsed_unit"])
+
+    def test_legacy_needs_review_line_can_be_explicitly_reparsed(self) -> None:
+        raw_text = "Пластиковые контейнеры маленькие 200 шт."
+        created = self.create_request(raw_text)
+        self.recognize(created["id"])
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line_id = submitted["lines"][0]["id"]
+        with self.session_factory.begin() as session:
+            legacy = session.get(SupplyRequestLine, UUID(line_id))
+            legacy.parsed_name = None
+            legacy.parsed_quantity = None
+            legacy.parsed_unit_id = None
+            legacy.quantity = None
+            legacy.requested_unit_id = None
+            legacy.match_status = "NEEDS_REVIEW"
+
+        response = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/reparse",
+            json={"expected_version": submitted["version"]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["line"]
+        self.assertEqual(line["raw_text"], raw_text)
+        self.assertEqual(
+            line["parsed_name"], "Пластиковые контейнеры маленькие"
+        )
+        self.assertEqual(Decimal(line["parsed_quantity"]), Decimal("200"))
+        self.assertEqual(line["parsed_unit"]["code"], "PCS")
+        self.assertEqual(Decimal(line["quantity"]), Decimal("200"))
+        self.assertEqual(line["requested_unit"]["code"], "PCS")
+
+    def test_departments_are_scoped_to_current_admin_tenant(self) -> None:
+        with self.session_factory.begin() as session:
+            session.add(Department(
+                tenant_id="tenant-b",
+                code="FOREIGN",
+                name="Чужое подразделение",
+            ))
+
+        response = self.client.get("/supply/departments")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            {item["name"] for item in response.json()},
+            {"Матросова 15"},
+        )
+
+    def test_legacy_reparse_and_match_reject_foreign_tenant_uuids(self) -> None:
+        created = self.create_request("Контейнеры без количества")
+        self.recognize(created["id"])
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line_id = submitted["lines"][0]["id"]
+        with self.session_factory.begin() as session:
+            foreign_unit = SupplyUnit(
+                tenant_id="tenant-b",
+                code="PCS-B",
+                name_ru="Чужая штука",
+                short_name_ru="чшт",
+                allows_fraction=False,
+            )
+            session.add(foreign_unit)
+            session.flush()
+            foreign_product = SupplyProduct(
+                tenant_id="tenant-b",
+                name="Чужой товар",
+                normalized_name="чужой товар",
+                default_unit=foreign_unit,
+            )
+            session.add(foreign_product)
+            session.flush()
+            foreign_unit_id = foreign_unit.id
+            foreign_product_id = foreign_product.id
+
+        unit_listing = self.client.get("/supply/units")
+        self.assertEqual(unit_listing.status_code, 200, unit_listing.text)
+        self.assertNotIn(
+            str(foreign_unit_id),
+            {item["id"] for item in unit_listing.json()},
+        )
+        product_listing = self.client.get(
+            "/supply/products", params={"active": True}
+        )
+        self.assertEqual(product_listing.status_code, 200, product_listing.text)
+        self.assertNotIn(
+            str(foreign_product_id),
+            {item["id"] for item in product_listing.json()["items"]},
+        )
+
+        foreign_product_response = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/match",
+            json={
+                "expected_version": submitted["version"],
+                "action": "MATCH",
+                "product_id": str(foreign_product_id),
+                "unit_id": str(self.units["PCS"].id),
+                "quantity": "200",
+            },
+        )
+        self.assertEqual(foreign_product_response.status_code, 404)
+        foreign_unit_response = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/match",
+            json={
+                "expected_version": submitted["version"],
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(foreign_unit_id),
+                "quantity": "200",
+            },
+        )
+        self.assertEqual(foreign_unit_response.status_code, 404)
+
+        with self.session_factory.begin() as session:
+            session.get(User, 2).tenant_id = "tenant-b"
+        foreign_request_reparse = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/reparse",
+            json={"expected_version": submitted["version"]},
+        )
+        self.assertEqual(foreign_request_reparse.status_code, 404)
+        foreign_request_match = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/match",
+            json={
+                "expected_version": submitted["version"],
+                "action": "MATCH",
+                "product_id": str(foreign_product_id),
+                "unit_id": str(foreign_unit_id),
+                "quantity": "200",
+            },
+        )
+        self.assertEqual(foreign_request_match.status_code, 404)
+
+    def test_legacy_parser_failure_can_be_matched_with_manual_values(self) -> None:
+        raw_text = "Пластиковые контейнеры без количества"
+        created = self.create_request(raw_text)
+        self.recognize(created["id"])
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line_id = submitted["lines"][0]["id"]
+
+        matched = self.match(
+            created["id"],
+            line_id,
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["PCS"].id),
+                "quantity": "200",
+            },
+        )
+
+        self.assertEqual(matched.status_code, 200, matched.text)
+        line = matched.json()
+        self.assertEqual(line["raw_text"], raw_text)
+        self.assertEqual(line["match_status"], "MATCHED")
+        self.assertEqual(line["match_method"], "MANUAL")
+        self.assertEqual(Decimal(line["quantity"]), Decimal("200"))
+        self.assertEqual(line["requested_unit"]["code"], "PCS")
+        with self.session_factory() as session:
+            correction = session.query(
+                SupplyDepartmentProductCorrection
+            ).filter_by(request_line_id=UUID(line_id)).one()
+            self.assertEqual(correction.corrected_by_user_id, 2)
+
+    def test_reparse_does_not_replace_existing_manual_product_mapping(self) -> None:
+        created = self.create_request(
+            "Пластиковые контейнеры маленькие 200 шт."
+        )
+        self.recognize(created["id"])
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        line_id = submitted["lines"][0]["id"]
+        matched = self.match(
+            created["id"],
+            line_id,
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["PCS"].id),
+                "quantity": "200",
+            },
+        )
+        self.assertEqual(matched.status_code, 200, matched.text)
+        current_version = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["version"]
+        with self.session_factory.begin() as session:
+            legacy = session.get(SupplyRequestLine, UUID(line_id))
+            legacy.match_status = "NEEDS_REVIEW"
+            legacy.parsed_name = None
+            legacy.parsed_quantity = None
+            legacy.parsed_unit_id = None
+
+        response = self.client.post(
+            f"/supply/requests/{created['id']}/lines/{line_id}/reparse",
+            json={"expected_version": current_version},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["line"]
+        self.assertEqual(line["product_id"], str(self.milk.id))
+        self.assertEqual(line["match_method"], "MANUAL")
+        self.assertEqual(line["matched_by_user_id"], 2)
+
+    def test_match_rejects_missing_quantity_or_unit(self) -> None:
+        created = self.create_request("Неизвестный товар")
+        self.recognize(created["id"])
+        line_id = created["lines"][0]["id"]
+        for missing_field in ("quantity", "unit_id"):
+            payload = {
+                "expected_version": 2,
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["PCS"].id),
+                "quantity": "200",
+            }
+            del payload[missing_field]
+            response = self.client.post(
+                f"/supply/requests/{created['id']}/lines/{line_id}/match",
+                json=payload,
+            )
+            self.assertEqual(response.status_code, 422, response.text)
 
     def test_archive_preserves_old_match_and_restore_enables_new_matches(
         self,

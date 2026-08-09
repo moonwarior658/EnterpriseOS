@@ -165,6 +165,7 @@ class IikoApiTests(unittest.TestCase):
                         hashed_password="unused",
                         is_active=True,
                         is_admin=True,
+                        tenant_id="tenant-a",
                     ),
                     User(
                         id=2,
@@ -173,6 +174,7 @@ class IikoApiTests(unittest.TestCase):
                         hashed_password="unused",
                         is_active=True,
                         is_admin=False,
+                        tenant_id="tenant-a",
                     ),
                 ]
             )
@@ -354,6 +356,25 @@ class IikoApiTests(unittest.TestCase):
                 status=IikoMappingStatus.CONFIRMED,
                 source_name="Источник",
             ))
+            foreign_department_id = uuid4()
+            foreign_source_id = uuid4()
+            session.add(Department(
+                id=foreign_department_id,
+                tenant_id="tenant-b",
+                code="FOREIGN",
+                name="Чужое подразделение",
+                legal_contour=LegalContour.IP,
+            ))
+            session.add(IikoWarehouseMapping(
+                id=foreign_source_id,
+                tenant_id="tenant-b",
+                iiko_warehouse_id=uuid4(),
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                role=IikoWarehouseRole.MAIN,
+                legal_contour=LegalContour.IP,
+                status=IikoMappingStatus.CONFIRMED,
+                source_name="Чужой SOURCE",
+            ))
 
         class SnapshotApiProvider(ApiProvider):
             async def get_stock_balances(self, **kwargs):
@@ -374,6 +395,22 @@ class IikoApiTests(unittest.TestCase):
             iiko_routes.get_iiko_provider
         ] = lambda: SnapshotApiProvider()
         snapshot_at = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+        for rejected_department_id, rejected_source_id in (
+            (foreign_department_id, foreign_source_id),
+            (department_id, foreign_source_id),
+            (foreign_department_id, source_id),
+        ):
+            foreign = self.client.post(
+                "/integrations/iiko/sync/stock-balance-snapshot",
+                json={
+                    "snapshot_at": snapshot_at.isoformat(),
+                    "department_id": str(rejected_department_id),
+                    "source_warehouse_mapping_ids": [
+                        str(rejected_source_id)
+                    ],
+                },
+            )
+            self.assertEqual(foreign.status_code, 422, foreign.text)
         duplicate = self.client.post(
             "/integrations/iiko/sync/stock-balance-snapshot",
             json={

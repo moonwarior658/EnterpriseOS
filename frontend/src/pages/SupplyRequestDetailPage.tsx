@@ -19,6 +19,7 @@ import {
   confirmSupplyContextMapping,
   planSupplyRequest,
   recognizeSupplyRequest,
+  reparseSupplyLine,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
   updateSupplyStockTransferable,
@@ -32,10 +33,12 @@ import {
 } from '../services/supplyAdmin'
 import {
   clearSupplyLineMappingDraft,
+  clearSupplyLineWorkingDraft,
   formatSupplyQuantityMillis,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
   isSupplyLineWorkingDraftDirty,
+  isSupplyLineMatchReady,
   nextSupplyLineToMatch,
   requiresSupplyLineMatch,
   saveDirtySupplyLines,
@@ -94,16 +97,22 @@ function workingSaveError(error: unknown): string {
 function SupplyLineMappingEditor({
   line,
   draft,
+  workingDraft,
+  units,
   disabled,
   onChange,
   onMatch,
+  onReparse,
   inputRef,
 }: {
   line: SupplyLine
   draft: SupplyLineMappingDraft
+  workingDraft: SupplyLineWorkingDraft
+  units: SupplyUnit[]
   disabled: boolean
   onChange: (changes: Partial<SupplyLineMappingDraft>) => void
   onMatch: () => void
+  onReparse: () => void
   inputRef: (element: HTMLInputElement | null) => void
 }) {
   const [searchResult, setSearchResult] = useState<{
@@ -115,6 +124,8 @@ function SupplyLineMappingEditor({
   const currentResult = searchResult.query === currentQuery
     ? searchResult
     : { query: currentQuery, items: [], state: 'idle' as const }
+  const currentUnit = units.find((unit) => unit.id === workingDraft.unitId)
+  const matchReady = isSupplyLineMatchReady(draft, workingDraft, units)
 
   useEffect(() => {
     const query = draft.searchQuery.trim()
@@ -209,22 +220,28 @@ function SupplyLineMappingEditor({
         </div>
       )}
       <div className="supply-mapping-values">
-        <span>Количество: <strong>{draft.quantity || '—'}</strong></span>
+        <span>Количество: <strong>{workingDraft.quantity || '—'}</strong></span>
         <span>
           Единица:{' '}
           <strong>
-            {line.requested_unit?.short_name_ru
-              ?? line.parsed_unit?.short_name_ru
-              ?? 'не определена'}
+            {currentUnit?.short_name_ru ?? 'не определена'}
           </strong>
         </span>
       </div>
+      {line.match_status === 'NEEDS_REVIEW' && (
+        <button
+          type="button"
+          disabled={disabled || draft.status === 'loading'}
+          onClick={onReparse}
+        >
+          Перераспознать строку
+        </button>
+      )}
       <button
         className="supply-map-product-button"
         type="button"
         disabled={
-          disabled || draft.status === 'loading' || !draft.productId
-          || !draft.unitId || !draft.quantity
+          disabled || draft.status === 'loading' || !matchReady
         }
         onClick={onMatch}
       >
@@ -1021,11 +1038,14 @@ function SupplyRequestDetailPage() {
     }
   }
 
-  async function mapLine(line: SupplyLine) {
+  async function mapLine(
+    line: SupplyLine,
+    workingDraft: SupplyLineWorkingDraft,
+  ) {
     const draft = mapping[line.id]
     if (
-      !request || busy || hasDirty || draft?.status === 'loading'
-      || !draft?.productId || !draft.unitId || !draft.quantity
+      !request || busy || draft?.status === 'loading' || !draft
+      || !isSupplyLineMatchReady(draft, workingDraft, units)
     ) return
     setMapping((current) => updateSupplyLineMappingDraft(
       current,
@@ -1037,8 +1057,8 @@ function SupplyRequestDetailPage() {
       const matchedLine = await matchSupplyLine(request.id, line.id, {
         expected_version: request.version,
         product_id: draft.productId,
-        unit_id: draft.unitId,
-        quantity: draft.quantity,
+        unit_id: workingDraft.unitId,
+        quantity: workingDraft.quantity,
       })
       setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
       const updated = await reload()
@@ -1077,6 +1097,36 @@ function SupplyRequestDetailPage() {
             : 'Не удалось сопоставить строку.',
         },
       ))
+    }
+  }
+
+  async function reparseLine(line: SupplyLine) {
+    if (!request || busy || line.match_status !== 'NEEDS_REVIEW') return
+    setBusy(true)
+    setMessage('')
+    try {
+      const result = await reparseSupplyLine(
+        request.id,
+        line.id,
+        request.version,
+      )
+      setWorking((current) => clearSupplyLineWorkingDraft(current, line.id))
+      setRequest({
+        ...request,
+        version: result.request_version,
+        lines: request.lines.map((item) => (
+          item.id === line.id ? result.line : item
+        )),
+      })
+      setMessage('Строка перераспознана')
+    } catch (error) {
+      const conflict = error instanceof SupplyApiError
+        && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
+      setMessage(conflict
+        ? 'Заявка изменилась. Обновите карточку и повторите.'
+        : 'Не удалось перераспознать строку.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1368,8 +1418,6 @@ function SupplyRequestDetailPage() {
               mapping,
               line.id,
               suggestSupplyWorkingName(line.parsed_name, line.raw_text),
-              draft.unitId,
-              draft.quantity,
             )
             const updateMapping = (
               changes: Parameters<typeof updateSupplyLineMappingDraft>[3],
@@ -1545,9 +1593,12 @@ function SupplyRequestDetailPage() {
                   <SupplyLineMappingEditor
                     line={line}
                     draft={mappingDraft}
-                    disabled={busy || hasDirty || !canMapLine}
+                    workingDraft={draft}
+                    units={units}
+                    disabled={busy || !canMapLine}
                     onChange={updateMapping}
-                    onMatch={() => void mapLine(line)}
+                    onMatch={() => void mapLine(line, draft)}
+                    onReparse={() => void reparseLine(line)}
                     inputRef={(element) => {
                       if (element) {
                         mappingInputRefs.current.set(line.id, element)

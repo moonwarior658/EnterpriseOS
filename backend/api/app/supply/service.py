@@ -299,10 +299,14 @@ class SupplyDebtProductRequiredError(ValueError):
     pass
 
 
-def list_departments(session: Session) -> list[Department]:
+def list_departments(
+    session: Session,
+    *,
+    tenant_id: str = settings.default_tenant_id,
+) -> list[Department]:
     statement = (
         select(Department)
-        .where(Department.tenant_id == settings.default_tenant_id)
+        .where(Department.tenant_id == tenant_id)
         .order_by(Department.display_order.asc(), Department.code.asc())
     )
     return list(session.scalars(statement).all())
@@ -503,10 +507,14 @@ def update_supply_request_cycle(
     return get_supply_request_cycle(session, cycle.id)
 
 
-def list_supply_units(session: Session) -> list[SupplyUnit]:
+def list_supply_units(
+    session: Session,
+    *,
+    tenant_id: str = settings.default_tenant_id,
+) -> list[SupplyUnit]:
     statement = (
         select(SupplyUnit)
-        .where(SupplyUnit.tenant_id == settings.default_tenant_id)
+        .where(SupplyUnit.tenant_id == tenant_id)
         .order_by(SupplyUnit.code.asc())
     )
     return list(session.scalars(statement).all())
@@ -516,12 +524,13 @@ def _get_supply_unit(
     session: Session,
     unit_id: UUID,
     *,
+    tenant_id: str = settings.default_tenant_id,
     require_active: bool = True,
 ) -> SupplyUnit:
     unit = session.scalar(
         select(SupplyUnit).where(
             SupplyUnit.id == unit_id,
-            SupplyUnit.tenant_id == settings.default_tenant_id,
+            SupplyUnit.tenant_id == tenant_id,
         )
     )
     if unit is None:
@@ -821,13 +830,14 @@ def get_supply_product(
     session: Session,
     product_id: UUID,
     *,
+    tenant_id: str = settings.default_tenant_id,
     require_active: bool = False,
 ) -> SupplyProduct:
     product = session.scalar(
         select(SupplyProduct)
         .where(
             SupplyProduct.id == product_id,
-            SupplyProduct.tenant_id == settings.default_tenant_id,
+            SupplyProduct.tenant_id == tenant_id,
         )
         .options(*_product_options())
     )
@@ -845,8 +855,9 @@ def list_supply_products(
     search: str | None,
     limit: int,
     offset: int,
+    tenant_id: str = settings.default_tenant_id,
 ) -> tuple[list[SupplyProduct], int]:
-    filters = [SupplyProduct.tenant_id == settings.default_tenant_id]
+    filters = [SupplyProduct.tenant_id == tenant_id]
     ranking = None
     if active is not None:
         filters.append(SupplyProduct.is_active == active)
@@ -855,13 +866,13 @@ def list_supply_products(
         if normalized_search:
             exact_alias = exists().where(
                 SupplyProductAlias.product_id == SupplyProduct.id,
-                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.tenant_id == tenant_id,
                 SupplyProductAlias.normalized_alias == normalized_search,
                 SupplyProductAlias.status == "APPROVED",
             )
             prefix_alias = exists().where(
                 SupplyProductAlias.product_id == SupplyProduct.id,
-                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.tenant_id == tenant_id,
                 SupplyProductAlias.status == "APPROVED",
                 SupplyProductAlias.normalized_alias.startswith(
                     normalized_search
@@ -869,7 +880,7 @@ def list_supply_products(
             )
             partial_alias = exists().where(
                 SupplyProductAlias.product_id == SupplyProduct.id,
-                SupplyProductAlias.tenant_id == settings.default_tenant_id,
+                SupplyProductAlias.tenant_id == tenant_id,
                 SupplyProductAlias.status == "APPROVED",
                 SupplyProductAlias.normalized_alias.contains(
                     normalized_search
@@ -1318,7 +1329,9 @@ def get_supply_request(
         session, [supply_request], tenant_id=tenant_id
     )
     if include_context_mapping_suggestions:
-        _populate_context_mapping_suggestions(session, supply_request)
+        _populate_context_mapping_suggestions(
+            session, supply_request, tenant_id=tenant_id
+        )
     return supply_request
 
 
@@ -1695,13 +1708,14 @@ def _get_supply_request_for_update(
     session: Session,
     request_id: UUID,
     *,
+    tenant_id: str = settings.default_tenant_id,
     expected_version: int | None = None,
 ) -> SupplyRequest:
     supply_request = session.scalar(
         select(SupplyRequest)
         .where(
             SupplyRequest.id == request_id,
-            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.tenant_id == tenant_id,
         )
         .with_for_update()
     )
@@ -1726,10 +1740,12 @@ def _get_request_line_for_update(
     request_id: UUID,
     line_id: UUID,
     expected_version: int,
+    tenant_id: str = settings.default_tenant_id,
 ) -> tuple[SupplyRequest, SupplyRequestLine]:
     supply_request = _get_supply_request_for_update(
         session,
         request_id,
+        tenant_id=tenant_id,
         expected_version=expected_version,
     )
     line = session.scalar(
@@ -2139,6 +2155,97 @@ def recognize_supply_request(
     )
 
 
+def reparse_supply_request_line(
+    session: Session,
+    *,
+    request_id: UUID,
+    line_id: UUID,
+    expected_version: int,
+    actor_user_id: int,
+    tenant_id: str,
+) -> tuple[int, SupplyRequestLine]:
+    supply_request, line = _get_request_line_for_update(
+        session,
+        request_id=request_id,
+        line_id=line_id,
+        expected_version=expected_version,
+        tenant_id=tenant_id,
+    )
+    if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+    if line.match_status != "NEEDS_REVIEW":
+        raise SupplyRequestStateError
+
+    raw_text = line.raw_text
+    previous_product_id = line.product_id
+    previous_match = (
+        line.match_status,
+        line.match_method,
+        line.match_confidence,
+        line.matched_at,
+        line.matched_by_user_id,
+        line.match_notes,
+    )
+    parsed = parse_supply_line(raw_text)
+    if parsed is None:
+        line.parsed_name = None
+        line.parsed_quantity = None
+        line.parsed_unit_id = None
+    else:
+        line.parsed_name = parsed.name
+        line.parsed_quantity = parsed.quantity
+        unit = session.scalar(
+            select(SupplyUnit).where(
+                SupplyUnit.tenant_id == tenant_id,
+                SupplyUnit.code == parsed.unit_code,
+                SupplyUnit.is_active.is_(True),
+            )
+        )
+        line.parsed_unit_id = unit.id if unit is not None else None
+        if unit is not None:
+            line.quantity = parsed.quantity
+            line.requested_unit_id = unit.id
+
+    # Reparse refreshes parser output only. Product confirmation is a separate,
+    # explicit action and must survive even an inconsistent legacy row.
+    line.product_id = previous_product_id
+    (
+        line.match_status,
+        line.match_method,
+        line.match_confidence,
+        line.matched_at,
+        line.matched_by_user_id,
+        line.match_notes,
+    ) = previous_match
+    supply_request.version += 1
+    changed_at = datetime.now(timezone.utc)
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    logger.info(
+        "Supply line reparsed actor_user_id=%s changed_at=%s "
+        "request_id=%s line_id=%s parser_matched=%s",
+        actor_user_id,
+        changed_at.isoformat(),
+        request_id,
+        line_id,
+        parsed is not None and line.parsed_unit_id is not None,
+    )
+    refreshed_request = get_supply_request(
+        session, request_id, tenant_id=tenant_id
+    )
+    refreshed_line = next(
+        request_line
+        for request_line in refreshed_request.lines
+        if request_line.id == line_id
+    )
+    assert refreshed_line.raw_text == raw_text
+    return refreshed_request.version, refreshed_line
+
+
 def manually_match_supply_request_line(
     session: Session,
     *,
@@ -2146,12 +2253,14 @@ def manually_match_supply_request_line(
     line_id: UUID,
     payload: SupplyLineManualMatch,
     matched_by_user_id: int,
+    tenant_id: str,
 ) -> SupplyRequestLine:
     supply_request, line = _get_request_line_for_update(
         session,
         request_id=request_id,
         line_id=line_id,
         expected_version=payload.expected_version,
+        tenant_id=tenant_id,
     )
     editable_statuses = {"DRAFT", "SUBMITTED", "IN_REVIEW"}
     late_match_statuses = {"PLANNED", "PARTIALLY_FULFILLED", "FULFILLED"}
@@ -2163,14 +2272,25 @@ def manually_match_supply_request_line(
     if late_match and payload.action != SupplyLineMatchAction.MATCH:
         raise SupplyRequestStateError
     now = datetime.now(timezone.utc)
+    previous_manual_values = {
+        "product_id": str(line.product_id) if line.product_id else None,
+        "quantity": str(line.quantity) if line.quantity is not None else None,
+        "unit_id": (
+            str(line.requested_unit_id)
+            if line.requested_unit_id is not None else None
+        ),
+    }
 
     if payload.action == SupplyLineMatchAction.MATCH:
         product = get_supply_product(
             session,
             payload.product_id,
+            tenant_id=tenant_id,
             require_active=True,
         )
-        unit = _get_supply_unit(session, payload.unit_id)
+        unit = _get_supply_unit(
+            session, payload.unit_id, tenant_id=tenant_id
+        )
         validate_quantity_for_unit(payload.quantity, unit)
         debt_link = line.debt_link
         legacy_debts: list[SupplyDepartmentDebt] = []
@@ -2205,7 +2325,7 @@ def manually_match_supply_request_line(
             conflicting_debt = session.scalar(
                 select(SupplyDepartmentDebt).where(
                     SupplyDepartmentDebt.tenant_id
-                    == settings.default_tenant_id,
+                    == tenant_id,
                     SupplyDepartmentDebt.department_id
                     == supply_request.department_id,
                     SupplyDepartmentDebt.product_id == product.id,
@@ -2241,7 +2361,7 @@ def manually_match_supply_request_line(
         )
         if correction_exists is None:
             session.add(SupplyDepartmentProductCorrection(
-                tenant_id=settings.default_tenant_id,
+                tenant_id=tenant_id,
                 department_id=supply_request.department_id,
                 normalized_phrase=normalized_phrase,
                 product_id=product.id,
@@ -2268,17 +2388,34 @@ def manually_match_supply_request_line(
     except Exception:
         session.rollback()
         raise
-    refreshed_request = get_supply_request(session, request_id)
+    refreshed_request = get_supply_request(
+        session, request_id, tenant_id=tenant_id
+    )
     refreshed_line = next(
         request_line
         for request_line in refreshed_request.lines
         if request_line.id == line_id
     )
     if payload.action == SupplyLineMatchAction.MATCH:
+        logger.info(
+            "Supply line manually matched actor_user_id=%s matched_at=%s "
+            "request_id=%s line_id=%s old=%s new=%s",
+            matched_by_user_id,
+            now.isoformat(),
+            request_id,
+            line_id,
+            previous_manual_values,
+            {
+                "product_id": str(refreshed_line.product_id),
+                "quantity": str(refreshed_line.quantity),
+                "unit_id": str(refreshed_line.requested_unit_id),
+            },
+        )
         suggestion = get_context_mapping_suggestion(
             session,
             request_id=request_id,
             line_id=line_id,
+            tenant_id=tenant_id,
         )
         if suggestion is not None:
             refreshed_line.context_mapping_suggestion = suggestion
@@ -2290,6 +2427,7 @@ def get_context_mapping_suggestion(
     *,
     request_id: UUID,
     line_id: UUID,
+    tenant_id: str = settings.default_tenant_id,
 ) -> dict | None:
     row = session.execute(
         select(SupplyRequestLine, SupplyRequest)
@@ -2297,7 +2435,7 @@ def get_context_mapping_suggestion(
         .where(
             SupplyRequest.id == request_id,
             SupplyRequestLine.id == line_id,
-            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.tenant_id == tenant_id,
         )
     ).one_or_none()
     if row is None:
@@ -2310,7 +2448,7 @@ def get_context_mapping_suggestion(
     existing_mapping = session.scalar(
         select(SupplyDepartmentProductMapping).where(
             SupplyDepartmentProductMapping.tenant_id
-            == settings.default_tenant_id,
+            == tenant_id,
             SupplyDepartmentProductMapping.department_id
             == supply_request.department_id,
             SupplyDepartmentProductMapping.normalized_phrase
@@ -2325,7 +2463,7 @@ def get_context_mapping_suggestion(
     correction_count = int(session.scalar(
         select(func.count(SupplyDepartmentProductCorrection.id)).where(
             SupplyDepartmentProductCorrection.tenant_id
-            == settings.default_tenant_id,
+            == tenant_id,
             SupplyDepartmentProductCorrection.department_id
             == supply_request.department_id,
             SupplyDepartmentProductCorrection.normalized_phrase
@@ -2335,7 +2473,9 @@ def get_context_mapping_suggestion(
     ) or 0)
     if correction_count < 3:
         return None
-    product = get_supply_product(session, line.product_id)
+    product = get_supply_product(
+        session, line.product_id, tenant_id=tenant_id
+    )
     return {
         "mapping_id": existing_mapping.id if existing_mapping else None,
         "mapping_version": (
@@ -2522,6 +2662,8 @@ def delete_context_mapping(
 def _populate_context_mapping_suggestions(
     session: Session,
     supply_request: SupplyRequest,
+    *,
+    tenant_id: str = settings.default_tenant_id,
 ) -> None:
     for line in supply_request.lines:
         if line.match_method != "MANUAL" or line.product_id is None:
@@ -2530,6 +2672,7 @@ def _populate_context_mapping_suggestions(
             session,
             request_id=supply_request.id,
             line_id=line.id,
+            tenant_id=tenant_id,
         )
         if suggestion is not None:
             line.context_mapping_suggestion = suggestion

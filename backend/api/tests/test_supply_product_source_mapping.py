@@ -373,6 +373,47 @@ class SupplyProductSourceMappingTests(unittest.TestCase):
             self.assertEqual(preview.total_products, 0)
             self.assertIn("Не сопоставлены строки заявки: 1", preview.blocking_reasons)
 
+    def test_legacy_line_enters_source_resolver_after_manual_match(self) -> None:
+        with self.sessions.begin() as session:
+            product = self._product(session, "Контейнеры", "ту Контейнеры")
+            source = self._source(session, IikoWarehouseRole.PACKAGING)
+            request = self._request_with_products(session, [None])
+            request_id = request.id
+            line_id = session.scalar(select(SupplyRequestLine.id).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+        with self.sessions() as session:
+            before = get_product_source_preview(
+                session, tenant_id="tenant-a", request_id=request_id
+            )
+            self.assertEqual(before.total_products, 0)
+            line = session.get(SupplyRequestLine, line_id)
+            line.product_id = product.id
+            line.requested_unit_id = self.unit.id
+            line.quantity = Decimal("200")
+            line.match_status = "MATCHED"
+            line.match_method = "MANUAL"
+            session.commit()
+            assign_product_source(
+                session,
+                tenant_id="tenant-a",
+                product_id=product.id,
+                legal_contour=LegalContour.IP,
+                source_mapping_id=source.id,
+                actor_user_id=1,
+                expected_version=None,
+                comment=None,
+            )
+            after = get_product_source_preview(
+                session, tenant_id="tenant-a", request_id=request_id
+            )
+            self.assertEqual(after.total_products, 1)
+            self.assertEqual(after.assigned_products, 1)
+            self.assertTrue(after.ready_for_shipment)
+            self.assertEqual(len(after.groups), 1)
+            self.assertEqual(after.groups[0].lines[0].line_id, line_id)
+            self.assertEqual(after.groups[0].lines[0].quantity, Decimal("200"))
+
     def test_resolver_blocks_without_confirmed_iiko_product_mapping(self) -> None:
         with self.sessions.begin() as session:
             product = SupplyProduct(

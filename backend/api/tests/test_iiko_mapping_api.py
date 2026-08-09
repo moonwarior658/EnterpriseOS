@@ -28,6 +28,7 @@ from app.models.iiko import (
     IikoWarehouseMapping,
     IikoMappingStatus,
     IikoWarehouseDestinationType,
+    IikoWarehouseRole,
 )
 from app.models.supply import (
     Department,
@@ -78,6 +79,7 @@ class IikoMappingApiTests(unittest.TestCase):
                 hashed_password="unused",
                 is_active=True,
                 is_admin=True,
+                tenant_id="tenant-a",
             )
             unit = SupplyUnit(
                 tenant_id="tenant-a",
@@ -230,6 +232,40 @@ class IikoMappingApiTests(unittest.TestCase):
         )
         self.assertEqual(conflicts.status_code, 200)
         self.assertEqual(conflicts.json()["total"], 0)
+
+    def test_warehouse_listing_is_scoped_to_current_admin_tenant(self) -> None:
+        with self.sessions.begin() as session:
+            own = IikoWarehouseMapping(
+                tenant_id="tenant-a",
+                iiko_warehouse_id=uuid4(),
+                source_name="Свой SOURCE",
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                role=IikoWarehouseRole.MAIN,
+                legal_contour=LegalContour.IP,
+                status=IikoMappingStatus.CONFIRMED,
+                reasons=[],
+            )
+            foreign = IikoWarehouseMapping(
+                tenant_id="tenant-b",
+                iiko_warehouse_id=uuid4(),
+                source_name="Чужой SOURCE",
+                destination_type=IikoWarehouseDestinationType.SOURCE,
+                role=IikoWarehouseRole.MAIN,
+                legal_contour=LegalContour.IP,
+                status=IikoMappingStatus.CONFIRMED,
+                reasons=[],
+            )
+            session.add_all([own, foreign])
+            session.flush()
+            own_id = own.id
+
+        response = self.client.get(
+            "/integrations/iiko/mappings/warehouses",
+            params={"status": "CONFIRMED"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["total"], 1)
+        self.assertEqual(response.json()["items"][0]["id"], str(own_id))
 
     def test_bootstrap_catalog_is_listed_by_supply_products_endpoint(
         self,

@@ -216,6 +216,7 @@ def read_generation_status(
 
 
 def _page_kwargs(
+    tenant_id: str,
     status_filter: IikoMappingStatus | None,
     search: str | None,
     include_deleted: bool,
@@ -224,7 +225,7 @@ def _page_kwargs(
     offset: int,
 ) -> dict[str, Any]:
     return {
-        "tenant_id": settings.default_tenant_id,
+        "tenant_id": tenant_id,
         "status": status_filter,
         "search": search,
         "include_deleted": include_deleted,
@@ -237,7 +238,7 @@ def _page_kwargs(
 @router.get("/products", response_model=IikoProductMappingPage)
 def list_product_mappings(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
     status_filter: IikoMappingStatus | None = Query(None, alias="status"),
     search: str | None = Query(None, max_length=240),
     include_deleted: bool = False,
@@ -249,6 +250,7 @@ def list_product_mappings(
         db,
         IikoProductMapping,
         **_page_kwargs(
+            current_admin.tenant_id,
             status_filter,
             search,
             include_deleted,
@@ -268,7 +270,7 @@ def list_product_mappings(
 @router.get("/units", response_model=IikoUnitMappingPage)
 def list_unit_mappings(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
     status_filter: IikoMappingStatus | None = Query(None, alias="status"),
     search: str | None = Query(None, max_length=240),
     include_deleted: bool = False,
@@ -280,6 +282,7 @@ def list_unit_mappings(
         db,
         IikoUnitMapping,
         **_page_kwargs(
+            current_admin.tenant_id,
             status_filter,
             search,
             include_deleted,
@@ -299,7 +302,7 @@ def list_unit_mappings(
 @router.get("/warehouses", response_model=IikoWarehouseMappingPage)
 def list_warehouse_mappings(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
     status_filter: IikoMappingStatus | None = Query(None, alias="status"),
     search: str | None = Query(None, max_length=240),
     include_deleted: bool = False,
@@ -311,6 +314,7 @@ def list_warehouse_mappings(
         db,
         IikoWarehouseMapping,
         **_page_kwargs(
+            current_admin.tenant_id,
             status_filter,
             search,
             include_deleted,

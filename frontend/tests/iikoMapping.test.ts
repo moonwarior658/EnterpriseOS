@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+  acquireIikoStockSnapshotGuard,
+  deduplicateIikoWarehouseMappings,
   iikoMappingStatusLabel,
   iikoLegalContourLabel,
+  iikoStockSnapshotStatusLabel,
   iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
   mappingActionLabel,
@@ -12,9 +15,12 @@ import {
   bootstrapIikoProductCatalog,
   confirmWarehouseMapping,
   generateMappingCandidates,
+  getConfirmedSourceWarehouseMappings,
   IikoMappingApiError,
   mappingQuery,
   syncIikoReferenceData,
+  takeIikoStockBalanceSnapshot,
+  type IikoWarehouseMapping,
 } from '../src/services/iikoMapping.ts'
 
 
@@ -27,6 +33,12 @@ test('показывает безопасные русские статусы и
     'Источник снабжения',
   )
   assert.equal(iikoLegalContourLabel('OOO'), 'ООО')
+  assert.equal(iikoStockSnapshotStatusLabel('SUCCEEDED'), 'Остатки сняты')
+  assert.equal(
+    iikoStockSnapshotStatusLabel('PARTIALLY_SUCCEEDED'),
+    'Остатки сняты частично',
+  )
+  assert.equal(iikoStockSnapshotStatusLabel('FAILED'), 'Остатки не сняты')
   assert.equal(mappingActionLabel('CONFIRMED'), 'Заменить связь')
 })
 
@@ -70,9 +82,155 @@ test('admin UI содержит три mapping-раздела и все явны
   )
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
+  assert.match(page, /Снять остатки/)
+  assert.match(page, /Подразделение для снимка остатков/)
+  assert.match(page, /getConfirmedSourceWarehouseMappings/)
+  assert.match(page, /void getSupplyDepartments\(\)\.then/)
+  assert.match(page, /stockSnapshotInFlight = useRef\(false\)/)
+  assert.match(page, /source\.legal_contour === department\.legal_contour/)
+  assert.match(page, /takeIikoStockBalanceSnapshot/)
+  assert.match(page, /records_created/)
+  assert.match(page, /failed_source_warehouse_mapping_ids/)
+  assert.match(page, /Частичный снимок сохранён для аудита/)
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
+})
+
+test('snapshot deduplicate SOURCE и синхронно блокирует второй запуск', () => {
+  const source = {
+    id: 'source-ip',
+    source_name: 'Центральный склад',
+    source_code: null,
+    is_deleted: false,
+    status: 'CONFIRMED',
+    confidence: null,
+    reasons: [],
+    decided_at: null,
+    iiko_warehouse_id: 'warehouse-ip',
+    eos_department_id: null,
+    eos_department_name: null,
+    destination_type: 'SOURCE',
+    role: 'MAIN',
+    legal_contour: 'IP',
+  } satisfies IikoWarehouseMapping
+  assert.deepEqual(
+    deduplicateIikoWarehouseMappings([source, source]).map((item) => item.id),
+    ['source-ip'],
+  )
+
+  const guard = { current: false }
+  assert.equal(acquireIikoStockSnapshotGuard(guard), true)
+  assert.equal(acquireIikoStockSnapshotGuard(guard), false)
+  guard.current = false
+  assert.equal(acquireIikoStockSnapshotGuard(guard), true)
+})
+
+test('snapshot берёт CONFIRMED SOURCE и текущую admin-сессию', async () => {
+  const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'sessionStorage',
+  )
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-token' },
+  })
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  globalThis.fetch = async (input, options = {}) => {
+    const url = String(input)
+    calls.push({ url, options })
+    if (url.includes('/mappings/warehouses?')) {
+      return new Response(JSON.stringify({
+        items: [
+          {
+            id: 'source-ip',
+            source_name: 'Центральный склад',
+            source_code: null,
+            is_deleted: false,
+            status: 'CONFIRMED',
+            confidence: null,
+            reasons: [],
+            decided_at: null,
+            iiko_warehouse_id: 'warehouse-ip',
+            eos_department_id: null,
+            eos_department_name: null,
+            destination_type: 'SOURCE',
+            role: 'MAIN',
+            legal_contour: 'IP',
+          },
+          {
+            id: 'destination-ip',
+            source_name: 'М15',
+            source_code: null,
+            is_deleted: false,
+            status: 'CONFIRMED',
+            confidence: null,
+            reasons: [],
+            decided_at: null,
+            iiko_warehouse_id: 'warehouse-m15',
+            eos_department_id: 'department-ip',
+            eos_department_name: 'М15',
+            destination_type: 'DESTINATION',
+            role: 'MAIN',
+            legal_contour: 'IP',
+          },
+        ],
+        total: 2,
+        limit: 200,
+        offset: 0,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({
+      status: 'SUCCEEDED',
+      records_created: 17,
+      records_failed: 0,
+      error_message: null,
+      parameters: {
+        snapshot_at: '2026-08-09T12:30:00.000Z',
+        department_id: 'department-ip',
+        source_warehouse_mapping_ids: ['source-ip'],
+        completed_source_warehouse_mapping_ids: ['source-ip'],
+        failed_source_warehouse_mapping_ids: [],
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    const sources = await getConfirmedSourceWarehouseMappings()
+    assert.deepEqual(sources.map((source) => source.id), ['source-ip'])
+    const run = await takeIikoStockBalanceSnapshot(
+      'department-ip',
+      sources.map((source) => source.id),
+      new Date('2026-08-09T12:30:00+00:00'),
+    )
+    assert.equal(run.status, 'SUCCEEDED')
+    assert.equal(run.records_created, 17)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (storageDescriptor) {
+      Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'sessionStorage')
+    }
+  }
+  assert.match(calls[0].url, /status=CONFIRMED/)
+  assert.equal(calls[1].url, '/api/integrations/iiko/sync/stock-balance-snapshot')
+  assert.equal(calls[1].options.method, 'POST')
+  assert.equal(
+    new Headers(calls[1].options.headers).get('Authorization'),
+    'Bearer test-token',
+  )
+  assert.deepEqual(JSON.parse(String(calls[1].options.body)), {
+    snapshot_at: '2026-08-09T12:30:00.000Z',
+    department_id: 'department-ip',
+    source_warehouse_mapping_ids: ['source-ip'],
+  })
 })
 
 test('bootstrap каталога вызывает отдельный endpoint и возвращает счётчики', async () => {

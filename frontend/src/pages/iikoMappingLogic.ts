@@ -1,9 +1,34 @@
 import type {
   IikoMappingStatus,
   IikoLegalContour,
+  IikoSyncStatus,
   IikoWarehouseDestinationType,
+  IikoWarehouseMapping,
   IikoWarehouseRole,
 } from '../services/iikoMapping'
+
+export function deduplicateIikoWarehouseMappings(
+  mappings: IikoWarehouseMapping[],
+): IikoWarehouseMapping[] {
+  return [...new Map(mappings.map((mapping) => [mapping.id, mapping])).values()]
+}
+
+export function acquireIikoStockSnapshotGuard(
+  guard: { current: boolean },
+): boolean {
+  if (guard.current) return false
+  guard.current = true
+  return true
+}
+
+export function iikoStockSnapshotStatusLabel(
+  status: IikoSyncStatus,
+): string {
+  if (status === 'SUCCEEDED') return 'Остатки сняты'
+  if (status === 'PARTIALLY_SUCCEEDED') return 'Остатки сняты частично'
+  if (status === 'FAILED') return 'Остатки не сняты'
+  return 'Снимаем остатки'
+}
 
 export function iikoMappingStatusLabel(status: IikoMappingStatus): string {
   return {

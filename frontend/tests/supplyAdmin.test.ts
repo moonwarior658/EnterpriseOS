@@ -21,6 +21,7 @@ import {
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
   isSupplyLineWorkingDraftDirty,
+  isSupplyLineMatchReady,
   nextSupplyLineToMatch,
   requiresSupplyLineMatch,
   saveDirtySupplyLines,
@@ -36,7 +37,7 @@ import {
   type SupplyLineMappingState,
   type SupplyLineWorkingState,
 } from '../src/pages/supplyRequestDetailLogic.ts'
-import type { SupplyLine } from '../src/services/supplyAdmin.ts'
+import type { SupplyLine, SupplyUnit } from '../src/services/supplyAdmin.ts'
 
 test('подключает защищённые маршруты реестра и карточки', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
@@ -233,8 +234,8 @@ test('editable state сопоставления изолирован по дву
     /clearSupplyLineMappingDraft\(current, line\.id\)/,
   )
 
-  const first = createSupplyLineMappingDraft('Картофель', 'unit-1', '1')
-  const second = createSupplyLineMappingDraft('Молоко', 'unit-2', '2')
+  const first = createSupplyLineMappingDraft('Картофель')
+  const second = createSupplyLineMappingDraft('Молоко')
   let state: SupplyLineMappingState = {}
 
   state = updateSupplyLineMappingDraft(state, 'line-1', first, {
@@ -242,37 +243,34 @@ test('editable state сопоставления изолирован по дву
   })
   assert.equal(
     getSupplyLineMappingDraft(
-      state, 'line-1', 'Картофель', 'unit-1', '1',
+      state, 'line-1', 'Картофель',
     ).searchQuery,
     'Картофель',
   )
   assert.equal(
     getSupplyLineMappingDraft(
-      state, 'line-2', 'Молоко', 'unit-2', '2',
+      state, 'line-2', 'Молоко',
     ).searchQuery,
     'Молоко',
   )
 
   state = updateSupplyLineMappingDraft(state, 'line-1', first, {
     productId: 'product-1',
-    quantity: '3.5',
     status: 'loading',
   })
   assert.deepEqual(
     {
       productId: state['line-1'].productId,
-      quantity: state['line-1'].quantity,
       status: state['line-1'].status,
     },
     {
       productId: 'product-1',
-      quantity: '3.5',
       status: 'loading',
     },
   )
   assert.deepEqual(
     getSupplyLineMappingDraft(
-      state, 'line-2', 'Молоко', 'unit-2', '2',
+      state, 'line-2', 'Молоко',
     ),
     second,
   )
@@ -280,7 +278,6 @@ test('editable state сопоставления изолирован по дву
   state = updateSupplyLineMappingDraft(state, 'line-2', second, {
     searchQuery: 'Молоко',
     productId: 'product-2',
-    quantity: '7',
     status: 'error',
     error: 'Ошибка второй строки',
   })
@@ -288,8 +285,31 @@ test('editable state сопоставления изолирован по дву
   assert.equal(state['line-1'], undefined)
   assert.equal(state['line-2'].searchQuery, 'Молоко')
   assert.equal(state['line-2'].productId, 'product-2')
-  assert.equal(state['line-2'].quantity, '7')
   assert.equal(state['line-2'].error, 'Ошибка второй строки')
+})
+
+test('MATCH сразу валидирует актуальные quantity и unit основной строки', () => {
+  const mapping = {
+    ...createSupplyLineMappingDraft('Контейнеры'),
+    productId: 'product-1',
+  }
+  const pieceUnit: SupplyUnit = {
+    id: 'unit-pcs',
+    code: 'PCS',
+    name_ru: 'Штука',
+    short_name_ru: 'шт',
+    allows_fraction: false,
+    is_active: true,
+  }
+  const empty = createSupplyLineWorkingDraft('Контейнеры', '', '')
+  assert.equal(isSupplyLineMatchReady(mapping, empty, [pieceUnit]), false)
+  const corrected = { ...empty, quantity: '200', unitId: pieceUnit.id }
+  assert.equal(isSupplyLineMatchReady(mapping, corrected, [pieceUnit]), true)
+  assert.equal(isSupplyLineMatchReady(
+    mapping,
+    { ...corrected, quantity: '2.5' },
+    [pieceUnit],
+  ), false)
 })
 
 test('рабочее место показывает нужные строки, прогресс и следующий фокус', () => {
@@ -299,6 +319,7 @@ test('рабочее место показывает нужные строки, 
   )
   assert.match(detail, /requiresSupplyLineMatch\(line\)/)
   assert.match(detail, /Сопоставить с товаром EOS/)
+  assert.match(detail, /Перераспознать строку/)
   assert.match(detail, /Выбран товар EOS/)
   assert.match(detail, /nextSupplyLineToMatch/)
   assert.match(detail, /scrollIntoView/)

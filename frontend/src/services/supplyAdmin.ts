@@ -268,6 +268,7 @@ export type SupplyReference = {
   code: string
   name: string
   legal_contour?: 'IP' | 'OOO' | null
+  is_active: boolean
 }
 export type SupplyDirection = SupplyReference & { is_active: boolean }
 export type SupplyCycle = { id: string; cycle_date: string; direction_id: string }
@@ -554,6 +555,17 @@ export function recognizeSupplyRequest(
     method: 'POST',
     body: JSON.stringify({ expected_version: expectedVersion }),
     signal,
+  })
+}
+
+export function reparseSupplyLine(
+  requestId: string,
+  lineId: string,
+  expectedVersion: number,
+): Promise<{ request_version: number; line: SupplyLine }> {
+  return request(`/supply/requests/${requestId}/lines/${lineId}/reparse`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version: expectedVersion }),
   })
 }
 

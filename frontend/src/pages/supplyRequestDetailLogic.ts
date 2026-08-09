@@ -1,11 +1,9 @@
-import type { SupplyLine, SupplyProduct } from '../services/supplyAdmin'
+import type { SupplyLine, SupplyProduct, SupplyUnit } from '../services/supplyAdmin'
 
 export type SupplyLineMappingDraft = {
   searchQuery: string
   productId: string
   selectedProduct: SupplyProduct | null
-  unitId: string
-  quantity: string
   status: 'idle' | 'loading' | 'error'
   error: string
 }
@@ -236,15 +234,11 @@ export async function saveDirtySupplyLines(
 
 export function createSupplyLineMappingDraft(
   searchQuery: string,
-  unitId: string,
-  quantity: string,
 ): SupplyLineMappingDraft {
   return {
     searchQuery,
     productId: '',
     selectedProduct: null,
-    unitId,
-    quantity,
     status: 'idle',
     error: '',
   }
@@ -254,13 +248,23 @@ export function getSupplyLineMappingDraft(
   state: SupplyLineMappingState,
   lineId: string,
   searchQuery: string,
-  unitId: string,
-  quantity: string,
 ): SupplyLineMappingDraft {
-  return state[lineId] ?? createSupplyLineMappingDraft(
-    searchQuery,
-    unitId,
-    quantity,
+  return state[lineId] ?? createSupplyLineMappingDraft(searchQuery)
+}
+
+export function isSupplyLineMatchReady(
+  mappingDraft: SupplyLineMappingDraft,
+  workingDraft: SupplyLineWorkingDraft,
+  units: SupplyUnit[],
+): boolean {
+  const unit = units.find((item) => item.id === workingDraft.unitId)
+  const quantity = supplyQuantityMillis(workingDraft.quantity)
+  return Boolean(
+    mappingDraft.productId
+    && unit
+    && quantity !== null
+    && quantity > 0
+    && (unit.allows_fraction || quantity % SUPPLY_QUANTITY_SCALE === 0),
   )
 }
 
