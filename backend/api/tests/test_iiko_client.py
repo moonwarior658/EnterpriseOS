@@ -1,6 +1,6 @@
 import logging
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import httpx
@@ -393,6 +393,63 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             request.url.params.get_list("product"),
             ["product-1", "product-deleted"],
+        )
+
+    async def test_snapshot_timestamp_uses_legacy_balance_format(self) -> None:
+        balance_requests: list[httpx.Request] = []
+        warehouse_id = "982b0d9b-e37e-4b40-8026-c68f724a83e9"
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            if request.url.path.endswith("/api/v2/reports/balance/stores"):
+                balance_requests.append(request)
+                return response(request, json=[])
+            if request.url.path.endswith("/api/v2/entities/products/list"):
+                return response(request, json=[])
+            if request.url.path.endswith("/api/v2/entities/list"):
+                return response(request, json=[])
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            await client.get_stock_balances(
+                snapshot_at=datetime(
+                    2026,
+                    8,
+                    9,
+                    16,
+                    54,
+                    51,
+                    697000,
+                    tzinfo=timezone.utc,
+                ),
+                warehouse_external_ids=[warehouse_id],
+            )
+            await client.get_stock_balances(
+                balance_date=date(2026, 8, 9),
+                warehouse_external_ids=[warehouse_id],
+            )
+
+        snapshot_timestamp = balance_requests[0].url.params["timestamp"]
+        legacy_timestamp = balance_requests[1].url.params["timestamp"]
+        self.assertEqual(snapshot_timestamp, "2026-08-09T16:54:51")
+        self.assertEqual(legacy_timestamp, "2026-08-09T23:59:59")
+        for value in (snapshot_timestamp, legacy_timestamp):
+            parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S")
+            self.assertEqual(parsed.strftime("%Y-%m-%dT%H:%M:%S"), value)
+            self.assertNotIn("+", value)
+            self.assertFalse(value.endswith("Z"))
+        self.assertEqual(
+            [
+                request.url.params.get_list("store")
+                for request in balance_requests
+            ],
+            [[warehouse_id], [warehouse_id]],
         )
 
     async def test_balance_stores_http_error_is_safely_logged(self) -> None:

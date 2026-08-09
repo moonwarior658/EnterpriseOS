@@ -96,6 +96,10 @@ def _http_exception_type(status_code: int) -> str:
     return IikoResponseError.__name__
 
 
+def _serialize_balance_stores_timestamp(value: datetime) -> str:
+    return value.replace(tzinfo=None).isoformat(timespec="seconds")
+
+
 class _IikoAuthLogFilter(logging.Filter):
     """Remove iiko auth query parameters from httpx request logs."""
 
@@ -456,7 +460,7 @@ class IikoServerClient(IikoProvider):
         else:
             calculated_at = snapshot_at
         params: list[tuple[str, str]] = [
-            ("timestamp", calculated_at.isoformat())
+            ("timestamp", _serialize_balance_stores_timestamp(calculated_at))
         ]
         params.extend(("store", value) for value in warehouse_ids)
         params.extend(("product", value) for value in product_ids)

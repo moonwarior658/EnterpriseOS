@@ -170,8 +170,11 @@ class IikoStockSnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.sync_type, IikoSyncType.STOCK_BALANCE_SNAPSHOT)
         self.assertEqual(run.status, IikoSyncStatus.SUCCEEDED)
         self.assertEqual(provider.calls, [(self.snapshot_at, self.warehouse_ids[0])])
+        self.assertIsNotNone(provider.calls[0][0].utcoffset())
+        self.assertEqual(run.parameters["snapshot_at"], self.snapshot_at.isoformat())
         with self.sessions() as session:
             line = session.scalar(select(IikoStockBalanceSnapshotLine))
+            source = session.scalar(select(IikoStockBalanceSnapshotSource))
         self.assertEqual(line.tenant_id, "tenant-a")
         self.assertEqual(line.department_id, self.department_id)
         self.assertEqual(line.source_warehouse_mapping_id, self.source_ids[0])
@@ -180,6 +183,7 @@ class IikoStockSnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(line.iiko_unit_id, provider.unit_id)
         self.assertEqual(line.quantity, Decimal("12.500000"))
         self.assertEqual(self._as_utc(line.snapshot_at), self.snapshot_at)
+        self.assertEqual(self._as_utc(source.snapshot_at), self.snapshot_at)
 
     async def test_snapshot_for_multiple_sources(self) -> None:
         provider = SnapshotProvider()
