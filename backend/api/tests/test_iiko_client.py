@@ -521,7 +521,7 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertLogs(
             "app.integrations.iiko.client",
-            level=logging.INFO,
+            level=logging.WARNING,
         ) as captured:
             async with IikoServerClient(
                 make_settings(),
@@ -547,6 +547,7 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             line for line in captured.output
             if "iiko balance/stores response counts" in line
         )
+        self.assertTrue(count_log.startswith("WARNING:"))
         self.assertIn(f"store={warehouse_id}", count_log)
         self.assertIn("raw_rows=4", count_log)
         self.assertIn("deleted_filtered=1", count_log)

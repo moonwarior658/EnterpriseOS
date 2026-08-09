@@ -503,7 +503,7 @@ class IikoServerClient(IikoProvider):
                 )
             seen.add(record.external_id)
             records.append(record)
-        logger.info(
+        logger.warning(
             "iiko balance/stores response counts "
             "store=%s raw_rows=%s deleted_filtered=%s returned_rows=%s "
             "positive_rows=%s negative_rows=%s zero_rows=%s",
