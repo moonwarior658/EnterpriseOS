@@ -95,6 +95,7 @@ class SupplyIikoStockTests(unittest.TestCase):
             hashed_password="unused",
             is_active=True,
             is_admin=True,
+            tenant_id="tenant-a",
         )
 
         def override_db():
@@ -134,6 +135,7 @@ class SupplyIikoStockTests(unittest.TestCase):
                 name="Молоко",
                 normalized_name="молоко",
                 default_unit=unit,
+                is_active=True,
             )
             session.add_all([unit, department, direction, product])
             session.flush()
@@ -145,6 +147,7 @@ class SupplyIikoStockTests(unittest.TestCase):
                 legal_contour=LegalContour.IP,
                 status=IikoMappingStatus.CONFIRMED,
                 source_name="Источник продуктов",
+                is_deleted=False,
             )
             request = SupplyRequest(
                 tenant_id="tenant-a",
@@ -192,6 +195,7 @@ class SupplyIikoStockTests(unittest.TestCase):
                     status=IikoMappingStatus.CONFIRMED,
                     source_name="Т Молоко iiko",
                     source_unit_id=self.iiko_unit_id,
+                    is_deleted=False,
                 ),
                 IikoUnitMapping(
                     tenant_id="tenant-a",
@@ -567,6 +571,91 @@ class SupplyIikoStockTests(unittest.TestCase):
         self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("0"))
         self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("5"))
 
+    def test_missing_product_in_succeeded_source_snapshot_means_zero(self) -> None:
+        with self.sessions.begin() as session:
+            session.delete(session.scalar(select(IikoStockBalanceSnapshotLine)))
+
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(Decimal(line["available_quantity"]), Decimal("0"))
+        self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("0"))
+        self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("5"))
+        self.assertIsNone(line["unavailable_reason"])
+
+    def test_missing_succeeded_source_snapshot_remains_blocked(self) -> None:
+        with self.sessions.begin() as session:
+            source_snapshot = session.scalar(
+                select(IikoStockBalanceSnapshotSource)
+            )
+            source_snapshot.status = IikoStockBalanceSnapshotSourceStatus.FAILED
+
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(
+            line["unavailable_reason"],
+            "Нет успешного снимка остатков iiko для SOURCE",
+        )
+        self.assertIsNone(line["available_quantity"])
+
+    def test_partially_succeeded_snapshot_remains_blocked(self) -> None:
+        with self.sessions.begin() as session:
+            run = session.scalar(select(IikoSyncRun))
+            run.status = IikoSyncStatus.PARTIALLY_SUCCEEDED
+
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(
+            line["unavailable_reason"],
+            "Нет успешного снимка остатков iiko для SOURCE",
+        )
+        self.assertIsNone(line["available_quantity"])
+
+    def test_calculation_unit_mismatch_remains_blocked(self) -> None:
+        with self.sessions.begin() as session:
+            mapping = session.scalar(select(IikoUnitMapping))
+            mapping.eos_unit_id = uuid4()
+
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(
+            line["unavailable_reason"],
+            "Единица заявки не совпадает с unit_id iiko",
+        )
+        self.assertIsNone(line["available_quantity"])
+
+    def test_missing_product_mapping_remains_blocked(self) -> None:
+        with self.sessions.begin() as session:
+            mapping = session.scalar(select(IikoProductMapping))
+            mapping.status = IikoMappingStatus.SUGGESTED
+
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["groups"][0]["lines"][0]
+        self.assertEqual(
+            line["unavailable_reason"],
+            "Нет подтверждённого mapping товара iiko",
+        )
+        self.assertIsNone(line["available_quantity"])
+
     def test_manual_transferable_decrease_is_persisted(self) -> None:
         calculated = self.client.post(
             f"/supply/requests/{self.request_id}/stock-calculation/calculate"
@@ -682,7 +771,7 @@ class SupplyIikoStockTests(unittest.TestCase):
             "SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE",
         )
 
-    def test_calculation_blocks_missing_source_and_missing_balance(self) -> None:
+    def test_calculation_blocks_missing_source(self) -> None:
         with self.sessions.begin() as session:
             mapping = session.scalar(select(SupplyProductSourceMapping))
             session.delete(mapping)
@@ -692,26 +781,6 @@ class SupplyIikoStockTests(unittest.TestCase):
         self.assertEqual(without_source.status_code, 200, without_source.text)
         blocked = without_source.json()["groups"][0]["lines"][0]
         self.assertIn("SOURCE", blocked["unavailable_reason"])
-
-        with self.sessions.begin() as session:
-            session.add(SupplyProductSourceMapping(
-                tenant_id="tenant-a",
-                eos_product_id=self.product_id,
-                legal_contour=LegalContour.IP,
-                role=SupplyProductSourceRole.MAIN,
-                source_warehouse_mapping_id=self.source_id,
-                assigned_by_user_id=1,
-            ))
-            for line in session.scalars(
-                select(IikoStockBalanceSnapshotLine)
-            ).all():
-                session.delete(line)
-        without_balance = self.client.post(
-            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
-        )
-        self.assertEqual(without_balance.status_code, 200, without_balance.text)
-        blocked = without_balance.json()["groups"][0]["lines"][0]
-        self.assertIn("Нет остатка", blocked["unavailable_reason"])
 
     def test_blocked_calculation_cannot_be_confirmed(self) -> None:
         with self.sessions.begin() as session:

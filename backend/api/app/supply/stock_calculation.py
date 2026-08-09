@@ -311,14 +311,15 @@ def calculate_stock(
                 balances, snapshot_at = source_stock[source.id]
                 if snapshot_at is None:
                     reasons[line.id] = "Нет успешного снимка остатков iiko для SOURCE"
-                elif product_mapping.iiko_product_id not in balances:
-                    reasons[line.id] = "Нет остатка iiko для товара на SOURCE"
                 else:
                     eligible[line.id] = _EligibleLine(
                         line=line,
                         source=source,
                         product_mapping=product_mapping,
-                        available=balances[product_mapping.iiko_product_id],
+                        available=balances.get(
+                            product_mapping.iiko_product_id,
+                            Decimal("0"),
+                        ),
                         snapshot_at=snapshot_at,
                     )
 
