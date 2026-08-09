@@ -16,7 +16,19 @@ class SupplyLineParserTests(unittest.TestCase):
             ("Сливки 2,5 л", "Сливки", "2.5", "L"),
             ("Салфетки обычные 3уп", "Салфетки обычные", "3", "PACK"),
             ("Молоко 10л", "Молоко", "10", "L"),
+            ("Сахар 2.5кг", "Сахар", "2.5", "KG"),
+            ("Сахар 2,5кг", "Сахар", "2.5", "KG"),
+            ("Пакеты 15шт", "Пакеты", "15", "PCS"),
             ("Стаканы 50шт", "Стаканы", "50", "PCS"),
+            ("Молоко для кофе 15л", "Молоко для кофе", "15", "L"),
+            (
+                "Салфетка бумажная белая 24*24 3уп",
+                "Салфетка бумажная белая 24*24",
+                "3",
+                "PACK",
+            ),
+            ("Пергамент 38см 2уп", "Пергамент 38см", "2", "PACK"),
+            ("Молоко 15 шт.", "Молоко", "15", "PCS"),
             (
                 "Сахар-песок, белый 2 кг",
                 "Сахар-песок, белый",
@@ -54,6 +66,9 @@ class SupplyLineParserTests(unittest.TestCase):
 
     def test_name_still_requires_separator_before_quantity(self) -> None:
         self.assertIsNone(parse_supply_line("Молоко10л"))
+
+    def test_multiple_products_without_separator_need_review(self) -> None:
+        self.assertIsNone(parse_supply_line("молоко 5л сахар 2кг"))
 
 
 if __name__ == "__main__":

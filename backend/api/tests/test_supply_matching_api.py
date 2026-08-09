@@ -265,7 +265,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
     ) -> None:
         created = self.create_request(
             "  Молоко   5 л  ",
-            "Сливочки 2,5 литра",
+            "Сливочки! 2,5 литра",
             "Неизвестно 3 уп",
             "Молоко пять л",
             "Неактивный товар 1 кг",
@@ -311,6 +311,23 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(inactive["parsed_name"], "Неактивный товар")
         self.assertIsNone(inactive["product"])
         self.assertEqual(detail["version"], 2)
+
+    def test_multiple_products_without_separator_need_review(self) -> None:
+        created = self.create_request("молоко 5л сахар 2кг")
+
+        response = self.recognize(created["id"])
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["matched"], 0)
+        self.assertEqual(response.json()["needs_review"], 1)
+        line = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()["lines"][0]
+        self.assertEqual(line["raw_text"], "молоко 5л сахар 2кг")
+        self.assertEqual(line["match_status"], "NEEDS_REVIEW")
+        self.assertIsNone(line["parsed_name"])
+        self.assertIsNone(line["parsed_quantity"])
+        self.assertIsNone(line["parsed_unit"])
 
     def test_archive_preserves_old_match_and_restore_enables_new_matches(
         self,
@@ -744,7 +761,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
                     updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
                 ),
             ])
-        created = self.create_request("Напиток 2 л")
+        created = self.create_request("Напиток! 2 л")
         recognized = self.recognize(created["id"])
         self.assertEqual(recognized.status_code, 200, recognized.text)
         line = self.client.get(

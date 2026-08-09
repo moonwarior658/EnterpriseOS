@@ -862,6 +862,14 @@ class SupplyCatalogValidationTests(unittest.TestCase):
             normalize_product_text("  СЫР   Ёлочка\t50%  "),
             "сыр елочка 50%",
         )
+        self.assertEqual(
+            normalize_product_text("  МОЛОКО   для   кофе!?  "),
+            "молоко для кофе",
+        )
+        self.assertEqual(
+            normalize_product_text("Сахар-песок, белый"),
+            "сахар-песок, белый",
+        )
 
     def test_quantity_validation_uses_unit_fraction_policy(self) -> None:
         fractional = SupplyUnit(
