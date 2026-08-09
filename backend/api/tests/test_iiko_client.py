@@ -452,6 +452,117 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             [[warehouse_id], [warehouse_id]],
         )
 
+    async def test_balance_stores_success_logs_only_row_counts(self) -> None:
+        warehouse_id = "982b0d9b-e37e-4b40-8026-c68f724a83e9"
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="auth-cookie-secret")
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            if request.url.path.endswith("/api/v2/reports/balance/stores"):
+                return response(
+                    request,
+                    json=[
+                        {
+                            "store": warehouse_id,
+                            "product": "positive-product-id",
+                            "amount": "2.5",
+                            "internalSecret": "response-body-secret",
+                        },
+                        {
+                            "store": warehouse_id,
+                            "product": "negative-product-id",
+                            "amount": "-1",
+                        },
+                        {
+                            "store": warehouse_id,
+                            "product": "zero-product-id",
+                            "amount": "0",
+                        },
+                        {
+                            "store": warehouse_id,
+                            "product": "deleted-product-id",
+                            "amount": "4",
+                        },
+                    ],
+                )
+            if request.url.path.endswith("/api/v2/entities/products/list"):
+                return response(
+                    request,
+                    json=[
+                        {
+                            "id": product_id,
+                            "name": f"secret-name-{product_id}",
+                            "mainUnit": "unit-id",
+                            "deleted": product_id == "deleted-product-id",
+                        }
+                        for product_id in (
+                            "positive-product-id",
+                            "negative-product-id",
+                            "zero-product-id",
+                            "deleted-product-id",
+                        )
+                    ],
+                )
+            if request.url.path.endswith("/api/v2/entities/list"):
+                return response(
+                    request,
+                    json=[
+                        {
+                            "id": warehouse_id,
+                            "name": "secret-warehouse-name",
+                            "type": "INVENTORY_ASSETS",
+                            "deleted": False,
+                        }
+                    ],
+                )
+            raise AssertionError(request.url.path)
+
+        with self.assertLogs(
+            "app.integrations.iiko.client",
+            level=logging.INFO,
+        ) as captured:
+            async with IikoServerClient(
+                make_settings(),
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                records = await client.get_stock_balances(
+                    snapshot_at=datetime(
+                        2026,
+                        8,
+                        9,
+                        16,
+                        54,
+                        51,
+                        tzinfo=timezone.utc,
+                    ),
+                    warehouse_external_ids=[warehouse_id],
+                    include_zero=True,
+                    include_deleted=False,
+                )
+
+        self.assertEqual(len(records), 3)
+        count_log = next(
+            line for line in captured.output
+            if "iiko balance/stores response counts" in line
+        )
+        self.assertIn(f"store={warehouse_id}", count_log)
+        self.assertIn("raw_rows=4", count_log)
+        self.assertIn("deleted_filtered=1", count_log)
+        self.assertIn("returned_rows=3", count_log)
+        self.assertIn("positive_rows=1", count_log)
+        self.assertIn("negative_rows=1", count_log)
+        self.assertIn("zero_rows=1", count_log)
+        for forbidden in (
+            "auth-cookie-secret",
+            "response-body-secret",
+            "positive-product-id",
+            "secret-name-",
+            "secret-warehouse-name",
+        ):
+            self.assertNotIn(forbidden, count_log)
+
     async def test_balance_stores_http_error_is_safely_logged(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/api/auth"):

@@ -478,6 +478,7 @@ class IikoServerClient(IikoProvider):
         }
         records: list[IikoRecord[IikoStockBalanceDto]] = []
         seen: set[str] = set()
+        deleted_filtered = 0
         for payload in payloads:
             product_id = payload.get("product")
             product = products.get(product_id)
@@ -486,6 +487,7 @@ class IikoServerClient(IikoProvider):
                 and product is not None
                 and product.is_deleted
             ):
+                deleted_filtered += 1
                 continue
             record = map_stock_balance(
                 payload,
@@ -501,6 +503,18 @@ class IikoServerClient(IikoProvider):
                 )
             seen.add(record.external_id)
             records.append(record)
+        logger.info(
+            "iiko balance/stores response counts "
+            "store=%s raw_rows=%s deleted_filtered=%s returned_rows=%s "
+            "positive_rows=%s negative_rows=%s zero_rows=%s",
+            ",".join(warehouse_ids),
+            len(payloads),
+            deleted_filtered,
+            len(records),
+            sum(record.dto.quantity > 0 for record in records),
+            sum(record.dto.quantity < 0 for record in records),
+            sum(record.dto.quantity == 0 for record in records),
+        )
         return records
 
     async def aclose(self) -> None:
