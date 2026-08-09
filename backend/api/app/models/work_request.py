@@ -57,6 +57,12 @@ class WorkRequest(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64),
+        default="eclair",
+        nullable=False,
+        index=True,
+    )
     request_type: Mapped[str] = mapped_column(String(16), nullable=False)
     department: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)

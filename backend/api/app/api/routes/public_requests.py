@@ -118,6 +118,7 @@ async def create_public_request(
         db,
         payload,
         created_by_user_id=None,
+        tenant_id=settings.default_tenant_id,
         attachments=attachments,
         upload_dir=Path(settings.work_request_upload_dir),
     )

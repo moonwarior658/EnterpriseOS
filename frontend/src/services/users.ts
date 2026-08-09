@@ -10,6 +10,7 @@ export type CreateUserInput = {
   display_name: string
   password: string
   is_admin: boolean
+  can_view_requests: boolean
 }
 
 export type UpdateUserInput = {
@@ -18,6 +19,7 @@ export type UpdateUserInput = {
   password?: string
   is_active?: boolean
   is_admin?: boolean
+  can_view_requests?: boolean
 }
 
 async function authorizedRequest<T>(

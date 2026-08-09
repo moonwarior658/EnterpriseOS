@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EosSelect } from '../components/EosFormControls'
+import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplyRequest,
   assignSupplyProductSource,
@@ -396,7 +397,67 @@ function SupplyExcessFact({ line }: { line: SupplyLine }) {
   )
 }
 
+function SupplyRequestReadOnlyCard({
+  request,
+}: {
+  request: SupplyRequest
+}) {
+  return (
+    <section className="request-page request-detail-page supply-admin-page">
+      <div className="request-panel">
+        <div className="request-heading supply-simple-heading">
+          <div>
+            <p className="eyebrow">СНАБЖЕНИЕ · ТОЛЬКО ПРОСМОТР</p>
+            <h1>{request.public_number}</h1>
+            <p>
+              {request.department.name} · {request.direction.name}
+              {' · '}{statusLabel(request.status)}
+            </p>
+          </div>
+          <Link className="request-back-link" to="/supply/requests">
+            ← К реестру
+          </Link>
+        </div>
+
+        <dl className="request-facts">
+          <div><dt>Автор</dt><dd>{request.public_author_name ?? 'Не указано'}</dd></div>
+          <div><dt>Создана</dt><dd>{formatDate(request.created_at)}</dd></div>
+          <div><dt>Отправлена</dt><dd>{formatDate(request.submitted_at)}</dd></div>
+          <div><dt>Статус</dt><dd>{statusLabel(request.status)}</dd></div>
+        </dl>
+
+        <div className="supply-simple-table" role="table">
+          <div className="supply-simple-table-head" role="row">
+            <span role="columnheader">Название</span>
+            <span role="columnheader">Количество</span>
+            <span role="columnheader">Единица</span>
+            <span aria-hidden="true" />
+          </div>
+          {request.lines.map((line) => (
+            <div className="supply-simple-line" role="row" key={line.id}>
+              <span role="cell">{line.working_name || line.raw_text}</span>
+              <span role="cell">
+                {['PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status)
+                  ? line.fulfilled_total
+                  : line.send_quantity ?? line.quantity ?? '—'}
+              </span>
+              <span role="cell">
+                {line.requested_unit?.short_name_ru
+                  ?? line.parsed_unit?.short_name_ru
+                  ?? '—'}
+              </span>
+              <span role="cell" aria-hidden="true" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function SupplyRequestDetailPage() {
+  const { user } = useAuth()
+  const readOnly = !user?.is_admin
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
   const [units, setUnits] = useState<SupplyUnit[]>([])
@@ -489,6 +550,13 @@ function SupplyRequestDetailPage() {
       setFulfillment({})
       void (async () => {
         try {
+          if (readOnly) {
+            const item = await getSupplyRequest(requestId, controller.signal)
+            if (controller.signal.aborted) return
+            setRequest(item)
+            setState('ready')
+            return
+          }
           const [loadedRequest, unitItems] = await Promise.all([
             getSupplyRequest(requestId, controller.signal),
             getSupplyUnits(controller.signal),
@@ -526,10 +594,10 @@ function SupplyRequestDetailPage() {
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [requestId])
+  }, [readOnly, requestId])
 
   useEffect(() => {
-    if (!request) return
+    if (!request || readOnly) return
     const controller = new AbortController()
     Promise.all([
       getSupplyProductSourcePreview(request.id, controller.signal),
@@ -552,7 +620,7 @@ function SupplyRequestDetailPage() {
       }
     })
     return () => controller.abort()
-  }, [request])
+  }, [readOnly, request])
 
   useEffect(() => {
     if (!hasDirty && !hasFulfillmentDraft) return
@@ -1047,6 +1115,10 @@ function SupplyRequestDetailPage() {
         Заявка не найдена или недоступна
       </p>
     )
+  }
+
+  if (readOnly) {
+    return <SupplyRequestReadOnlyCard request={request} />
   }
 
   return (

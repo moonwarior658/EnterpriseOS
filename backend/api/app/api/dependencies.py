@@ -7,6 +7,7 @@ from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.authorization import has_request_view_access
 from app.db.session import get_db
 from app.models.user import User
 
@@ -50,6 +51,18 @@ def get_current_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator access required",
+        )
+
+    return current_user
+
+
+def require_request_view_access(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    if not has_request_view_access(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Request view access required",
         )
 
     return current_user

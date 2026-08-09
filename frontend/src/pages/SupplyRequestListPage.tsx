@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import {
   EosCheckbox,
   EosDateField,
@@ -40,6 +41,7 @@ function statusLabel(value: string): string {
 }
 
 function SupplyRequestListPage() {
+  const { user } = useAuth()
   const [routeParams, setRouteParams] = useSearchParams()
   const [items, setItems] = useState<SupplyRequestSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -127,6 +129,7 @@ function SupplyRequestListPage() {
   ])
 
   useEffect(() => {
+    if (!user?.is_admin) return
     void Promise.all([
       getSupplyDepartments(), getSupplyDirections(), getSupplyCycles(),
     ]).then(([nextDepartments, nextDirections, nextCycles]) => {
@@ -134,7 +137,7 @@ function SupplyRequestListPage() {
       setDirections(nextDirections)
       setCycles(nextCycles.items)
     }).catch(() => undefined)
-  }, [])
+  }, [user?.is_admin])
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0)
@@ -179,28 +182,34 @@ function SupplyRequestListPage() {
             <option value="FULFILLED">Исполнена</option>
             <option value="CANCELLED">Отменена</option>
           </EosSelect>
-          <EosSelect aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>
-            <option value="">Все подразделения</option>
-            {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </EosSelect>
-          <EosSelect aria-label="Направление" value={directionId} onChange={(event) => { setDirectionId(event.target.value); setOffset(0) }}>
-            <option value="">Все направления</option>
-            {directions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </EosSelect>
+          {user?.is_admin && (
+            <>
+              <EosSelect aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>
+                <option value="">Все подразделения</option>
+                {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </EosSelect>
+              <EosSelect aria-label="Направление" value={directionId} onChange={(event) => { setDirectionId(event.target.value); setOffset(0) }}>
+                <option value="">Все направления</option>
+                {directions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </EosSelect>
+            </>
+          )}
           </div>
           <div className="supply-filter-row supply-filter-row-secondary">
-          <EosSelect aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
-            <option value="">Все циклы</option>
-            {cycles.map((item) => <option key={item.id} value={item.id}>{item.cycle_date}</option>)}
-          </EosSelect>
+          {user?.is_admin && (
+            <EosSelect aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
+              <option value="">Все циклы</option>
+              {cycles.map((item) => <option key={item.id} value={item.id}>{item.cycle_date}</option>)}
+            </EosSelect>
+          )}
           <EosDateField label="С" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setOffset(0) }} />
           <EosDateField label="По" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setOffset(0) }} />
           <button className="secondary-action" type="button" onClick={() => void load()}>Обновить</button>
           </div>
-          <div className="supply-filter-checks">
+          {user?.is_admin && <div className="supply-filter-checks">
             <EosCheckbox label="Требует сопоставления" checked={needsReview} onChange={(event) => { setNeedsReview(event.target.checked); setOffset(0) }} />
             <EosCheckbox label="Есть дубли" checked={duplicates} onChange={(event) => { setDuplicates(event.target.checked); setOffset(0) }} />
-          </div>
+          </div>}
         </div>
         {state === 'loading' && <p className="page-state">Загружаем заявки…</p>}
         {state === 'error' && <p className="request-message request-message-error">Не удалось загрузить заявки</p>}

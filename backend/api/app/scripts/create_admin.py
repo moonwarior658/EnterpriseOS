@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.user import User
 
@@ -42,6 +43,7 @@ def main() -> None:
             hashed_password=hash_password(password),
             is_active=True,
             is_admin=True,
+            tenant_id=settings.default_tenant_id,
         )
 
         db.add(user)

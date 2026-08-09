@@ -85,34 +85,35 @@ function AppLayout() {
             <span>→</span>
           </NavLink>
 
-          <p className="menu-section-label">Создать заявку</p>
-
-          <NavLink
-            to="/public/requests/repair"
-            onClick={closeMenu}
-            className={({ isActive }) =>
-              isActive ? 'menu-link menu-link-active' : 'menu-link'
-            }
-          >
-            <span>Заявка на ремонт</span>
-            <span>→</span>
-          </NavLink>
-
-          <p className="menu-section-label">Работа с заявками</p>
-
-          <NavLink
-            to="/requests/repair"
-            onClick={closeMenu}
-            className={({ isActive }) =>
-              isActive ? 'menu-link menu-link-active' : 'menu-link'
-            }
-          >
-            <span>Заявки на ремонт</span>
-            <span>→</span>
-          </NavLink>
-
           {user?.is_admin && (
             <>
+              <p className="menu-section-label">Создать заявку</p>
+              <NavLink
+                to="/public/requests/repair"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Заявка на ремонт</span>
+                <span>→</span>
+              </NavLink>
+            </>
+          )}
+
+          {(user?.is_admin || user?.can_view_requests) && (
+            <>
+              <p className="menu-section-label">Работа с заявками</p>
+              <NavLink
+                to="/requests/repair"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Заявки на ремонт</span>
+                <span>→</span>
+              </NavLink>
               <NavLink
                 to="/supply/requests"
                 onClick={closeMenu}
@@ -123,7 +124,11 @@ function AppLayout() {
                 <span>Заявки снабжения</span>
                 <span>→</span>
               </NavLink>
+            </>
+          )}
 
+          {user?.is_admin && (
+            <>
               <NavLink
                 to="/supply/debts"
                 onClick={closeMenu}

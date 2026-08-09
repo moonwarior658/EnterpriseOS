@@ -31,6 +31,18 @@ class User(Base):
         server_default="false",
         nullable=False,
     )
+    can_view_requests: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(64),
+        default="eclair",
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

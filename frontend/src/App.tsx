@@ -1,5 +1,6 @@
 ﻿import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
+import ReadOnlyMutationGuard from './components/ReadOnlyMutationGuard'
 import AppLayout from './layouts/AppLayout'
 import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
 import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
@@ -25,7 +26,7 @@ function App() {
       />
       <Route
         path="/public/requests/repair"
-        element={<WorkRequestFormPage />}
+        element={<ReadOnlyMutationGuard><WorkRequestFormPage /></ReadOnlyMutationGuard>}
       />
       <Route
         path="/request/warehouse"
@@ -37,7 +38,7 @@ function App() {
       />
       <Route
         path="/request/supply"
-        element={<PublicSupplyRequestPage />}
+        element={<ReadOnlyMutationGuard><PublicSupplyRequestPage /></ReadOnlyMutationGuard>}
       />
 
       <Route
@@ -59,22 +60,22 @@ function App() {
 
         <Route
           path="/requests/repair"
-          element={<WorkRequestListPage />}
+          element={<ProtectedRoute requestViewOnly><WorkRequestListPage /></ProtectedRoute>}
         />
 
         <Route
           path="/requests/:requestId"
-          element={<WorkRequestDetailPage />}
+          element={<ProtectedRoute requestViewOnly><WorkRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/requests"
-          element={<ProtectedRoute adminOnly><SupplyRequestListPage /></ProtectedRoute>}
+          element={<ProtectedRoute requestViewOnly><SupplyRequestListPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/requests/:requestId"
-          element={<ProtectedRoute adminOnly><SupplyRequestDetailPage /></ProtectedRoute>}
+          element={<ProtectedRoute requestViewOnly><SupplyRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route

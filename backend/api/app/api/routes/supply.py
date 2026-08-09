@@ -6,7 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin, get_current_user
+from app.api.dependencies import (
+    get_current_admin,
+    require_request_view_access,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.supply import (
@@ -808,7 +811,7 @@ def delete_product_alias(
 @router.get("/departments", response_model=list[DepartmentRead])
 def read_departments(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(get_current_admin)],
 ) -> list[Department]:
     return list_departments(db)
 
@@ -819,7 +822,7 @@ def read_departments(
 )
 def read_request_directions(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(get_current_admin)],
 ) -> list[SupplyRequestDirection]:
     return list_request_directions(db)
 
@@ -905,7 +908,7 @@ def create_request(
 def read_requests(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
     search: Annotated[str | None, Query(max_length=240)] = None,
     department_id: UUID | None = None,
     direction_id: UUID | None = None,
@@ -931,13 +934,16 @@ def read_requests(
         "date_to": date_to,
     }
     response.headers["X-Total-Count"] = str(
-        count_supply_requests(db, **filter_values)
+        count_supply_requests(
+            db, tenant_id=current_user.tenant_id, **filter_values
+        )
     )
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
     return list_supply_requests(
         db,
+        tenant_id=current_user.tenant_id,
         **filter_values,
         limit=25,
         offset=offset,
@@ -948,10 +954,15 @@ def read_requests(
 def read_request(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
 ) -> SupplyRequest:
     try:
-        return get_supply_request(db, request_id)
+        return get_supply_request(
+            db,
+            request_id,
+            tenant_id=current_user.tenant_id,
+            include_context_mapping_suggestions=current_user.is_admin,
+        )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
 

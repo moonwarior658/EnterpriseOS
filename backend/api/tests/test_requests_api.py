@@ -73,6 +73,7 @@ class WorkRequestsApiTests(unittest.TestCase):
                     hashed_password="unused",
                     is_active=True,
                     is_admin=False,
+                    can_view_requests=True,
                 ),
                 User(
                     id=2,
@@ -83,7 +84,7 @@ class WorkRequestsApiTests(unittest.TestCase):
                     is_admin=True,
                 ),
             ])
-        self.current_user_id = 1
+        self.current_user_id = 2
 
         def override_get_db():
             with self.session_factory() as session:
@@ -122,7 +123,7 @@ class WorkRequestsApiTests(unittest.TestCase):
     def test_creates_repair_and_public_repair_without_jwt(self) -> None:
         authenticated = self.create_repair()
         self.assertEqual(authenticated["request_type"], "repair")
-        self.assertEqual(authenticated["created_by_name"], "Сотрудник")
+        self.assertEqual(authenticated["created_by_name"], "Администратор")
 
         app.dependency_overrides.pop(get_current_user)
         public = self.client.post("/public/requests", data=REPAIR_PAYLOAD)
@@ -198,6 +199,11 @@ class WorkRequestsApiTests(unittest.TestCase):
 
     def test_regular_user_cannot_edit_or_comment(self) -> None:
         request_id = self.create_repair()["id"]
+        self.current_user_id = 1
+        self.assertEqual(
+            self.client.post("/requests", json=REPAIR_PAYLOAD).status_code,
+            403,
+        )
         self.assertEqual(
             self.client.patch(
                 f"/requests/{request_id}",
@@ -211,6 +217,82 @@ class WorkRequestsApiTests(unittest.TestCase):
                 json={"body": "Комментарий"},
             ).status_code,
             403,
+        )
+
+    def test_read_only_user_reads_only_own_tenant(self) -> None:
+        own_request_id = self.create_repair()["id"]
+        with self.session_factory.begin() as session:
+            session.add(User(
+                id=3,
+                username="other-viewer",
+                display_name="Другой tenant",
+                hashed_password="unused",
+                is_active=True,
+                is_admin=False,
+                can_view_requests=True,
+                tenant_id="other",
+            ))
+            foreign_request = WorkRequest(
+                tenant_id="other",
+                request_type="repair",
+                department="М15",
+                description="Чужой ремонт",
+                status="new",
+                repair_category="Другое",
+                priority="routine",
+                created_by_user_id=3,
+            )
+            session.add(foreign_request)
+            session.flush()
+            foreign_request_id = foreign_request.id
+            foreign_attachment = WorkRequestAttachment(
+                work_request_id=foreign_request.id,
+                original_filename="foreign.jpg",
+                stored_filename="foreign-tenant.jpg",
+                content_type="image/jpeg",
+                size_bytes=7,
+            )
+            session.add(foreign_attachment)
+            session.flush()
+            foreign_attachment_id = foreign_attachment.id
+        (Path(self.temp_dir.name) / "foreign-tenant.jpg").write_bytes(
+            b"foreign"
+        )
+
+        self.current_user_id = 1
+        listed = self.client.get("/requests")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(
+            [item["id"] for item in listed.json()], [own_request_id]
+        )
+        self.assertEqual(
+            self.client.get(f"/requests/{own_request_id}").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(f"/requests/{foreign_request_id}").status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/requests/{foreign_request_id}/attachments/"
+                f"{foreign_attachment_id}"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/requests/{own_request_id}/attachments/"
+                f"{foreign_attachment_id}"
+            ).status_code,
+            404,
+        )
+
+        self.current_user_id = 2
+        self.assertEqual(self.client.get("/requests").status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/requests/{own_request_id}").status_code,
+            200,
         )
 
     def test_admin_adds_and_reads_repair_comment(self) -> None:

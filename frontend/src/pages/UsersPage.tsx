@@ -26,11 +26,13 @@ function UsersPage() {
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [canViewRequests, setCanViewRequests] = useState(false)
 
   const [editUsername, setEditUsername] = useState('')
   const [editDisplayName, setEditDisplayName] = useState('')
   const [editPassword, setEditPassword] = useState('')
   const [editIsAdmin, setEditIsAdmin] = useState(false)
+  const [editCanViewRequests, setEditCanViewRequests] = useState(false)
 
   useEffect(() => {
     getUsers()
@@ -60,6 +62,7 @@ function UsersPage() {
     setEditDisplayName(target.display_name)
     setEditPassword('')
     setEditIsAdmin(target.is_admin)
+    setEditCanViewRequests(target.can_view_requests)
     setError('')
   }
 
@@ -76,6 +79,7 @@ function UsersPage() {
         display_name: displayName,
         password,
         is_admin: isAdmin,
+        can_view_requests: canViewRequests,
       })
 
       setUsers((currentUsers) => [
@@ -86,6 +90,7 @@ function UsersPage() {
       setDisplayName('')
       setPassword('')
       setIsAdmin(false)
+      setCanViewRequests(false)
       setShowCreateForm(false)
     } catch (requestError) {
       setError(
@@ -114,6 +119,7 @@ function UsersPage() {
       username: editUsername,
       display_name: editDisplayName,
       is_admin: editIsAdmin,
+      can_view_requests: editCanViewRequests,
     }
 
     if (editPassword) {
@@ -279,6 +285,17 @@ function UsersPage() {
                   />
                   <span>Администратор</span>
                 </label>
+
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={canViewRequests}
+                    onChange={(event) =>
+                      setCanViewRequests(event.target.checked)
+                    }
+                  />
+                  <span>Только просмотр заявок</span>
+                </label>
               </div>
 
               <button
@@ -351,6 +368,17 @@ function UsersPage() {
                   />
                   <span>Администратор</span>
                 </label>
+
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={editCanViewRequests}
+                    onChange={(event) =>
+                      setEditCanViewRequests(event.target.checked)
+                    }
+                  />
+                  <span>Только просмотр заявок</span>
+                </label>
               </div>
 
               <div className="user-actions">
@@ -401,6 +429,12 @@ function UsersPage() {
                     {listedUser.is_admin && (
                       <span className="badge">
                         Администратор
+                      </span>
+                    )}
+
+                    {listedUser.can_view_requests && (
+                      <span className="badge">
+                        Просмотр заявок
                       </span>
                     )}
 

@@ -111,6 +111,7 @@ class SupplyApiTests(unittest.TestCase):
                         hashed_password="unused",
                         is_active=True,
                         is_admin=False,
+                        can_view_requests=True,
                     ),
                     User(
                         id=2,
@@ -553,6 +554,7 @@ class SupplyApiTests(unittest.TestCase):
 
     def test_list_and_card_are_ordered_protected_and_tenant_scoped(self) -> None:
         created = self.create_request()
+        self.current_user_id = 1
         listed = self.client.get("/supply/requests")
         detail = self.client.get(f"/supply/requests/{created['id']}")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -566,6 +568,16 @@ class SupplyApiTests(unittest.TestCase):
                 )
 
         with self.session_factory.begin() as session:
+            session.add(User(
+                id=3,
+                username="other-viewer",
+                display_name="Другой tenant",
+                hashed_password="unused",
+                is_active=True,
+                is_admin=False,
+                can_view_requests=True,
+                tenant_id="other",
+            ))
             other_department = Department(
                 tenant_id="other",
                 code="OTHER",
@@ -594,6 +606,19 @@ class SupplyApiTests(unittest.TestCase):
             session.flush()
             other_id = other.id
 
+        self.current_user_id = 3
+        other_list = self.client.get("/supply/requests")
+        self.assertEqual(other_list.status_code, 200, other_list.text)
+        self.assertEqual(
+            [item["id"] for item in other_list.json()], [str(other_id)]
+        )
+        self.assertEqual(
+            self.client.get(f"/supply/requests/{created['id']}").status_code,
+            404,
+        )
+
+        self.current_user_id = 1
+
         self.assertEqual(
             [item["id"] for item in self.client.get("/supply/requests").json()],
             [created["id"]],
@@ -601,6 +626,32 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(
             self.client.get(f"/supply/requests/{other_id}").status_code,
             404,
+        )
+
+        for method, path, payload in (
+            (
+                "post",
+                f"/supply/requests/{created['id']}/recognize",
+                {"expected_version": created["version"]},
+            ),
+            (
+                "post",
+                f"/supply/requests/{created['id']}/plan",
+                {"expected_version": created["version"], "simple_mode": True},
+            ),
+            (
+                "post",
+                f"/supply/requests/{created['id']}/cancel",
+                {"expected_version": created["version"], "reason": "Нет"},
+            ),
+        ):
+            response = getattr(self.client, method)(path, json=payload)
+            self.assertEqual(response.status_code, 403, response.text)
+
+        self.current_user_id = 2
+        self.assertEqual(
+            self.client.get(f"/supply/requests/{created['id']}").status_code,
+            200,
         )
 
         app.dependency_overrides.pop(get_current_user)

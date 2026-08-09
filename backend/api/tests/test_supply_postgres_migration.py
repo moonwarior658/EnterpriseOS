@@ -2417,9 +2417,121 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         command.upgrade(self.alembic_config, "20260805_0028")
         self.assertEqual(self._current_revision(), "20260805_0028")
 
+    def test_01g_request_view_access_migration_cycle(self) -> None:
+        command.upgrade(self.alembic_config, "20260805_0028")
+        table_names = [
+            table_name
+            for table_name in inspect(self.engine).get_table_names()
+            if table_name != "alembic_version"
+        ]
+        quoted_tables = ", ".join(
+            self.engine.dialect.identifier_preparer.quote(table_name)
+            for table_name in table_names
+        )
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                f"TRUNCATE TABLE {quoted_tables} RESTART IDENTITY CASCADE"
+            ))
+        command.downgrade(self.alembic_config, "base")
+        command.upgrade(self.alembic_config, "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+        with self.engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO users
+                    (id, username, display_name, hashed_password,
+                     is_active, is_admin)
+                VALUES
+                    (92029, 'request-view-admin', 'Request view admin',
+                     'unused', true, true)
+            """))
+            connection.execute(text("""
+                INSERT INTO work_requests
+                    (id, request_type, department, description, status,
+                     repair_category, priority, created_by_user_id)
+                VALUES
+                    (92029, 'repair', 'М15', 'Migration 0029 request', 'new',
+                     'Другое', 'routine', 92029)
+            """))
+
+        def assert_0029_contract() -> None:
+            self.assertEqual(self._current_revision(), "20260806_0029")
+            user_columns = {
+                column["name"]: column
+                for column in inspect(self.engine).get_columns("users")
+            }
+            request_columns = {
+                column["name"]: column
+                for column in inspect(self.engine).get_columns(
+                    "work_requests"
+                )
+            }
+            self.assertFalse(user_columns["can_view_requests"]["nullable"])
+            self.assertFalse(user_columns["tenant_id"]["nullable"])
+            self.assertFalse(request_columns["tenant_id"]["nullable"])
+            self.assertIn(
+                "false",
+                str(user_columns["can_view_requests"]["default"]).lower(),
+            )
+            self.assertIsNone(user_columns["tenant_id"]["default"])
+            self.assertIsNone(request_columns["tenant_id"]["default"])
+            with self.engine.connect() as connection:
+                self.assertEqual(connection.execute(text("""
+                    SELECT tenant_id, can_view_requests
+                    FROM users WHERE id = 92029
+                """)).one(), ("eclair", False))
+                self.assertEqual(connection.scalar(text("""
+                    SELECT tenant_id FROM work_requests WHERE id = 92029
+                """)), "eclair")
+
+        command.upgrade(self.alembic_config, "20260806_0029")
+        assert_0029_contract()
+        command.downgrade(self.alembic_config, "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+        self.assertNotIn(
+            "can_view_requests",
+            {column["name"] for column in inspect(self.engine).get_columns(
+                "users"
+            )},
+        )
+        self.assertNotIn(
+            "tenant_id",
+            {column["name"] for column in inspect(self.engine).get_columns(
+                "work_requests"
+            )},
+        )
+        command.upgrade(self.alembic_config, "20260806_0029")
+        assert_0029_contract()
+
+        command.downgrade(self.alembic_config, "20260805_0028")
+        conflict_id = uuid4()
+        with self.engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO departments (id, tenant_id, code, name)
+                VALUES (:id, 'other', 'OTHER', 'Other tenant')
+            """), {"id": conflict_id})
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "supports only tenant 'eclair'",
+        ):
+            command.upgrade(self.alembic_config, "20260806_0029")
+        self.assertEqual(self._current_revision(), "20260805_0028")
+        self.assertNotIn(
+            "tenant_id",
+            {column["name"] for column in inspect(self.engine).get_columns(
+                "work_requests"
+            )},
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM departments WHERE id = :id"),
+                {"id": conflict_id},
+            )
+        command.upgrade(self.alembic_config, "20260806_0029")
+        assert_0029_contract()
+
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260805_0028")
+        self.assertEqual(self._current_revision(), "20260806_0029")
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()

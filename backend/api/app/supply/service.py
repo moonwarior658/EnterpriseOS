@@ -1255,6 +1255,8 @@ def _request_options():
 def _populate_active_debt_context(
     session: Session,
     requests: list[SupplyRequest],
+    *,
+    tenant_id: str = settings.default_tenant_id,
 ) -> None:
     keys = {
         (request.department_id, line.product_id, line.requested_unit_id)
@@ -1267,7 +1269,7 @@ def _populate_active_debt_context(
     debts = session.scalars(
         select(SupplyDepartmentDebt)
         .where(
-            SupplyDepartmentDebt.tenant_id == settings.default_tenant_id,
+            SupplyDepartmentDebt.tenant_id == tenant_id,
             SupplyDepartmentDebt.status == "ACTIVE",
             or_(*[
                 (
@@ -1297,25 +1299,32 @@ def _populate_active_debt_context(
 def get_supply_request(
     session: Session,
     request_id: UUID,
+    *,
+    tenant_id: str = settings.default_tenant_id,
+    include_context_mapping_suggestions: bool = True,
 ) -> SupplyRequest:
     statement = (
         select(SupplyRequest)
         .where(
             SupplyRequest.id == request_id,
-            SupplyRequest.tenant_id == settings.default_tenant_id,
+            SupplyRequest.tenant_id == tenant_id,
         )
         .options(*_request_options())
     )
     supply_request = session.scalar(statement)
     if supply_request is None:
         raise SupplyRequestNotFoundError
-    _populate_active_debt_context(session, [supply_request])
-    _populate_context_mapping_suggestions(session, supply_request)
+    _populate_active_debt_context(
+        session, [supply_request], tenant_id=tenant_id
+    )
+    if include_context_mapping_suggestions:
+        _populate_context_mapping_suggestions(session, supply_request)
     return supply_request
 
 
 def _supply_request_filters(
     *,
+    tenant_id: str = settings.default_tenant_id,
     search: str | None = None,
     department_id: UUID | None = None,
     direction_id: UUID | None = None,
@@ -1326,7 +1335,7 @@ def _supply_request_filters(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> list:
-    filters = [SupplyRequest.tenant_id == settings.default_tenant_id]
+    filters = [SupplyRequest.tenant_id == tenant_id]
     if search:
         term = f"%{search.strip()}%"
         filters.append(or_(
@@ -1380,6 +1389,7 @@ def count_supply_requests(
 def list_supply_requests(
     session: Session,
     *,
+    tenant_id: str = settings.default_tenant_id,
     search: str | None = None,
     department_id: UUID | None = None,
     direction_id: UUID | None = None,
@@ -1393,6 +1403,7 @@ def list_supply_requests(
     offset: int = 0,
 ) -> list[SupplyRequest]:
     filters = _supply_request_filters(
+        tenant_id=tenant_id,
         search=search,
         department_id=department_id,
         direction_id=direction_id,
@@ -1423,7 +1434,7 @@ def list_supply_requests(
         .offset(offset)
     )
     requests = list(session.scalars(statement).all())
-    _populate_active_debt_context(session, requests)
+    _populate_active_debt_context(session, requests, tenant_id=tenant_id)
     return requests
 
 

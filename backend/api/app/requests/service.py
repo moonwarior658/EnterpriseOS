@@ -5,6 +5,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.config import settings
 from app.models.work_request import (
     WorkRequest,
     WorkRequestAttachment,
@@ -44,21 +45,34 @@ def _request_options():
     )
 
 
-def list_work_requests(session: Session) -> list[WorkRequest]:
+def list_work_requests(
+    session: Session,
+    *,
+    tenant_id: str = settings.default_tenant_id,
+) -> list[WorkRequest]:
     statement = (
         select(WorkRequest)
-        .where(WorkRequest.request_type == "repair")
+        .where(
+            WorkRequest.tenant_id == tenant_id,
+            WorkRequest.request_type == "repair",
+        )
         .options(*_request_options())
         .order_by(WorkRequest.created_at.desc(), WorkRequest.id.desc())
     )
     return list(session.scalars(statement).all())
 
 
-def get_work_request(session: Session, request_id: int) -> WorkRequest:
+def get_work_request(
+    session: Session,
+    request_id: int,
+    *,
+    tenant_id: str = settings.default_tenant_id,
+) -> WorkRequest:
     statement = (
         select(WorkRequest)
         .where(
             WorkRequest.id == request_id,
+            WorkRequest.tenant_id == tenant_id,
             WorkRequest.request_type == "repair",
         )
         .options(*_request_options())
@@ -74,6 +88,7 @@ def create_work_request(
     payload: WorkRequestCreate,
     *,
     created_by_user_id: int | None,
+    tenant_id: str,
     attachments: list[PendingAttachment] | None = None,
     upload_dir: Path | None = None,
 ) -> WorkRequest:
@@ -84,6 +99,7 @@ def create_work_request(
         raise ValueError("Upload directory is required")
 
     work_request = WorkRequest(
+        tenant_id=tenant_id,
         request_type=payload.request_type.value,
         department=payload.department,
         description=payload.description,
@@ -133,15 +149,17 @@ def create_work_request(
             path.unlink(missing_ok=True)
         raise
 
-    return get_work_request(session, work_request.id)
+    return get_work_request(session, work_request.id, tenant_id=tenant_id)
 
 
 def update_work_request(
     session: Session,
     request_id: int,
     payload: WorkRequestUpdate,
+    *,
+    tenant_id: str,
 ) -> WorkRequest:
-    work_request = get_work_request(session, request_id)
+    work_request = get_work_request(session, request_id, tenant_id=tenant_id)
     changes = payload.model_dump(exclude_unset=True)
 
     candidate = WorkRequestCreate(
@@ -173,26 +191,34 @@ def update_work_request(
         session.rollback()
         raise
 
-    return get_work_request(session, request_id)
+    return get_work_request(session, request_id, tenant_id=tenant_id)
 
 
 def update_work_request_status(
     session: Session,
     request_id: int,
     payload: WorkRequestStatusUpdate,
+    *,
+    tenant_id: str,
 ) -> WorkRequest:
     return update_work_request(
         session,
         request_id,
         WorkRequestUpdate(status=payload.status),
+        tenant_id=tenant_id,
     )
 
 
 def list_work_request_comments(
     session: Session,
     request_id: int,
+    *,
+    tenant_id: str,
 ) -> list[WorkRequestComment]:
-    work_request = session.get(WorkRequest, request_id)
+    work_request = session.scalar(select(WorkRequest).where(
+        WorkRequest.id == request_id,
+        WorkRequest.tenant_id == tenant_id,
+    ))
     if work_request is None:
         raise WorkRequestNotFoundError
     if work_request.request_type != "repair":
@@ -216,8 +242,12 @@ def create_work_request_comment(
     payload: WorkRequestCommentCreate,
     *,
     author_user_id: int,
+    tenant_id: str,
 ) -> WorkRequestComment:
-    work_request = session.get(WorkRequest, request_id)
+    work_request = session.scalar(select(WorkRequest).where(
+        WorkRequest.id == request_id,
+        WorkRequest.tenant_id == tenant_id,
+    ))
     if work_request is None:
         raise WorkRequestNotFoundError
     if work_request.request_type != "repair":
@@ -251,8 +281,13 @@ def get_work_request_attachment(
     session: Session,
     request_id: int,
     attachment_id: int,
+    *,
+    tenant_id: str,
 ) -> WorkRequestAttachment:
-    if session.get(WorkRequest, request_id) is None:
+    if session.scalar(select(WorkRequest.id).where(
+        WorkRequest.id == request_id,
+        WorkRequest.tenant_id == tenant_id,
+    )) is None:
         raise WorkRequestNotFoundError
     statement = select(WorkRequestAttachment).where(
         WorkRequestAttachment.id == attachment_id,

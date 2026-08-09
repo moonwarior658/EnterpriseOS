@@ -10,6 +10,7 @@ export type CurrentUser = {
   avatar_url: string | null
   is_active: boolean
   is_admin: boolean
+  can_view_requests: boolean
   created_at: string
 }
 

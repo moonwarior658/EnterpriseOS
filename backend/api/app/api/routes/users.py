@@ -22,9 +22,29 @@ def list_users(
 ) -> list[User]:
     return list(
         db.scalars(
-            select(User).order_by(User.id)
+            select(User)
+            .where(User.tenant_id == current_admin.tenant_id)
+            .order_by(User.id)
         ).all()
     )
+
+
+@router.get("/{user_id}", response_model=UserRead)
+def get_user(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> User:
+    user = db.scalar(select(User).where(
+        User.id == user_id,
+        User.tenant_id == current_admin.tenant_id,
+    ))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return user
 
 
 @router.post(
@@ -54,6 +74,8 @@ def create_user(
         hashed_password=hash_password(payload.password),
         is_active=True,
         is_admin=payload.is_admin,
+        can_view_requests=payload.can_view_requests,
+        tenant_id=current_admin.tenant_id,
     )
 
     db.add(user)
@@ -78,7 +100,10 @@ def update_user(
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> User:
-    user = db.get(User, user_id)
+    user = db.scalar(select(User).where(
+        User.id == user_id,
+        User.tenant_id == current_admin.tenant_id,
+    ))
 
     if user is None:
         raise HTTPException(

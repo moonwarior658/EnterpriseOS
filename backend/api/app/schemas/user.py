@@ -25,6 +25,7 @@ class UserRead(BaseModel):
     avatar_url: str | None
     is_active: bool
     is_admin: bool
+    can_view_requests: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -36,6 +37,9 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=12, max_length=256)
     avatar_url: str | None = Field(default=None, max_length=500)
     is_admin: bool = False
+    can_view_requests: bool = False
+
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("username")
     @classmethod
@@ -67,6 +71,9 @@ class UserUpdate(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
     is_admin: bool | None = None
+    can_view_requests: bool | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("username")
     @classmethod

@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin, get_current_user
+from app.api.dependencies import get_current_admin, require_request_view_access
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
@@ -52,12 +52,13 @@ def _not_found() -> HTTPException:
 def create_request(
     payload: WorkRequestCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> WorkRequest:
     return create_work_request(
         db,
         payload,
-        created_by_user_id=current_user.id,
+        created_by_user_id=current_admin.id,
+        tenant_id=current_admin.tenant_id,
     )
 
 
@@ -65,24 +66,26 @@ def create_request(
 def read_requests(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
 ) -> list[WorkRequest]:
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    return list_work_requests(db)
+    return list_work_requests(db, tenant_id=current_user.tenant_id)
 
 
 @router.get("/{request_id}", response_model=WorkRequestRead)
 def read_request(
     request_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
 ) -> WorkRequest:
     try:
-        return get_work_request(db, request_id)
+        return get_work_request(
+            db, request_id, tenant_id=current_user.tenant_id
+        )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
 
@@ -92,10 +95,12 @@ def change_request(
     request_id: int,
     payload: WorkRequestUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> WorkRequest:
     try:
-        return update_work_request(db, request_id, payload)
+        return update_work_request(
+            db, request_id, payload, tenant_id=current_admin.tenant_id
+        )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
     except ValidationError as error:
@@ -110,10 +115,12 @@ def change_request_status(
     request_id: int,
     payload: WorkRequestStatusUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> WorkRequest:
     try:
-        return update_work_request_status(db, request_id, payload)
+        return update_work_request_status(
+            db, request_id, payload, tenant_id=current_admin.tenant_id
+        )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
 
@@ -125,10 +132,12 @@ def change_request_status(
 def read_request_comments(
     request_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
 ) -> list[WorkRequestComment]:
     try:
-        return list_work_request_comments(db, request_id)
+        return list_work_request_comments(
+            db, request_id, tenant_id=current_user.tenant_id
+        )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
     except WorkRequestTypeError as error:
@@ -155,6 +164,7 @@ def add_request_comment(
             request_id,
             payload,
             author_user_id=current_admin.id,
+            tenant_id=current_admin.tenant_id,
         )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
@@ -170,10 +180,15 @@ def read_request_attachment(
     request_id: int,
     attachment_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
 ) -> FileResponse:
     try:
-        attachment = get_work_request_attachment(db, request_id, attachment_id)
+        attachment = get_work_request_attachment(
+            db,
+            request_id,
+            attachment_id,
+            tenant_id=current_user.tenant_id,
+        )
     except WorkRequestNotFoundError as error:
         raise _not_found() from error
     except WorkRequestAttachmentNotFoundError as error:
