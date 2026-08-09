@@ -394,3 +394,58 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             request.url.params.get_list("product"),
             ["product-1", "product-deleted"],
         )
+
+    async def test_balance_stores_http_error_is_safely_logged(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="auth-cookie-secret")
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            if request.url.path.endswith("/api/v2/reports/balance/stores"):
+                return response(
+                    request,
+                    502,
+                    text=(
+                        '{"message":"balance unavailable",'
+                        '"password":"integration-password",'
+                        '"Authorization":"Bearer authorization-secret",'
+                        '"cookie":"key=auth-cookie-secret",'
+                        '"session_cookie":"session-cookie-secret",'
+                        '"api_key":"other-secret"}'
+                    ),
+                )
+            raise AssertionError(request.url.path)
+
+        with self.assertLogs(
+            "app.integrations.iiko.client",
+            level=logging.ERROR,
+        ) as captured:
+            async with IikoServerClient(
+                make_settings(),
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                with self.assertRaises(IikoResponseError):
+                    await client.get_stock_balances(
+                        balance_date=date(2026, 8, 9),
+                        warehouse_external_ids=["store-uuid"],
+                    )
+
+        rendered = "\n".join(captured.output)
+        self.assertIn(
+            "endpoint_path=/api/v2/reports/balance/stores",
+            rendered,
+        )
+        self.assertIn("status=502", rendered)
+        self.assertIn("timestamp=2026-08-09T23:59:59", rendered)
+        self.assertIn("store=['store-uuid']", rendered)
+        self.assertIn("balance unavailable", rendered)
+        self.assertIn("exception_type=IikoResponseError", rendered)
+        self.assertIn("[REDACTED]", rendered)
+        for secret in (
+            "integration-password",
+            "auth-cookie-secret",
+            "authorization-secret",
+            "session-cookie-secret",
+            "other-secret",
+        ):
+            self.assertNotIn(secret, rendered)

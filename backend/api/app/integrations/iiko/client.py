@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from types import TracebackType
@@ -47,6 +48,52 @@ from app.integrations.iiko.schemas import (
 
 
 logger = logging.getLogger(__name__)
+
+
+_BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
+_RESPONSE_BODY_LOG_LIMIT = 1500
+_SENSITIVE_HEADER_RE = re.compile(
+    r"(?im)^(\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*).*$"
+)
+_SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)(\b(?:password|passwd|pass|authorization|proxy-authorization|"
+    r"cookie|set-cookie|session(?:[_-]?(?:cookie|id))?|token|"
+    r"access[_-]?token|refresh[_-]?token|api[_-]?key|secret|"
+    r"client[_-]?secret)\b\s*[\"']?\s*[:=]\s*)"
+    r"(\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;&}]+)"
+)
+_AUTH_SCHEME_RE = re.compile(
+    r"(?i)\b(?:bearer|basic)\s+[a-z0-9._~+/=-]+"
+)
+
+
+def _sanitize_response_body(
+    body: str,
+    *,
+    secret_values: Sequence[str],
+) -> str:
+    sanitized = _SENSITIVE_HEADER_RE.sub(r"\1[REDACTED]", body)
+    sanitized = _SENSITIVE_VALUE_RE.sub(r"\1[REDACTED]", sanitized)
+    sanitized = _AUTH_SCHEME_RE.sub("[REDACTED]", sanitized)
+    for secret in secret_values:
+        if secret:
+            sanitized = sanitized.replace(secret, "[REDACTED]")
+    sanitized = " ".join(sanitized.split())
+    if not sanitized:
+        return "<empty>"
+    if len(sanitized) > _RESPONSE_BODY_LOG_LIMIT:
+        return f"{sanitized[:_RESPONSE_BODY_LOG_LIMIT]}<truncated>"
+    return sanitized
+
+
+def _http_exception_type(status_code: int) -> str:
+    if status_code == 401:
+        return IikoAuthenticationError.__name__
+    if status_code == 403:
+        return IikoAuthorizationError.__name__
+    if status_code == 429:
+        return IikoRateLimitError.__name__
+    return IikoResponseError.__name__
 
 
 class _IikoAuthLogFilter(logging.Filter):
@@ -183,9 +230,33 @@ class IikoServerClient(IikoProvider):
             if response.status_code == 429:
                 if attempt < retries:
                     continue
-                raise IikoRateLimitError("IIKO_RATE_LIMITED")
             if response.status_code >= 500 and attempt < retries:
                 continue
+            if path == _BALANCE_STORES_PATH and not response.is_success:
+                password = self._settings.password
+                logger.error(
+                    "iiko balance/stores HTTP error "
+                    "endpoint_path=%s status=%s timestamp=%s store=%s "
+                    "response_body=%s exception_type=%s",
+                    _BALANCE_STORES_PATH,
+                    response.status_code,
+                    response.request.url.params.get("timestamp"),
+                    response.request.url.params.get_list("store"),
+                    _sanitize_response_body(
+                        response.text,
+                        secret_values=(
+                            self._token or "",
+                            (
+                                password.get_secret_value()
+                                if password is not None
+                                else ""
+                            ),
+                        ),
+                    ),
+                    _http_exception_type(response.status_code),
+                )
+            if response.status_code == 429:
+                raise IikoRateLimitError("IIKO_RATE_LIMITED")
             return response
         raise IikoConnectionError("IIKO_RETRY_EXHAUSTED")
 
@@ -390,7 +461,7 @@ class IikoServerClient(IikoProvider):
         params.extend(("store", value) for value in warehouse_ids)
         params.extend(("product", value) for value in product_ids)
         payloads = await self._get_json_list(
-            "/api/v2/reports/balance/stores",
+            _BALANCE_STORES_PATH,
             params=params,
         )
         products = {
