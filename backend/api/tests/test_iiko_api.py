@@ -26,6 +26,7 @@ from app.integrations.iiko.mapper import (
     map_unit,
     map_warehouse,
 )
+from app.integrations.iiko.schemas import IikoAccountDto, IikoOutgoingInvoiceDto
 from app.integrations.iiko.provider import IikoProvider
 from app.main import app
 from app.models.iiko import (
@@ -130,6 +131,25 @@ class ApiProvider(IikoProvider):
                 ),
             ),
         ]
+
+    async def get_accounts(self):
+        return list(getattr(self, "accounts", [
+            IikoAccountDto(
+                external_id=str(uuid4()),
+                name="Задолженность покупателей",
+                code="7.3",
+                account_type="ACCOUNTS_RECEIVABLE",
+            ),
+            IikoAccountDto(
+                external_id=str(uuid4()),
+                name="Выручка",
+                code="4.01.1",
+                account_type="INCOME",
+            ),
+        ]))
+
+    async def get_outgoing_invoices(self, *, date_from, date_to):
+        return list(getattr(self, "outgoing_invoices", []))
 
     async def aclose(self) -> None:
         return None
@@ -311,6 +331,124 @@ class IikoApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(invalid_date.status_code, 422)
+
+    def test_outgoing_invoice_contract_discovery_is_read_only_and_explicit(
+        self,
+    ) -> None:
+        department_id = uuid4()
+        destination_mapping_id = uuid4()
+        destination_warehouse_id = uuid4()
+        destination_counteragent_id = uuid4()
+        with self.session_factory.begin() as session:
+            session.add(Department(
+                id=department_id,
+                tenant_id="tenant-a",
+                code="M15",
+                name="М15",
+                legal_contour=LegalContour.IP,
+            ))
+            session.add(IikoWarehouseMapping(
+                id=destination_mapping_id,
+                tenant_id="tenant-a",
+                iiko_warehouse_id=destination_warehouse_id,
+                eos_department_id=department_id,
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
+                role=IikoWarehouseRole.MAIN,
+                status=IikoMappingStatus.CONFIRMED,
+                source_name="М15 Основной",
+            ))
+
+        provider = ApiProvider()
+        provider.accounts = [
+            IikoAccountDto(
+                external_id=str(destination_warehouse_id),
+                name="М15 Основной",
+                code="10.1",
+                account_type="INVENTORY_ASSETS",
+                organization_external_id=str(destination_counteragent_id),
+            ),
+            IikoAccountDto(
+                external_id=str(uuid4()),
+                name="Задолженность покупателей",
+                code="7.3",
+                account_type="ACCOUNTS_RECEIVABLE",
+            ),
+            IikoAccountDto(
+                external_id=str(uuid4()),
+                name="Выручка",
+                code="4.01.1",
+                account_type="INCOME",
+            ),
+        ]
+        provider.outgoing_invoices = [IikoOutgoingInvoiceDto(
+            external_id=str(uuid4()),
+            document_number="РН-100",
+            date_incoming=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            status="PROCESSED",
+            counteragent_id=str(destination_counteragent_id),
+            default_store_id=str(uuid4()),
+            account_to_code="7.3",
+            revenue_account_code="4.01.1",
+        )]
+        app.dependency_overrides[
+            iiko_routes.get_iiko_provider
+        ] = lambda: provider
+        response = self.client.get(
+            "/integrations/iiko/outgoing-invoice-contracts",
+            params={
+                "department_id": str(department_id),
+                "date_from": "2026-01-01",
+                "date_to": "2026-08-10",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["invoices_read"], 1)
+        self.assertEqual(body["destinations"][0]["status"], "UNIQUE")
+        self.assertEqual(
+            body["destinations"][0]["destination_parent_corporate_id"],
+            str(destination_counteragent_id),
+        )
+        candidate = body["destinations"][0]["candidates"][0]
+        self.assertEqual(
+            candidate["counteragent_id"], str(destination_counteragent_id)
+        )
+        self.assertEqual(candidate["account_to_code"], "7.3")
+        self.assertEqual(candidate["revenue_account_code"], "4.01.1")
+        self.assertEqual(candidate["document_numbers"], ["РН-100"])
+
+        provider.outgoing_invoices.append(IikoOutgoingInvoiceDto(
+            external_id=str(uuid4()),
+            document_number="РН-101",
+            date_incoming=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            status="NEW",
+            counteragent_id=str(destination_counteragent_id),
+            default_store_id=str(uuid4()),
+            account_to_code="7.4",
+            revenue_account_code="4.02",
+        ))
+        conflict = self.client.get(
+            "/integrations/iiko/outgoing-invoice-contracts",
+            params={
+                "department_id": str(department_id),
+                "date_from": "2026-01-01",
+                "date_to": "2026-08-10",
+            },
+        )
+        self.assertEqual(
+            conflict.json()["destinations"][0]["status"],
+            "CONFLICT",
+        )
+
+        invalid_period = self.client.get(
+            "/integrations/iiko/outgoing-invoice-contracts",
+            params={
+                "department_id": str(department_id),
+                "date_from": "2024-01-01",
+                "date_to": "2026-08-10",
+            },
+        )
+        self.assertEqual(invalid_period.status_code, 422)
 
     def test_warehouse_and_stock_sync_are_admin_only_and_record_scope(
         self,

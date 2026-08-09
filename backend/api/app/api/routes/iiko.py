@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -10,6 +10,10 @@ from app.api.dependencies import get_current_admin
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.client import IikoServerClient
+from app.integrations.iiko.contract_discovery import (
+    IikoOutgoingInvoiceContractScopeError,
+    discover_outgoing_invoice_contracts,
+)
 from app.integrations.iiko.config import IikoSettings, get_iiko_settings
 from app.integrations.iiko.exceptions import (
     IikoAuthenticationError,
@@ -38,6 +42,7 @@ from app.models.iiko import IikoSyncRun, IikoSyncStatus, IikoSyncType
 from app.models.user import User
 from app.schemas.iiko import (
     IikoStatusRead,
+    IikoOutgoingInvoiceContractDiscoveryRead,
     IikoStockBalanceSnapshotSyncRequest,
     IikoStockBalanceSyncRequest,
     IikoSyncRunRead,
@@ -398,6 +403,41 @@ async def read_stock_balances(
     except IikoError as error:
         raise integration_error(error) from error
     return paginate(records, limit, offset)
+
+
+@router.get(
+    "/outgoing-invoice-contracts",
+    response_model=IikoOutgoingInvoiceContractDiscoveryRead,
+)
+async def read_outgoing_invoice_contracts(
+    department_id: Annotated[UUID, Query()],
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> IikoOutgoingInvoiceContractDiscoveryRead:
+    if date_to < date_from or date_to - date_from > timedelta(days=366):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "IIKO_OUTGOING_INVOICE_PERIOD_INVALID"},
+        )
+    try:
+        return await discover_outgoing_invoice_contracts(
+            db,
+            provider,
+            tenant_id=current_admin.tenant_id,
+            department_id=department_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except IikoOutgoingInvoiceContractScopeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": str(error)},
+        ) from error
+    except IikoError as error:
+        raise integration_error(error) from error
 
 
 @router.post("/sync/warehouses", response_model=IikoSyncRunRead)

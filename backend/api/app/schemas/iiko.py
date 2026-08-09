@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
@@ -80,3 +81,41 @@ class IikoStockBalanceSnapshotSyncRequest(BaseModel):
         if len(values) != len(set(values)):
             raise ValueError("source_warehouse_mapping_ids must be unique")
         return values
+
+
+class IikoOutgoingInvoiceContractStatus(StrEnum):
+    UNIQUE = "UNIQUE"
+    NOT_FOUND = "NOT_FOUND"
+    CONFLICT = "CONFLICT"
+    INVALID_REFERENCE = "INVALID_REFERENCE"
+
+
+class IikoOutgoingInvoiceContractCandidateRead(BaseModel):
+    counteragent_id: UUID
+    account_to_code: str
+    revenue_account_code: str
+    matching_documents: int
+    document_numbers: list[str]
+    account_to_exists: bool
+    revenue_account_exists: bool
+
+
+class IikoOutgoingInvoiceDestinationContractRead(BaseModel):
+    destination_mapping_id: UUID
+    destination_warehouse_id: UUID
+    destination_parent_corporate_id: UUID | None
+    destination_name: str
+    destination_role: str
+    status: IikoOutgoingInvoiceContractStatus
+    issues: list[str]
+    candidates: list[IikoOutgoingInvoiceContractCandidateRead]
+
+
+class IikoOutgoingInvoiceContractDiscoveryRead(BaseModel):
+    department_id: UUID
+    department_name: str
+    date_from: date
+    date_to: date
+    accounts_read: int
+    invoices_read: int
+    destinations: list[IikoOutgoingInvoiceDestinationContractRead]

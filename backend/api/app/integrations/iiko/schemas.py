@@ -32,6 +32,27 @@ class IikoWarehouseDto(IikoDto):
     raw_updated_at: datetime | None = None
 
 
+class IikoAccountDto(IikoDto):
+    external_id: str
+    name: str
+    code: str
+    account_type: str
+    parent_external_id: str | None = None
+    organization_external_id: str | None = None
+    is_deleted: bool = False
+
+
+class IikoOutgoingInvoiceDto(IikoDto):
+    external_id: str
+    document_number: str
+    date_incoming: datetime
+    status: str
+    counteragent_id: str
+    default_store_id: str
+    account_to_code: str
+    revenue_account_code: str
+
+
 class IikoProductGroupDto(IikoDto):
     external_id: str
     parent_external_id: str | None = None

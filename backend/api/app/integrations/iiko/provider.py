@@ -3,7 +3,9 @@ from collections.abc import Sequence
 from datetime import date, datetime
 
 from app.integrations.iiko.schemas import (
+    IikoAccountDto,
     IikoOrganizationDto,
+    IikoOutgoingInvoiceDto,
     IikoPackageDto,
     IikoProductCategoryDto,
     IikoProductDto,
@@ -88,6 +90,19 @@ class IikoProvider(ABC):
         include_deleted: bool = True,
     ) -> list[IikoRecord[IikoStockBalanceDto]]:
         """Return stock balances for an explicit scope and timestamp."""
+
+    async def get_accounts(self) -> list[IikoAccountDto]:
+        """Return the read-only chart of accounts."""
+        raise NotImplementedError
+
+    async def get_outgoing_invoices(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoOutgoingInvoiceDto]:
+        """Return existing outgoing invoices for contract discovery."""
+        raise NotImplementedError
 
     @abstractmethod
     async def aclose(self) -> None:

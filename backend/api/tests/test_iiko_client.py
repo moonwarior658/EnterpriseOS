@@ -46,6 +46,68 @@ def response(
 
 
 class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_accounts_and_outgoing_invoice_contract_headers(
+        self,
+    ) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            if request.url.path.endswith("/api/v2/entities/accounts/list"):
+                return response(request, json=[{
+                    "id": "9be92cb2-f416-45e8-a36f-24118e0d6a01",
+                    "name": "Задолженность покупателей",
+                    "code": "7.3",
+                    "type": "ACCOUNTS_RECEIVABLE",
+                    "deleted": False,
+                }])
+            if request.url.path.endswith(
+                "/api/documents/export/outgoingInvoice"
+            ):
+                return response(request, text="""<?xml version="1.0"?>
+<outgoingInvoiceDtoes><document>
+<id>475e5ce1-c5bc-47a1-b7c5-d9334728e329</id>
+<documentNumber>РН-15</documentNumber>
+<dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
+<status>PROCESSED</status><accountToCode>7.3</accountToCode>
+<revenueAccountCode>4.01.1</revenueAccountCode>
+<defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
+<counteragentId>0e3720cf-a886-4d3b-9c9f-04ad76ea17cb</counteragentId>
+</document></outgoingInvoiceDtoes>""")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            accounts = await client.get_accounts()
+            invoices = await client.get_outgoing_invoices(
+                date_from=date(2026, 8, 1),
+                date_to=date(2026, 8, 10),
+            )
+
+        self.assertEqual(accounts[0].code, "7.3")
+        self.assertEqual(invoices[0].document_number, "РН-15")
+        self.assertEqual(invoices[0].account_to_code, "7.3")
+        account_request = next(
+            item for item in requests
+            if item.url.path.endswith("/api/v2/entities/accounts/list")
+        )
+        self.assertEqual(account_request.url.params["includeDeleted"], "true")
+        invoice_request = next(
+            item for item in requests
+            if item.url.path.endswith(
+                "/api/documents/export/outgoingInvoice"
+            )
+        )
+        self.assertEqual(invoice_request.url.params["from"], "2026-08-01")
+        self.assertEqual(invoice_request.url.params["to"], "2026-08-10")
+        self.assertEqual({item.method for item in requests}, {"GET"})
+
     async def test_auth_query_is_redacted_from_httpx_logs(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/api/auth"):

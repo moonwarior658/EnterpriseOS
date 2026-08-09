@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from types import TracebackType
@@ -11,6 +12,7 @@ from typing import Any, Self
 from uuid import uuid4
 
 import httpx
+from pydantic import ValidationError
 
 from app.integrations.iiko.config import IikoSettings
 from app.integrations.iiko.exceptions import (
@@ -35,7 +37,9 @@ from app.integrations.iiko.mapper import (
 )
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
+    IikoAccountDto,
     IikoOrganizationDto,
+    IikoOutgoingInvoiceDto,
     IikoPackageDto,
     IikoProductCategoryDto,
     IikoProductDto,
@@ -51,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 
 _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
+_OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
+_MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
 _SENSITIVE_HEADER_RE = re.compile(
     r"(?im)^(\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*).*$"
@@ -302,6 +308,92 @@ class IikoServerClient(IikoProvider):
         ):
             raise IikoContractError("Expected iiko list response")
         return payload
+
+    async def _get_xml(self, path: str, *, params: Mapping[str, str]) -> ET.Element:
+        await self.authenticate()
+        response = await self._raw_request("GET", path, params=params)
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        if not response.content or len(response.content) > _MAX_XML_RESPONSE_BYTES:
+            raise IikoContractError("Invalid iiko XML response size")
+        upper_prefix = response.content[:4096].upper()
+        if b"<!DOCTYPE" in upper_prefix or b"<!ENTITY" in upper_prefix:
+            raise IikoContractError("Unsafe iiko XML response")
+        try:
+            return ET.fromstring(response.content)
+        except ET.ParseError as error:
+            raise IikoContractError("Invalid iiko XML response") from error
+
+    async def get_accounts(self) -> list[IikoAccountDto]:
+        payloads = await self._get_json_list(
+            "/api/v2/entities/accounts/list",
+            params={"includeDeleted": "true", "revisionFrom": "-1"},
+        )
+        accounts: list[IikoAccountDto] = []
+        for payload in payloads:
+            try:
+                accounts.append(IikoAccountDto(
+                    external_id=str(payload["id"]),
+                    name=str(payload["name"]),
+                    code=str(payload["code"]),
+                    account_type=str(payload["type"]),
+                    parent_external_id=(
+                        str(payload["accountParentId"])
+                        if payload.get("accountParentId") else None
+                    ),
+                    organization_external_id=(
+                        str(payload["parentCorporateId"])
+                        if payload.get("parentCorporateId") else None
+                    ),
+                    is_deleted=bool(payload.get("deleted", False)),
+                ))
+            except (KeyError, TypeError, ValueError, ValidationError) as error:
+                raise IikoContractError("Invalid iiko account contract") from error
+        return accounts
+
+    async def get_outgoing_invoices(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoOutgoingInvoiceDto]:
+        root = await self._get_xml(
+            _OUTGOING_INVOICE_EXPORT_PATH,
+            params={"from": date_from.isoformat(), "to": date_to.isoformat()},
+        )
+
+        def text(document: ET.Element, name: str) -> str:
+            element = next(
+                (child for child in document if child.tag.rsplit("}", 1)[-1] == name),
+                None,
+            )
+            value = element.text.strip() if element is not None and element.text else ""
+            if not value:
+                raise IikoContractError(f"Missing outgoing invoice field: {name}")
+            return value
+
+        invoices: list[IikoOutgoingInvoiceDto] = []
+        for document in root.iter():
+            if document.tag.rsplit("}", 1)[-1] != "document":
+                continue
+            try:
+                invoices.append(IikoOutgoingInvoiceDto(
+                    external_id=text(document, "id"),
+                    document_number=text(document, "documentNumber"),
+                    date_incoming=datetime.fromisoformat(text(document, "dateIncoming")),
+                    status=text(document, "status"),
+                    counteragent_id=text(document, "counteragentId"),
+                    default_store_id=text(document, "defaultStoreId"),
+                    account_to_code=text(document, "accountToCode"),
+                    revenue_account_code=text(document, "revenueAccountCode"),
+                ))
+            except (ValueError, ValidationError) as error:
+                raise IikoContractError("Invalid outgoing invoice contract") from error
+        return invoices
 
     async def _corporation_payloads(self) -> list[dict[str, Any]]:
         payloads = await self._get_json_list(
