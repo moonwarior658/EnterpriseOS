@@ -69,6 +69,7 @@ class IikoIncomingInvoiceDto(IikoDto):
     document_number: str
     status: str
     default_store_id: str
+    supplier_id: str | None = None
 
 
 class IikoProductGroupDto(IikoDto):

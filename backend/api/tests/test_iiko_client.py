@@ -190,8 +190,12 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 <incomingInvoiceDtoes><document>
 <id>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</id>
 <documentNumber>ПН-2686</documentNumber>
+<incomingDocumentNumber>2686</incomingDocumentNumber>
+<incomingDate>2026-08-01</incomingDate>
+<dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
+<defaultStore>bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb</defaultStore>
+<supplier>cccccccc-cccc-4ccc-8ccc-cccccccccccc</supplier>
 <status>PROCESSED</status>
-<defaultStoreId>bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb</defaultStoreId>
 </document></incomingInvoiceDtoes>""")
             raise AssertionError(request.url.path)
 
@@ -224,6 +228,10 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             incoming[0].default_store_id,
             "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        )
+        self.assertEqual(
+            incoming[0].supplier_id,
+            "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         )
         account_request = next(
             item for item in requests

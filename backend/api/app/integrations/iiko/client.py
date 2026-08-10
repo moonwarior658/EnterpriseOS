@@ -585,7 +585,7 @@ class IikoServerClient(IikoProvider):
                     "id",
                     "documentNumber",
                     "status",
-                    "defaultStoreId",
+                    "defaultStore",
                 )
             }
             missing_fields = [
@@ -605,7 +605,8 @@ class IikoServerClient(IikoProvider):
                     external_id=required_values["id"],
                     document_number=required_values["documentNumber"],
                     status=required_values["status"],
-                    default_store_id=required_values["defaultStoreId"],
+                    default_store_id=required_values["defaultStore"],
+                    supplier_id=optional_text(document, "supplier"),
                 ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
