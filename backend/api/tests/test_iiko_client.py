@@ -46,6 +46,55 @@ def response(
 
 
 class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_xml_reports_only_sanitized_bounded_preview(
+        self,
+    ) -> None:
+        body = (
+            "<html><password>xml-secret</password> "
+            "password=json-secret cookie=cookie-secret "
+            "integration-user integration-password token-value "
+            + ("x" * 400)
+            + "tail-must-not-appear"
+        )
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token-value")
+            if request.url.path.endswith(
+                "/api/documents/export/outgoingInvoice"
+            ):
+                return httpx.Response(
+                    200,
+                    request=request,
+                    text=body,
+                    headers={"Content-Type": "text/html; charset=utf-8"},
+                )
+            return response(request, text="ok")
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(IikoContractError) as captured:
+                await client.get_outgoing_invoices(
+                    date_from=date(2026, 8, 1),
+                    date_to=date(2026, 8, 10),
+                )
+
+        message = str(captured.exception)
+        self.assertIn("status=200", message)
+        self.assertIn("content_type='text/html; charset=utf-8'", message)
+        self.assertIn(f"body_bytes={len(body.encode())}", message)
+        self.assertIn("body_preview=", message)
+        self.assertIn("[REDACTED]", message)
+        self.assertNotIn("xml-secret", message)
+        self.assertNotIn("json-secret", message)
+        self.assertNotIn("cookie-secret", message)
+        self.assertNotIn("integration-user", message)
+        self.assertNotIn("integration-password", message)
+        self.assertNotIn("token-value", message)
+        self.assertNotIn("tail-must-not-appear", message)
+
     async def test_outgoing_invoice_contract_error_names_document_and_field(
         self,
     ) -> None:

@@ -71,6 +71,12 @@ _SENSITIVE_VALUE_RE = re.compile(
 _AUTH_SCHEME_RE = re.compile(
     r"(?i)\b(?:bearer|basic)\s+[a-z0-9._~+/=-]+"
 )
+_SENSITIVE_XML_ELEMENT_RE = re.compile(
+    r"(?is)(<\s*(password|passwd|pass|authorization|proxy-authorization|"
+    r"cookie|set-cookie|session(?:[_-]?(?:cookie|id))?|token|"
+    r"access[_-]?token|refresh[_-]?token|api[_-]?key|secret|"
+    r"client[_-]?secret)\b[^>]*>).*?(</\s*\2\s*>)"
+)
 
 
 def _sanitize_response_body(
@@ -81,6 +87,10 @@ def _sanitize_response_body(
     sanitized = _SENSITIVE_HEADER_RE.sub(r"\1[REDACTED]", body)
     sanitized = _SENSITIVE_VALUE_RE.sub(r"\1[REDACTED]", sanitized)
     sanitized = _AUTH_SCHEME_RE.sub("[REDACTED]", sanitized)
+    sanitized = _SENSITIVE_XML_ELEMENT_RE.sub(
+        r"\1[REDACTED]\3",
+        sanitized,
+    )
     for secret in secret_values:
         if secret:
             sanitized = sanitized.replace(secret, "[REDACTED]")
@@ -326,7 +336,26 @@ class IikoServerClient(IikoProvider):
         try:
             return ET.fromstring(response.content)
         except ET.ParseError as error:
-            raise IikoContractError("Invalid iiko XML response") from error
+            password = self._settings.password
+            login = self._settings.login
+            preview = _sanitize_response_body(
+                response.text,
+                secret_values=(
+                    self._token or "",
+                    login.get_secret_value() if login is not None else "",
+                    password.get_secret_value() if password is not None else "",
+                ),
+            )[:300]
+            content_type = " ".join(
+                response.headers.get("content-type", "<missing>").split()
+            )[:200]
+            raise IikoContractError(
+                "Invalid iiko XML response "
+                f"status={response.status_code} "
+                f"content_type={content_type!r} "
+                f"body_bytes={len(response.content)} "
+                f"body_preview={preview!r}"
+            ) from error
 
     async def get_accounts(self) -> list[IikoAccountDto]:
         payloads = await self._get_json_list(
