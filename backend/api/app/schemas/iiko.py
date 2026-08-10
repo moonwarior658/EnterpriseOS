@@ -92,6 +92,7 @@ class IikoOutgoingInvoiceContractStatus(StrEnum):
 
 class IikoOutgoingInvoiceContractCandidateRead(BaseModel):
     counteragent_id: UUID
+    source_warehouse_ids: list[UUID]
     account_to_code: str
     revenue_account_code: str
     matching_documents: int
@@ -117,6 +118,6 @@ class IikoOutgoingInvoiceContractDiscoveryRead(BaseModel):
     date_from: date
     date_to: date
     accounts_read: int
-    suppliers_read: int
+    incoming_invoices_read: int
     invoices_read: int
     destinations: list[IikoOutgoingInvoiceDestinationContractRead]

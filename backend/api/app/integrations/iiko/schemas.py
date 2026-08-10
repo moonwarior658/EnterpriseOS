@@ -57,10 +57,18 @@ class IikoOutgoingInvoiceDto(IikoDto):
     document_number: str
     date_incoming: datetime | None = None
     status: str
+    linked_incoming_invoice_id: str
     counteragent_id: str
-    default_store_id: str | None = None
+    default_store_id: str
     account_to_code: str
     revenue_account_code: str
+
+
+class IikoIncomingInvoiceDto(IikoDto):
+    external_id: str
+    document_number: str
+    status: str
+    default_store_id: str
 
 
 class IikoProductGroupDto(IikoDto):

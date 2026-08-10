@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
+    IikoIncomingInvoiceDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoPackageDto,
@@ -98,6 +99,15 @@ class IikoProvider(ABC):
 
     async def get_suppliers(self) -> list[IikoSupplierDto]:
         """Return read-only supplier/user records."""
+        raise NotImplementedError
+
+    async def get_incoming_invoices(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoIncomingInvoiceDto]:
+        """Return existing incoming invoices for contract discovery."""
         raise NotImplementedError
 
     async def get_outgoing_invoices(

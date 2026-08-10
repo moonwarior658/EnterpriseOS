@@ -29,8 +29,8 @@ from app.integrations.iiko.mapper import (
 )
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
+    IikoIncomingInvoiceDto,
     IikoOutgoingInvoiceDto,
-    IikoSupplierDto,
 )
 from app.integrations.iiko.provider import IikoProvider
 from app.main import app
@@ -160,6 +160,10 @@ class ApiProvider(IikoProvider):
             raise error
         self.outgoing_invoice_period = (date_from, date_to)
         return list(getattr(self, "outgoing_invoices", []))
+
+    async def get_incoming_invoices(self, *, date_from, date_to):
+        self.incoming_invoice_period = (date_from, date_to)
+        return list(getattr(self, "incoming_invoices", []))
 
     async def get_suppliers(self):
         if error := getattr(self, "suppliers_error", None):
@@ -354,6 +358,9 @@ class IikoApiTests(unittest.TestCase):
         destination_mapping_id = uuid4()
         destination_warehouse_id = uuid4()
         destination_counteragent_id = uuid4()
+        household_mapping_id = uuid4()
+        household_warehouse_id = uuid4()
+        household_counteragent_id = uuid4()
         with self.session_factory.begin() as session:
             session.add(Department(
                 id=department_id,
@@ -371,6 +378,16 @@ class IikoApiTests(unittest.TestCase):
                 role=IikoWarehouseRole.MAIN,
                 status=IikoMappingStatus.CONFIRMED,
                 source_name="М15 Основной",
+            ))
+            session.add(IikoWarehouseMapping(
+                id=household_mapping_id,
+                tenant_id="tenant-a",
+                iiko_warehouse_id=household_warehouse_id,
+                eos_department_id=department_id,
+                destination_type=IikoWarehouseDestinationType.DESTINATION,
+                role=IikoWarehouseRole.HOUSEHOLD,
+                status=IikoMappingStatus.CONFIRMED,
+                source_name="М15 Хозяйственный",
             ))
 
         provider = ApiProvider()
@@ -394,23 +411,61 @@ class IikoApiTests(unittest.TestCase):
                 account_type="INCOME",
             ),
         ]
-        provider.suppliers = [IikoSupplierDto(
-            external_id=str(destination_counteragent_id),
-            name="Эклер Маяковского 6а: Павильон Эклер Маяковского 6а",
-            code="M6A",
-            is_supplier=True,
-            represents_store=True,
-        )]
-        provider.outgoing_invoices = [IikoOutgoingInvoiceDto(
-            external_id=str(uuid4()),
-            document_number="2686",
-            date_incoming=datetime(2026, 8, 1, tzinfo=timezone.utc),
-            status="PROCESSED",
-            counteragent_id=str(destination_counteragent_id),
-            default_store_id=str(uuid4()),
-            account_to_code="21",
-            revenue_account_code="20",
-        )]
+        incoming_main_id = uuid4()
+        incoming_packaging_id = uuid4()
+        incoming_household_id = uuid4()
+        main_source_id = uuid4()
+        packaging_source_id = uuid4()
+        household_source_id = uuid4()
+        provider.incoming_invoices = [
+            IikoIncomingInvoiceDto(
+                external_id=str(incoming_main_id),
+                document_number="ПН-2686-MAIN",
+                status="PROCESSED",
+                default_store_id=str(destination_warehouse_id),
+            ),
+            IikoIncomingInvoiceDto(
+                external_id=str(incoming_packaging_id),
+                document_number="ПН-2686-PACKAGING",
+                status="PROCESSED",
+                default_store_id=str(destination_warehouse_id),
+            ),
+            IikoIncomingInvoiceDto(
+                external_id=str(incoming_household_id),
+                document_number="ПН-2686-HOUSEHOLD",
+                status="PROCESSED",
+                default_store_id=str(household_warehouse_id),
+            ),
+        ]
+        provider.outgoing_invoices = [
+            IikoOutgoingInvoiceDto(
+                document_number="2686-MAIN",
+                status="PROCESSED",
+                linked_incoming_invoice_id=str(incoming_main_id),
+                counteragent_id=str(destination_counteragent_id),
+                default_store_id=str(main_source_id),
+                account_to_code="21",
+                revenue_account_code="20",
+            ),
+            IikoOutgoingInvoiceDto(
+                document_number="2686-PACKAGING",
+                status="PROCESSED",
+                linked_incoming_invoice_id=str(incoming_packaging_id),
+                counteragent_id=str(destination_counteragent_id),
+                default_store_id=str(packaging_source_id),
+                account_to_code="21",
+                revenue_account_code="20",
+            ),
+            IikoOutgoingInvoiceDto(
+                document_number="2686-HOUSEHOLD",
+                status="PROCESSED",
+                linked_incoming_invoice_id=str(incoming_household_id),
+                counteragent_id=str(household_counteragent_id),
+                default_store_id=str(household_source_id),
+                account_to_code="21",
+                revenue_account_code="20",
+            ),
+        ]
         app.dependency_overrides[
             iiko_routes.get_iiko_provider
         ] = lambda: provider
@@ -424,25 +479,48 @@ class IikoApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertEqual(body["invoices_read"], 1)
-        self.assertEqual(body["destinations"][0]["status"], "UNIQUE")
+        self.assertEqual(body["incoming_invoices_read"], 3)
+        self.assertEqual(body["invoices_read"], 3)
+        destinations = {
+            item["destination_role"]: item for item in body["destinations"]
+        }
+        main = destinations["MAIN"]
+        household = destinations["HOUSEHOLD"]
+        self.assertEqual(main["status"], "UNIQUE")
         self.assertEqual(
-            body["destinations"][0]["destination_counteragent_id"],
+            main["destination_counteragent_id"],
             str(destination_counteragent_id),
         )
-        candidate = body["destinations"][0]["candidates"][0]
+        candidate = main["candidates"][0]
         self.assertEqual(
             candidate["counteragent_id"], str(destination_counteragent_id)
         )
         self.assertEqual(candidate["account_to_code"], "21")
         self.assertEqual(candidate["revenue_account_code"], "20")
-        self.assertEqual(candidate["document_numbers"], ["2686"])
+        self.assertEqual(
+            candidate["document_numbers"],
+            ["2686-MAIN", "2686-PACKAGING"],
+        )
+        self.assertEqual(
+            set(candidate["source_warehouse_ids"]),
+            {str(main_source_id), str(packaging_source_id)},
+        )
+        self.assertEqual(household["status"], "UNIQUE")
+        self.assertEqual(
+            household["destination_counteragent_id"],
+            str(household_counteragent_id),
+        )
+        self.assertEqual(
+            household["candidates"][0]["source_warehouse_ids"],
+            [str(household_source_id)],
+        )
 
         provider.outgoing_invoices.append(IikoOutgoingInvoiceDto(
             external_id=str(uuid4()),
             document_number="РН-101",
             date_incoming=datetime(2026, 8, 2, tzinfo=timezone.utc),
             status="NEW",
+            linked_incoming_invoice_id=str(incoming_main_id),
             counteragent_id=str(destination_counteragent_id),
             default_store_id=str(uuid4()),
             account_to_code="7.4",
@@ -457,7 +535,10 @@ class IikoApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            conflict.json()["destinations"][0]["status"],
+            next(
+                item for item in conflict.json()["destinations"]
+                if item["destination_role"] == "MAIN"
+            )["status"],
             "CONFLICT",
         )
 
@@ -520,10 +601,12 @@ class IikoApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(parent_ignored.status_code, 200)
+        parent_ignored_main = next(
+            item for item in parent_ignored.json()["destinations"]
+            if item["destination_role"] == "MAIN"
+        )
         self.assertEqual(
-            parent_ignored.json()["destinations"][0][
-                "destination_counteragent_id"
-            ],
+            parent_ignored_main["destination_counteragent_id"],
             str(destination_counteragent_id),
         )
 

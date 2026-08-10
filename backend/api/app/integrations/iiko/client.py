@@ -38,6 +38,7 @@ from app.integrations.iiko.mapper import (
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
+    IikoIncomingInvoiceDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoPackageDto,
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
+_INCOMING_INVOICE_EXPORT_PATH = "/api/documents/export/incomingInvoice"
 _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
@@ -504,6 +506,7 @@ class IikoServerClient(IikoProvider):
                 for field in (
                     "documentNumber",
                     "status",
+                    "linkedIncomingInvoiceId",
                     "counteragentId",
                     "defaultStoreId",
                     "accountToCode",
@@ -527,6 +530,9 @@ class IikoServerClient(IikoProvider):
                     external_id=optional_text(document, "id"),
                     document_number=required_values["documentNumber"],
                     status=required_values["status"],
+                    linked_incoming_invoice_id=(
+                        required_values["linkedIncomingInvoiceId"]
+                    ),
                     counteragent_id=required_values["counteragentId"],
                     default_store_id=required_values["defaultStoreId"],
                     account_to_code=required_values["accountToCode"],
@@ -536,6 +542,75 @@ class IikoServerClient(IikoProvider):
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
                 raise IikoContractError(
                     "Invalid outgoing invoice field "
+                    f"document_number={document_number} field={field}"
+                ) from error
+        return invoices
+
+    async def get_incoming_invoices(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoIncomingInvoiceDto]:
+        root = await self._get_xml(
+            _INCOMING_INVOICE_EXPORT_PATH,
+            params={"from": date_from.isoformat(), "to": date_to.isoformat()},
+        )
+
+        def optional_text(document: ET.Element, name: str) -> str | None:
+            element = next(
+                (
+                    child for child in document
+                    if child.tag.rsplit("}", 1)[-1] == name
+                ),
+                None,
+            )
+            value = (
+                element.text.strip()
+                if element is not None and element.text
+                else ""
+            )
+            return value or None
+
+        invoices: list[IikoIncomingInvoiceDto] = []
+        for document in root.iter():
+            if document.tag.rsplit("}", 1)[-1] != "document":
+                continue
+            document_number = (
+                optional_text(document, "documentNumber") or "<unknown>"
+            )
+            required_values = {
+                field: optional_text(document, field)
+                for field in (
+                    "id",
+                    "documentNumber",
+                    "status",
+                    "defaultStoreId",
+                )
+            }
+            missing_fields = [
+                field for field, value in required_values.items() if not value
+            ]
+            if missing_fields:
+                for field in missing_fields:
+                    logger.warning(
+                        "Skipping unusable historical incoming invoice "
+                        "document_number=%s missing_field=%s",
+                        document_number,
+                        field,
+                    )
+                continue
+            try:
+                invoices.append(IikoIncomingInvoiceDto(
+                    external_id=required_values["id"],
+                    document_number=required_values["documentNumber"],
+                    status=required_values["status"],
+                    default_store_id=required_values["defaultStoreId"],
+                ))
+            except ValidationError as error:
+                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+                raise IikoContractError(
+                    "Invalid incoming invoice field "
                     f"document_number={document_number} field={field}"
                 ) from error
         return invoices

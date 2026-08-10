@@ -11,8 +11,8 @@ from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
+    IikoIncomingInvoiceDto,
     IikoOutgoingInvoiceDto,
-    IikoSupplierDto,
 )
 from app.models.iiko import (
     IikoMappingStatus,
@@ -109,11 +109,14 @@ async def discover_outgoing_invoice_contracts(
         raise
 
     try:
-        suppliers = await provider.get_suppliers()
+        incoming_invoices = await provider.get_incoming_invoices(
+            date_from=effective_date_from,
+            date_to=date_to,
+        )
     except IikoContractError as error:
         logger.error(
             "Outgoing invoice contract discovery failed "
-            "stage=suppliers department_id=%s error=%s",
+            "stage=incomingInvoice department_id=%s error=%s",
             department_id,
             _safe_contract_error(error),
         )
@@ -124,7 +127,7 @@ async def discover_outgoing_invoice_contracts(
             department=department,
             destinations=destinations,
             accounts=accounts,
-            suppliers=suppliers,
+            incoming_invoices=incoming_invoices,
             invoices=invoices,
             date_from=effective_date_from,
             date_to=date_to,
@@ -144,7 +147,7 @@ def _map_outgoing_invoice_contracts(
     department: Department,
     destinations: list[IikoWarehouseMapping],
     accounts: list[IikoAccountDto],
-    suppliers: list[IikoSupplierDto],
+    incoming_invoices: list[IikoIncomingInvoiceDto],
     invoices: list[IikoOutgoingInvoiceDto],
     date_from: date,
     date_to: date,
@@ -152,42 +155,36 @@ def _map_outgoing_invoice_contracts(
     active_account_codes = {
         account.code for account in accounts if not account.is_deleted
     }
-    store_suppliers_by_id = {
-        supplier.external_id.casefold(): supplier for supplier in suppliers
-        if supplier.is_supplier
-        and supplier.represents_store
-        and not supplier.is_deleted
-    }
-
-    by_counteragent: dict[str, list] = defaultdict(list)
+    outgoing_by_incoming_id: dict[str, list[IikoOutgoingInvoiceDto]] = (
+        defaultdict(list)
+    )
     for invoice in invoices:
-        if (
-            invoice.status != "DELETED"
-            and invoice.counteragent_id.casefold() in store_suppliers_by_id
-        ):
-            by_counteragent[invoice.counteragent_id.casefold()].append(invoice)
+        if invoice.status != "DELETED":
+            outgoing_by_incoming_id[
+                invoice.linked_incoming_invoice_id.casefold()
+            ].append(invoice)
+
+    incoming_by_destination: dict[str, list[IikoIncomingInvoiceDto]] = (
+        defaultdict(list)
+    )
+    for invoice in incoming_invoices:
+        if invoice.status != "DELETED":
+            incoming_by_destination[
+                invoice.default_store_id.casefold()
+            ].append(invoice)
 
     results: list[IikoOutgoingInvoiceDestinationContractRead] = []
     for destination in destinations:
         issues: list[str] = []
-        supplier_matches = [
-            store_suppliers_by_id[counteragent_id]
-            for counteragent_id in sorted(by_counteragent)
-        ]
-        destination_counteragent_id: UUID | None = None
-        if len(supplier_matches) > 1:
-            issues.append("DESTINATION_SUPPLIER_AMBIGUOUS")
-        elif supplier_matches:
-            destination_counteragent_id = _contract_uuid(
-                supplier_matches[0].external_id,
-                field="supplierId",
-                document_number="<supplier>",
-            )
-
         matching = [
-            invoice
-            for documents in by_counteragent.values()
-            for invoice in documents
+            outgoing
+            for incoming in incoming_by_destination[
+                str(destination.iiko_warehouse_id).casefold()
+            ]
+            for outgoing in outgoing_by_incoming_id.get(
+                incoming.external_id.casefold(),
+                (),
+            )
         ]
         grouped: dict[tuple[str, str, str], list] = defaultdict(list)
         for invoice in matching:
@@ -203,6 +200,14 @@ def _map_outgoing_invoice_contracts(
                     field="counteragentId",
                     document_number=documents[0].document_number,
                 ),
+                source_warehouse_ids=sorted({
+                    _contract_uuid(
+                        document.default_store_id,
+                        field="defaultStoreId",
+                        document_number=document.document_number,
+                    )
+                    for document in documents
+                }),
                 account_to_code=account_to_code,
                 revenue_account_code=revenue_account_code,
                 matching_documents=len(documents),
@@ -220,9 +225,17 @@ def _map_outgoing_invoice_contracts(
                 revenue_account_code,
             ), documents in sorted(grouped.items())
         ]
+        destination_counteragent_ids = {
+            candidate.counteragent_id for candidate in candidates
+        }
+        destination_counteragent_id = (
+            next(iter(destination_counteragent_ids))
+            if len(destination_counteragent_ids) == 1
+            else None
+        )
         if not candidates:
             contract_status = IikoOutgoingInvoiceContractStatus.NOT_FOUND
-        elif len(supplier_matches) > 1 or len(candidates) > 1:
+        elif len(candidates) > 1:
             contract_status = IikoOutgoingInvoiceContractStatus.CONFLICT
         elif not (
             candidates[0].account_to_exists
@@ -254,10 +267,12 @@ def _map_outgoing_invoice_contracts(
         date_from=date_from,
         date_to=date_to,
         accounts_read=len(accounts),
-        suppliers_read=len(suppliers),
+        incoming_invoices_read=len(incoming_invoices),
         invoices_read=len(invoices),
         destinations=results,
     )
+
+
 def _contract_uuid(
     value: str,
     *,

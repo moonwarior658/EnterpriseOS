@@ -104,6 +104,7 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 <documentNumber>1232</documentNumber>
 <dateIncoming>2020-01-01T12:00:00+05:00</dateIncoming>
 <status>PROCESSED</status>
+<linkedIncomingInvoiceId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</linkedIncomingInvoiceId>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
 <counteragentId>0e3720cf-a886-4d3b-9c9f-04ad76ea17cb</counteragentId>
 </document><document>
@@ -111,6 +112,7 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 <documentNumber>2686</documentNumber>
 <dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
 <status>PROCESSED</status>
+<linkedIncomingInvoiceId>bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb</linkedIncomingInvoiceId>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
 <counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cb</counteragentId>
 <accountToCode>21</accountToCode>
@@ -177,9 +179,20 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 <dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
 <status>PROCESSED</status><accountToCode>21</accountToCode>
 <revenueAccountCode>20</revenueAccountCode>
+<linkedIncomingInvoiceId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</linkedIncomingInvoiceId>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
 <counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cb</counteragentId>
 </document></outgoingInvoiceDtoes>""")
+            if request.url.path.endswith(
+                "/api/documents/export/incomingInvoice"
+            ):
+                return response(request, text="""<?xml version="1.0"?>
+<incomingInvoiceDtoes><document>
+<id>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</id>
+<documentNumber>ПН-2686</documentNumber>
+<status>PROCESSED</status>
+<defaultStoreId>bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb</defaultStoreId>
+</document></incomingInvoiceDtoes>""")
             raise AssertionError(request.url.path)
 
         async with IikoServerClient(
@@ -191,6 +204,10 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
                 date_from=date(2026, 8, 1),
                 date_to=date(2026, 8, 10),
             )
+            incoming = await client.get_incoming_invoices(
+                date_from=date(2026, 8, 1),
+                date_to=date(2026, 8, 10),
+            )
 
         self.assertEqual(accounts[0].code, "7.3")
         self.assertEqual(invoices[0].document_number, "2686")
@@ -199,6 +216,14 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             invoices[0].counteragent_id,
             "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
+        )
+        self.assertEqual(
+            invoices[0].linked_incoming_invoice_id,
+            incoming[0].external_id,
+        )
+        self.assertEqual(
+            incoming[0].default_store_id,
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         )
         account_request = next(
             item for item in requests
