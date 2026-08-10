@@ -334,7 +334,8 @@ class IikoServerClient(IikoProvider):
             params={"includeDeleted": "true", "revisionFrom": "-1"},
         )
         accounts: list[IikoAccountDto] = []
-        for payload in payloads:
+        for index, payload in enumerate(payloads):
+            account_id = str(payload.get("id") or "<unknown>")
             try:
                 accounts.append(IikoAccountDto(
                     external_id=str(payload["id"]),
@@ -351,8 +352,22 @@ class IikoServerClient(IikoProvider):
                     ),
                     is_deleted=bool(payload.get("deleted", False)),
                 ))
-            except (KeyError, TypeError, ValueError, ValidationError) as error:
-                raise IikoContractError("Invalid iiko account contract") from error
+            except KeyError as error:
+                raise IikoContractError(
+                    "Missing iiko account field "
+                    f"account_id={account_id} index={index} field={error.args[0]}"
+                ) from error
+            except ValidationError as error:
+                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+                raise IikoContractError(
+                    "Invalid iiko account field "
+                    f"account_id={account_id} index={index} field={field}"
+                ) from error
+            except (TypeError, ValueError) as error:
+                raise IikoContractError(
+                    "Invalid iiko account contract "
+                    f"account_id={account_id} index={index}: {error}"
+                ) from error
         return accounts
 
     async def get_outgoing_invoices(
@@ -366,33 +381,88 @@ class IikoServerClient(IikoProvider):
             params={"from": date_from.isoformat(), "to": date_to.isoformat()},
         )
 
-        def text(document: ET.Element, name: str) -> str:
+        def optional_text(document: ET.Element, name: str) -> str | None:
             element = next(
                 (child for child in document if child.tag.rsplit("}", 1)[-1] == name),
                 None,
             )
             value = element.text.strip() if element is not None and element.text else ""
+            return value or None
+
+        def text(
+            document: ET.Element,
+            name: str,
+            *,
+            document_number: str,
+        ) -> str:
+            value = optional_text(document, name)
             if not value:
-                raise IikoContractError(f"Missing outgoing invoice field: {name}")
+                raise IikoContractError(
+                    "Missing outgoing invoice field "
+                    f"document_number={document_number} field={name}"
+                )
             return value
 
         invoices: list[IikoOutgoingInvoiceDto] = []
         for document in root.iter():
             if document.tag.rsplit("}", 1)[-1] != "document":
                 continue
+            document_number = (
+                optional_text(document, "documentNumber") or "<unknown>"
+            )
             try:
+                date_incoming_text = text(
+                    document,
+                    "dateIncoming",
+                    document_number=document_number,
+                )
+                try:
+                    date_incoming = datetime.fromisoformat(date_incoming_text)
+                except ValueError as error:
+                    raise IikoContractError(
+                        "Invalid outgoing invoice field "
+                        f"document_number={document_number} field=dateIncoming"
+                    ) from error
                 invoices.append(IikoOutgoingInvoiceDto(
-                    external_id=text(document, "id"),
-                    document_number=text(document, "documentNumber"),
-                    date_incoming=datetime.fromisoformat(text(document, "dateIncoming")),
-                    status=text(document, "status"),
-                    counteragent_id=text(document, "counteragentId"),
-                    default_store_id=text(document, "defaultStoreId"),
-                    account_to_code=text(document, "accountToCode"),
-                    revenue_account_code=text(document, "revenueAccountCode"),
+                    external_id=text(
+                        document, "id", document_number=document_number
+                    ),
+                    document_number=text(
+                        document,
+                        "documentNumber",
+                        document_number=document_number,
+                    ),
+                    date_incoming=date_incoming,
+                    status=text(
+                        document, "status", document_number=document_number
+                    ),
+                    counteragent_id=text(
+                        document,
+                        "counteragentId",
+                        document_number=document_number,
+                    ),
+                    default_store_id=text(
+                        document,
+                        "defaultStoreId",
+                        document_number=document_number,
+                    ),
+                    account_to_code=text(
+                        document,
+                        "accountToCode",
+                        document_number=document_number,
+                    ),
+                    revenue_account_code=text(
+                        document,
+                        "revenueAccountCode",
+                        document_number=document_number,
+                    ),
                 ))
-            except (ValueError, ValidationError) as error:
-                raise IikoContractError("Invalid outgoing invoice contract") from error
+            except ValidationError as error:
+                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+                raise IikoContractError(
+                    "Invalid outgoing invoice field "
+                    f"document_number={document_number} field={field}"
+                ) from error
         return invoices
 
     async def _corporation_payloads(self) -> list[dict[str, Any]]:

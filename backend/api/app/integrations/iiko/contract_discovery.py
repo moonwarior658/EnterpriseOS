@@ -1,3 +1,5 @@
+import logging
+import re
 from collections import defaultdict
 from datetime import date
 from uuid import UUID
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.provider import IikoProvider
+from app.integrations.iiko.schemas import IikoAccountDto, IikoOutgoingInvoiceDto
 from app.models.iiko import (
     IikoMappingStatus,
     IikoWarehouseDestinationType,
@@ -19,6 +22,24 @@ from app.schemas.iiko import (
     IikoOutgoingInvoiceContractStatus,
     IikoOutgoingInvoiceDestinationContractRead,
 )
+
+
+logger = logging.getLogger(__name__)
+_SENSITIVE_ERROR_RE = re.compile(
+    r"(?i)(\b(?:password|passwd|pass|authorization|proxy-authorization|"
+    r"cookie|set-cookie|session(?:[_-]?(?:cookie|id))?|token|"
+    r"access[_-]?token|refresh[_-]?token|api[_-]?key|secret|"
+    r"client[_-]?secret)\b"
+    r"\s*[:=]\s*)[^\s,;&]+"
+)
+_AUTH_VALUE_RE = re.compile(r"(?i)\b(?:bearer|basic)\s+[^\s,;&]+")
+
+
+def _safe_contract_error(error: IikoContractError) -> str:
+    message = " ".join(str(error).split())
+    message = _SENSITIVE_ERROR_RE.sub(r"\1[REDACTED]", message)
+    message = _AUTH_VALUE_RE.sub("[REDACTED]", message)
+    return message[:1000]
 
 
 class IikoOutgoingInvoiceContractScopeError(ValueError):
@@ -52,11 +73,59 @@ async def discover_outgoing_invoice_contracts(
         ).order_by(IikoWarehouseMapping.role, IikoWarehouseMapping.id)
     ).all()
 
-    accounts = await provider.get_accounts()
-    invoices = await provider.get_outgoing_invoices(
-        date_from=date_from,
-        date_to=date_to,
-    )
+    try:
+        accounts = await provider.get_accounts()
+    except IikoContractError as error:
+        logger.error(
+            "Outgoing invoice contract discovery failed "
+            "stage=accounts department_id=%s error=%s",
+            department_id,
+            _safe_contract_error(error),
+        )
+        raise
+
+    try:
+        invoices = await provider.get_outgoing_invoices(
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except IikoContractError as error:
+        logger.error(
+            "Outgoing invoice contract discovery failed "
+            "stage=outgoingInvoice department_id=%s error=%s",
+            department_id,
+            _safe_contract_error(error),
+        )
+        raise
+
+    try:
+        return _map_outgoing_invoice_contracts(
+            department=department,
+            destinations=destinations,
+            accounts=accounts,
+            invoices=invoices,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except IikoContractError as error:
+        logger.error(
+            "Outgoing invoice contract discovery failed "
+            "stage=mapping department_id=%s error=%s",
+            department_id,
+            _safe_contract_error(error),
+        )
+        raise
+
+
+def _map_outgoing_invoice_contracts(
+    *,
+    department: Department,
+    destinations: list[IikoWarehouseMapping],
+    accounts: list[IikoAccountDto],
+    invoices: list[IikoOutgoingInvoiceDto],
+    date_from: date,
+    date_to: date,
+) -> IikoOutgoingInvoiceContractDiscoveryRead:
     active_accounts_by_id = {
         account.external_id.casefold(): account
         for account in accounts if not account.is_deleted
@@ -104,7 +173,11 @@ async def discover_outgoing_invoice_contracts(
             )].append(invoice)
         candidates = [
             IikoOutgoingInvoiceContractCandidateRead(
-                counteragent_id=UUID(counteragent_id),
+                counteragent_id=_contract_uuid(
+                    counteragent_id,
+                    field="counteragentId",
+                    document_number=documents[0].document_number,
+                ),
                 account_to_code=account_to_code,
                 revenue_account_code=revenue_account_code,
                 matching_documents=len(documents),
@@ -161,3 +234,18 @@ async def discover_outgoing_invoice_contracts(
         invoices_read=len(invoices),
         destinations=results,
     )
+
+
+def _contract_uuid(
+    value: str,
+    *,
+    field: str,
+    document_number: str,
+) -> UUID:
+    try:
+        return UUID(value)
+    except ValueError as error:
+        raise IikoContractError(
+            "Invalid outgoing invoice field "
+            f"document_number={document_number} field={field}"
+        ) from error

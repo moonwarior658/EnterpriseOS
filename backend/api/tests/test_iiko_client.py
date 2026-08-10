@@ -46,6 +46,58 @@ def response(
 
 
 class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_outgoing_invoice_contract_error_names_document_and_field(
+        self,
+    ) -> None:
+        xml = """<?xml version="1.0"?>
+<outgoingInvoiceDtoes><document>
+<id>475e5ce1-c5bc-47a1-b7c5-d9334728e329</id>
+<documentNumber>РН-ERROR</documentNumber>
+<dateIncoming>not-a-date</dateIncoming>
+<status>PROCESSED</status>
+<defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
+<counteragentId>0e3720cf-a886-4d3b-9c9f-04ad76ea17cb</counteragentId>
+</document></outgoingInvoiceDtoes>"""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith(
+                "/api/documents/export/outgoingInvoice"
+            ):
+                return response(request, text=xml)
+            return response(request, text="ok")
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "document_number=РН-ERROR field=dateIncoming",
+            ):
+                await client.get_outgoing_invoices(
+                    date_from=date(2026, 8, 1),
+                    date_to=date(2026, 8, 10),
+                )
+
+        xml = xml.replace(
+            "<dateIncoming>not-a-date</dateIncoming>",
+            "<dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>",
+        )
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "document_number=РН-ERROR field=accountToCode",
+            ):
+                await client.get_outgoing_invoices(
+                    date_from=date(2026, 8, 1),
+                    date_to=date(2026, 8, 10),
+                )
+
     async def test_reads_accounts_and_outgoing_invoice_contract_headers(
         self,
     ) -> None:

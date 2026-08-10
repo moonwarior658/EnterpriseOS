@@ -20,6 +20,7 @@ from app.api.routes import iiko as iiko_routes
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.config import IikoSettings
+from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.mapper import (
     map_product,
     map_stock_balance,
@@ -133,6 +134,8 @@ class ApiProvider(IikoProvider):
         ]
 
     async def get_accounts(self):
+        if error := getattr(self, "accounts_error", None):
+            raise error
         return list(getattr(self, "accounts", [
             IikoAccountDto(
                 external_id=str(uuid4()),
@@ -149,6 +152,8 @@ class ApiProvider(IikoProvider):
         ]))
 
     async def get_outgoing_invoices(self, *, date_from, date_to):
+        if error := getattr(self, "outgoing_invoices_error", None):
+            raise error
         return list(getattr(self, "outgoing_invoices", []))
 
     async def aclose(self) -> None:
@@ -439,6 +444,74 @@ class IikoApiTests(unittest.TestCase):
             conflict.json()["destinations"][0]["status"],
             "CONFLICT",
         )
+
+        provider.accounts_error = IikoContractError(
+            "accounts malformed password=must-not-leak"
+        )
+        with self.assertLogs(
+            "app.integrations.iiko.contract_discovery",
+            level="ERROR",
+        ) as captured:
+            accounts_error = self.client.get(
+                "/integrations/iiko/outgoing-invoice-contracts",
+                params={
+                    "department_id": str(department_id),
+                    "date_from": "2026-01-01",
+                    "date_to": "2026-08-10",
+                },
+            )
+        self.assertEqual(accounts_error.status_code, 502)
+        self.assertEqual(accounts_error.json()["detail"], "IIKO_CONTRACT_ERROR")
+        rendered = "\n".join(captured.output)
+        self.assertIn("stage=accounts", rendered)
+        self.assertIn("accounts malformed", rendered)
+        self.assertNotIn("must-not-leak", rendered)
+        del provider.accounts_error
+
+        provider.outgoing_invoices_error = IikoContractError(
+            "Missing outgoing invoice field "
+            "document_number=РН-500 field=accountToCode"
+        )
+        with self.assertLogs(
+            "app.integrations.iiko.contract_discovery",
+            level="ERROR",
+        ) as captured:
+            invoice_error = self.client.get(
+                "/integrations/iiko/outgoing-invoice-contracts",
+                params={
+                    "department_id": str(department_id),
+                    "date_from": "2026-01-01",
+                    "date_to": "2026-08-10",
+                },
+            )
+        self.assertEqual(invoice_error.status_code, 502)
+        self.assertEqual(invoice_error.json()["detail"], "IIKO_CONTRACT_ERROR")
+        rendered = "\n".join(captured.output)
+        self.assertIn("stage=outgoingInvoice", rendered)
+        self.assertIn("document_number=РН-500", rendered)
+        self.assertIn("field=accountToCode", rendered)
+        del provider.outgoing_invoices_error
+
+        provider.accounts[0] = provider.accounts[0].model_copy(
+            update={"organization_external_id": "invalid-uuid"}
+        )
+        with self.assertLogs(
+            "app.integrations.iiko.contract_discovery",
+            level="ERROR",
+        ) as captured:
+            mapping_error = self.client.get(
+                "/integrations/iiko/outgoing-invoice-contracts",
+                params={
+                    "department_id": str(department_id),
+                    "date_from": "2026-01-01",
+                    "date_to": "2026-08-10",
+                },
+            )
+        self.assertEqual(mapping_error.status_code, 502)
+        self.assertEqual(mapping_error.json()["detail"], "IIKO_CONTRACT_ERROR")
+        rendered = "\n".join(captured.output)
+        self.assertIn("stage=mapping", rendered)
+        self.assertIn("Invalid destination parent corporate id", rendered)
 
         invalid_period = self.client.get(
             "/integrations/iiko/outgoing-invoice-contracts",
