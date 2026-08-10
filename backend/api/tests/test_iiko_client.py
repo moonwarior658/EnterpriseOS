@@ -95,17 +95,26 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("token-value", message)
         self.assertNotIn("tail-must-not-appear", message)
 
-    async def test_outgoing_invoice_contract_error_names_document_and_field(
+    async def test_incomplete_historical_invoice_is_skipped_for_discovery(
         self,
     ) -> None:
         xml = """<?xml version="1.0"?>
 <outgoingInvoiceDtoes><document>
 <id>475e5ce1-c5bc-47a1-b7c5-d9334728e329</id>
-<documentNumber>РН-ERROR</documentNumber>
-<dateIncoming>not-a-date</dateIncoming>
+<documentNumber>1232</documentNumber>
+<dateIncoming>2020-01-01T12:00:00+05:00</dateIncoming>
 <status>PROCESSED</status>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
 <counteragentId>0e3720cf-a886-4d3b-9c9f-04ad76ea17cb</counteragentId>
+</document><document>
+<id>69aca118-c607-4d53-9362-8fcc085aca40</id>
+<documentNumber>2686</documentNumber>
+<dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
+<status>PROCESSED</status>
+<defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
+<counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cb</counteragentId>
+<accountToCode>21</accountToCode>
+<revenueAccountCode>20</revenueAccountCode>
 </document></outgoingInvoiceDtoes>"""
 
         async def handler(request: httpx.Request) -> httpx.Response:
@@ -121,31 +130,23 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             make_settings(),
             transport=httpx.MockTransport(handler),
         ) as client:
-            with self.assertRaisesRegex(
-                IikoContractError,
-                "document_number=РН-ERROR field=dateIncoming",
-            ):
-                await client.get_outgoing_invoices(
+            with self.assertLogs(
+                "app.integrations.iiko.client",
+                level=logging.WARNING,
+            ) as captured:
+                invoices = await client.get_outgoing_invoices(
                     date_from=date(2026, 8, 1),
                     date_to=date(2026, 8, 10),
                 )
 
-        xml = xml.replace(
-            "<dateIncoming>not-a-date</dateIncoming>",
-            "<dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>",
+        self.assertEqual(
+            [invoice.document_number for invoice in invoices],
+            ["2686"],
         )
-        async with IikoServerClient(
-            make_settings(),
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            with self.assertRaisesRegex(
-                IikoContractError,
-                "document_number=РН-ERROR field=accountToCode",
-            ):
-                await client.get_outgoing_invoices(
-                    date_from=date(2026, 8, 1),
-                    date_to=date(2026, 8, 10),
-                )
+        rendered = "\n".join(captured.output)
+        self.assertIn("document_number=1232", rendered)
+        self.assertIn("missing_field=accountToCode", rendered)
+        self.assertIn("missing_field=revenueAccountCode", rendered)
 
     async def test_reads_accounts_and_outgoing_invoice_contract_headers(
         self,

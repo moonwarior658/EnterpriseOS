@@ -492,20 +492,6 @@ class IikoServerClient(IikoProvider):
             value = element.text.strip() if element is not None and element.text else ""
             return value or None
 
-        def text(
-            document: ET.Element,
-            name: str,
-            *,
-            document_number: str,
-        ) -> str:
-            value = optional_text(document, name)
-            if not value:
-                raise IikoContractError(
-                    "Missing outgoing invoice field "
-                    f"document_number={document_number} field={name}"
-                )
-            return value
-
         invoices: list[IikoOutgoingInvoiceDto] = []
         for document in root.iter():
             if document.tag.rsplit("}", 1)[-1] != "document":
@@ -513,52 +499,38 @@ class IikoServerClient(IikoProvider):
             document_number = (
                 optional_text(document, "documentNumber") or "<unknown>"
             )
-            try:
-                date_incoming_text = text(
-                    document,
-                    "dateIncoming",
-                    document_number=document_number,
+            required_values = {
+                field: optional_text(document, field)
+                for field in (
+                    "documentNumber",
+                    "status",
+                    "counteragentId",
+                    "defaultStoreId",
+                    "accountToCode",
+                    "revenueAccountCode",
                 )
-                try:
-                    date_incoming = datetime.fromisoformat(date_incoming_text)
-                except ValueError as error:
-                    raise IikoContractError(
-                        "Invalid outgoing invoice field "
-                        f"document_number={document_number} field=dateIncoming"
-                    ) from error
+            }
+            missing_fields = [
+                field for field, value in required_values.items() if not value
+            ]
+            if missing_fields:
+                for field in missing_fields:
+                    logger.warning(
+                        "Skipping unusable historical outgoing invoice "
+                        "document_number=%s missing_field=%s",
+                        document_number,
+                        field,
+                    )
+                continue
+            try:
                 invoices.append(IikoOutgoingInvoiceDto(
-                    external_id=text(
-                        document, "id", document_number=document_number
-                    ),
-                    document_number=text(
-                        document,
-                        "documentNumber",
-                        document_number=document_number,
-                    ),
-                    date_incoming=date_incoming,
-                    status=text(
-                        document, "status", document_number=document_number
-                    ),
-                    counteragent_id=text(
-                        document,
-                        "counteragentId",
-                        document_number=document_number,
-                    ),
-                    default_store_id=text(
-                        document,
-                        "defaultStoreId",
-                        document_number=document_number,
-                    ),
-                    account_to_code=text(
-                        document,
-                        "accountToCode",
-                        document_number=document_number,
-                    ),
-                    revenue_account_code=text(
-                        document,
-                        "revenueAccountCode",
-                        document_number=document_number,
-                    ),
+                    external_id=optional_text(document, "id"),
+                    document_number=required_values["documentNumber"],
+                    status=required_values["status"],
+                    counteragent_id=required_values["counteragentId"],
+                    default_store_id=required_values["defaultStoreId"],
+                    account_to_code=required_values["accountToCode"],
+                    revenue_account_code=required_values["revenueAccountCode"],
                 ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])

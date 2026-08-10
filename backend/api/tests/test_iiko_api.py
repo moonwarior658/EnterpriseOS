@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -158,6 +158,7 @@ class ApiProvider(IikoProvider):
     async def get_outgoing_invoices(self, *, date_from, date_to):
         if error := getattr(self, "outgoing_invoices_error", None):
             raise error
+        self.outgoing_invoice_period = (date_from, date_to)
         return list(getattr(self, "outgoing_invoices", []))
 
     async def get_suppliers(self):
@@ -526,15 +527,25 @@ class IikoApiTests(unittest.TestCase):
             str(destination_counteragent_id),
         )
 
-        invalid_period = self.client.get(
+        today = date.today()
+        clamped_period = self.client.get(
             "/integrations/iiko/outgoing-invoice-contracts",
             params={
                 "department_id": str(department_id),
-                "date_from": "2024-01-01",
-                "date_to": "2026-08-10",
+                "date_from": (today - timedelta(days=500)).isoformat(),
+                "date_to": today.isoformat(),
             },
         )
-        self.assertEqual(invalid_period.status_code, 422)
+        self.assertEqual(clamped_period.status_code, 200)
+        expected_from = today - timedelta(days=45)
+        self.assertEqual(
+            provider.outgoing_invoice_period,
+            (expected_from, today),
+        )
+        self.assertEqual(
+            clamped_period.json()["date_from"],
+            expected_from.isoformat(),
+        )
 
     def test_warehouse_and_stock_sync_are_admin_only_and_record_scope(
         self,

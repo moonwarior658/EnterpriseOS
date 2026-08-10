@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from datetime import date, timedelta
+from datetime import date
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -417,7 +417,7 @@ async def read_outgoing_invoice_contracts(
     current_admin: Annotated[User, Depends(get_current_admin)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> IikoOutgoingInvoiceContractDiscoveryRead:
-    if date_to < date_from or date_to - date_from > timedelta(days=366):
+    if date_to < date_from:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "IIKO_OUTGOING_INVOICE_PERIOD_INVALID"},

@@ -1,7 +1,7 @@
 import logging
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -29,6 +29,7 @@ from app.schemas.iiko import (
 
 
 logger = logging.getLogger(__name__)
+_OUTGOING_INVOICE_OPERATIONAL_DAYS = 45
 _SENSITIVE_ERROR_RE = re.compile(
     r"(?i)(\b(?:password|passwd|pass|authorization|proxy-authorization|"
     r"cookie|set-cookie|session(?:[_-]?(?:cookie|id))?|token|"
@@ -59,6 +60,11 @@ async def discover_outgoing_invoice_contracts(
     date_from: date,
     date_to: date,
 ) -> IikoOutgoingInvoiceContractDiscoveryRead:
+    today = date.today()
+    effective_date_from = max(
+        date_from,
+        today - timedelta(days=_OUTGOING_INVOICE_OPERATIONAL_DAYS),
+    )
     department = session.scalar(select(Department).where(
         Department.tenant_id == tenant_id,
         Department.id == department_id,
@@ -90,7 +96,7 @@ async def discover_outgoing_invoice_contracts(
 
     try:
         invoices = await provider.get_outgoing_invoices(
-            date_from=date_from,
+            date_from=effective_date_from,
             date_to=date_to,
         )
     except IikoContractError as error:
@@ -120,7 +126,7 @@ async def discover_outgoing_invoice_contracts(
             accounts=accounts,
             suppliers=suppliers,
             invoices=invoices,
-            date_from=date_from,
+            date_from=effective_date_from,
             date_to=date_to,
         )
     except IikoContractError as error:
