@@ -2,9 +2,9 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **10 августа 2026 года**
-Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; весь Stage 3.1B не завершён**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; непосредственный следующий шаг — Stage 3.1B / 5, создание документа перемещения iiko**
+Дата обновления: **11 августа 2026 года**
+Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; для Stage 3.1B / 5 подтверждён production routing contract, автоматический write не реализован; весь Stage 3.1B не завершён**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; непосредственный следующий шаг — controlled write одного реального документа iiko в статусе NEW и проверка результата в iiko**
 
 ---
 
@@ -1108,12 +1108,35 @@ Production-проверка stock calculation:
 документ iiko, PDF и печать, фактическую передачу, возврат подписанного
 экземпляра и аудируемое покрытие заявки или долга.
 
-Непосредственный приоритет:
+Подтверждённый production routing contract от 11.08.2026:
 
-1. iiko WRITE — создать документ перемещения из подтверждённого stock
-   calculation;
-2. сохранить iiko document ID/status в EOS;
-3. затем передать документ по цепочке `n8n → Print Agent` для автоматической
+- [x] Routing централизован в `document_routing.py`; реальные production UUID
+      получены из исторических документов iiko.
+- [x] Зафиксированы 9 маршрутов `OUTGOING_INVOICE` для М15, М35 и М6А по
+      потокам `MAIN`, `PACKAGING` и `HOUSEHOLD`.
+- [x] Зафиксированы 3 маршрута `INTERNAL_TRANSFER` для ЦЕХ по потокам `MAIN`,
+      `PACKAGING` и `HOUSEHOLD`.
+- [x] Для `outgoingInvoice` EOS создаёт только расходную накладную; связанную
+      `incomingInvoice` iiko формирует самостоятельно. Используются
+      `accountToCode=21` и `revenueAccountCode=20`.
+- [x] Для `internalTransfer` используются `storeFromId` и `storeToId`; счета и
+      `counteragent` не применяются.
+- [x] Неизвестный маршрут обрабатывается по принципу fail closed.
+- [x] Бар, Кухня и Авто не входят в write routing текущего scope.
+- [x] Runtime discovery сохранён только как диагностический механизм; write
+      path от discovery не зависит.
+- [x] Все 12 production routes покрыты тестами.
+
+Автоматический write ещё **не реализован и не запускался**. Подтверждение
+routing contract не означает завершения Stage 3.1B / 5 или всего Stage 3.1B.
+
+Непосредственный следующий шаг:
+
+1. Выполнить controlled write одного реального документа iiko в статусе
+   `NEW` и проверить результат в iiko.
+2. После проверки реализовать безопасный write path от кнопки «Отдать в
+   работу» с идемпотентностью и сохранением iiko document ID/status в EOS.
+3. Затем передать документ по цепочке `n8n → Print Agent` для автоматической
    печати.
 
 Эксплуатационная цель до отпуска — замкнуть цепочку:
@@ -1685,6 +1708,26 @@ Production-проверка stock calculation:
 ---
 
 # Changelog
+
+## 2026-08-11
+
+- Подтверждён production routing contract Stage 3.1B / 5: 9 маршрутов
+  `OUTGOING_INVOICE` для М15/М35/М6А и 3 маршрута `INTERNAL_TRANSFER` для ЦЕХ
+  по потокам `MAIN`/`PACKAGING`/`HOUSEHOLD`.
+- Routing централизован в `document_routing.py`; реальные production UUID
+  получены из исторических документов iiko, а неизвестные маршруты закрываются
+  по fail-closed правилу.
+- Зафиксированы контракты документов: `outgoingInvoice` создаётся EOS с
+  `accountToCode=21` и `revenueAccountCode=20`, связанную `incomingInvoice`
+  создаёт iiko; для `internalTransfer` используются только `storeFromId` и
+  `storeToId`, без счетов и `counteragent`.
+- Бар, Кухня и Авто исключены из write routing текущего scope; runtime
+  discovery оставлен только для диагностики и не участвует в write path.
+- Все 12 production routes покрыты тестами. Автоматический write не реализован
+  и не запускался; Stage 3.1B / 5 и весь Stage 3.1B не отмечены завершёнными.
+- Следующий шаг — controlled write одного реального документа iiko в статусе
+  `NEW`, проверка результата в iiko, затем безопасный идемпотентный write path
+  от кнопки «Отдать в работу» с сохранением iiko document ID/status в EOS.
 
 ## 2026-08-10
 
