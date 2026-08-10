@@ -42,6 +42,16 @@ class IikoAccountDto(IikoDto):
     is_deleted: bool = False
 
 
+class IikoSupplierDto(IikoDto):
+    external_id: str
+    name: str
+    code: str | None = None
+    is_supplier: bool = False
+    is_employee: bool = False
+    represents_store: bool = False
+    is_deleted: bool = False
+
+
 class IikoOutgoingInvoiceDto(IikoDto):
     external_id: str
     document_number: str

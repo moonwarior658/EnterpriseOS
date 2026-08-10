@@ -12,6 +12,7 @@ from app.integrations.iiko.schemas import (
     IikoProductGroupDto,
     IikoRecord,
     IikoStockBalanceDto,
+    IikoSupplierDto,
     IikoUnitDto,
     IikoWarehouseDto,
 )
@@ -93,6 +94,10 @@ class IikoProvider(ABC):
 
     async def get_accounts(self) -> list[IikoAccountDto]:
         """Return the read-only chart of accounts."""
+        raise NotImplementedError
+
+    async def get_suppliers(self) -> list[IikoSupplierDto]:
+        """Return read-only supplier/user records."""
         raise NotImplementedError
 
     async def get_outgoing_invoices(

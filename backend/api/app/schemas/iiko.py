@@ -103,7 +103,7 @@ class IikoOutgoingInvoiceContractCandidateRead(BaseModel):
 class IikoOutgoingInvoiceDestinationContractRead(BaseModel):
     destination_mapping_id: UUID
     destination_warehouse_id: UUID
-    destination_parent_corporate_id: UUID | None
+    destination_counteragent_id: UUID | None
     destination_name: str
     destination_role: str
     status: IikoOutgoingInvoiceContractStatus
@@ -117,5 +117,6 @@ class IikoOutgoingInvoiceContractDiscoveryRead(BaseModel):
     date_from: date
     date_to: date
     accounts_read: int
+    suppliers_read: int
     invoices_read: int
     destinations: list[IikoOutgoingInvoiceDestinationContractRead]

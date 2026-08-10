@@ -172,12 +172,12 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
                 return response(request, text="""<?xml version="1.0"?>
 <outgoingInvoiceDtoes><document>
 <id>475e5ce1-c5bc-47a1-b7c5-d9334728e329</id>
-<documentNumber>РН-15</documentNumber>
+<documentNumber>2686</documentNumber>
 <dateIncoming>2026-08-01T12:00:00+05:00</dateIncoming>
-<status>PROCESSED</status><accountToCode>7.3</accountToCode>
-<revenueAccountCode>4.01.1</revenueAccountCode>
+<status>PROCESSED</status><accountToCode>21</accountToCode>
+<revenueAccountCode>20</revenueAccountCode>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
-<counteragentId>0e3720cf-a886-4d3b-9c9f-04ad76ea17cb</counteragentId>
+<counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cb</counteragentId>
 </document></outgoingInvoiceDtoes>""")
             raise AssertionError(request.url.path)
 
@@ -192,8 +192,13 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(accounts[0].code, "7.3")
-        self.assertEqual(invoices[0].document_number, "РН-15")
-        self.assertEqual(invoices[0].account_to_code, "7.3")
+        self.assertEqual(invoices[0].document_number, "2686")
+        self.assertEqual(invoices[0].account_to_code, "21")
+        self.assertEqual(invoices[0].revenue_account_code, "20")
+        self.assertEqual(
+            invoices[0].counteragent_id,
+            "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
+        )
         account_request = next(
             item for item in requests
             if item.url.path.endswith("/api/v2/entities/accounts/list")
@@ -207,7 +212,88 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(invoice_request.url.params["from"], "2026-08-01")
         self.assertEqual(invoice_request.url.params["to"], "2026-08-10")
+        self.assertEqual(invoice_request.headers["accept"], "application/xml")
         self.assertEqual({item.method for item in requests}, {"GET"})
+
+    async def test_reads_suppliers_from_real_shaped_xml(self) -> None:
+        requests: list[httpx.Request] = []
+        supplier_id = "47c6accc-4bc7-6be1-0194-ccf9367e20cb"
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            if request.url.path.endswith("/api/suppliers"):
+                return response(request, text=f"""<?xml version="1.0"?>
+<employeeDtoes><employee>
+<id>{supplier_id}</id>
+<name>Эклер Маяковского 6а: Павильон Эклер Маяковского 6а</name>
+<code>M6A</code><supplier>true</supplier><employee>false</employee>
+<representsStore>true</representsStore><deleted>false</deleted>
+</employee></employeeDtoes>""")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            suppliers = await client.get_suppliers()
+
+        self.assertEqual(len(suppliers), 1)
+        self.assertEqual(suppliers[0].external_id, supplier_id)
+        self.assertEqual(suppliers[0].code, "M6A")
+        self.assertTrue(suppliers[0].is_supplier)
+        self.assertFalse(suppliers[0].is_employee)
+        self.assertTrue(suppliers[0].represents_store)
+        supplier_request = next(
+            item for item in requests
+            if item.url.path.endswith("/api/suppliers")
+        )
+        self.assertEqual(supplier_request.headers["accept"], "application/xml")
+
+    async def test_close_logs_out_and_clears_token(self) -> None:
+        requests: list[httpx.Request] = []
+        client = IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(
+                lambda request: (
+                    requests.append(request)
+                    or response(
+                        request,
+                        text=(
+                            "token" if request.url.path.endswith("/api/auth")
+                            else "ok"
+                        ),
+                    )
+                )
+            ),
+        )
+        await client.authenticate()
+        await client.aclose()
+
+        logout = next(
+            item for item in requests if item.url.path.endswith("/api/logout")
+        )
+        self.assertEqual(logout.headers["cookie"], "key=token")
+        self.assertIsNone(client._token)
+
+    async def test_logout_failure_does_not_mask_primary_error(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/api/logout"):
+                raise httpx.ConnectError("logout unavailable", request=request)
+            raise AssertionError(request.url.path)
+
+        with self.assertRaisesRegex(RuntimeError, "primary flow failed"):
+            async with IikoServerClient(
+                make_settings(),
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                await client.authenticate()
+                raise RuntimeError("primary flow failed")
 
     async def test_auth_query_is_redacted_from_httpx_logs(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:

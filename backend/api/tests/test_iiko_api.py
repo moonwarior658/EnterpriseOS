@@ -27,7 +27,11 @@ from app.integrations.iiko.mapper import (
     map_unit,
     map_warehouse,
 )
-from app.integrations.iiko.schemas import IikoAccountDto, IikoOutgoingInvoiceDto
+from app.integrations.iiko.schemas import (
+    IikoAccountDto,
+    IikoOutgoingInvoiceDto,
+    IikoSupplierDto,
+)
 from app.integrations.iiko.provider import IikoProvider
 from app.main import app
 from app.models.iiko import (
@@ -155,6 +159,11 @@ class ApiProvider(IikoProvider):
         if error := getattr(self, "outgoing_invoices_error", None):
             raise error
         return list(getattr(self, "outgoing_invoices", []))
+
+    async def get_suppliers(self):
+        if error := getattr(self, "suppliers_error", None):
+            raise error
+        return list(getattr(self, "suppliers", []))
 
     async def aclose(self) -> None:
         return None
@@ -370,30 +379,36 @@ class IikoApiTests(unittest.TestCase):
                 name="М15 Основной",
                 code="10.1",
                 account_type="INVENTORY_ASSETS",
-                organization_external_id=str(destination_counteragent_id),
             ),
             IikoAccountDto(
                 external_id=str(uuid4()),
                 name="Задолженность покупателей",
-                code="7.3",
+                code="21",
                 account_type="ACCOUNTS_RECEIVABLE",
             ),
             IikoAccountDto(
                 external_id=str(uuid4()),
                 name="Выручка",
-                code="4.01.1",
+                code="20",
                 account_type="INCOME",
             ),
         ]
+        provider.suppliers = [IikoSupplierDto(
+            external_id=str(destination_counteragent_id),
+            name="Эклер Маяковского 6а: Павильон Эклер Маяковского 6а",
+            code="M6A",
+            is_supplier=True,
+            represents_store=True,
+        )]
         provider.outgoing_invoices = [IikoOutgoingInvoiceDto(
             external_id=str(uuid4()),
-            document_number="РН-100",
+            document_number="2686",
             date_incoming=datetime(2026, 8, 1, tzinfo=timezone.utc),
             status="PROCESSED",
             counteragent_id=str(destination_counteragent_id),
             default_store_id=str(uuid4()),
-            account_to_code="7.3",
-            revenue_account_code="4.01.1",
+            account_to_code="21",
+            revenue_account_code="20",
         )]
         app.dependency_overrides[
             iiko_routes.get_iiko_provider
@@ -411,16 +426,16 @@ class IikoApiTests(unittest.TestCase):
         self.assertEqual(body["invoices_read"], 1)
         self.assertEqual(body["destinations"][0]["status"], "UNIQUE")
         self.assertEqual(
-            body["destinations"][0]["destination_parent_corporate_id"],
+            body["destinations"][0]["destination_counteragent_id"],
             str(destination_counteragent_id),
         )
         candidate = body["destinations"][0]["candidates"][0]
         self.assertEqual(
             candidate["counteragent_id"], str(destination_counteragent_id)
         )
-        self.assertEqual(candidate["account_to_code"], "7.3")
-        self.assertEqual(candidate["revenue_account_code"], "4.01.1")
-        self.assertEqual(candidate["document_numbers"], ["РН-100"])
+        self.assertEqual(candidate["account_to_code"], "21")
+        self.assertEqual(candidate["revenue_account_code"], "20")
+        self.assertEqual(candidate["document_numbers"], ["2686"])
 
         provider.outgoing_invoices.append(IikoOutgoingInvoiceDto(
             external_id=str(uuid4()),
@@ -495,23 +510,21 @@ class IikoApiTests(unittest.TestCase):
         provider.accounts[0] = provider.accounts[0].model_copy(
             update={"organization_external_id": "invalid-uuid"}
         )
-        with self.assertLogs(
-            "app.integrations.iiko.contract_discovery",
-            level="ERROR",
-        ) as captured:
-            mapping_error = self.client.get(
-                "/integrations/iiko/outgoing-invoice-contracts",
-                params={
-                    "department_id": str(department_id),
-                    "date_from": "2026-01-01",
-                    "date_to": "2026-08-10",
-                },
-            )
-        self.assertEqual(mapping_error.status_code, 502)
-        self.assertEqual(mapping_error.json()["detail"], "IIKO_CONTRACT_ERROR")
-        rendered = "\n".join(captured.output)
-        self.assertIn("stage=mapping", rendered)
-        self.assertIn("Invalid destination parent corporate id", rendered)
+        parent_ignored = self.client.get(
+            "/integrations/iiko/outgoing-invoice-contracts",
+            params={
+                "department_id": str(department_id),
+                "date_from": "2026-01-01",
+                "date_to": "2026-08-10",
+            },
+        )
+        self.assertEqual(parent_ignored.status_code, 200)
+        self.assertEqual(
+            parent_ignored.json()["destinations"][0][
+                "destination_counteragent_id"
+            ],
+            str(destination_counteragent_id),
+        )
 
         invalid_period = self.client.get(
             "/integrations/iiko/outgoing-invoice-contracts",

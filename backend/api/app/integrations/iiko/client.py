@@ -46,6 +46,7 @@ from app.integrations.iiko.schemas import (
     IikoProductGroupDto,
     IikoRecord,
     IikoStockBalanceDto,
+    IikoSupplierDto,
     IikoUnitDto,
     IikoWarehouseDto,
 )
@@ -319,9 +320,19 @@ class IikoServerClient(IikoProvider):
             raise IikoContractError("Expected iiko list response")
         return payload
 
-    async def _get_xml(self, path: str, *, params: Mapping[str, str]) -> ET.Element:
+    async def _get_xml(
+        self,
+        path: str,
+        *,
+        params: Mapping[str, str] | None = None,
+    ) -> ET.Element:
         await self.authenticate()
-        response = await self._raw_request("GET", path, params=params)
+        response = await self._raw_request(
+            "GET",
+            path,
+            params=params,
+            headers={"Accept": "application/xml"},
+        )
         if response.status_code == 401:
             raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
         if response.status_code == 403:
@@ -356,6 +367,69 @@ class IikoServerClient(IikoProvider):
                 f"body_bytes={len(response.content)} "
                 f"body_preview={preview!r}"
             ) from error
+
+    async def get_suppliers(self) -> list[IikoSupplierDto]:
+        root = await self._get_xml("/api/suppliers")
+        return self._parse_people_xml(root, endpoint="suppliers")
+
+    async def get_employees(self) -> list[IikoSupplierDto]:
+        root = await self._get_xml("/api/employees")
+        return self._parse_people_xml(root, endpoint="employees")
+
+    @staticmethod
+    def _parse_people_xml(
+        root: ET.Element,
+        *,
+        endpoint: str,
+    ) -> list[IikoSupplierDto]:
+        def optional_text(element: ET.Element, name: str) -> str | None:
+            child = next(
+                (
+                    item for item in element
+                    if item.tag.rsplit("}", 1)[-1] == name
+                ),
+                None,
+            )
+            value = child.text.strip() if child is not None and child.text else ""
+            return value or None
+
+        def boolean(element: ET.Element, name: str) -> bool:
+            value = optional_text(element, name)
+            if value is None:
+                return False
+            if value.casefold() not in {"true", "false"}:
+                raise IikoContractError(
+                    f"Invalid iiko {endpoint} field field={name}"
+                )
+            return value.casefold() == "true"
+
+        records: list[IikoSupplierDto] = []
+        for element in root.iter():
+            external_id = optional_text(element, "id")
+            name = optional_text(element, "name")
+            if external_id is None and name is None:
+                continue
+            if external_id is None or name is None:
+                raise IikoContractError(
+                    f"Missing iiko {endpoint} field field="
+                    f"{'id' if external_id is None else 'name'}"
+                )
+            try:
+                records.append(IikoSupplierDto(
+                    external_id=external_id,
+                    name=name,
+                    code=optional_text(element, "code"),
+                    is_supplier=boolean(element, "supplier"),
+                    is_employee=boolean(element, "employee"),
+                    represents_store=boolean(element, "representsStore"),
+                    is_deleted=boolean(element, "deleted"),
+                ))
+            except ValidationError as error:
+                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+                raise IikoContractError(
+                    f"Invalid iiko {endpoint} field field={field}"
+                ) from error
+        return records
 
     async def get_accounts(self) -> list[IikoAccountDto]:
         payloads = await self._get_json_list(
@@ -710,7 +784,6 @@ class IikoServerClient(IikoProvider):
 
     async def aclose(self) -> None:
         token = self._token
-        self._token = None
         self._products_cache = None
         self._warehouses_cache = None
         if token:
@@ -720,11 +793,13 @@ class IikoServerClient(IikoProvider):
                         "api/logout",
                         headers={"Cookie": f"key={token}"},
                     )
-            except httpx.RequestError:
+            except Exception:
                 logger.warning(
                     "iiko logout failed",
                     extra={"integration": "iiko", "event": "logout_failed"},
                 )
+            finally:
+                self._token = None
         await self._client.aclose()
 
     async def __aenter__(self) -> Self:
