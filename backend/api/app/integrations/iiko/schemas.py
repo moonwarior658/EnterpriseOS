@@ -1,7 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Generic, TypeVar
-from pydantic import BaseModel, ConfigDict
+from typing import Any, Generic, Literal, TypeVar
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IikoDto(BaseModel):
@@ -61,6 +63,42 @@ class IikoOutgoingInvoiceDto(IikoDto):
     default_store_id: str
     account_to_code: str
     revenue_account_code: str
+
+
+class IikoOutgoingInvoiceItemCreateDto(IikoDto):
+    product_id: UUID
+    amount: Decimal = Field(gt=0, allow_inf_nan=False)
+
+
+class IikoOutgoingInvoiceCreateDto(IikoDto):
+    document_id: UUID
+    date_incoming: datetime
+    default_store_id: UUID
+    counteragent_id: UUID
+    account_to_code: Literal["21"] = "21"
+    revenue_account_code: Literal["20"] = "20"
+    status: Literal["NEW"] = "NEW"
+    items: tuple[IikoOutgoingInvoiceItemCreateDto, ...] = Field(min_length=1)
+
+    def to_iiko_payload(self) -> dict[str, Any]:
+        return {
+            "id": str(self.document_id),
+            "dateIncoming": self.date_incoming.replace(tzinfo=None).isoformat(
+                timespec="seconds"
+            ),
+            "status": self.status,
+            "defaultStoreId": str(self.default_store_id),
+            "counteragentId": str(self.counteragent_id),
+            "accountToCode": self.account_to_code,
+            "revenueAccountCode": self.revenue_account_code,
+            "items": [
+                {
+                    "productId": str(item.product_id),
+                    "amount": format(item.amount, "f"),
+                }
+                for item in self.items
+            ],
+        }
 
 
 class IikoIncomingInvoiceDto(IikoDto):
