@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import date, datetime
-from uuid import UUID
 
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
     IikoOutgoingInvoiceCreateDto,
+    IikoOutgoingInvoiceCreateResultDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoPackageDto,
@@ -124,7 +124,7 @@ class IikoProvider(ABC):
     async def create_outgoing_invoice(
         self,
         document: IikoOutgoingInvoiceCreateDto,
-    ) -> UUID:
+    ) -> IikoOutgoingInvoiceCreateResultDto:
         """Submit one controlled NEW outgoing invoice with a caller-owned ID."""
         raise NotImplementedError
 

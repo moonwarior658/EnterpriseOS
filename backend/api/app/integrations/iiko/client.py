@@ -40,6 +40,8 @@ from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
     IikoOutgoingInvoiceCreateDto,
+    IikoOutgoingInvoiceCreateResultDto,
+    IikoOutgoingInvoiceItemDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoPackageDto,
@@ -343,6 +345,9 @@ class IikoServerClient(IikoProvider):
             raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
         if not response.is_success:
             raise IikoResponseError(response.status_code)
+        return self._parse_xml_response(response)
+
+    def _parse_xml_response(self, response: httpx.Response) -> ET.Element:
         if not response.content or len(response.content) > _MAX_XML_RESPONSE_BYTES:
             raise IikoContractError("Invalid iiko XML response size")
         upper_prefix = response.content[:4096].upper()
@@ -493,7 +498,11 @@ class IikoServerClient(IikoProvider):
                 (child for child in document if child.tag.rsplit("}", 1)[-1] == name),
                 None,
             )
-            value = element.text.strip() if element is not None and element.text else ""
+            value = (
+                element.text.strip()
+                if element is not None and element.text
+                else ""
+            )
             return value or None
 
         invoices: list[IikoOutgoingInvoiceDto] = []
@@ -508,7 +517,6 @@ class IikoServerClient(IikoProvider):
                 for field in (
                     "documentNumber",
                     "status",
-                    "linkedIncomingInvoiceId",
                     "counteragentId",
                     "defaultStoreId",
                     "accountToCode",
@@ -528,17 +536,36 @@ class IikoServerClient(IikoProvider):
                     )
                 continue
             try:
+                items: list[IikoOutgoingInvoiceItemDto] = []
+                items_element = next(
+                    (
+                        child for child in document
+                        if child.tag.rsplit("}", 1)[-1] == "items"
+                    ),
+                    None,
+                )
+                if items_element is not None:
+                    for item in items_element:
+                        if item.tag.rsplit("}", 1)[-1] != "item":
+                            continue
+                        items.append(IikoOutgoingInvoiceItemDto(
+                            product_id=optional_text(item, "productId"),
+                            amount=optional_text(item, "amount"),
+                            price=optional_text(item, "price"),
+                        ))
                 invoices.append(IikoOutgoingInvoiceDto(
                     external_id=optional_text(document, "id"),
                     document_number=required_values["documentNumber"],
+                    date_incoming=optional_text(document, "dateIncoming"),
                     status=required_values["status"],
                     linked_incoming_invoice_id=(
-                        required_values["linkedIncomingInvoiceId"]
+                        optional_text(document, "linkedIncomingInvoiceId")
                     ),
                     counteragent_id=required_values["counteragentId"],
                     default_store_id=required_values["defaultStoreId"],
                     account_to_code=required_values["accountToCode"],
                     revenue_account_code=required_values["revenueAccountCode"],
+                    items=tuple(items),
                 ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
@@ -551,7 +578,7 @@ class IikoServerClient(IikoProvider):
     async def create_outgoing_invoice(
         self,
         document: IikoOutgoingInvoiceCreateDto,
-    ) -> UUID:
+    ) -> IikoOutgoingInvoiceCreateResultDto:
         if document.status != "NEW":
             raise IikoContractError("IIKO_OUTGOING_INVOICE_STATUS_INVALID")
         await self.authenticate()
@@ -570,7 +597,48 @@ class IikoServerClient(IikoProvider):
             raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
         if not response.is_success:
             raise IikoResponseError(response.status_code)
-        return document.document_id
+        root = self._parse_xml_response(response)
+        if root.tag.rsplit("}", 1)[-1] != "documentValidationResult":
+            raise IikoContractError(
+                "IIKO_OUTGOING_INVOICE_RESPONSE_INVALID"
+            )
+
+        def required_text(name: str) -> str:
+            element = next(
+                (
+                    child for child in root
+                    if child.tag.rsplit("}", 1)[-1] == name
+                ),
+                None,
+            )
+            value = element.text.strip() if element is not None and element.text else ""
+            if not value:
+                raise IikoContractError(
+                    f"IIKO_OUTGOING_INVOICE_RESPONSE_INVALID field={name}"
+                )
+            return value
+
+        def required_bool(name: str) -> bool:
+            value = required_text(name).lower()
+            if value not in {"true", "false"}:
+                raise IikoContractError(
+                    f"IIKO_OUTGOING_INVOICE_RESPONSE_INVALID field={name}"
+                )
+            return value == "true"
+
+        valid = required_bool("valid")
+        warning = required_bool("warning")
+        document_number = required_text("documentNumber")
+        if not valid:
+            raise IikoContractError(
+                "IIKO_OUTGOING_INVOICE_VALIDATION_FAILED"
+            )
+        return IikoOutgoingInvoiceCreateResultDto(
+            document_id=document.document_id,
+            document_number=document_number,
+            valid=True,
+            warning=warning,
+        )
 
     async def get_incoming_invoices(
         self,

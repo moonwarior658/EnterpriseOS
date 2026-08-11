@@ -182,6 +182,10 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
 <linkedIncomingInvoiceId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</linkedIncomingInvoiceId>
 <defaultStoreId>8c9ddcb0-e126-4ad8-bd54-94379ddd28e7</defaultStoreId>
 <counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cb</counteragentId>
+<items><item>
+<productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</productId>
+<amount>1.250</amount><price>0</price>
+</item></items>
 </document></outgoingInvoiceDtoes>""")
             if request.url.path.endswith(
                 "/api/documents/export/incomingInvoice"
@@ -208,6 +212,13 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
                 date_from=date(2026, 8, 1),
                 date_to=date(2026, 8, 10),
             )
+            self.assertEqual(len(invoices[0].items), 1)
+            self.assertEqual(
+                str(invoices[0].items[0].product_id),
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            )
+            self.assertEqual(invoices[0].items[0].amount, Decimal("1.250"))
+            self.assertEqual(invoices[0].items[0].price, Decimal("0"))
             incoming = await client.get_incoming_invoices(
                 date_from=date(2026, 8, 1),
                 date_to=date(2026, 8, 10),

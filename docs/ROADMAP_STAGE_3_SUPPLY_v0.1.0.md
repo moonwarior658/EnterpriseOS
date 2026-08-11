@@ -1127,6 +1127,20 @@ Production-проверка stock calculation:
       path от discovery не зависит.
 - [x] Все 12 production routes покрыты тестами.
 
+Controlled production write `OUTGOING_INVOICE` подтверждён 11.08.2026 для
+маршрута `М15 + MAIN`: `POST /api/documents/import/outgoingInvoice` с
+`Content-Type: application/xml`, caller-generated UUID и `status=NEW` создал
+в iiko реальный непроведённый документ №2709. iiko самостоятельно генерирует
+`documentNumber`; в минимальной строке подтверждены `productId`, `amount` и
+`price=0`. `linkedIncomingInvoiceId`, коды склада/контрагента, суммы, НДС и
+прочие export-поля при создании не передаются.
+
+Stage 3.1B / 5.2: persistent intent/result и read-only reconciliation для
+`OUTGOING_INVOICE` реализованы локально. Reconciliation ищет только по
+caller-generated UUID в минимальном окне даты документа, сверяет critical
+поля с сохранённым deterministic write payload и не выполняет POST.
+Production reconciliation пока не подтверждён.
+
 Controlled production probe от 11.08.2026 дал новый UUID, валидный routing,
 HTTP `409` с ответом `Cannot find InternalTransfer document by id <UUID>`, а
 последующий read-only GET по UUID вернул `MATCHES 0`.
@@ -1139,13 +1153,12 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 Непосредственный следующий шаг:
 
-1. Установить подтверждённый контракт создания документа iiko без новых write
-   probes.
-2. Только после подтверждения реализовать безопасный write path от кнопки
-   «Отдать в работу» с идемпотентностью и сохранением iiko document ID/status
-   в EOS.
-3. Затем передать документ по цепочке `n8n → Print Agent` для автоматической
-   печати.
+1. Подтвердить read-only reconciliation `OUTGOING_INVOICE` в production без
+   новых write probes.
+2. Затем реализовать идемпотентную workflow-интеграцию; к кнопке «Отдать в
+   работу» write path до этого не подключать.
+3. После этого передать документ по цепочке `n8n → Print Agent` для
+   автоматической печати.
 
 Эксплуатационная цель до отпуска — замкнуть цепочку:
 `автор заявки → mapping → SOURCE → stock calculation → iiko transfer document
@@ -1719,6 +1732,14 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 ## 2026-08-11
 
+- Stage 3.1B / 5.2 reconciliation `OUTGOING_INVOICE` реализован локально:
+  `PENDING` / `UNKNOWN` проверяются read-only GET по caller UUID, совпадение
+  переводит intent в `CREATED`, отсутствие допускает безопасный retry только
+  при неизменном payload hash; production reconciliation пока не подтверждён.
+- Controlled production `OUTGOING_INVOICE` write подтверждён на маршруте
+  `М15 + MAIN`: XML import с caller-generated UUID и `price=0` создал реальный
+  непроведённый документ №2709; `documentNumber` сгенерирован iiko. Следующий
+  шаг — persistence результата и идемпотентная workflow-интеграция.
 - Подтверждён production routing contract Stage 3.1B / 5: 9 маршрутов
   `OUTGOING_INVOICE` для М15/М35/М6А и 3 маршрута `INTERNAL_TRANSFER` для ЦЕХ
   по потокам `MAIN`/`PACKAGING`/`HOUSEHOLD`.

@@ -14,6 +14,7 @@ from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceCreateDto,
+    IikoOutgoingInvoiceCreateResultDto,
     IikoOutgoingInvoiceItemCreateDto,
 )
 from app.models.iiko import IikoMappingStatus
@@ -98,15 +99,14 @@ def _validated_items(
     return tuple(items)
 
 
-async def create_controlled_outgoing_invoice(
-    provider: IikoProvider,
+def build_controlled_outgoing_invoice(
     *,
     document_id: UUID,
     date_incoming: datetime,
     department_code: str,
     flow: SupplyProductSourceRole | str,
     lines: Sequence[IikoOutgoingInvoiceLineInput],
-) -> UUID:
+) -> IikoOutgoingInvoiceCreateDto:
     if not isinstance(document_id, UUID):
         raise IikoOutgoingInvoiceValidationError(
             "IIKO_DOCUMENT_ID_REQUIRED"
@@ -115,9 +115,13 @@ async def create_controlled_outgoing_invoice(
         raise IikoOutgoingInvoiceValidationError(
             "IIKO_DOCUMENT_DATE_REQUIRED"
         )
+    if date_incoming.tzinfo is None or date_incoming.utcoffset() is None:
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_DOCUMENT_TIMEZONE_REQUIRED"
+        )
     route = resolve_outgoing_invoice_route(department_code, flow)
     _validated_route(route)
-    document = IikoOutgoingInvoiceCreateDto(
+    return IikoOutgoingInvoiceCreateDto(
         document_id=document_id,
         date_incoming=date_incoming,
         default_store_id=route.source_store_id,
@@ -125,5 +129,23 @@ async def create_controlled_outgoing_invoice(
         account_to_code=route.account_to_code,
         revenue_account_code=route.revenue_account_code,
         items=_validated_items(lines),
+    )
+
+
+async def create_controlled_outgoing_invoice(
+    provider: IikoProvider,
+    *,
+    document_id: UUID,
+    date_incoming: datetime,
+    department_code: str,
+    flow: SupplyProductSourceRole | str,
+    lines: Sequence[IikoOutgoingInvoiceLineInput],
+) -> IikoOutgoingInvoiceCreateResultDto:
+    document = build_controlled_outgoing_invoice(
+        document_id=document_id,
+        date_incoming=date_incoming,
+        department_code=department_code,
+        flow=flow,
+        lines=lines,
     )
     return await provider.create_outgoing_invoice(document)

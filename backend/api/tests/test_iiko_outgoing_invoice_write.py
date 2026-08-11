@@ -1,7 +1,7 @@
 import unittest
 import xml.etree.ElementTree as ET
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 from uuid import UUID
@@ -19,7 +19,11 @@ from app.integrations.iiko.document_write import (
     IikoOutgoingInvoiceValidationError,
     create_controlled_outgoing_invoice,
 )
-from app.integrations.iiko.exceptions import IikoConnectionError, IikoResponseError
+from app.integrations.iiko.exceptions import (
+    IikoConnectionError,
+    IikoContractError,
+    IikoResponseError,
+)
 from app.models.iiko import IikoMappingStatus
 from app.models.supply import SupplyProductSourceRole
 
@@ -27,7 +31,15 @@ from app.models.supply import SupplyProductSourceRole
 DOCUMENT_ID = UUID("00000000-0000-4000-8000-000000000001")
 PRODUCT_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 UNIT_ID = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
-DATE_INCOMING = datetime(2026, 8, 11, 12, 30, 45, tzinfo=timezone.utc)
+DATE_INCOMING = datetime(
+    2026,
+    8,
+    11,
+    12,
+    30,
+    45,
+    tzinfo=timezone(timedelta(hours=5)),
+)
 
 
 def make_settings(**changes) -> IikoSettings:
@@ -72,6 +84,21 @@ def child_text(element: ET.Element, name: str) -> str | None:
     return child.text if child is not None else None
 
 
+def successful_import_response(
+    request: httpx.Request,
+    *,
+    document_number: str = "2709",
+    warning: str = "false",
+) -> httpx.Response:
+    return response(request, text=(
+        "<documentValidationResult>"
+        "<valid>true</valid>"
+        f"<warning>{warning}</warning>"
+        f"<documentNumber>{document_number}</documentNumber>"
+        "</documentValidationResult>"
+    ))
+
+
 class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_posts_exact_new_payload_with_caller_uuid_and_route(
         self,
@@ -85,7 +112,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith(
                 "/api/documents/import/outgoingInvoice"
             ):
-                return response(request, status_code=204)
+                return successful_import_response(request)
             if request.url.path.endswith("/api/logout"):
                 return response(request, text="ok")
             raise AssertionError(request.url.path)
@@ -94,7 +121,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             make_settings(),
             transport=httpx.MockTransport(handler),
         ) as client:
-            returned_id = await create_controlled_outgoing_invoice(
+            result = await create_controlled_outgoing_invoice(
                 client,
                 document_id=DOCUMENT_ID,
                 date_incoming=DATE_INCOMING,
@@ -103,7 +130,10 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 lines=[valid_line()],
             )
 
-        self.assertEqual(returned_id, DOCUMENT_ID)
+        self.assertEqual(result.document_id, DOCUMENT_ID)
+        self.assertEqual(result.document_number, "2709")
+        self.assertTrue(result.valid)
+        self.assertFalse(result.warning)
         writes = [request for request in requests if request.method == "POST"]
         self.assertEqual(len(writes), 1)
         request = writes[0]
@@ -119,7 +149,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.content, (
             b"<document>"
             b"<id>00000000-0000-4000-8000-000000000001</id>"
-            b"<dateIncoming>2026-08-11T12:30:45</dateIncoming>"
+            b"<dateIncoming>2026-08-11T12:30:45+05:00</dateIncoming>"
             b"<useDefaultDocumentTime>false</useDefaultDocumentTime>"
             b"<status>NEW</status>"
             b"<accountToCode>21</accountToCode>"
@@ -131,6 +161,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             b"<items><item>"
             b"<productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</productId>"
             b"<amount>1.250</amount>"
+            b"<price>0</price>"
             b"</item></items>"
             b"</document>"
         ))
@@ -146,7 +177,6 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             "productArticle",
             "storeId",
             "storeCode",
-            "price",
             "priceWithoutVat",
             "sum",
             "discountSum",
@@ -158,6 +188,80 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             "incomingInvoice" in request.url.path for request in requests
         ))
 
+    async def test_parses_success_warning_result(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith(
+                "/api/documents/import/outgoingInvoice"
+            ):
+                return successful_import_response(
+                    request,
+                    document_number="2710",
+                    warning="true",
+                )
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            result = await create_controlled_outgoing_invoice(
+                client,
+                document_id=DOCUMENT_ID,
+                date_incoming=DATE_INCOMING,
+                department_code="М15",
+                flow=SupplyProductSourceRole.MAIN,
+                lines=[valid_line()],
+            )
+
+        self.assertEqual(result.document_id, DOCUMENT_ID)
+        self.assertEqual(result.document_number, "2710")
+        self.assertTrue(result.valid)
+        self.assertTrue(result.warning)
+
+    async def test_validation_failure_is_not_retried(self) -> None:
+        posts: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith(
+                "/api/documents/import/outgoingInvoice"
+            ):
+                posts.append(request)
+                return response(request, text=(
+                    "<documentValidationResult>"
+                    "<valid>false</valid>"
+                    "<warning>false</warning>"
+                    "<documentNumber>2711</documentNumber>"
+                    "</documentValidationResult>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(max_safe_retries=3),
+            transport=httpx.MockTransport(handler),
+        ) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_OUTGOING_INVOICE_VALIDATION_FAILED",
+            ):
+                await create_controlled_outgoing_invoice(
+                    client,
+                    document_id=DOCUMENT_ID,
+                    date_incoming=DATE_INCOMING,
+                    department_code="М15",
+                    flow=SupplyProductSourceRole.MAIN,
+                    lines=[valid_line()],
+                )
+
+        self.assertEqual(len(posts), 1)
+
     async def test_all_nine_routes_supply_write_fields(self) -> None:
         requests: list[httpx.Request] = []
 
@@ -168,7 +272,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path.endswith(
                 "/api/documents/import/outgoingInvoice"
             ):
-                return response(request, status_code=204)
+                return successful_import_response(request)
             if request.url.path.endswith("/api/logout"):
                 return response(request, text="ok")
             raise AssertionError(request.url.path)
@@ -303,6 +407,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             invalid_headers = (
                 (None, DATE_INCOMING),
                 (DOCUMENT_ID, None),
+                (DOCUMENT_ID, datetime(2026, 8, 11, 12, 30, 45)),
             )
             for document_id, date_incoming in invalid_headers:
                 with self.subTest(

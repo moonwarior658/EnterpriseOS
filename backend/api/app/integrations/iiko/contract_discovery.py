@@ -159,7 +159,10 @@ def _map_outgoing_invoice_contracts(
         defaultdict(list)
     )
     for invoice in invoices:
-        if invoice.status != "DELETED":
+        if (
+            invoice.status != "DELETED"
+            and invoice.linked_incoming_invoice_id is not None
+        ):
             outgoing_by_incoming_id[
                 invoice.linked_incoming_invoice_id.casefold()
             ].append(invoice)

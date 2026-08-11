@@ -12,6 +12,9 @@
 )
 from app.models.user import User
 from app.models.iiko import (
+    IikoDocumentType,
+    IikoDocumentWrite,
+    IikoDocumentWriteStatus,
     IikoMappingAction,
     IikoMappingAuditEvent,
     IikoMappingKind,
@@ -68,6 +71,9 @@ __all__ = [
     "OutboxEvent",
     "OutboxStatus",
     "RuntimeComponent",
+    "IikoDocumentType",
+    "IikoDocumentWrite",
+    "IikoDocumentWriteStatus",
     "IikoRawEntity",
     "IikoStockBalanceSnapshotLine",
     "IikoStockBalanceSnapshotSource",

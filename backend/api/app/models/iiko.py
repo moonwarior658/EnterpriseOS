@@ -58,6 +58,17 @@ class IikoStockBalanceSnapshotSourceStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class IikoDocumentType(StrEnum):
+    OUTGOING_INVOICE = "OUTGOING_INVOICE"
+
+
+class IikoDocumentWriteStatus(StrEnum):
+    PENDING = "PENDING"
+    CREATED = "CREATED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
 class IikoMappingStatus(StrEnum):
     UNMAPPED = "UNMAPPED"
     SUGGESTED = "SUGGESTED"
@@ -298,6 +309,91 @@ class IikoRawEntity(Base):
     sync_run: Mapped[IikoSyncRun] = relationship(
         back_populates="raw_entities",
     )
+
+
+class IikoDocumentWrite(Base):
+    __tablename__ = "iiko_document_writes"
+    __table_args__ = (
+        UniqueConstraint(
+            "supply_request_id",
+            "source_store_id",
+            "document_type",
+            name="uq_iiko_document_writes_request_source_type",
+        ),
+        UniqueConstraint(
+            "iiko_document_id",
+            name="uq_iiko_document_writes_iiko_document_id",
+        ),
+        CheckConstraint(
+            "status != 'CREATED' OR iiko_document_number IS NOT NULL",
+            name="ck_iiko_document_writes_created_number",
+        ),
+        Index(
+            "ix_iiko_document_writes_status_updated",
+            "status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    supply_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_store_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    document_type: Mapped[IikoDocumentType] = mapped_column(
+        SqlEnum(
+            IikoDocumentType,
+            name="iiko_document_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=32,
+        ),
+        default=IikoDocumentType.OUTGOING_INVOICE,
+        server_default=IikoDocumentType.OUTGOING_INVOICE.value,
+        nullable=False,
+    )
+    iiko_document_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_document_number: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+    )
+    status: Mapped[IikoDocumentWriteStatus] = mapped_column(
+        SqlEnum(
+            IikoDocumentWriteStatus,
+            name="iiko_document_write_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoDocumentWriteStatus.PENDING,
+        server_default=IikoDocumentWriteStatus.PENDING.value,
+        nullable=False,
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        json_type,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    last_error: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+    )
+
+    supply_request: Mapped[Any] = relationship("SupplyRequest")
 
 
 class IikoStockBalanceSnapshotSource(Base):

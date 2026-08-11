@@ -54,21 +54,36 @@ class IikoSupplierDto(IikoDto):
     is_deleted: bool = False
 
 
+class IikoOutgoingInvoiceItemDto(IikoDto):
+    product_id: UUID
+    amount: Decimal = Field(gt=0, allow_inf_nan=False)
+    price: Decimal = Field(allow_inf_nan=False)
+
+
 class IikoOutgoingInvoiceDto(IikoDto):
     external_id: str | None = None
     document_number: str
     date_incoming: datetime | None = None
     status: str
-    linked_incoming_invoice_id: str
+    linked_incoming_invoice_id: str | None = None
     counteragent_id: str
     default_store_id: str
     account_to_code: str
     revenue_account_code: str
+    items: tuple[IikoOutgoingInvoiceItemDto, ...] = ()
 
 
 class IikoOutgoingInvoiceItemCreateDto(IikoDto):
     product_id: UUID
     amount: Decimal = Field(gt=0, allow_inf_nan=False)
+    price: Literal[0] = 0
+
+
+class IikoOutgoingInvoiceCreateResultDto(IikoDto):
+    document_id: UUID
+    document_number: str = Field(min_length=1)
+    valid: Literal[True]
+    warning: bool
 
 
 class IikoOutgoingInvoiceCreateDto(IikoDto):
@@ -91,9 +106,7 @@ class IikoOutgoingInvoiceCreateDto(IikoDto):
         add_text(
             document,
             "dateIncoming",
-            self.date_incoming.replace(tzinfo=None).isoformat(
-                timespec="seconds"
-            ),
+            self.date_incoming.isoformat(timespec="seconds"),
         )
         add_text(document, "useDefaultDocumentTime", "false")
         add_text(document, "status", self.status)
@@ -106,6 +119,7 @@ class IikoOutgoingInvoiceCreateDto(IikoDto):
             item_element = ET.SubElement(items, "item")
             add_text(item_element, "productId", str(item.product_id))
             add_text(item_element, "amount", format(item.amount, "f"))
+            add_text(item_element, "price", str(item.price))
         return ET.tostring(document, encoding="utf-8")
 
 
