@@ -1,5 +1,5 @@
-import json
 import unittest
+import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -63,6 +63,15 @@ def valid_line(**changes) -> IikoOutgoingInvoiceLineInput:
     return IikoOutgoingInvoiceLineInput(**values)
 
 
+def xml_payload(request: httpx.Request) -> ET.Element:
+    return ET.fromstring(request.content)
+
+
+def child_text(element: ET.Element, name: str) -> str | None:
+    child = element.find(name)
+    return child.text if child is not None else None
+
+
 class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_posts_exact_new_payload_with_caller_uuid_and_route(
         self,
@@ -102,20 +111,49 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             request.url.path,
             "/resto/api/documents/import/outgoingInvoice",
         )
-        self.assertEqual(request.headers["content-type"], "application/json")
-        self.assertEqual(json.loads(request.content), {
-            "id": str(DOCUMENT_ID),
-            "dateIncoming": "2026-08-11T12:30:45",
-            "status": "NEW",
-            "defaultStoreId": "24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
-            "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cd",
-            "accountToCode": "21",
-            "revenueAccountCode": "20",
-            "items": [{
-                "productId": str(PRODUCT_ID),
-                "amount": "1.250",
-            }],
-        })
+        self.assertEqual(request.headers["content-type"], "application/xml")
+        self.assertEqual(
+            request.headers["accept"],
+            "application/xml, text/plain",
+        )
+        self.assertEqual(request.content, (
+            b"<document>"
+            b"<id>00000000-0000-4000-8000-000000000001</id>"
+            b"<dateIncoming>2026-08-11T12:30:45</dateIncoming>"
+            b"<useDefaultDocumentTime>false</useDefaultDocumentTime>"
+            b"<status>NEW</status>"
+            b"<accountToCode>21</accountToCode>"
+            b"<revenueAccountCode>20</revenueAccountCode>"
+            b"<defaultStoreId>24b90a5f-1a58-4f6b-9b55-368d7a92ec3e"
+            b"</defaultStoreId>"
+            b"<counteragentId>47c6accc-4bc7-6be1-0194-ccf9367e20cd"
+            b"</counteragentId>"
+            b"<items><item>"
+            b"<productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa</productId>"
+            b"<amount>1.250</amount>"
+            b"</item></items>"
+            b"</document>"
+        ))
+        root = xml_payload(request)
+        for omitted_document_field in (
+            "documentNumber",
+            "defaultStoreCode",
+            "counteragentCode",
+            "linkedIncomingInvoiceId",
+        ):
+            self.assertIsNone(root.find(omitted_document_field))
+        for export_only_field in (
+            "productArticle",
+            "storeId",
+            "storeCode",
+            "price",
+            "priceWithoutVat",
+            "sum",
+            "discountSum",
+            "vatPercent",
+            "vatSum",
+        ):
+            self.assertIsNone(root.find(f"items/item/{export_only_field}"))
         self.assertFalse(any(
             "incomingInvoice" in request.url.path for request in requests
         ))
@@ -168,17 +206,20 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         for request, (department, flow) in zip(writes, combinations):
             with self.subTest(department=department, flow=flow):
                 route = resolve_outgoing_invoice_route(department, flow)
-                payload = json.loads(request.content)
+                payload = xml_payload(request)
                 self.assertEqual(
-                    payload["defaultStoreId"],
+                    child_text(payload, "defaultStoreId"),
                     str(route.source_store_id),
                 )
                 self.assertEqual(
-                    payload["counteragentId"],
+                    child_text(payload, "counteragentId"),
                     str(route.counteragent_id),
                 )
-                self.assertEqual(payload["accountToCode"], "21")
-                self.assertEqual(payload["revenueAccountCode"], "20")
+                self.assertEqual(child_text(payload, "accountToCode"), "21")
+                self.assertEqual(
+                    child_text(payload, "revenueAccountCode"),
+                    "20",
+                )
 
     async def test_unknown_route_fails_before_http(self) -> None:
         requests: list[httpx.Request] = []
@@ -357,7 +398,10 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(len(posts), 1)
-        self.assertEqual(json.loads(posts[0].content)["id"], str(DOCUMENT_ID))
+        self.assertEqual(
+            child_text(xml_payload(posts[0]), "id"),
+            str(DOCUMENT_ID),
+        )
 
     async def test_failed_post_is_not_retried(self) -> None:
         posts: list[httpx.Request] = []

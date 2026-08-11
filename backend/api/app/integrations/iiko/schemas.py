@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Generic, Literal, TypeVar
@@ -80,25 +81,32 @@ class IikoOutgoingInvoiceCreateDto(IikoDto):
     status: Literal["NEW"] = "NEW"
     items: tuple[IikoOutgoingInvoiceItemCreateDto, ...] = Field(min_length=1)
 
-    def to_iiko_payload(self) -> dict[str, Any]:
-        return {
-            "id": str(self.document_id),
-            "dateIncoming": self.date_incoming.replace(tzinfo=None).isoformat(
+    def to_iiko_xml(self) -> bytes:
+        document = ET.Element("document")
+
+        def add_text(parent: ET.Element, name: str, value: str) -> None:
+            ET.SubElement(parent, name).text = value
+
+        add_text(document, "id", str(self.document_id))
+        add_text(
+            document,
+            "dateIncoming",
+            self.date_incoming.replace(tzinfo=None).isoformat(
                 timespec="seconds"
             ),
-            "status": self.status,
-            "defaultStoreId": str(self.default_store_id),
-            "counteragentId": str(self.counteragent_id),
-            "accountToCode": self.account_to_code,
-            "revenueAccountCode": self.revenue_account_code,
-            "items": [
-                {
-                    "productId": str(item.product_id),
-                    "amount": format(item.amount, "f"),
-                }
-                for item in self.items
-            ],
-        }
+        )
+        add_text(document, "useDefaultDocumentTime", "false")
+        add_text(document, "status", self.status)
+        add_text(document, "accountToCode", self.account_to_code)
+        add_text(document, "revenueAccountCode", self.revenue_account_code)
+        add_text(document, "defaultStoreId", str(self.default_store_id))
+        add_text(document, "counteragentId", str(self.counteragent_id))
+        items = ET.SubElement(document, "items")
+        for item in self.items:
+            item_element = ET.SubElement(items, "item")
+            add_text(item_element, "productId", str(item.product_id))
+            add_text(item_element, "amount", format(item.amount, "f"))
+        return ET.tostring(document, encoding="utf-8")
 
 
 class IikoIncomingInvoiceDto(IikoDto):

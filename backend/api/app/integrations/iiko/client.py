@@ -558,10 +558,10 @@ class IikoServerClient(IikoProvider):
         response = await self._raw_request(
             "POST",
             _OUTGOING_INVOICE_IMPORT_PATH,
-            json=document.to_iiko_payload(),
+            content=document.to_iiko_xml(),
             headers={
-                "Accept": "application/json, text/plain",
-                "Content-Type": "application/json",
+                "Accept": "application/xml, text/plain",
+                "Content-Type": "application/xml",
             },
         )
         if response.status_code == 401:
