@@ -10,8 +10,14 @@ from app.api.dependencies import (
     get_current_admin,
     require_request_view_access,
 )
+from app.api.routes.iiko import get_iiko_provider
 from app.core.config import settings
 from app.db.session import get_db
+from app.integrations.iiko.document_routing import (
+    outgoing_invoice_flow_for_source_store,
+)
+from app.integrations.iiko.provider import IikoProvider
+from app.models.iiko import IikoDocumentWriteStatus
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -74,6 +80,7 @@ from app.schemas.supply import (
     SupplyRequestListItem,
     SupplyRequestRead,
     SupplyIikoSourceWarehouseSelect,
+    SupplyIikoDocumentRead,
     SupplyIikoStockCheckRead,
     SupplyStockCalculationRead,
     SupplyStockCalculationConfirm,
@@ -165,7 +172,6 @@ from app.supply.service import (
     list_supply_request_cycles,
     list_supply_units,
     replace_supply_line_allocations,
-    plan_supply_request,
     cancel_supply_request,
     manually_match_supply_request_line,
     confirm_context_mapping_for_line,
@@ -200,6 +206,13 @@ from app.supply.iiko_stock import (
     SupplyIikoVersionConflictError,
     get_stock_check,
     select_source_warehouse,
+)
+from app.supply.iiko_documents import (
+    SupplyIikoDocumentPreparationError,
+    SupplyIikoDocumentWorkflowError,
+    SupplyInternalTransferWriteUnsupportedError,
+    list_supply_iiko_document_writes,
+    plan_supply_request_with_iiko_documents,
 )
 from app.supply.source_mapping import (
     SupplyProductSourceConcurrentAssignmentError,
@@ -970,6 +983,48 @@ def read_request(
 
 
 @router.get(
+    "/requests/{request_id}/iiko-documents",
+    response_model=list[SupplyIikoDocumentRead],
+)
+def read_request_iiko_documents(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
+) -> list[SupplyIikoDocumentRead]:
+    try:
+        writes = list_supply_iiko_document_writes(
+            db,
+            tenant_id=current_user.tenant_id,
+            request_id=request_id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    documents = [
+        SupplyIikoDocumentRead(
+            document_type=write.document_type,
+            source_store_id=write.source_store_id,
+            flow=outgoing_invoice_flow_for_source_store(
+                write.source_store_id
+            ),
+            status=write.status,
+            document_number=write.iiko_document_number,
+            error_code=write.last_error,
+            operator_message=(
+                "Требуется проверка в iiko"
+                if write.status == IikoDocumentWriteStatus.UNKNOWN
+                else None
+            ),
+        )
+        for write in writes
+    ]
+    flow_order = {"MAIN": 0, "PACKAGING": 1, "HOUSEHOLD": 2}
+    return sorted(
+        documents,
+        key=lambda document: flow_order[document.flow.value],
+    )
+
+
+@router.get(
     "/requests/{request_id}/iiko-stock-check",
     response_model=SupplyIikoStockCheckRead,
 )
@@ -1698,15 +1753,19 @@ def update_line_allocations(
 
 
 @router.post("/requests/{request_id}/plan", response_model=SupplyRequestRead)
-def plan_request(
+async def plan_request(
     request_id: UUID,
     payload: SupplyRequestPlan,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyRequest:
     try:
-        return plan_supply_request(
-            db, request_id,
+        return await plan_supply_request_with_iiko_documents(
+            db,
+            provider,
+            tenant_id=current_admin.tenant_id,
+            request_id=request_id,
             expected_version=payload.expected_version,
             user_id=current_admin.id,
             simple_mode=payload.simple_mode,
@@ -1727,6 +1786,21 @@ def plan_request(
         raise HTTPException(
             status_code=422,
             detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},
+        ) from error
+    except SupplyInternalTransferWriteUnsupportedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": error.code},
+        ) from error
+    except SupplyIikoDocumentPreparationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": error.code},
+        ) from error
+    except SupplyIikoDocumentWorkflowError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": error.code},
         ) from error
     except SupplyRequestStateError as error:
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error

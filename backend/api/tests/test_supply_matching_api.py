@@ -1781,11 +1781,9 @@ class SupplyMatchingApiTests(unittest.TestCase):
                 "simple_mode": True,
             },
         )
-        self.assertEqual(repeated.status_code, 409)
-        self.assertEqual(
-            repeated.json()["detail"]["code"],
-            "SUPPLY_REQUEST_ALREADY_PLANNED",
-        )
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(repeated.json()["status"], "PLANNED")
+        self.assertEqual(repeated.json()["version"], planned_body["version"])
         completed = self.client.post(
             f"/supply/requests/{created['id']}/fulfill-as-planned",
             json={"expected_version": planned_body["version"]},

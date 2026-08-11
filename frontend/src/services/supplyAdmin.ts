@@ -111,6 +111,16 @@ export type SupplyRequest = SupplyRequestSummary & {
   lines: SupplyLine[]
 }
 
+export type SupplyIikoDocument = {
+  document_type: 'OUTGOING_INVOICE'
+  source_store_id: string
+  flow: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD'
+  status: 'PENDING' | 'CREATED' | 'FAILED' | 'UNKNOWN'
+  document_number: string | null
+  error_code: string | null
+  operator_message: string | null
+}
+
 export type SupplyIikoSourceWarehouse = {
   mapping_id: string
   iiko_warehouse_id: string
@@ -624,6 +634,13 @@ export function planSupplyRequest(
       simple_mode: simpleMode,
     }),
   })
+}
+
+export function getSupplyIikoDocuments(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<SupplyIikoDocument[]> {
+  return request(`/supply/requests/${requestId}/iiko-documents`, { signal })
 }
 
 export function cancelSupplyRequest(

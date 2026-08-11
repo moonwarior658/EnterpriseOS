@@ -5,7 +5,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.iiko import IikoWarehouseRole
+from app.models.iiko import (
+    IikoDocumentType,
+    IikoDocumentWriteStatus,
+    IikoWarehouseRole,
+)
 from app.models.supply import (
     LegalContour,
     SupplyProductSourceRole,
@@ -915,6 +919,16 @@ class SupplyRequestRead(BaseModel):
     lines: list[SupplyRequestLineRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyIikoDocumentRead(BaseModel):
+    document_type: IikoDocumentType
+    source_store_id: UUID
+    flow: SupplyProductSourceRole
+    status: IikoDocumentWriteStatus
+    document_number: str | None
+    error_code: str | None
+    operator_message: str | None
 
 
 class SupplyIikoSourceWarehouseRead(BaseModel):

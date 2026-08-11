@@ -11,6 +11,7 @@ import {
   confirmSupplyStockCalculation,
   fulfillSupplyAsPlanned,
   getSupplyProductSourcePreview,
+  getSupplyIikoDocuments,
   getSupplyStockCalculation,
   getSupplyProducts,
   getSupplyRequest,
@@ -25,6 +26,7 @@ import {
   updateSupplyStockTransferable,
   SupplyApiError,
   type SupplyLine,
+  type SupplyIikoDocument,
   type SupplyProductSourcePreview,
   type SupplyProduct,
   type SupplyRequest,
@@ -488,6 +490,7 @@ function SupplyRequestDetailPage() {
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
   const [fulfillment, setFulfillment] = useState<Record<string, string>>({})
   const [sourcePreview, setSourcePreview] = useState<SupplyProductSourcePreview | null>(null)
+  const [iikoDocuments, setIikoDocuments] = useState<SupplyIikoDocument[]>([])
   const [sourceState, setSourceState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   )
@@ -557,6 +560,12 @@ function SupplyRequestDetailPage() {
     return item
   }
 
+  async function reloadIikoDocuments(): Promise<SupplyIikoDocument[]> {
+    const documents = await getSupplyIikoDocuments(requestId)
+    setIikoDocuments(documents)
+    return documents
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => {
@@ -612,6 +621,18 @@ function SupplyRequestDetailPage() {
       controller.abort()
     }
   }, [readOnly, requestId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void getSupplyIikoDocuments(requestId, controller.signal)
+      .then((documents) => {
+        if (!controller.signal.aborted) setIikoDocuments(documents)
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setIikoDocuments([])
+      })
+    return () => controller.abort()
+  }, [requestId])
 
   useEffect(() => {
     if (!request || readOnly) return
@@ -728,7 +749,14 @@ function SupplyRequestDetailPage() {
     setMessage('')
     try {
       setRequest(await planSupplyRequest(request.id, request.version, true))
-      setMessage('Заявка отправлена в работу')
+      const documents = await reloadIikoDocuments()
+      if (documents.some((document) => document.status === 'UNKNOWN')) {
+        setMessage('Заявка отправлена в работу. Требуется проверка в iiko')
+      } else if (documents.some((document) => document.status === 'FAILED')) {
+        setMessage('Заявка отправлена в работу. Документ iiko не создан')
+      } else {
+        setMessage('Заявка отправлена в работу')
+      }
     } catch (error) {
       const code = error instanceof SupplyApiError ? error.code : null
       setMessage(({
@@ -740,6 +768,12 @@ function SupplyRequestDetailPage() {
           'Проверьте название, количество и фасовку каждой строки.',
         SUPPLY_SEND_QUANTITY_INVALID:
           'Для этой единицы разрешено только целое количество.',
+        SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED:
+          'Создание внутреннего перемещения iiko пока не поддерживается.',
+        SUPPLY_IIKO_DOCUMENT_PREPARATION_INCOMPLETE:
+          'Не удалось подготовить документы iiko: проверьте mapping товара, единицы и SOURCE.',
+        SUPPLY_IIKO_DOCUMENT_SOURCE_MISMATCH:
+          'SOURCE не соответствует подтверждённому маршруту документа iiko.',
       } as Record<string, string>)[code ?? '']
         ?? 'Не удалось отправить заявку в работу')
     } finally {
@@ -1299,6 +1333,38 @@ function SupplyRequestDetailPage() {
           ) : null}
         </section>
 
+        {iikoDocuments.length > 0 && (
+          <section className="supply-stock-calculation" aria-label="Документы iiko">
+            <div className="supply-iiko-stock-heading">
+              <div>
+                <strong>Документы iiko</strong>
+                <small>Расходные накладные по SOURCE</small>
+              </div>
+            </div>
+            <div className="supply-source-groups">
+              {iikoDocuments.map((document) => (
+                <div
+                  className="supply-source-group"
+                  key={`${document.source_store_id}:${document.document_type}`}
+                >
+                  <b>{document.flow}</b>
+                  <small>SOURCE: {document.source_store_id}</small>
+                  <span>Статус: {document.status}</span>
+                  {document.document_number && (
+                    <span>Номер: {document.document_number}</span>
+                  )}
+                  {document.status === 'UNKNOWN' && (
+                    <strong>{document.operator_message}</strong>
+                  )}
+                  {document.status === 'FAILED' && document.error_code && (
+                    <small>Код ошибки: {document.error_code}</small>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="supply-stock-calculation" aria-label="Сверка остатков">
           <div className="supply-iiko-stock-heading">
             <div>
@@ -1727,6 +1793,18 @@ function SupplyRequestDetailPage() {
             onClick={() => void sendToWork()}
           >
             {busy ? 'Отправляем…' : 'Отправить в работу'}
+          </button>
+        )}
+        {request.status === 'PLANNED' && (
+          iikoDocuments.length === 0
+          || iikoDocuments.some((document) => document.status !== 'CREATED')
+        ) && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void sendToWork()}
+          >
+            {busy ? 'Проверяем…' : 'Повторить «Отдать в работу»'}
           </button>
         )}
         {request.status === 'PLANNED' && (

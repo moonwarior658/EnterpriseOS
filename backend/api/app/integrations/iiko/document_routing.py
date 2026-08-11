@@ -135,3 +135,40 @@ def resolve_internal_transfer_route(
             department_code,
             flow,
         ) from error
+
+
+def outgoing_invoice_flows_for_department(
+    department_code: str,
+) -> frozenset[SupplyProductSourceRole]:
+    return frozenset(
+        flow
+        for route_department_code, flow in _OUTGOING_INVOICE_ROUTES
+        if route_department_code == department_code
+    )
+
+
+def internal_transfer_flows_for_department(
+    department_code: str,
+) -> frozenset[SupplyProductSourceRole]:
+    return frozenset(
+        flow
+        for route_department_code, flow in _INTERNAL_TRANSFER_ROUTES
+        if route_department_code == department_code
+    )
+
+
+def outgoing_invoice_flow_for_source_store(
+    source_store_id: UUID,
+) -> SupplyProductSourceRole:
+    matches = {
+        flow
+        for (_, flow), route in _OUTGOING_INVOICE_ROUTES.items()
+        if route.source_store_id == source_store_id
+    }
+    if len(matches) != 1:
+        raise IikoDocumentRouteNotConfiguredError(
+            "OUTGOING_INVOICE",
+            "<source>",
+            source_store_id,
+        )
+    return next(iter(matches))

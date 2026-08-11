@@ -3,8 +3,8 @@
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
 Дата обновления: **11 августа 2026 года**
-Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; для Stage 3.1B / 5 подтверждён production routing contract, POST `/api/v2/documents/internalTransfer` не подтверждён как create endpoint; весь Stage 3.1B не завершён**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; для продолжения Stage 3.1B / 5 требуется подтверждённый контракт создания документа iiko без новых write probes**
+Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; Stage 3.1B / 5.3 реализован локально для `OUTGOING_INVOICE`, production confirmation остаётся отдельным шагом; POST `/api/v2/documents/internalTransfer` не подтверждён как create endpoint; весь Stage 3.1B не завершён**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B / 5 продолжается после локальной workflow-интеграции `OUTGOING_INVOICE`**
 
 ---
 
@@ -1149,6 +1149,19 @@ Production correction от 11.08.2026: документ №2710 с UUID
 никогда не разрешает automatic retry. Production reconciliation для
 положительного UUID match пока не подтверждён.
 
+Stage 3.1B / 5.3 реализован локально: действие «Отдать в работу» сохраняет
+существующий переход заявки в `PLANNED`, после его commit группирует строки по
+подтверждённому SOURCE/flow и вызывает только
+`create_persistent_outgoing_invoice(...)` — не более одного intent на
+`MAIN`, `PACKAGING` и `HOUSEHOLD`. `CREATED` переиспользуется, а
+`PENDING` / `UNKNOWN` / `FAILED` не выполняют automatic POST. Для `UNKNOWN`
+оператору показывается «Требуется проверка в iiko». `ЦЕХ` закрывается с
+`SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED` и не подменяется
+расходной накладной. Generic Automation outbox здесь не используется: его
+automatic delivery retry несовместим с fail-closed правилом `UNKNOWN`; commit
+`PENDING` до POST обеспечивает persistent intent boundary. Production
+confirmation 5.3 не выполнялся и остаётся отдельным шагом.
+
 Controlled production probe от 11.08.2026 дал новый UUID, валидный routing,
 HTTP `409` с ответом `Cannot find InternalTransfer document by id <UUID>`, а
 последующий read-only GET по UUID вернул `MATCHES 0`.
@@ -1164,8 +1177,8 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 1. Найти authoritative read source для проверки отсутствия документа или
    подтвердить положительный UUID match без новых write probes; до этого
    automatic retry после неопределённого результата запрещён fail closed.
-2. Затем реализовать идемпотентную workflow-интеграцию; к кнопке «Отдать в
-   работу» write path до этого не подключать.
+2. Отдельно подтвердить в production локально реализованную workflow-интеграцию
+   Stage 3.1B / 5.3 без automatic retry и без `INTERNAL_TRANSFER` write.
 3. После этого передать документ по цепочке `n8n → Print Agent` для
    автоматической печати.
 
@@ -1741,6 +1754,10 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 ## 2026-08-11
 
+- Stage 3.1B / 5.3 реализован локально: `OUTGOING_INVOICE` подключён к
+  «Отдать в работу» для М15/М35/М6А с группировкой по SOURCE/flow,
+  persistent idempotency, безопасными статусами в API/UI и fail-closed
+  блокировкой `INTERNAL_TRANSFER`; production confirmation не выполнялся.
 - Stage 3.1B / 5.2 reconciliation `OUTGOING_INVOICE` реализован локально:
   `PENDING` / `UNKNOWN` проверяются read-only GET по caller UUID, совпадение
   переводит intent в `CREATED`, но export-miss оставляет результат
