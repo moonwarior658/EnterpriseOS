@@ -3,8 +3,8 @@
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
 Дата обновления: **11 августа 2026 года**
-Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; для Stage 3.1B / 5 подтверждён production routing contract, автоматический write не реализован; весь Stage 3.1B не завершён**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; непосредственный следующий шаг — controlled write одного реального документа iiko в статусе NEW и проверка результата в iiko**
+Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; для Stage 3.1B / 5 подтверждён production routing contract, POST `/api/v2/documents/internalTransfer` не подтверждён как create endpoint; весь Stage 3.1B не завершён**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; для продолжения Stage 3.1B / 5 требуется подтверждённый контракт создания документа iiko без новых write probes**
 
 ---
 
@@ -1119,23 +1119,31 @@ Production-проверка stock calculation:
 - [x] Для `outgoingInvoice` EOS создаёт только расходную накладную; связанную
       `incomingInvoice` iiko формирует самостоятельно. Используются
       `accountToCode=21` и `revenueAccountCode=20`.
-- [x] Для `internalTransfer` используются `storeFromId` и `storeToId`; счета и
-      `counteragent` не применяются.
+- [x] Routing `internalTransfer` фиксирует `storeFromId` и `storeToId`; счета
+      и `counteragent` не применяются.
 - [x] Неизвестный маршрут обрабатывается по принципу fail closed.
-- [x] Бар, Кухня и Авто не входят в write routing текущего scope.
+- [x] Бар, Кухня и Авто не входят в document routing текущего scope.
 - [x] Runtime discovery сохранён только как диагностический механизм; write
       path от discovery не зависит.
 - [x] Все 12 production routes покрыты тестами.
 
-Автоматический write ещё **не реализован и не запускался**. Подтверждение
-routing contract не означает завершения Stage 3.1B / 5 или всего Stage 3.1B.
+Controlled production probe от 11.08.2026 дал новый UUID, валидный routing,
+HTTP `409` с ответом `Cannot find InternalTransfer document by id <UUID>`, а
+последующий read-only GET по UUID вернул `MATCHES 0`.
+
+POST `/api/v2/documents/internalTransfer` **не подтверждён как create
+endpoint**. Реализация `create_internal_transfer` и controlled write удалена;
+этот POST нельзя использовать для создания новых документов. Новые write
+probes не выполнять. Подтверждение routing contract не означает завершения
+Stage 3.1B / 5 или всего Stage 3.1B.
 
 Непосредственный следующий шаг:
 
-1. Выполнить controlled write одного реального документа iiko в статусе
-   `NEW` и проверить результат в iiko.
-2. После проверки реализовать безопасный write path от кнопки «Отдать в
-   работу» с идемпотентностью и сохранением iiko document ID/status в EOS.
+1. Установить подтверждённый контракт создания документа iiko без новых write
+   probes.
+2. Только после подтверждения реализовать безопасный write path от кнопки
+   «Отдать в работу» с идемпотентностью и сохранением iiko document ID/status
+   в EOS.
 3. Затем передать документ по цепочке `n8n → Print Agent` для автоматической
    печати.
 
@@ -1717,17 +1725,21 @@ routing contract не означает завершения Stage 3.1B / 5 ил�
 - Routing централизован в `document_routing.py`; реальные production UUID
   получены из исторических документов iiko, а неизвестные маршруты закрываются
   по fail-closed правилу.
-- Зафиксированы контракты документов: `outgoingInvoice` создаётся EOS с
+- Зафиксирован routing contract документов: `outgoingInvoice` создаётся EOS с
   `accountToCode=21` и `revenueAccountCode=20`, связанную `incomingInvoice`
-  создаёт iiko; для `internalTransfer` используются только `storeFromId` и
+  создаёт iiko; routing `internalTransfer` содержит `storeFromId` и
   `storeToId`, без счетов и `counteragent`.
-- Бар, Кухня и Авто исключены из write routing текущего scope; runtime
+- Бар, Кухня и Авто исключены из document routing текущего scope; runtime
   discovery оставлен только для диагностики и не участвует в write path.
-- Все 12 production routes покрыты тестами. Автоматический write не реализован
-  и не запускался; Stage 3.1B / 5 и весь Stage 3.1B не отмечены завершёнными.
-- Следующий шаг — controlled write одного реального документа iiko в статусе
-  `NEW`, проверка результата в iiko, затем безопасный идемпотентный write path
-  от кнопки «Отдать в работу» с сохранением iiko document ID/status в EOS.
+- Controlled production probe с новым UUID и валидным routing получил HTTP
+  `409` (`Cannot find InternalTransfer document by id <UUID>`), последующий
+  read-only GET по UUID вернул `MATCHES 0`.
+- POST `/api/v2/documents/internalTransfer` не подтверждён как create endpoint
+  и не может использоваться для создания новых документов; реализация
+  `create_internal_transfer` и controlled write удалена. Новые write probes не
+  выполнять.
+- Все 12 production routes остаются покрыты тестами; Stage 3.1B / 5 и весь
+  Stage 3.1B не отмечены завершёнными.
 
 ## 2026-08-10
 
