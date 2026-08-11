@@ -1139,7 +1139,15 @@ Stage 3.1B / 5.2: persistent intent/result и read-only reconciliation для
 `OUTGOING_INVOICE` реализованы локально. Reconciliation ищет только по
 caller-generated UUID в минимальном окне даты документа, сверяет critical
 поля с сохранённым deterministic write payload и не выполняет POST.
-Production reconciliation пока не подтверждён.
+
+Production correction от 11.08.2026: документ №2710 с UUID
+`024e0713-3ef2-4d40-bb5a-4373e77cd125` создан через persistent write при
+симуляции потерянного ответа и существует в iiko UI, но
+`GET /api/documents/export/outgoingInvoice` не возвращает его ни в `NEW`, ни
+после ручного проведения в `PROCESSED`. Поэтому export-miss означает только
+«документ не виден в этом read source», не доказывает отсутствие документа и
+никогда не разрешает automatic retry. Production reconciliation для
+положительного UUID match пока не подтверждён.
 
 Controlled production probe от 11.08.2026 дал новый UUID, валидный routing,
 HTTP `409` с ответом `Cannot find InternalTransfer document by id <UUID>`, а
@@ -1153,8 +1161,9 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 Непосредственный следующий шаг:
 
-1. Подтвердить read-only reconciliation `OUTGOING_INVOICE` в production без
-   новых write probes.
+1. Найти authoritative read source для проверки отсутствия документа или
+   подтвердить положительный UUID match без новых write probes; до этого
+   automatic retry после неопределённого результата запрещён fail closed.
 2. Затем реализовать идемпотентную workflow-интеграцию; к кнопке «Отдать в
    работу» write path до этого не подключать.
 3. После этого передать документ по цепочке `n8n → Print Agent` для
@@ -1734,8 +1743,12 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 - Stage 3.1B / 5.2 reconciliation `OUTGOING_INVOICE` реализован локально:
   `PENDING` / `UNKNOWN` проверяются read-only GET по caller UUID, совпадение
-  переводит intent в `CREATED`, отсутствие допускает безопасный retry только
-  при неизменном payload hash; production reconciliation пока не подтверждён.
+  переводит intent в `CREATED`, но export-miss оставляет результат
+  неопределённым и не разрешает retry.
+- Production correction: persistent write создал документ №2710 с UUID
+  `024e0713-3ef2-4d40-bb5a-4373e77cd125` при симуляции потерянного ответа;
+  документ существует в iiko UI, однако export reconciliation не видит его ни
+  в `NEW`, ни после `PROCESSED`. Automatic retry отключён fail closed.
 - Controlled production `OUTGOING_INVOICE` write подтверждён на маршруте
   `М15 + MAIN`: XML import с caller-generated UUID и `price=0` создал реальный
   непроведённый документ №2709; `documentNumber` сгенерирован iiko. Следующий

@@ -316,7 +316,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result.status, IikoDocumentWriteStatus.CREATED)
 
-    async def test_uuid_not_found_is_safe_to_retry(self):
+    async def test_export_miss_is_uncertain_and_forbids_retry(self):
         intent_id, _ = self._seed_reconcilable_intent()
         provider = ReconciliationProvider([])
         with self.sessions() as session:
@@ -325,9 +325,9 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             result.outcome,
-            IikoDocumentReconciliationOutcome.NOT_FOUND,
+            IikoDocumentReconciliationOutcome.UNCERTAIN,
         )
-        self.assertTrue(result.safe_to_retry)
+        self.assertFalse(result.safe_to_retry)
         with self.sessions() as session:
             intent = session.get(IikoDocumentWrite, intent_id)
             self.assertEqual(intent.status, IikoDocumentWriteStatus.UNKNOWN)
@@ -469,9 +469,9 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             result.outcome,
-            IikoDocumentReconciliationOutcome.NOT_FOUND,
+            IikoDocumentReconciliationOutcome.UNCERTAIN,
         )
-        self.assertTrue(result.safe_to_retry)
+        self.assertFalse(result.safe_to_retry)
 
     async def test_pending_is_committed_before_post_and_created_is_reused(
         self,

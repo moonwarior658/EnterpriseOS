@@ -126,14 +126,12 @@ def _document_from_intent(
 def is_outgoing_invoice_retry_safe(
     intent: IikoDocumentWrite,
     *,
-    reconciliation_succeeded: bool,
-    document_found: bool,
+    authoritative_absence_confirmed: bool,
     current_payload_hash: str,
 ) -> bool:
     return (
         intent.status != IikoDocumentWriteStatus.CREATED
-        and reconciliation_succeeded
-        and not document_found
+        and authoritative_absence_confirmed
         and current_payload_hash == intent.payload_hash
     )
 
@@ -266,11 +264,12 @@ async def reconcile_outgoing_invoice_intent(
         if not matches:
             return _result(
                 intent,
-                IikoDocumentReconciliationOutcome.NOT_FOUND,
+                IikoDocumentReconciliationOutcome.UNCERTAIN,
                 safe_to_retry=is_outgoing_invoice_retry_safe(
                     intent,
-                    reconciliation_succeeded=True,
-                    document_found=False,
+                    # export/outgoingInvoice is not authoritative for
+                    # document absence: a created UUID may not be visible.
+                    authoritative_absence_confirmed=False,
                     current_payload_hash=current_payload_hash,
                 ),
             )
