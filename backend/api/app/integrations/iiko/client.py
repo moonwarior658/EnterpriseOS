@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from types import TracebackType
 from typing import Any, Self
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from pydantic import ValidationError
@@ -39,6 +39,7 @@ from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
+    IikoInternalTransferCreateDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoPackageDto,
@@ -59,6 +60,7 @@ logger = logging.getLogger(__name__)
 _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
 _INCOMING_INVOICE_EXPORT_PATH = "/api/documents/export/incomingInvoice"
 _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
+_INTERNAL_TRANSFER_CREATE_PATH = "/api/v2/documents/internalTransfer"
 _MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
 _SENSITIVE_HEADER_RE = re.compile(
@@ -545,6 +547,30 @@ class IikoServerClient(IikoProvider):
                     f"document_number={document_number} field={field}"
                 ) from error
         return invoices
+
+    async def create_internal_transfer(
+        self,
+        document: IikoInternalTransferCreateDto,
+    ) -> UUID:
+        if document.status != "NEW":
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_STATUS_INVALID")
+        await self.authenticate()
+        response = await self._raw_request(
+            "POST",
+            _INTERNAL_TRANSFER_CREATE_PATH,
+            json=document.to_iiko_payload(),
+            headers={
+                "Accept": "application/json, text/plain",
+                "Content-Type": "application/json",
+            },
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        return document.document_id
 
     async def get_incoming_invoices(
         self,

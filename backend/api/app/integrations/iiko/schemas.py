@@ -1,8 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IikoDto(BaseModel):
@@ -130,6 +131,38 @@ class IikoStockBalanceDto(IikoDto):
     source_updated_at: datetime | None = None
     product_name: str | None = None
     warehouse_name: str | None = None
+
+
+class IikoInternalTransferItemCreateDto(IikoDto):
+    product_id: UUID
+    amount: Decimal = Field(gt=0, allow_inf_nan=False)
+
+
+class IikoInternalTransferCreateDto(IikoDto):
+    document_id: UUID
+    date_incoming: datetime
+    store_from_id: UUID
+    store_to_id: UUID
+    status: Literal["NEW"] = "NEW"
+    items: tuple[IikoInternalTransferItemCreateDto, ...] = Field(min_length=1)
+
+    def to_iiko_payload(self) -> dict[str, Any]:
+        return {
+            "id": str(self.document_id),
+            "dateIncoming": self.date_incoming.replace(tzinfo=None).isoformat(
+                timespec="seconds"
+            ),
+            "status": self.status,
+            "storeFromId": str(self.store_from_id),
+            "storeToId": str(self.store_to_id),
+            "items": [
+                {
+                    "productId": str(item.product_id),
+                    "amount": format(item.amount, "f"),
+                }
+                for item in self.items
+            ],
+        }
 
 
 DtoT = TypeVar("DtoT", bound=IikoDto)
