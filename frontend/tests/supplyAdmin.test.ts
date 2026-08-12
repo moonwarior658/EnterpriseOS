@@ -29,6 +29,7 @@ import {
   supplyExpectedDebtMillis,
   supplySendExcessMillis,
   supplyMatchProgress,
+  supplyPrintStatusLabel,
   suggestSupplyWorkingName,
   formatSupplyQuantityMillis,
   supplyQuantityMillis,
@@ -50,6 +51,13 @@ test('подключает защищённые маршруты реестра 
   assert.match(app, /ProtectedRoute adminOnly/)
   assert.match(layout, /Заявки снабжения/)
   assert.match(layout, /Долги подразделений/)
+})
+
+test('статусы print job отображаются безопасными русскими подписями', () => {
+  assert.equal(supplyPrintStatusLabel('QUEUED_FOR_PRINT'), 'В очереди')
+  assert.equal(supplyPrintStatusLabel('PRINTING'), 'Печатается')
+  assert.equal(supplyPrintStatusLabel('PRINTED'), 'Напечатано')
+  assert.equal(supplyPrintStatusLabel('PRINT_FAILED'), 'Ошибка печати')
 })
 
 test('карточка сохраняет факт и readonly исполненной заявки', () => {

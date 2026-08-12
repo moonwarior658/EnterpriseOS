@@ -13,6 +13,8 @@ from app.models.iiko import (
 from app.models.supply import (
     LegalContour,
     SupplyProductSourceRole,
+    SupplyPrintJobStatus,
+    SupplyPrintPurpose,
     SupplyStockCalculationStatus,
 )
 
@@ -932,6 +934,60 @@ class SupplyIikoDocumentRead(BaseModel):
     error_code: str | None
     operator_message: str | None
     printable: bool
+
+
+class SupplyPrintJobRead(BaseModel):
+    id: UUID
+    supply_request_id: UUID
+    iiko_document_write_id: UUID | None
+    document_fingerprint: str
+    pdf_fingerprint: str
+    printer_name: str
+    copies: int
+    purpose: SupplyPrintPurpose
+    status: SupplyPrintJobStatus
+    attempt_count: int
+    last_error_code: str | None
+    created_at: datetime
+    queued_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyPrintCallback(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=64)
+    status: SupplyPrintJobStatus
+    attempt_count: int = Field(ge=0)
+    error_code: str | None = Field(default=None, max_length=100)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_result(self) -> "SupplyPrintCallback":
+        if self.status not in {
+            SupplyPrintJobStatus.PRINTING,
+            SupplyPrintJobStatus.PRINTED,
+            SupplyPrintJobStatus.PRINT_FAILED,
+        }:
+            raise ValueError("Unsupported print callback status")
+        if self.status == SupplyPrintJobStatus.PRINT_FAILED and not self.error_code:
+            raise ValueError("PRINT_FAILED requires error_code")
+        if self.status != SupplyPrintJobStatus.PRINT_FAILED and self.error_code:
+            raise ValueError("error_code is only valid for PRINT_FAILED")
+        if self.error_code not in {
+            None,
+            "SUPPLY_PRINT_PDF_CHANGED",
+            "SUPPLY_PRINT_AGENT_UNAVAILABLE",
+            "SUPPLY_PRINT_FAILED",
+            "SUPPLY_PRINT_PRINTER_NOT_ALLOWED",
+            "SUPPLY_PRINT_INVALID_COPIES",
+        }:
+            raise ValueError("Unsupported print error_code")
+        return self
 
 
 class SupplyIikoSourceWarehouseRead(BaseModel):

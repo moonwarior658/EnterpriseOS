@@ -7,7 +7,9 @@ Stage 3 Supply.
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
 Supply domain model — completed at 100%. The required working contour of
 Stage 3.1A is completed. Production verification was performed on 2 August
-2026. Stage 3.1B has not started.
+2026. Stage 3.1B начат: read-stock scope, authoritative document read-back и
+verified PDF подтверждены в production; текущий срез — 5.5 Print Agent + print
+queue. Весь Stage 3.1B не завершён.
 
 ## Current state
 
@@ -37,9 +39,11 @@ Stage 3.1A is completed. Production verification was performed on 2 August
   3.4 долги в разных единицах не сравниваются и не объединяются.
 - Повторные долги считаются по циклам: первый цикл без тревоги, второй —
   жёлтый, третий и последующие — красные.
-- Stage 3.1B не начинался. Следующий шаг — переход к Stage 3.1B.
+- Stage 3.1B / 4, 5.4A и 5.4B подтверждены в production. Текущий локальный
+  срез 5.5 доводит verified PDF через persistent print job, Automation
+  Core/outbox и n8n до Print Agent; `INTERNAL_TRANSFER` отложен.
 
-Из объёма Stage 3.1B уже выполнен технический задел до его формального старта:
+В Stage 3.1B выполнено:
 
 - read-only доступ к iikoServer и reference snapshot;
 - чтение складов и остатков в staging-контур EOS;
@@ -47,9 +51,11 @@ Stage 3.1A is completed. Production verification was performed on 2 August
 - admin-only API/UI для mapping и аудит решений;
 - безопасное создание первичного каталога EOS из iiko staging.
 
-Этот задел не подключён к рабочему Supply-контуру 3.1A и не означает, что
-Stage 3.1B формально начат. Изменяющие операции iiko, перемещения, документы
-и печать не реализованы.
+Также production-confirmed создание `OUTGOING_INVOICE`, authoritative
+read-back и verified PDF. Print queue и Print Agent реализуются локально в
+срезе 5.5; production deployment и физическая печать не выполнялись.
+`INTERNAL_TRANSFER`, подтверждение передачи и signed-return остаются вне
+текущего среза.
 
 Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
 автоматизирован.

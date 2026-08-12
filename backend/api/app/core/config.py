@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     default_tenant_id: str = "eclair"
     business_timezone: str = "Asia/Yekaterinburg"
     automation_callback_token: SecretStr | None = None
+    print_service_token: SecretStr | None = None
+    supply_print_printer_name: str = "HP LaserJet Pro MFP M125rnw"
     work_request_upload_dir: str = "/app/uploads/work-requests"
 
     model_config = SettingsConfigDict(

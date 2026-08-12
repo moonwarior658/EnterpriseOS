@@ -1,8 +1,10 @@
 from datetime import date
 from typing import Annotated
+from secrets import compare_digest
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -82,6 +84,8 @@ from app.schemas.supply import (
     SupplyRequestRead,
     SupplyIikoSourceWarehouseSelect,
     SupplyIikoDocumentRead,
+    SupplyPrintCallback,
+    SupplyPrintJobRead,
     SupplyIikoStockCheckRead,
     SupplyStockCalculationRead,
     SupplyStockCalculationConfirm,
@@ -232,6 +236,14 @@ from app.supply.source_mapping import (
     get_product_source_preview,
     resolve_supply_request_sources,
 )
+from app.supply.printing import (
+    SupplyPrintError,
+    apply_supply_print_callback,
+    create_supply_print_job,
+    list_supply_print_jobs,
+    retrieve_supply_print_job_pdf,
+)
+from app.models.supply import SupplyPrintJob, SupplyPrintPurpose
 from app.supply.stock_calculation import (
     SupplyStockCalculationConfirmedError,
     SupplyStockCalculationBlockedError,
@@ -248,6 +260,7 @@ from app.supply.stock_calculation import (
 
 
 router = APIRouter(prefix="/supply", tags=["supply"])
+print_service_bearer = HTTPBearer(auto_error=False)
 
 
 def _not_found() -> HTTPException:
@@ -1059,6 +1072,154 @@ def _iiko_pdf_response(content: bytes, fingerprint: str, filename: str) -> Respo
             "Cache-Control": "no-store",
         },
     )
+
+
+def _print_error(error: SupplyPrintError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=error.code)
+
+
+def require_print_service_token(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(print_service_bearer),
+    ],
+) -> None:
+    configured = settings.print_service_token
+    expected = configured.get_secret_value() if configured is not None else ""
+    provided = credentials.credentials if credentials is not None else ""
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or not expected
+        or not compare_digest(provided.encode(), expected.encode())
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid print service credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.post(
+    "/requests/{request_id}/print",
+    response_model=SupplyPrintJobRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_request_print_job(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> SupplyPrintJob:
+    try:
+        return await create_supply_print_job(
+            db,
+            provider,
+            tenant_id=current_admin.tenant_id,
+            request_id=request_id,
+            requested_by_user_id=current_admin.id,
+            printer_name=settings.supply_print_printer_name,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyPrintError as error:
+        raise _print_error(error) from error
+    except IikoError as error:
+        raise integration_error(error) from error
+
+
+@router.get(
+    "/requests/{request_id}/print-jobs",
+    response_model=list[SupplyPrintJobRead],
+)
+def read_request_print_jobs(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
+) -> list[SupplyPrintJob]:
+    try:
+        return list_supply_print_jobs(
+            db,
+            tenant_id=current_user.tenant_id,
+            request_id=request_id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+
+
+@router.post(
+    "/requests/{request_id}/print-jobs/{print_job_id}/reprint",
+    response_model=SupplyPrintJobRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def reprint_request_print_job(
+    request_id: UUID,
+    print_job_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> SupplyPrintJob:
+    source_job = db.scalar(select(SupplyPrintJob).where(
+        SupplyPrintJob.id == print_job_id,
+        SupplyPrintJob.supply_request_id == request_id,
+        SupplyPrintJob.tenant_id == current_admin.tenant_id,
+    ))
+    if source_job is None:
+        raise _not_found()
+    try:
+        return await create_supply_print_job(
+            db,
+            provider,
+            tenant_id=current_admin.tenant_id,
+            request_id=request_id,
+            requested_by_user_id=current_admin.id,
+            printer_name=settings.supply_print_printer_name,
+            purpose=SupplyPrintPurpose.REPRINT,
+        )
+    except SupplyPrintError as error:
+        raise _print_error(error) from error
+    except IikoError as error:
+        raise integration_error(error) from error
+
+
+@router.get("/print-jobs/{print_job_id}/pdf", response_class=Response)
+async def read_print_job_pdf_for_service(
+    print_job_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(require_print_service_token)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> Response:
+    try:
+        content = await retrieve_supply_print_job_pdf(
+            db, provider, job_id=print_job_id
+        )
+    except SupplyRequestNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Print job not found") from error
+    except SupplyPrintError as error:
+        raise _print_error(error) from error
+    except IikoError as error:
+        raise integration_error(error) from error
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/print-jobs/{print_job_id}/callback")
+def receive_print_job_callback(
+    print_job_id: UUID,
+    callback: SupplyPrintCallback,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(require_print_service_token)],
+) -> dict[str, str]:
+    try:
+        apply_supply_print_callback(db, job_id=print_job_id, callback=callback)
+    except SupplyRequestNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Print job not found") from error
+    except SupplyPrintError as error:
+        raise _print_error(error) from error
+    return {"status": "accepted"}
 
 
 @router.get(

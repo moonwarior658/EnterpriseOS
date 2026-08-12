@@ -1,7 +1,7 @@
 [
   {
     "name": "EOS - universal Automation Dispatcher",
-    "description": "Portable smoke_test workflow template. Assign both Header Auth credentials manually after import.",
+    "description": "Portable smoke_test and supply.print_job dispatcher. Assign EOS and Print Agent Header Auth credentials manually after import.",
     "active": false,
     "nodes": [
       {
@@ -101,6 +101,138 @@
         "name": "HTTP Request",
         "notes": "After import, assign EOS Callback Authorization.",
         "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {"caseSensitive": true, "typeValidation": "strict", "version": 2},
+            "conditions": [{
+              "leftValue": "={{ $('Webhook').item.json.body.automation_type }}",
+              "rightValue": "supply.print_job",
+              "operator": {"type": "string", "operation": "equals"}
+            }],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [624, 180],
+        "name": "Require supply.print_job"
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.EOS_API_BASE_URL + $('Webhook').item.json.body.payload.pdf_retrieval.path }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {"response": {"response": {"responseFormat": "file", "outputPropertyName": "data"}}}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [832, 180],
+        "name": "Get verified PDF",
+        "notes": "Assign EOS Print Service Authorization. EOS revalidates both fingerprints.",
+        "notesInFlow": true,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.PRINT_AGENT_URL + '/print' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {"parameters": [
+            {"name": "Content-Type", "value": "application/pdf"},
+            {"name": "X-Print-Job-Id", "value": "={{ $('Webhook').item.json.body.payload.print_job_id }}"},
+            {"name": "Idempotency-Key", "value": "={{ $('Webhook').item.json.body.payload.idempotency_key }}"},
+            {"name": "X-Printer-Name", "value": "={{ $('Webhook').item.json.body.payload.printer_name }}"},
+            {"name": "X-Copies", "value": "={{ $('Webhook').item.json.body.payload.copies }}"}
+          ]},
+          "sendBody": true,
+          "contentType": "binaryData",
+          "inputDataFieldName": "data",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [1040, 180],
+        "name": "Print through local agent",
+        "notes": "Assign Print Agent Authorization. Transport retry preserves Idempotency-Key.",
+        "notesInFlow": true,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.EOS_API_BASE_URL + $('Webhook').item.json.body.payload.result_callback.path }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"tenant_id\": \"{{ $('Webhook').item.json.body.tenant_id }}\",\n  \"status\": \"PRINTED\",\n  \"attempt_count\": 1,\n  \"error_code\": null,\n  \"started_at\": \"{{ $now.toISO() }}\",\n  \"finished_at\": \"{{ $now.toISO() }}\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [1248, 120],
+        "name": "Print result callback",
+        "notes": "Assign EOS Print Service Authorization.",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Webhook').item.json.body.callback_url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"contract_version\": \"{{ $('Webhook').item.json.body.contract_version }}\",\n  \"execution_id\": \"{{ $('Webhook').item.json.body.execution_id }}\",\n  \"status\": \"succeeded\",\n  \"started_at\": \"{{ $now.toISO() }}\",\n  \"finished_at\": \"{{ $now.toISO() }}\",\n  \"result\": {\"print_status\": \"PRINTED\"},\n  \"error_code\": null,\n  \"error_message\": null\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [1456, 120],
+        "name": "Print automation callback",
+        "notes": "Assign EOS Callback Authorization.",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.EOS_API_BASE_URL + $('Webhook').item.json.body.payload.result_callback.path }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"tenant_id\": \"{{ $('Webhook').item.json.body.tenant_id }}\",\n  \"status\": \"PRINT_FAILED\",\n  \"attempt_count\": 1,\n  \"error_code\": \"SUPPLY_PRINT_FAILED\",\n  \"started_at\": null,\n  \"finished_at\": \"{{ $now.toISO() }}\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [1248, 300],
+        "name": "Print failure callback",
+        "notes": "Safe failure only; raw upstream errors are not returned to EOS.",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Webhook').item.json.body.callback_url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"contract_version\": \"{{ $('Webhook').item.json.body.contract_version }}\",\n  \"execution_id\": \"{{ $('Webhook').item.json.body.execution_id }}\",\n  \"status\": \"failed\",\n  \"started_at\": null,\n  \"finished_at\": \"{{ $now.toISO() }}\",\n  \"result\": null,\n  \"error_code\": \"SUPPLY_PRINT_FAILED\",\n  \"error_message\": null\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [1456, 300],
+        "name": "Print failure automation callback",
+        "notes": "Assign EOS Callback Authorization.",
+        "notesInFlow": true
       }
     ],
     "connections": {
@@ -146,8 +278,35 @@
               "index": 0
             }
           ],
-          []
+          [
+            {
+              "node": "Require supply.print_job",
+              "type": "main",
+              "index": 0
+            }
+          ]
         ]
+      },
+      "Require supply.print_job": {
+        "main": [[{"node": "Get verified PDF", "type": "main", "index": 0}], []]
+      },
+      "Get verified PDF": {
+        "main": [
+          [{"node": "Print through local agent", "type": "main", "index": 0}],
+          [{"node": "Print failure callback", "type": "main", "index": 0}]
+        ]
+      },
+      "Print through local agent": {
+        "main": [
+          [{"node": "Print result callback", "type": "main", "index": 0}],
+          [{"node": "Print failure callback", "type": "main", "index": 0}]
+        ]
+      },
+      "Print result callback": {
+        "main": [[{"node": "Print automation callback", "type": "main", "index": 0}]]
+      },
+      "Print failure callback": {
+        "main": [[{"node": "Print failure automation callback", "type": "main", "index": 0}]]
       }
     },
     "settings": {

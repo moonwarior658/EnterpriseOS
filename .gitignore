@@ -8,6 +8,7 @@ node_modules/
 # Python
 __pycache__/
 *.pyc
+print_agent/*.sqlite3*
 
 # Build
 dist/

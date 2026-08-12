@@ -20,6 +20,17 @@ export type SupplyLineWorkingDraft = {
 
 export type SupplyLineWorkingState = Record<string, SupplyLineWorkingDraft>
 
+export function supplyPrintStatusLabel(
+  status: 'QUEUED_FOR_PRINT' | 'PRINTING' | 'PRINTED' | 'PRINT_FAILED',
+): string {
+  return ({
+    QUEUED_FOR_PRINT: 'В очереди',
+    PRINTING: 'Печатается',
+    PRINTED: 'Напечатано',
+    PRINT_FAILED: 'Ошибка печати',
+  } as const)[status]
+}
+
 export type SupplyWorkingSaveResult = {
   requestVersion: number
   savedLines: Record<string, SupplyLine>

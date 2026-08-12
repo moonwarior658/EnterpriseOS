@@ -106,6 +106,8 @@
       N8N_RUNNERS_ENABLED: "true"
       GENERIC_TIMEZONE: Asia/Yekaterinburg
       TZ: Asia/Yekaterinburg
+      EOS_API_BASE_URL: ${EOS_API_BASE_URL}
+      PRINT_AGENT_URL: ${PRINT_AGENT_URL}
     healthcheck:
       test:
         - CMD

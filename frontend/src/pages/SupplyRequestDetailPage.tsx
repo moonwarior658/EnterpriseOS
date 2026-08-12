@@ -12,12 +12,15 @@ import {
   fulfillSupplyAsPlanned,
   getSupplyProductSourcePreview,
   getSupplyIikoDocuments,
+  getSupplyPrintJobs,
   getSupplyStockCalculation,
   getSupplyProducts,
   getSupplyRequest,
   getSupplyUnits,
   matchSupplyLine,
   openSupplyIikoDocumentPdf,
+  printSupplyRequest,
+  reprintSupplyRequest,
   confirmSupplyContextMapping,
   planSupplyRequest,
   recognizeSupplyRequest,
@@ -28,6 +31,7 @@ import {
   SupplyApiError,
   type SupplyLine,
   type SupplyIikoDocument,
+  type SupplyPrintJob,
   type SupplyProductSourcePreview,
   type SupplyProduct,
   type SupplyRequest,
@@ -50,6 +54,7 @@ import {
   supplyMatchProgress,
   supplyQuantityMillis,
   supplySendExcessMillis,
+  supplyPrintStatusLabel,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   suggestSupplyWorkingName,
@@ -492,6 +497,7 @@ function SupplyRequestDetailPage() {
   const [fulfillment, setFulfillment] = useState<Record<string, string>>({})
   const [sourcePreview, setSourcePreview] = useState<SupplyProductSourcePreview | null>(null)
   const [iikoDocuments, setIikoDocuments] = useState<SupplyIikoDocument[]>([])
+  const [printJobs, setPrintJobs] = useState<SupplyPrintJob[]>([])
   const [sourceState, setSourceState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   )
@@ -567,6 +573,12 @@ function SupplyRequestDetailPage() {
     return documents
   }
 
+  async function reloadPrintJobs(): Promise<SupplyPrintJob[]> {
+    const jobs = await getSupplyPrintJobs(requestId)
+    setPrintJobs(jobs)
+    return jobs
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => {
@@ -631,6 +643,30 @@ function SupplyRequestDetailPage() {
       })
       .catch(() => {
         if (!controller.signal.aborted) setIikoDocuments([])
+      })
+    return () => controller.abort()
+  }, [requestId])
+
+  useEffect(() => {
+    if (!printJobs.some((job) => (
+      job.status === 'QUEUED_FOR_PRINT' || job.status === 'PRINTING'
+    ))) return
+    const interval = window.setInterval(() => {
+      void getSupplyPrintJobs(requestId)
+        .then(setPrintJobs)
+        .catch(() => undefined)
+    }, 5_000)
+    return () => window.clearInterval(interval)
+  }, [printJobs, requestId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void getSupplyPrintJobs(requestId, controller.signal)
+      .then((jobs) => {
+        if (!controller.signal.aborted) setPrintJobs(jobs)
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPrintJobs([])
       })
     return () => controller.abort()
   }, [requestId])
@@ -801,6 +837,47 @@ function SupplyRequestDetailPage() {
         SUPPLY_IIKO_DOCUMENT_UNIT_UNRESOLVED:
           'Не удалось однозначно определить единицу товара.',
       } as Record<string, string>)[code ?? ''] ?? 'Не удалось сформировать PDF')
+    }
+  }
+
+  async function sendToPrint() {
+    if (busy || readOnly) return
+    setBusy(true)
+    setMessage('')
+    try {
+      await printSupplyRequest(requestId)
+      await reloadPrintJobs()
+      setMessage('Документ отправлен на печать')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_PRINT_NO_PRINTABLE_DOCUMENTS:
+          'Нет полностью подтверждённых документов для печати.',
+        SUPPLY_PRINT_PDF_CHANGED:
+          'Документ изменился. Печать заблокирована.',
+        SUPPLY_PRINT_PRINTER_NOT_ALLOWED:
+          'Принтер не разрешён для этого контура.',
+      } as Record<string, string>)[code ?? ''] ?? 'Не удалось отправить на печать')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reprint(jobId: string) {
+    if (busy || readOnly) return
+    setBusy(true)
+    setMessage('')
+    try {
+      await reprintSupplyRequest(requestId, jobId)
+      await reloadPrintJobs()
+      setMessage('Повторная печать поставлена в очередь')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(code === 'SUPPLY_PRINT_PDF_CHANGED'
+        ? 'Документ изменился. Повторная печать заблокирована.'
+        : 'Не удалось повторить печать')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1370,6 +1447,15 @@ function SupplyRequestDetailPage() {
                   Печать всех
                 </button>
               )}
+              {!readOnly && iikoDocuments.some((document) => document.printable) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void sendToPrint()}
+                >
+                  Отправить на печать
+                </button>
+              )}
             </div>
             <div className="supply-source-groups">
               {iikoDocuments.map((document) => (
@@ -1402,6 +1488,26 @@ function SupplyRequestDetailPage() {
                 </div>
               ))}
             </div>
+            {printJobs.length > 0 && (
+              <div className="supply-source-groups" aria-label="История печати">
+                <strong>История печати</strong>
+                {printJobs.map((job) => (
+                  <div className="supply-source-group" key={job.id}>
+                    <span>{supplyPrintStatusLabel(job.status)}</span>
+                    <small>{formatDate(job.created_at)}</small>
+                    {job.status === 'PRINT_FAILED' && !readOnly && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void reprint(job.id)}
+                      >
+                        Повторить печать
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

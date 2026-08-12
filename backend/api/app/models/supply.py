@@ -56,6 +56,18 @@ class SupplyStockCalculationAuditAction(StrEnum):
     RECALCULATED = "RECALCULATED"
 
 
+class SupplyPrintJobStatus(StrEnum):
+    QUEUED_FOR_PRINT = "QUEUED_FOR_PRINT"
+    PRINTING = "PRINTING"
+    PRINTED = "PRINTED"
+    PRINT_FAILED = "PRINT_FAILED"
+
+
+class SupplyPrintPurpose(StrEnum):
+    NORMAL = "NORMAL"
+    REPRINT = "REPRINT"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -1124,6 +1136,111 @@ class SupplyStockCalculationAuditEvent(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SupplyPrintJob(Base):
+    __tablename__ = "supply_print_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_supply_print_jobs_idempotency_key",
+        ),
+        CheckConstraint(
+            "copies = 2",
+            name="ck_supply_print_jobs_copies_two",
+        ),
+        CheckConstraint(
+            "printer_name = 'HP LaserJet Pro MFP M125rnw'",
+            name="ck_supply_print_jobs_production_printer",
+        ),
+        Index(
+            "ix_supply_print_jobs_request_created",
+            "tenant_id",
+            "supply_request_id",
+            "created_at",
+        ),
+        Index(
+            "uq_supply_print_jobs_normal_fingerprint",
+            "tenant_id",
+            "supply_request_id",
+            "pdf_fingerprint",
+            unique=True,
+            postgresql_where=text("purpose = 'NORMAL'"),
+            sqlite_where=text("purpose = 'NORMAL'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supply_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("supply_requests.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    iiko_document_write_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("iiko_document_writes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    automation_execution_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "automation_executions.execution_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    document_fingerprint: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    pdf_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    printer_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    copies: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    purpose: Mapped[SupplyPrintPurpose] = mapped_column(
+        SqlEnum(
+            SupplyPrintPurpose,
+            name="supply_print_purpose",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=16,
+        ),
+        nullable=False,
+    )
+    status: Mapped[SupplyPrintJobStatus] = mapped_column(
+        SqlEnum(
+            SupplyPrintJobStatus,
+            name="supply_print_job_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=32,
+        ),
+        nullable=False,
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    requested_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    last_error_code: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    queued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

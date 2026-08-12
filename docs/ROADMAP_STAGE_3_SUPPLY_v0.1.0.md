@@ -2,9 +2,9 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **11 августа 2026 года**
-Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4 — read-stock calculation завершён и подтверждён в production; Stage 3.1B / 5.3 реализован локально для `OUTGOING_INVOICE`, production confirmation остаётся отдельным шагом; POST `/api/v2/documents/internalTransfer` не подтверждён как create endpoint; весь Stage 3.1B не завершён**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B / 5 продолжается после локальной workflow-интеграции `OUTGOING_INVOICE`**
+Дата обновления: **12 августа 2026 года**
+Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4, 5.4A и 5.4B подтверждены в production; Stage 3.1B / 5.5 Print Agent + print queue реализуется текущим срезом; `INTERNAL_TRANSFER` отложен; весь Stage 3.1B не завершён**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B / 5 продолжается срезом 5.5 автоматической печати verified PDF**
 
 ---
 
@@ -1161,6 +1161,46 @@ read-back не выполняет POST и может обогатить суще
 перевести `UNKNOWN` / `PENDING` в `CREATED` только при единственном полном
 совпадении.
 
+Stage 3.1B / 5.4B подтверждён в production: EOS повторно проходит verified
+read-back boundary и строит canonical combined PDF всей заявки в порядке
+`MAIN → PACKAGING → HOUSEHOLD`, начиная каждый документ с новой страницы.
+
+Stage 3.1B / 5.5 — текущий локальный срез: persistent print job и existing
+Automation Core/outbox передают scoped reference на verified PDF через n8n в
+локальный Print Agent. Обычный повторный запрос дедуплицируется по request и
+fingerprint; explicit reprint создаёт новый job и idempotency key. Print Agent
+хранит durable SQLite registry до вызова backend и при неопределённом результате
+не выполняет слепой retry.
+
+Production printer contract 5.5:
+
+- Windows queue: `HP LaserJet Pro MFP M125rnw`;
+- driver: `HP LaserJet Pro MFP M125-M126 PCLmS`;
+- WSD port: `WSD-8c4720e8-beaa-4019-9e81-5a2ccddfce79`;
+- physical IP `192.168.0.14` хранится только как operational reference;
+- каждый print job всегда передаёт `copies=2`; selector принтера и copies в UI
+  отсутствуют; direct IP printing и printer discovery не входят в scope.
+
+Stage 3.1B / 5.4B подтверждён в production: EOS повторно проходит verified
+read-back boundary, строит canonical combined PDF всей заявки в порядке
+`MAIN → PACKAGING → HOUSEHOLD`, начиная каждый документ с новой страницы.
+
+Stage 3.1B / 5.5 — текущий локальный срез: persistent print job и existing
+Automation Core/outbox передают scoped reference на verified PDF через n8n в
+локальный Print Agent. Обычный повторный запрос дедуплицируется по request и
+fingerprint; explicit reprint создаёт новый job и idempotency key. Print Agent
+хранит durable SQLite registry до вызова backend и при неопределённом результате
+не выполняет слепой retry.
+
+Production printer contract 5.5:
+
+- Windows queue: `HP LaserJet Pro MFP M125rnw`;
+- driver: `HP LaserJet Pro MFP M125-M126 PCLmS`;
+- WSD port: `WSD-8c4720e8-beaa-4019-9e81-5a2ccddfce79`;
+- physical IP `192.168.0.14` хранится только как operational reference;
+- каждый print job всегда передаёт `copies=2`; selector принтера и copies в UI
+  отсутствуют; direct IP printing и printer discovery не входят в scope.
+
 Stage 3.1B / 5.3 реализован локально: действие «Отдать в работу» сохраняет
 существующий переход заявки в `PLANNED`, после его commit группирует строки по
 подтверждённому SOURCE/flow и вызывает только
@@ -1191,8 +1231,9 @@ Stage 3.1B / 5 или всего Stage 3.1B.
    retry после неопределённого результата остаётся запрещён fail closed.
 2. Отдельно подтвердить в production локально реализованную workflow-интеграцию
    Stage 3.1B / 5.3 без automatic retry и без `INTERNAL_TRANSFER` write.
-3. После этого передать документ по цепочке `n8n → Print Agent` для
-   автоматической печати.
+3. Провести отдельную production verification цепочки
+   `n8n → Print Agent → Windows queue`; текущая реализация production не
+   затрагивала.
 
 Эксплуатационная цель до отпуска — замкнуть цепочку:
 `автор заявки → mapping → SOURCE → stock calculation → iiko transfer document
@@ -1202,8 +1243,10 @@ Stage 3.1B / 5 или всего Stage 3.1B.
       строками, плановым и фактически переданным количеством.
 - [ ] Сформировать и подтвердить документ iiko через версионируемый provider,
       transactional outbox и идемпотентную обработку результата.
-- [ ] Сформировать PDF в EOS, передать его в Print Agent и сохранить статусы
-      и журнал печати.
+- [x] Локально сформировать verified PDF в EOS, поставить persistent print job
+      в Automation Core/outbox, передать scoped retrieval contract в Print
+      Agent и сохранить статусы и журнал печати; production verification
+      остаётся отдельным шагом.
 - [ ] Зафиксировать получателя и подтверждение фактической передачи.
 - [ ] Принять и сохранить возвращённый подписанный документ, связанный с
       версией перемещения и документа iiko.
@@ -1763,6 +1806,19 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 ---
 
 # Changelog
+
+## 2026-08-12
+
+- Stage 3.1B / 5.4A и 5.4B подтверждены в production; canonical combined PDF
+  строится только после полного authoritative read-back match.
+- Реализован локальный срез Stage 3.1B / 5.5: persistent print jobs,
+  transactional outbox, защищённый PDF retrieval с fingerprint guard,
+  idempotent callback, UI статусов и explicit reprint.
+- Добавлен локальный Windows Print Agent с whitelist одной queue, `copies=2`,
+  durable SQLite idempotency registry и заменяемым SumatraPDF 3.5.2 backend.
+- Зафиксирован production printer contract; direct IP printing не используется.
+- `INTERNAL_TRANSFER` остаётся отложенным. Production deployment и печать в
+  рамках этого среза не выполнялись.
 
 ## 2026-08-11
 

@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -44,8 +45,9 @@ def create_automation_execution(
     contract_version: str = "1.0",
     schedule_id: int | None = None,
     requested_at: datetime | None = None,
+    execution_id: UUID | None = None,
 ) -> AutomationExecution:
-    execution_id = uuid4()
+    execution_id = execution_id or uuid4()
     command_payload = dict(payload)
     execution = AutomationExecution(
         execution_id=execution_id,

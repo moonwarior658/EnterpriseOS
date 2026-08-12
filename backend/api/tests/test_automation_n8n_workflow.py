@@ -45,6 +45,28 @@ class AutomationN8nWorkflowTests(unittest.TestCase):
         self.assertEqual(settings["saveDataSuccessExecution"], "none")
         self.assertFalse(settings["saveManualExecutions"])
 
+    def test_print_job_branch_preserves_eos_contract(self) -> None:
+        workflows = json.loads(WORKFLOW_EXPORT.read_text(encoding="utf-8"))
+        workflow = workflows[0]
+        nodes = {node["name"]: node for node in workflow["nodes"]}
+        condition = nodes["Require supply.print_job"]["parameters"][
+            "conditions"
+        ]["conditions"][0]
+        self.assertEqual(condition["rightValue"], "supply.print_job")
+        retrieval = nodes["Get verified PDF"]["parameters"]["url"]
+        self.assertIn("pdf_retrieval.path", retrieval)
+        agent = nodes["Print through local agent"]
+        headers = agent["parameters"]["headerParameters"]["parameters"]
+        names = {item["name"] for item in headers}
+        self.assertEqual(names, {
+            "Content-Type", "X-Print-Job-Id", "Idempotency-Key",
+            "X-Printer-Name", "X-Copies",
+        })
+        serialized = json.dumps(workflow, ensure_ascii=False).lower()
+        self.assertNotIn("192.168.0.14", serialized)
+        self.assertNotIn("service_token", serialized)
+        self.assertIn("supply_print_failed", serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

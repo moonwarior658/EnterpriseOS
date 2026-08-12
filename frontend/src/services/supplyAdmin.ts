@@ -124,6 +124,24 @@ export type SupplyIikoDocument = {
   printable: boolean
 }
 
+export type SupplyPrintJob = {
+  id: string
+  supply_request_id: string
+  iiko_document_write_id: string | null
+  document_fingerprint: string
+  pdf_fingerprint: string
+  printer_name: string
+  copies: 2
+  purpose: 'NORMAL' | 'REPRINT'
+  status: 'QUEUED_FOR_PRINT' | 'PRINTING' | 'PRINTED' | 'PRINT_FAILED'
+  attempt_count: number
+  last_error_code: string | null
+  created_at: string
+  queued_at: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
 export type SupplyIikoSourceWarehouse = {
   mapping_id: string
   iiko_warehouse_id: string
@@ -644,6 +662,29 @@ export function getSupplyIikoDocuments(
   signal?: AbortSignal,
 ): Promise<SupplyIikoDocument[]> {
   return request(`/supply/requests/${requestId}/iiko-documents`, { signal })
+}
+
+export function getSupplyPrintJobs(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<SupplyPrintJob[]> {
+  return request(`/supply/requests/${requestId}/print-jobs`, {
+    cache: 'no-store', signal,
+  })
+}
+
+export function printSupplyRequest(requestId: string): Promise<SupplyPrintJob> {
+  return request(`/supply/requests/${requestId}/print`, { method: 'POST' })
+}
+
+export function reprintSupplyRequest(
+  requestId: string,
+  printJobId: string,
+): Promise<SupplyPrintJob> {
+  return request(
+    `/supply/requests/${requestId}/print-jobs/${printJobId}/reprint`,
+    { method: 'POST' },
+  )
 }
 
 export async function openSupplyIikoDocumentPdf(
