@@ -182,11 +182,11 @@ def _matches_expected_document_payload(
     except ValueError:
         return False
     actual_items = Counter(
-        (item.product_id, item.amount, item.price)
+        (item.product_id, item.amount)
         for item in actual.items
     )
     expected_items = Counter(
-        (item.product_id, item.amount, Decimal(item.price))
+        (item.product_id, item.amount)
         for item in expected.items
     )
     return (

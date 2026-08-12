@@ -429,14 +429,26 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
                 "IIKO_DOCUMENT_RECONCILIATION_AMBIGUOUS",
             )
 
-    async def test_nonzero_price_is_conflict(self):
-        await self._assert_reconciliation_conflict(items=(
-            IikoOutgoingInvoiceItemDto(
-                product_id=PRODUCT_ID,
-                amount=Decimal("1.250"),
-                price=Decimal("0.01"),
-            ),
-        ))
+    async def test_iiko_assigned_price_is_ignored_for_identity(self):
+        intent_id, document = self._seed_reconcilable_intent()
+        provider = ReconciliationProvider([
+            self._actual_invoice(
+                document,
+                items=(IikoOutgoingInvoiceItemDto(
+                    product_id=PRODUCT_ID,
+                    amount=Decimal("1.250"),
+                    price=Decimal("123.45"),
+                ),),
+            )
+        ])
+        with self.sessions() as session:
+            result = await reconcile_outgoing_invoice_intent(
+                session, provider, intent_id=intent_id
+            )
+        self.assertEqual(
+            result.outcome,
+            IikoDocumentReconciliationOutcome.FOUND_MATCH,
+        )
 
     async def test_changed_payload_hash_forbids_retry(self):
         intent_id, _ = self._seed_reconcilable_intent(
