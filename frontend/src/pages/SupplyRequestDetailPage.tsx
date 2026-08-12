@@ -41,6 +41,7 @@ import {
 import {
   clearSupplyLineMappingDraft,
   clearSupplyLineWorkingDraft,
+  findNormalSupplyPrintJob,
   formatSupplyQuantityMillis,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
@@ -52,9 +53,10 @@ import {
   supplyExpectedDebtMillis,
   supplyLineWorkingBaseline,
   supplyMatchProgress,
+  supplyPrintPurposeLabel,
+  supplyPrintStatusLabel,
   supplyQuantityMillis,
   supplySendExcessMillis,
-  supplyPrintStatusLabel,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   suggestSupplyWorkingName,
@@ -498,6 +500,9 @@ function SupplyRequestDetailPage() {
   const [sourcePreview, setSourcePreview] = useState<SupplyProductSourcePreview | null>(null)
   const [iikoDocuments, setIikoDocuments] = useState<SupplyIikoDocument[]>([])
   const [printJobs, setPrintJobs] = useState<SupplyPrintJob[]>([])
+  const [printJobsState, setPrintJobsState] = useState<
+    'loading' | 'ready' | 'error'
+  >('loading')
   const [sourceState, setSourceState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   )
@@ -558,6 +563,14 @@ function SupplyRequestDetailPage() {
   const hasBlockedStock = stockCalculation?.groups.some((group) => (
     group.lines.some((line) => line.unavailable_reason !== null)
   )) ?? false
+  const printableIikoDocuments = useMemo(
+    () => iikoDocuments.filter((document) => document.printable),
+    [iikoDocuments],
+  )
+  const normalPrintJob = useMemo(
+    () => findNormalSupplyPrintJob(printJobs),
+    [printJobs],
+  )
 
   async function reload(): Promise<SupplyRequest> {
     const item = await getSupplyRequest(requestId)
@@ -576,6 +589,7 @@ function SupplyRequestDetailPage() {
   async function reloadPrintJobs(): Promise<SupplyPrintJob[]> {
     const jobs = await getSupplyPrintJobs(requestId)
     setPrintJobs(jobs)
+    setPrintJobsState('ready')
     return jobs
   }
 
@@ -661,14 +675,26 @@ function SupplyRequestDetailPage() {
 
   useEffect(() => {
     const controller = new AbortController()
+    const loadingTimeout = window.setTimeout(() => {
+      if (!controller.signal.aborted) setPrintJobsState('loading')
+    }, 0)
     void getSupplyPrintJobs(requestId, controller.signal)
       .then((jobs) => {
-        if (!controller.signal.aborted) setPrintJobs(jobs)
+        if (!controller.signal.aborted) {
+          setPrintJobs(jobs)
+          setPrintJobsState('ready')
+        }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setPrintJobs([])
+        if (!controller.signal.aborted) {
+          setPrintJobs([])
+          setPrintJobsState('error')
+        }
       })
-    return () => controller.abort()
+    return () => {
+      window.clearTimeout(loadingTimeout)
+      controller.abort()
+    }
   }, [requestId])
 
   useEffect(() => {
@@ -841,13 +867,19 @@ function SupplyRequestDetailPage() {
   }
 
   async function sendToPrint() {
-    if (busy || readOnly) return
+    if (busy || readOnly || printJobsState !== 'ready') return
     setBusy(true)
     setMessage('')
     try {
-      await printSupplyRequest(requestId)
+      if (normalPrintJob) {
+        await reprintSupplyRequest(requestId, normalPrintJob.id)
+      } else {
+        await printSupplyRequest(requestId)
+      }
       await reloadPrintJobs()
-      setMessage('Документ отправлен на печать')
+      setMessage(normalPrintJob
+        ? 'Повторная печать поставлена в очередь'
+        : 'Документ отправлен на печать')
     } catch (error) {
       const code = error instanceof SupplyApiError ? error.code : null
       setMessage(({
@@ -1432,14 +1464,14 @@ function SupplyRequestDetailPage() {
           ) : null}
         </section>
 
-        {iikoDocuments.length > 0 && (
+        {(iikoDocuments.length > 0 || printJobs.length > 0) && (
           <section className="supply-stock-calculation" aria-label="Документы iiko">
             <div className="supply-iiko-stock-heading">
               <div>
                 <strong>Документы iiko</strong>
                 <small>Расходные накладные по SOURCE</small>
               </div>
-              {iikoDocuments.filter((document) => document.printable).length > 1 && (
+              {printableIikoDocuments.length > 0 && (
                 <button
                   type="button"
                   onClick={() => void downloadIikoPdf()}
@@ -1447,16 +1479,24 @@ function SupplyRequestDetailPage() {
                   Печать всех
                 </button>
               )}
-              {!readOnly && iikoDocuments.some((document) => document.printable) && (
+              {!readOnly && printableIikoDocuments.length > 0 && (
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || printJobsState !== 'ready'}
                   onClick={() => void sendToPrint()}
                 >
-                  Отправить на печать
+                  {normalPrintJob
+                    ? 'Отправить повторно'
+                    : 'Отправить на печать'}
                 </button>
               )}
             </div>
+            {!readOnly && printableIikoDocuments.length > 0
+              && printJobsState === 'error' && (
+              <small className="request-message-error">
+                Не удалось загрузить историю печати. Отправка временно недоступна.
+              </small>
+            )}
             <div className="supply-source-groups">
               {iikoDocuments.map((document) => (
                 <div
@@ -1493,8 +1533,9 @@ function SupplyRequestDetailPage() {
                 <strong>История печати</strong>
                 {printJobs.map((job) => (
                   <div className="supply-source-group" key={job.id}>
-                    <span>{supplyPrintStatusLabel(job.status)}</span>
-                    <small>{formatDate(job.created_at)}</small>
+                    <strong>{supplyPrintPurposeLabel(job.purpose)}</strong>
+                    <span>Статус: {supplyPrintStatusLabel(job.status)}</span>
+                    <small>Дата: {formatDate(job.created_at)}</small>
                     {job.status === 'PRINT_FAILED' && !readOnly && (
                       <button
                         type="button"

@@ -1,4 +1,9 @@
-import type { SupplyLine, SupplyProduct, SupplyUnit } from '../services/supplyAdmin'
+import type {
+  SupplyLine,
+  SupplyPrintJob,
+  SupplyProduct,
+  SupplyUnit,
+} from '../services/supplyAdmin'
 
 export type SupplyLineMappingDraft = {
   searchQuery: string
@@ -29,6 +34,18 @@ export function supplyPrintStatusLabel(
     PRINTED: 'Напечатано',
     PRINT_FAILED: 'Ошибка печати',
   } as const)[status]
+}
+
+export function supplyPrintPurposeLabel(
+  purpose: SupplyPrintJob['purpose'],
+): string {
+  return purpose === 'NORMAL' ? 'Обычная печать' : 'Повторная печать'
+}
+
+export function findNormalSupplyPrintJob(
+  jobs: SupplyPrintJob[],
+): SupplyPrintJob | null {
+  return jobs.find((job) => job.purpose === 'NORMAL') ?? null
 }
 
 export type SupplyWorkingSaveResult = {

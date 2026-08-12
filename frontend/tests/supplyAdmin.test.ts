@@ -30,6 +30,8 @@ import {
   supplySendExcessMillis,
   supplyMatchProgress,
   supplyPrintStatusLabel,
+  supplyPrintPurposeLabel,
+  findNormalSupplyPrintJob,
   suggestSupplyWorkingName,
   formatSupplyQuantityMillis,
   supplyQuantityMillis,
@@ -38,7 +40,11 @@ import {
   type SupplyLineMappingState,
   type SupplyLineWorkingState,
 } from '../src/pages/supplyRequestDetailLogic.ts'
-import type { SupplyLine, SupplyUnit } from '../src/services/supplyAdmin.ts'
+import type {
+  SupplyLine,
+  SupplyPrintJob,
+  SupplyUnit,
+} from '../src/services/supplyAdmin.ts'
 
 test('подключает защищённые маршруты реестра и карточки', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
@@ -58,6 +64,35 @@ test('статусы print job отображаются безопасными �
   assert.equal(supplyPrintStatusLabel('PRINTING'), 'Печатается')
   assert.equal(supplyPrintStatusLabel('PRINTED'), 'Напечатано')
   assert.equal(supplyPrintStatusLabel('PRINT_FAILED'), 'Ошибка печати')
+})
+
+test('повторная отправка использует normal job и история показывает тип', () => {
+  const normal = {
+    id: 'normal-job',
+    purpose: 'NORMAL',
+  } as SupplyPrintJob
+  const reprint = {
+    id: 'reprint-job',
+    purpose: 'REPRINT',
+  } as SupplyPrintJob
+
+  assert.equal(findNormalSupplyPrintJob([reprint, normal]), normal)
+  assert.equal(findNormalSupplyPrintJob([reprint]), null)
+  assert.equal(supplyPrintPurposeLabel('NORMAL'), 'Обычная печать')
+  assert.equal(supplyPrintPurposeLabel('REPRINT'), 'Повторная печать')
+})
+
+test('карточка разводит первую печать и reprint endpoint', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(detail, /if \(normalPrintJob\)/)
+  assert.match(detail, /reprintSupplyRequest\(requestId, normalPrintJob\.id\)/)
+  assert.match(detail, /Отправить повторно/)
+  assert.match(detail, /printJobsState !== 'ready'/)
+  assert.match(detail, /printableIikoDocuments\.length > 0/)
+  assert.match(detail, /iikoDocuments\.length > 0 \|\| printJobs\.length > 0/)
 })
 
 test('карточка сохраняет факт и readonly исполненной заявки', () => {
