@@ -339,7 +339,11 @@ def _register_fonts() -> tuple[str, str]:
 
 
 def _format_quantity(value: Decimal) -> str:
-    return format(value.normalize(), "f")
+    return f"{value:.3f}".replace(".", ",")
+
+
+def _print_product_name(value: str) -> str:
+    return value[2:] if value.startswith("т ") else value
 
 
 def _text(value: object) -> str:
@@ -364,95 +368,155 @@ def render_iiko_documents_pdf(
     styles = getSampleStyleSheet()
     normal = ParagraphStyle(
         "EOSNormal", parent=styles["Normal"], fontName=regular,
-        fontSize=10, leading=13,
+        fontSize=9, leading=11,
     )
     bold_style = ParagraphStyle(
         "EOSBold", parent=normal, fontName=bold,
     )
     title = ParagraphStyle(
-        "EOSTitle", parent=bold_style, fontSize=15, leading=19,
-        alignment=TA_CENTER, spaceAfter=5 * mm,
+        "EOSTitle", parent=bold_style, fontSize=14, leading=17,
+        alignment=TA_CENTER,
     )
-    small = ParagraphStyle(
-        "EOSSmall", parent=normal, fontSize=8, leading=10,
-        textColor=colors.HexColor("#555555"),
+    compact = ParagraphStyle(
+        "EOSCompact", parent=normal, fontSize=8, leading=10,
     )
     story = []
     for document_index, document in enumerate(documents):
         if document_index:
             story.append(PageBreak())
+        document_identity = Table(
+            [[Paragraph(
+                f"EnterpriseOS iiko {_text(document.document_number)}",
+                compact,
+            )]],
+            colWidths=[174 * mm],
+        )
+        document_identity.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.black),
+        ]))
+        document_metadata = Table(
+            [
+                [
+                    Paragraph("Номер документа", compact),
+                    Paragraph("Дата документа", compact),
+                ],
+                [
+                    Paragraph(_text(document.document_number), normal),
+                    Paragraph(document.document_date.strftime("%d.%m.%Y"), normal),
+                ],
+            ],
+            colWidths=[35 * mm, 35 * mm],
+            rowHeights=[6 * mm, 7 * mm],
+        )
+        document_metadata.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]))
+        title_block = Table(
+            [[
+                Paragraph("РАСХОДНАЯ НАКЛАДНАЯ", title),
+                document_metadata,
+            ]],
+            colWidths=[104 * mm, 70 * mm],
+        )
+        title_block.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
         story.extend([
+            document_identity,
+            Spacer(1, 5 * mm),
+            title_block,
+            Spacer(1, 6 * mm),
             Paragraph(
-                f"РАСХОДНАЯ НАКЛАДНАЯ №{_text(document.document_number)}",
-                title,
-            ),
-            Paragraph(
-                f"от {document.document_date.strftime('%d.%m.%Y')}",
-                ParagraphStyle("EOSDate", parent=normal, alignment=TA_CENTER),
-            ),
-            Spacer(1, 7 * mm),
-            Paragraph(
-                f"<b>Откуда:</b> {_text(document.source_store_name)}", normal
-            ),
-            Spacer(1, 2 * mm),
-            Paragraph(
-                f"<b>Куда:</b> {_text(document.destination_department_name)}",
+                f"<b>Поставщик:</b> {_text(document.source_store_name)}",
                 normal,
             ),
-            Spacer(1, 6 * mm),
+            Spacer(1, 1.5 * mm),
+            Paragraph(
+                f"<b>Получатель:</b> "
+                f"{_text(document.destination_department_name)}",
+                normal,
+            ),
+            Spacer(1, 1.5 * mm),
+            Paragraph(
+                f"<b>Склад:</b> {_text(document.source_store_name)}", normal
+            ),
+            Spacer(1, 1.5 * mm),
+            Paragraph("<b>Примечание:</b>", normal),
+            Spacer(1, 5 * mm),
         ])
         rows = [[
             Paragraph("№", bold_style),
-            Paragraph("Наименование", bold_style),
-            Paragraph("Артикул", bold_style),
+            Paragraph("Код", bold_style),
+            Paragraph("Продукт", bold_style),
+            Paragraph("Ед. изм.", bold_style),
             Paragraph("Количество", bold_style),
-            Paragraph("Ед.", bold_style),
         ]]
         rows.extend([
             [
                 str(line.position_number),
-                Paragraph(_text(line.product_name), normal),
                 Paragraph(_text(line.product_article or "—"), normal),
-                _format_quantity(line.quantity),
+                Paragraph(
+                    _text(_print_product_name(line.product_name)), normal
+                ),
                 Paragraph(_text(line.unit_name), normal),
+                _format_quantity(line.quantity),
             ]
             for line in document.lines
         ])
         table = Table(
             rows,
-            colWidths=[10 * mm, 78 * mm, 34 * mm, 34 * mm, 18 * mm],
+            colWidths=[9 * mm, 27 * mm, 82 * mm, 23 * mm, 33 * mm],
             repeatRows=1,
         )
         table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), regular),
             ("FONTNAME", (0, 0), (-1, 0), bold),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("LEADING", (0, 0), (-1, -1), 11),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#777777")),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeea")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("LEADING", (0, 0), (-1, -1), 10),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN", (0, 0), (0, -1), "CENTER"),
-            ("ALIGN", (3, 1), (4, -1), "RIGHT"),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (0, 1), (1, -1), "CENTER"),
+            ("ALIGN", (3, 1), (3, -1), "CENTER"),
+            ("ALIGN", (4, 1), (4, -1), "RIGHT"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        signature_table = Table(
+            [[
+                Paragraph("Отпустил __________________________", normal),
+                Paragraph("Получил ___________________________", normal),
+            ]],
+            colWidths=[87 * mm, 87 * mm],
+        )
+        signature_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (0, 0), 0),
+            ("RIGHTPADDING", (0, 0), (0, 0), 5 * mm),
+            ("LEFTPADDING", (1, 0), (1, 0), 5 * mm),
+            ("RIGHTPADDING", (1, 0), (1, 0), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ]))
         story.extend([
             table,
-            Spacer(1, 12 * mm),
+            Spacer(1, 10 * mm),
             KeepTogether([
-                Paragraph("Отпустил: ______________________", normal),
-                Spacer(1, 5 * mm),
-                Paragraph("Получил: _______________________", normal),
-                Spacer(1, 5 * mm),
-                Paragraph("Дата получения: _______________", normal),
-                Spacer(1, 5 * mm),
-                Paragraph("Подпись: _______________________", normal),
-                Spacer(1, 8 * mm),
-                Paragraph(
-                    f"EnterpriseOS &nbsp;&nbsp; iiko document №"
-                    f"{_text(document.document_number)}",
-                    small,
-                ),
+                signature_table,
             ]),
         ])
 

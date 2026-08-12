@@ -3,6 +3,7 @@ import re
 import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -65,6 +66,8 @@ from app.supply.iiko_document_pdf import (
     SupplyIikoPrintableDocument,
     SupplyIikoPrintableLine,
     build_printable_iiko_documents,
+    _format_quantity,
+    _print_product_name,
     render_iiko_documents_pdf,
 )
 from app.supply.service import SupplyRequestNotFoundError
@@ -561,8 +564,18 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             destination_department_name="Матросова 15",
             counteragent_representation="Матросова 15",
             lines=(
-                SupplyIikoPrintableLine(1, product_id, "A-1", "Молоко", Decimal("3"), "шт"),
-                SupplyIikoPrintableLine(2, product_id, "A-1", "Молоко", Decimal("10"), "шт"),
+                SupplyIikoPrintableLine(
+                    1,
+                    product_id,
+                    "A-1",
+                    "т Сухие сливки или молоко для кофемашины "
+                    "с особенно длинным наименованием товара",
+                    Decimal("3"),
+                    "кг",
+                ),
+                SupplyIikoPrintableLine(
+                    2, product_id, "A-1", "т Молоко", Decimal("10"), "кг"
+                ),
             ),
             iiko_document_id=uuid4(),
             supply_request_id=uuid4(),
@@ -574,7 +587,90 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             [line.quantity for line in document.lines],
             [Decimal("3"), Decimal("10")],
         )
-        self.assertTrue(render_iiko_documents_pdf((document,)).content.startswith(b"%PDF-"))
+        paragraph_texts = []
+        from app.supply import iiko_document_pdf
+        original_paragraph = iiko_document_pdf.Paragraph
+
+        def recording_paragraph(text, *args, **kwargs):
+            paragraph_texts.append(text)
+            return original_paragraph(text, *args, **kwargs)
+
+        with patch(
+            "app.supply.iiko_document_pdf.Paragraph",
+            side_effect=recording_paragraph,
+        ):
+            pdf = render_iiko_documents_pdf((document,)).content
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+        self.assertIn("EnterpriseOS iiko 2713", paragraph_texts)
+        self.assertIn("РАСХОДНАЯ НАКЛАДНАЯ", paragraph_texts)
+        self.assertIn("Номер документа", paragraph_texts)
+        self.assertIn("Дата документа", paragraph_texts)
+        self.assertIn("Код", paragraph_texts)
+        self.assertIn("Продукт", paragraph_texts)
+        self.assertIn("Ед. изм.", paragraph_texts)
+        self.assertIn("Количество", paragraph_texts)
+        self.assertIn("Молоко", paragraph_texts)
+        self.assertIn(
+            "Сухие сливки или молоко для кофемашины "
+            "с особенно длинным наименованием товара",
+            paragraph_texts,
+        )
+        self.assertNotIn("т Молоко", paragraph_texts)
+        self.assertFalse(any("iiko document" in text for text in paragraph_texts))
+        forbidden_financial_labels = (
+            "Цена",
+            "Стоимость",
+            "Итого",
+            "НДС",
+            "Всего по накладной",
+        )
+        self.assertFalse(any(
+            label in text
+            for text in paragraph_texts
+            for label in forbidden_financial_labels
+        ))
+
+    def test_pdf_presentation_transforms_only_known_prefix_and_quantity(self):
+        self.assertEqual(_print_product_name("т Молоко"), "Молоко")
+        self.assertEqual(_print_product_name("Т Молоко"), "Т Молоко")
+        self.assertEqual(_print_product_name("товар"), "товар")
+        self.assertEqual(_format_quantity(Decimal("5")), "5,000")
+        self.assertEqual(_format_quantity(Decimal("2.5")), "2,500")
+
+    def test_long_invoice_continues_on_next_a4_page(self):
+        product_id = uuid4()
+        document = SupplyIikoPrintableDocument(
+            document_number="2799",
+            document_date=datetime(2026, 8, 12, tzinfo=timezone.utc).date(),
+            document_status="NEW",
+            source_store_id=uuid4(),
+            source_store_name="Основной склад",
+            destination_department_name="Матросова 15",
+            counteragent_representation="Матросова 15",
+            lines=tuple(
+                SupplyIikoPrintableLine(
+                    position,
+                    product_id,
+                    "A-1",
+                    "т Длинное наименование товара для проверки переноса "
+                    "внутри строки таблицы",
+                    Decimal(position),
+                    "кг",
+                )
+                for position in range(1, 61)
+            ),
+            iiko_document_id=uuid4(),
+            supply_request_id=uuid4(),
+            flow=SupplyProductSourceRole.MAIN,
+            version_fingerprint="a" * 64,
+        )
+        pdf = render_iiko_documents_pdf((document,)).content
+        page_count = len(re.findall(rb"/Type\s*/Page\b", pdf))
+        self.assertGreater(page_count, 1)
+        self.assertRegex(
+            pdf,
+            rb"/MediaBox\s*\[\s*0\s+0\s+595\.2756\s+841\.8898\s*\]",
+        )
 
     async def test_combined_pdf_is_flow_ordered_and_starts_each_document_on_new_page(self):
         request_id = self._create_request((
