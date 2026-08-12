@@ -1,6 +1,7 @@
 import os
 import re
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
@@ -65,6 +66,7 @@ from app.supply.iiko_document_pdf import (
     SupplyIikoDocumentPrintError,
     SupplyIikoPrintableDocument,
     SupplyIikoPrintableLine,
+    _fingerprint,
     build_printable_iiko_documents,
     _format_quantity,
     _print_product_name,
@@ -629,6 +631,40 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             for text in paragraph_texts
             for label in forbidden_financial_labels
         ))
+
+    def test_document_status_does_not_change_pdf_fingerprints(self):
+        document = SupplyIikoPrintableDocument(
+            document_number="2713",
+            document_date=datetime(2026, 8, 12, tzinfo=timezone.utc).date(),
+            document_status="NEW",
+            source_store_id=uuid4(),
+            source_store_name="Основной склад",
+            destination_department_name="Матросова 15",
+            counteragent_representation="Матросова 15",
+            lines=(SupplyIikoPrintableLine(
+                1, uuid4(), "A-1", "т Молоко", Decimal("1"), "кг"
+            ),),
+            iiko_document_id=uuid4(),
+            supply_request_id=uuid4(),
+            flow=SupplyProductSourceRole.MAIN,
+            version_fingerprint="",
+        )
+        processed = replace(document, document_status="PROCESSED")
+        self.assertEqual(_fingerprint(document), _fingerprint(processed))
+
+        second = replace(
+            document,
+            document_number="2714",
+            flow=SupplyProductSourceRole.PACKAGING,
+            iiko_document_id=uuid4(),
+        )
+        before = render_iiko_documents_pdf((document, second))
+        after = render_iiko_documents_pdf((
+            processed,
+            replace(second, document_status="PROCESSED"),
+        ))
+        self.assertEqual(before.version_fingerprint, after.version_fingerprint)
+        self.assertEqual(before.content, after.content)
 
     def test_pdf_presentation_transforms_only_known_prefix_and_quantity(self):
         self.assertEqual(_print_product_name("т Молоко"), "Молоко")

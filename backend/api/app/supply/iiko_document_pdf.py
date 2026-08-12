@@ -96,6 +96,7 @@ _FLOW_ORDER = {
 def _fingerprint(document: SupplyIikoPrintableDocument) -> str:
     normalized = asdict(document)
     normalized.pop("version_fingerprint")
+    normalized.pop("document_status")
     payload = json.dumps(
         normalized,
         ensure_ascii=False,
@@ -545,7 +546,7 @@ def render_iiko_documents_pdf(
                 {
                     key: value
                     for key, value in asdict(item).items()
-                    if key != "version_fingerprint"
+                    if key not in {"version_fingerprint", "document_status"}
                 }
                 for item in documents
             ],
