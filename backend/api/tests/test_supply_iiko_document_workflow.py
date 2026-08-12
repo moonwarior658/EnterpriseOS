@@ -1,5 +1,7 @@
 import os
+import re
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -15,7 +17,11 @@ from sqlalchemy.pool import StaticPool
 from app.api.routes.supply import read_request_iiko_documents
 from app.integrations.iiko.document_routing import resolve_outgoing_invoice_route
 from app.integrations.iiko.exceptions import IikoConnectionError, IikoResponseError
-from app.integrations.iiko.schemas import IikoOutgoingInvoiceCreateResultDto
+from app.integrations.iiko.schemas import (
+    IikoOutgoingInvoiceCreateResultDto,
+    IikoOutgoingInvoiceDto,
+    IikoOutgoingInvoiceItemDto,
+)
 from app.models.iiko import (
     IikoDocumentWrite,
     IikoDocumentWriteStatus,
@@ -54,6 +60,14 @@ from app.supply.iiko_documents import (
     SupplyInternalTransferWriteUnsupportedError,
     plan_supply_request_with_iiko_documents,
 )
+from app.supply.iiko_document_pdf import (
+    SupplyIikoDocumentPrintError,
+    SupplyIikoPrintableDocument,
+    SupplyIikoPrintableLine,
+    build_printable_iiko_documents,
+    render_iiko_documents_pdf,
+)
+from app.supply.service import SupplyRequestNotFoundError
 
 
 TENANT_ID = "eclair"
@@ -95,6 +109,16 @@ class RecordingProvider:
     async def create_incoming_invoice(self, document):
         self.incoming_calls.append(document)
         raise AssertionError("EOS must not create linked incoming invoices")
+
+
+class ReadBackProvider:
+    def __init__(self, invoices) -> None:
+        self.invoices = invoices
+        self.calls = []
+
+    async def get_outgoing_invoices(self, *, date_from, date_to):
+        self.calls.append((date_from, date_to))
+        return self.invoices
 
 
 class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -139,6 +163,7 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.user_id = 1
         self.unit_id = uuid4()
+        self.iiko_unit_id = uuid4()
         self.direction_id = uuid4()
         with self.sessions.begin() as session:
             session.add(User(
@@ -166,7 +191,7 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             ))
             session.add(IikoUnitMapping(
                 tenant_id=TENANT_ID,
-                iiko_unit_id=uuid4(),
+                iiko_unit_id=self.iiko_unit_id,
                 eos_unit_id=self.unit_id,
                 status=IikoMappingStatus.CONFIRMED,
                 source_name="кг",
@@ -229,6 +254,8 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                     eos_product_id=product_id,
                     status=IikoMappingStatus.CONFIRMED,
                     source_name=f"Товар {position}",
+                    source_code=f"ART-{position}",
+                    source_unit_id=self.iiko_unit_id,
                     is_deleted=False,
                     reasons=[],
                 ))
@@ -309,6 +336,36 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 .where(IikoDocumentWrite.supply_request_id == request_id)
                 .order_by(IikoDocumentWrite.source_store_id)
             ).all())
+
+    def _confirm_read_back(self, request_id):
+        invoices = []
+        with self.sessions.begin() as session:
+            writes = list(session.scalars(select(IikoDocumentWrite).where(
+                IikoDocumentWrite.supply_request_id == request_id
+            )).all())
+            for write in writes:
+                authoritative_id = uuid4()
+                write.iiko_document_id = authoritative_id
+                payload = write.expected_payload
+                invoices.append(IikoOutgoingInvoiceDto(
+                    external_id=str(authoritative_id),
+                    document_number=write.iiko_document_number,
+                    date_incoming=payload["date_incoming"],
+                    status="NEW",
+                    counteragent_id=payload["counteragent_id"],
+                    default_store_id=payload["default_store_id"],
+                    account_to_code=payload["account_to_code"],
+                    revenue_account_code=payload["revenue_account_code"],
+                    items=tuple(
+                        IikoOutgoingInvoiceItemDto(
+                            product_id=item["product_id"],
+                            amount=item["amount"],
+                            price=item["price"],
+                        )
+                        for item in payload["items"]
+                    ),
+                ))
+        return ReadBackProvider(invoices)
 
     async def test_groups_one_two_and_three_flows_by_source(self):
         cases = (
@@ -443,6 +500,148 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 session.scalar(select(IikoDocumentWrite.document_type)),
                 "OUTGOING_INVOICE",
             )
+
+    async def test_verified_read_back_builds_one_line_pdf_from_iiko_quantity(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._confirm_read_back(request_id)
+        with self.sessions.begin() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            line.quantity = Decimal("99")
+            line.send_quantity = Decimal("99")
+        with self.sessions() as session:
+            documents = await build_printable_iiko_documents(
+                session,
+                provider,
+                tenant_id=TENANT_ID,
+                request_id=request_id,
+            )
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].lines[0].quantity, Decimal("1"))
+        self.assertEqual(documents[0].lines[0].product_name, "Товар 1")
+        self.assertEqual(documents[0].lines[0].product_article, "ART-1")
+        self.assertEqual(documents[0].lines[0].unit_name, "кг")
+        self.assertEqual(len(documents[0].version_fingerprint), 64)
+        first = render_iiko_documents_pdf(documents)
+        second = render_iiko_documents_pdf(documents)
+        self.assertTrue(first.content.startswith(b"%PDF-"))
+        self.assertEqual(first.content, second.content)
+        self.assertNotIn(b"price", first.content.lower())
+        self.assertNotIn(b"vat", first.content.lower())
+
+    async def test_verified_multi_line_invoice_keeps_read_back_order(self):
+        request_id = self._create_request((
+            SupplyProductSourceRole.MAIN,
+            SupplyProductSourceRole.MAIN,
+        ))
+        await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._confirm_read_back(request_id)
+        with self.sessions() as session:
+            documents = await build_printable_iiko_documents(
+                session,
+                provider,
+                tenant_id=TENANT_ID,
+                request_id=request_id,
+            )
+        self.assertEqual(
+            [line.quantity for line in documents[0].lines],
+            [Decimal("1"), Decimal("2")],
+        )
+
+    def test_duplicate_product_lines_are_not_aggregated(self):
+        product_id = uuid4()
+        document = SupplyIikoPrintableDocument(
+            document_number="2713",
+            document_date=datetime(2026, 8, 12, tzinfo=timezone.utc).date(),
+            document_status="NEW",
+            source_store_id=uuid4(),
+            source_store_name="Основной склад",
+            destination_department_name="Матросова 15",
+            counteragent_representation="Матросова 15",
+            lines=(
+                SupplyIikoPrintableLine(1, product_id, "A-1", "Молоко", Decimal("3"), "шт"),
+                SupplyIikoPrintableLine(2, product_id, "A-1", "Молоко", Decimal("10"), "шт"),
+            ),
+            iiko_document_id=uuid4(),
+            supply_request_id=uuid4(),
+            flow=SupplyProductSourceRole.MAIN,
+            version_fingerprint="a" * 64,
+        )
+        self.assertEqual(len(document.lines), 2)
+        self.assertEqual(
+            [line.quantity for line in document.lines],
+            [Decimal("3"), Decimal("10")],
+        )
+        self.assertTrue(render_iiko_documents_pdf((document,)).content.startswith(b"%PDF-"))
+
+    async def test_combined_pdf_is_flow_ordered_and_starts_each_document_on_new_page(self):
+        request_id = self._create_request((
+            SupplyProductSourceRole.HOUSEHOLD,
+            SupplyProductSourceRole.MAIN,
+            SupplyProductSourceRole.PACKAGING,
+        ))
+        await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._confirm_read_back(request_id)
+        with self.sessions() as session:
+            documents = await build_printable_iiko_documents(
+                session,
+                provider,
+                tenant_id=TENANT_ID,
+                request_id=request_id,
+            )
+        self.assertEqual(
+            [document.flow for document in documents],
+            [
+                SupplyProductSourceRole.MAIN,
+                SupplyProductSourceRole.PACKAGING,
+                SupplyProductSourceRole.HOUSEHOLD,
+            ],
+        )
+        result = render_iiko_documents_pdf(documents)
+        page_count = len(re.findall(rb"/Type\s*/Page\b", result.content))
+        self.assertEqual(page_count, 3)
+
+    async def test_pdf_fails_closed_when_authoritative_read_back_is_missing(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        await self._plan(request_id, RecordingProvider(self.sessions))
+        self._confirm_read_back(request_id)
+        with self.sessions() as session:
+            with self.assertRaisesRegex(
+                SupplyIikoDocumentPrintError,
+                "SUPPLY_IIKO_DOCUMENT_READBACK_NOT_FOUND",
+            ):
+                await build_printable_iiko_documents(
+                    session,
+                    ReadBackProvider([]),
+                    tenant_id=TENANT_ID,
+                    request_id=request_id,
+                )
+
+    async def test_pdf_tenant_and_document_uuid_are_request_scoped(self):
+        first_request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        second_request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        await self._plan(first_request_id, RecordingProvider(self.sessions))
+        await self._plan(second_request_id, RecordingProvider(self.sessions))
+        second_write = self._writes(second_request_id)[0]
+        with self.sessions() as session:
+            with self.assertRaises(SupplyRequestNotFoundError):
+                await build_printable_iiko_documents(
+                    session,
+                    ReadBackProvider([]),
+                    tenant_id="another-tenant",
+                    request_id=first_request_id,
+                )
+        with self.sessions() as session:
+            with self.assertRaises(SupplyRequestNotFoundError):
+                await build_printable_iiko_documents(
+                    session,
+                    ReadBackProvider([]),
+                    tenant_id=TENANT_ID,
+                    request_id=first_request_id,
+                    document_write_id=second_write.id,
+                )
 
 
 if __name__ == "__main__":

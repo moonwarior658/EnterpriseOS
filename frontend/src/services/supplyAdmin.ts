@@ -112,6 +112,7 @@ export type SupplyRequest = SupplyRequestSummary & {
 }
 
 export type SupplyIikoDocument = {
+  document_write_id: string
   document_type: 'OUTGOING_INVOICE'
   source_store_id: string
   flow: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD'
@@ -120,6 +121,7 @@ export type SupplyIikoDocument = {
   document_number: string | null
   error_code: string | null
   operator_message: string | null
+  printable: boolean
 }
 
 export type SupplyIikoSourceWarehouse = {
@@ -642,6 +644,38 @@ export function getSupplyIikoDocuments(
   signal?: AbortSignal,
 ): Promise<SupplyIikoDocument[]> {
   return request(`/supply/requests/${requestId}/iiko-documents`, { signal })
+}
+
+export async function openSupplyIikoDocumentPdf(
+  requestId: string,
+  documentWriteId?: string,
+): Promise<void> {
+  const token = getStoredToken()
+  if (!token) throw new SupplyApiError('Сессия не найдена', null, null)
+  const suffix = documentWriteId
+    ? `/iiko-documents/${documentWriteId}/pdf`
+    : '/iiko-documents/pdf'
+  const response = await fetch(`/api/supply/requests/${requestId}${suffix}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf' },
+  })
+  if (!response.ok) {
+    let code: string | null = null
+    try {
+      const body = await response.json() as { detail?: unknown }
+      code = typeof body.detail === 'string' ? body.detail : null
+    } catch {
+      // Keep the safe generic error when the response is not JSON.
+    }
+    throw new SupplyApiError('Не удалось сформировать PDF', code, null)
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = documentWriteId
+    ? `supply-${requestId}-${documentWriteId}.pdf`
+    : `supply-${requestId}-iiko-documents.pdf`
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export function cancelSupplyRequest(

@@ -68,6 +68,10 @@ class IikoDocumentReconciliationConflictError(IikoDocumentIntentError):
     pass
 
 
+class IikoDocumentAuthoritativeReadBackError(IikoDocumentIntentError):
+    pass
+
+
 class IikoDocumentReconciliationOutcome(StrEnum):
     CREATED = "CREATED"
     FOUND_MATCH = "FOUND_MATCH"
@@ -241,6 +245,45 @@ def match_authoritative_outgoing_invoice(
         invoice=invoice,
         iiko_document_id=iiko_document_id,
     )
+
+
+async def read_verified_outgoing_invoice(
+    provider: IikoProvider,
+    *,
+    intent: IikoDocumentWrite,
+) -> IikoOutgoingInvoiceDto:
+    if (
+        intent.document_type != IikoDocumentType.OUTGOING_INVOICE
+        or intent.status != IikoDocumentWriteStatus.CREATED
+        or intent.iiko_document_id is None
+    ):
+        raise IikoDocumentAuthoritativeReadBackError(
+            "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
+        )
+    expected = _document_from_intent(intent)
+    document_date = expected.date_incoming.date()
+    invoices = await provider.get_outgoing_invoices(
+        date_from=document_date - timedelta(days=1),
+        date_to=document_date + timedelta(days=1),
+    )
+    read_back = match_authoritative_outgoing_invoice(
+        intent,
+        expected,
+        invoices,
+    )
+    if read_back.outcome == IikoOutgoingInvoiceReadBackOutcome.NOT_FOUND:
+        raise IikoDocumentAuthoritativeReadBackError(
+            "SUPPLY_IIKO_DOCUMENT_READBACK_NOT_FOUND"
+        )
+    if (
+        read_back.outcome != IikoOutgoingInvoiceReadBackOutcome.VERIFIED_MATCH
+        or read_back.invoice is None
+        or read_back.iiko_document_id != intent.iiko_document_id
+    ):
+        raise IikoDocumentAuthoritativeReadBackError(
+            "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
+        )
+    return read_back.invoice
 
 
 async def reconcile_outgoing_invoice_intent(

@@ -10,13 +10,14 @@ from app.api.dependencies import (
     get_current_admin,
     require_request_view_access,
 )
-from app.api.routes.iiko import get_iiko_provider
+from app.api.routes.iiko import get_iiko_provider, integration_error
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.document_routing import (
     outgoing_invoice_flow_for_source_store,
 )
 from app.integrations.iiko.provider import IikoProvider
+from app.integrations.iiko.exceptions import IikoError
 from app.models.iiko import IikoDocumentWriteStatus
 from app.models.supply import (
     Department,
@@ -213,6 +214,10 @@ from app.supply.iiko_documents import (
     SupplyInternalTransferWriteUnsupportedError,
     list_supply_iiko_document_writes,
     plan_supply_request_with_iiko_documents,
+)
+from app.supply.iiko_document_pdf import (
+    SupplyIikoDocumentPrintError,
+    create_iiko_documents_pdf,
 )
 from app.supply.source_mapping import (
     SupplyProductSourceConcurrentAssignmentError,
@@ -1001,6 +1006,7 @@ def read_request_iiko_documents(
         raise _not_found() from error
     documents = [
         SupplyIikoDocumentRead(
+            document_write_id=write.id,
             document_type=write.document_type,
             source_store_id=write.source_store_id,
             flow=outgoing_invoice_flow_for_source_store(
@@ -1022,6 +1028,10 @@ def read_request_iiko_documents(
                     else None
                 )
             ),
+            printable=(
+                write.status == IikoDocumentWriteStatus.CREATED
+                and write.iiko_document_id is not None
+            ),
         )
         for write in writes
     ]
@@ -1029,6 +1039,87 @@ def read_request_iiko_documents(
     return sorted(
         documents,
         key=lambda document: flow_order[document.flow.value],
+    )
+
+
+def _iiko_pdf_error(error: SupplyIikoDocumentPrintError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=error.code,
+    )
+
+
+def _iiko_pdf_response(content: bytes, fingerprint: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-EOS-Print-Version": fingerprint,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
+    "/requests/{request_id}/iiko-documents/{document_write_id}/pdf",
+    response_class=Response,
+)
+async def read_request_iiko_document_pdf(
+    request_id: UUID,
+    document_write_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> Response:
+    try:
+        result = await create_iiko_documents_pdf(
+            db,
+            provider,
+            tenant_id=current_user.tenant_id,
+            request_id=request_id,
+            document_write_id=document_write_id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyIikoDocumentPrintError as error:
+        raise _iiko_pdf_error(error) from error
+    except IikoError as error:
+        raise integration_error(error) from error
+    return _iiko_pdf_response(
+        result.content,
+        result.version_fingerprint,
+        f"supply-{request_id}-{document_write_id}.pdf",
+    )
+
+
+@router.get(
+    "/requests/{request_id}/iiko-documents/pdf",
+    response_class=Response,
+)
+async def read_request_iiko_documents_pdf(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_request_view_access)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> Response:
+    try:
+        result = await create_iiko_documents_pdf(
+            db,
+            provider,
+            tenant_id=current_user.tenant_id,
+            request_id=request_id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyIikoDocumentPrintError as error:
+        raise _iiko_pdf_error(error) from error
+    except IikoError as error:
+        raise integration_error(error) from error
+    return _iiko_pdf_response(
+        result.content,
+        result.version_fingerprint,
+        f"supply-{request_id}-iiko-documents.pdf",
     )
 
 

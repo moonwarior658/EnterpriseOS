@@ -17,6 +17,7 @@ import {
   getSupplyRequest,
   getSupplyUnits,
   matchSupplyLine,
+  openSupplyIikoDocumentPdf,
   confirmSupplyContextMapping,
   planSupplyRequest,
   recognizeSupplyRequest,
@@ -782,6 +783,27 @@ function SupplyRequestDetailPage() {
     }
   }
 
+  async function downloadIikoPdf(documentWriteId?: string) {
+    setMessage('')
+    try {
+      await openSupplyIikoDocumentPdf(requestId, documentWriteId)
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED:
+          'Документ ещё не подтверждён по данным iiko.',
+        SUPPLY_IIKO_DOCUMENT_READBACK_NOT_FOUND:
+          'Документ не найден при повторном чтении iiko.',
+        SUPPLY_IIKO_DOCUMENT_PRINT_DATA_INCOMPLETE:
+          'Недостаточно подтверждённых данных для печати.',
+        SUPPLY_IIKO_DOCUMENT_PRODUCT_UNRESOLVED:
+          'Не удалось однозначно определить название товара.',
+        SUPPLY_IIKO_DOCUMENT_UNIT_UNRESOLVED:
+          'Не удалось однозначно определить единицу товара.',
+      } as Record<string, string>)[code ?? ''] ?? 'Не удалось сформировать PDF')
+    }
+  }
+
   async function cancel() {
     if (!request || busy) return
     const reason = window.prompt('Укажите причину отмены')
@@ -1340,6 +1362,14 @@ function SupplyRequestDetailPage() {
                 <strong>Документы iiko</strong>
                 <small>Расходные накладные по SOURCE</small>
               </div>
+              {iikoDocuments.filter((document) => document.printable).length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => void downloadIikoPdf()}
+                >
+                  Печать всех
+                </button>
+              )}
             </div>
             <div className="supply-source-groups">
               {iikoDocuments.map((document) => (
@@ -1358,6 +1388,16 @@ function SupplyRequestDetailPage() {
                   )}
                   {document.status === 'FAILED' && document.error_code && (
                     <small>Код ошибки: {document.error_code}</small>
+                  )}
+                  {document.printable && (
+                    <button
+                      type="button"
+                      onClick={() => void downloadIikoPdf(
+                        document.document_write_id,
+                      )}
+                    >
+                      PDF
+                    </button>
                   )}
                 </div>
               ))}

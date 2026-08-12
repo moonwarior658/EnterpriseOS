@@ -922,6 +922,7 @@ class SupplyRequestRead(BaseModel):
 
 
 class SupplyIikoDocumentRead(BaseModel):
+    document_write_id: UUID
     document_type: IikoDocumentType
     source_store_id: UUID
     flow: SupplyProductSourceRole
@@ -930,6 +931,7 @@ class SupplyIikoDocumentRead(BaseModel):
     document_number: str | None
     error_code: str | None
     operator_message: str | None
+    printable: bool
 
 
 class SupplyIikoSourceWarehouseRead(BaseModel):
