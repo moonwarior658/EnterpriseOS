@@ -11,6 +11,7 @@ from app.integrations.iiko.document_intent import (
     IikoDocumentReconciliationRequiredError,
     IikoDocumentRetryNotAllowedError,
     create_persistent_outgoing_invoice,
+    reconcile_outgoing_invoice_intent,
 )
 from app.integrations.iiko.document_routing import (
     internal_transfer_flows_for_department,
@@ -22,6 +23,7 @@ from app.integrations.iiko.provider import IikoProvider
 from app.models.iiko import (
     IikoDocumentType,
     IikoDocumentWrite,
+    IikoDocumentWriteStatus,
     IikoMappingStatus,
     IikoProductMapping,
     IikoUnitMapping,
@@ -273,7 +275,7 @@ async def plan_supply_request_with_iiko_documents(
 
     for group in groups:
         try:
-            await create_persistent_outgoing_invoice(
+            intent = await create_persistent_outgoing_invoice(
                 session,
                 provider,
                 supply_request_id=request_id,
@@ -282,6 +284,15 @@ async def plan_supply_request_with_iiko_documents(
                 flow=group.flow,
                 lines=group.lines,
             )
+            if (
+                intent.status == IikoDocumentWriteStatus.CREATED
+                and intent.iiko_document_id is None
+            ):
+                await reconcile_outgoing_invoice_intent(
+                    session,
+                    provider,
+                    intent_id=intent.id,
+                )
         except (
             IikoDocumentReconciliationRequiredError,
             IikoDocumentRetryNotAllowedError,

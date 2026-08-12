@@ -93,6 +93,9 @@ test('карточка разводит первую печать и reprint end
   assert.match(detail, /printJobsState !== 'ready'/)
   assert.match(detail, /printableIikoDocuments\.length > 0/)
   assert.match(detail, /iikoDocuments\.length > 0 \|\| printJobs\.length > 0/)
+  assert.match(detail, /document\.operator_message/)
+  assert.match(detail, /document\) => !document\.printable/)
+  assert.match(detail, /Проверить документы в iiko/)
 })
 
 test('карточка сохраняет факт и readonly исполненной заявки', () => {

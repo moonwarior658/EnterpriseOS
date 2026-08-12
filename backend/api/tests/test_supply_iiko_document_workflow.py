@@ -85,6 +85,8 @@ class RecordingProvider:
         self.calls = []
         self.incoming_calls = []
         self.persisted_states = []
+        self.read_back_calls = []
+        self.read_back_invoices = []
 
     async def create_outgoing_invoice(self, document):
         self.calls.append(document)
@@ -114,6 +116,10 @@ class RecordingProvider:
     async def create_incoming_invoice(self, document):
         self.incoming_calls.append(document)
         raise AssertionError("EOS must not create linked incoming invoices")
+
+    async def get_outgoing_invoices(self, *, date_from, date_to):
+        self.read_back_calls.append((date_from, date_to))
+        return self.read_back_invoices
 
 
 class ReadBackProvider:
@@ -432,6 +438,61 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             first.client_document_id,
         )
         self.assertIsNone(second.iiko_document_id)
+
+    async def test_repeat_enriches_created_intent_without_second_post(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        provider = RecordingProvider(self.sessions, outcomes=("2717",))
+        planned = await self._plan(request_id, provider)
+        created = self._writes(request_id)[0]
+        self.assertEqual(created.status, IikoDocumentWriteStatus.CREATED)
+        self.assertIsNone(created.iiko_document_id)
+        with self.sessions() as session:
+            user = session.get(User, self.user_id)
+            before = read_request_iiko_documents(request_id, session, user)[0]
+        self.assertEqual(before.status, IikoDocumentWriteStatus.CREATED)
+        self.assertIsNone(before.iiko_document_id)
+        self.assertFalse(before.printable)
+        self.assertEqual(
+            before.operator_message,
+            "Требуется подтверждение по данным iiko",
+        )
+
+        authoritative_id = uuid4()
+        payload = created.expected_payload
+        provider.read_back_invoices = [IikoOutgoingInvoiceDto(
+            external_id=str(authoritative_id),
+            document_number="2717",
+            date_incoming=payload["date_incoming"],
+            status="NEW",
+            counteragent_id=payload["counteragent_id"],
+            default_store_id=payload["default_store_id"],
+            account_to_code=payload["account_to_code"],
+            revenue_account_code=payload["revenue_account_code"],
+            items=tuple(
+                IikoOutgoingInvoiceItemDto(
+                    product_id=item["product_id"],
+                    amount=item["amount"],
+                    price=item["price"],
+                )
+                for item in payload["items"]
+            ),
+        )]
+
+        await self._plan(request_id, provider, version=planned.version)
+
+        enriched = self._writes(request_id)[0]
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(
+            enriched.iiko_document_id,
+            authoritative_id,
+            (enriched.last_error, provider.read_back_calls),
+        )
+        self.assertGreaterEqual(len(provider.read_back_calls), 2)
+        with self.sessions() as session:
+            user = session.get(User, self.user_id)
+            after = read_request_iiko_documents(request_id, session, user)[0]
+        self.assertTrue(after.printable)
+        self.assertEqual(after.iiko_document_id, authoritative_id)
 
     async def test_unknown_and_failed_never_auto_retry(self):
         cases = (

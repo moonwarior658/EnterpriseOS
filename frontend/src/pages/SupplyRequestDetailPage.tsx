@@ -1509,7 +1509,7 @@ function SupplyRequestDetailPage() {
                   {document.document_number && (
                     <span>Номер: {document.document_number}</span>
                   )}
-                  {document.status === 'UNKNOWN' && (
+                  {document.operator_message && (
                     <strong>{document.operator_message}</strong>
                   )}
                   {document.status === 'FAILED' && document.error_code && (
@@ -1984,14 +1984,14 @@ function SupplyRequestDetailPage() {
         )}
         {request.status === 'PLANNED' && (
           iikoDocuments.length === 0
-          || iikoDocuments.some((document) => document.status !== 'CREATED')
+          || iikoDocuments.some((document) => !document.printable)
         ) && (
           <button
             type="button"
             disabled={busy}
             onClick={() => void sendToWork()}
           >
-            {busy ? 'Проверяем…' : 'Повторить «Отдать в работу»'}
+            {busy ? 'Проверяем…' : 'Проверить документы в iiko'}
           </button>
         )}
         {request.status === 'PLANNED' && (
