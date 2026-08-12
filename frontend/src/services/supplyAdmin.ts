@@ -116,6 +116,7 @@ export type SupplyIikoDocument = {
   source_store_id: string
   flow: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD'
   status: 'PENDING' | 'CREATED' | 'FAILED' | 'UNKNOWN'
+  iiko_document_id: string | null
   document_number: string | null
   error_code: string | null
   operator_message: string | null

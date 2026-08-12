@@ -80,7 +80,7 @@ class IikoOutgoingInvoiceItemCreateDto(IikoDto):
 
 
 class IikoOutgoingInvoiceCreateResultDto(IikoDto):
-    document_id: UUID
+    client_document_id: UUID
     document_number: str = Field(min_length=1)
     valid: Literal[True]
     warning: bool

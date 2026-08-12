@@ -634,7 +634,7 @@ class IikoServerClient(IikoProvider):
                 "IIKO_OUTGOING_INVOICE_VALIDATION_FAILED"
             )
         return IikoOutgoingInvoiceCreateResultDto(
-            document_id=document.document_id,
+            client_document_id=document.document_id,
             document_number=document_number,
             valid=True,
             warning=warning,

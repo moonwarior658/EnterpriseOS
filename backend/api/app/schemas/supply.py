@@ -926,6 +926,7 @@ class SupplyIikoDocumentRead(BaseModel):
     source_store_id: UUID
     flow: SupplyProductSourceRole
     status: IikoDocumentWriteStatus
+    iiko_document_id: UUID | None
     document_number: str | None
     error_code: str | None
     operator_message: str | None

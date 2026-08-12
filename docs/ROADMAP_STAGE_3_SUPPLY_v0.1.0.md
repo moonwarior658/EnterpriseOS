@@ -1135,19 +1135,31 @@ Controlled production write `OUTGOING_INVOICE` подтверждён 11.08.2026
 `price=0`. `linkedIncomingInvoiceId`, коды склада/контрагента, суммы, НДС и
 прочие export-поля при создании не передаются.
 
-Stage 3.1B / 5.2: persistent intent/result и read-only reconciliation для
-`OUTGOING_INVOICE` реализованы локально. Reconciliation ищет только по
-caller-generated UUID в минимальном окне даты документа, сверяет critical
-поля с сохранённым deterministic write payload и не выполняет POST.
+Stage 3.1B / 5.4A: persistent intent разделяет caller/correlation UUID EOS
+(`client_document_id`) и authoritative UUID документа iiko
+(`iiko_document_id`). Read-only reconciliation сопоставляет расходную
+накладную в узком окне даты по номеру, source/defaultStoreId, counteragentId,
+accountToCode, revenueAccountCode и полному multiset строк
+`(productId, amount, price)`; строки одного товара не объединяются. Нулевой,
+конфликтный или неоднозначный результат закрывается fail closed и не разрешает
+automatic POST retry.
 
-Production correction от 11.08.2026: документ №2710 с UUID
-`024e0713-3ef2-4d40-bb5a-4373e77cd125` создан через persistent write при
-симуляции потерянного ответа и существует в iiko UI, но
-`GET /api/documents/export/outgoingInvoice` не возвращает его ни в `NEW`, ни
-после ручного проведения в `PROCESSED`. Поэтому export-miss означает только
-«документ не виден в этом read source», не доказывает отсутствие документа и
-никогда не разрешает automatic retry. Production reconciliation для
-положительного UUID match пока не подтверждён.
+Production evidence от 12.08.2026 подтвердил, что
+`GET /api/documents/export/outgoingInvoice` видит созданные EOS документы, а
+caller UUID не является authoritative UUID iiko:
+
+- №2711: `client_document_id=405ac28e-075a-4c7b-99c3-be36994e2a9d`,
+  `iiko_document_id=4d8f99fe-70d6-a84e-019f-f12e6f070e24`;
+- №2712: `client_document_id=2231e705-79d7-4faa-845f-8c333e1c4f62`,
+  `iiko_document_id=4d8f99fe-70d6-a84e-019f-f12e6f070e2b`;
+- №2713: `client_document_id=9d4b2e28-f847-4565-b79e-05abe4dd52be`,
+  `iiko_document_id=4d8f99fe-70d6-a84e-019f-f12e6f070e32`.
+
+Предыдущий диагноз `NOT_FOUND` был вызван неверным предположением, что export
+`external_id` должен совпадать с caller-generated UUID. Authoritative
+read-back не выполняет POST и может обогатить существующие `CREATED`, а также
+перевести `UNKNOWN` / `PENDING` в `CREATED` только при единственном полном
+совпадении.
 
 Stage 3.1B / 5.3 реализован локально: действие «Отдать в работу» сохраняет
 существующий переход заявки в `PLANNED`, после его commit группирует строки по
@@ -1174,9 +1186,9 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 Непосредственный следующий шаг:
 
-1. Найти authoritative read source для проверки отсутствия документа или
-   подтвердить положительный UUID match без новых write probes; до этого
-   automatic retry после неопределённого результата запрещён fail closed.
+1. Выполнить migration 0032 и read-only enrichment существующих документов
+   №2711 / №2712 / №2713 после отдельной проверки backup/recovery; automatic
+   retry после неопределённого результата остаётся запрещён fail closed.
 2. Отдельно подтвердить в production локально реализованную workflow-интеграцию
    Stage 3.1B / 5.3 без automatic retry и без `INTERNAL_TRANSFER` write.
 3. После этого передать документ по цепочке `n8n → Print Agent` для

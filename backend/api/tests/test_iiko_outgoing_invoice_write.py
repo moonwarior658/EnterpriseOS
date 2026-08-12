@@ -130,7 +130,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 lines=[valid_line()],
             )
 
-        self.assertEqual(result.document_id, DOCUMENT_ID)
+        self.assertEqual(result.client_document_id, DOCUMENT_ID)
         self.assertEqual(result.document_number, "2709")
         self.assertTrue(result.valid)
         self.assertFalse(result.warning)
@@ -217,7 +217,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 lines=[valid_line()],
             )
 
-        self.assertEqual(result.document_id, DOCUMENT_ID)
+        self.assertEqual(result.client_document_id, DOCUMENT_ID)
         self.assertEqual(result.document_number, "2710")
         self.assertTrue(result.valid)
         self.assertTrue(result.warning)

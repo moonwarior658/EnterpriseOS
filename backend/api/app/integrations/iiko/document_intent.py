@@ -2,7 +2,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -78,7 +78,8 @@ class IikoDocumentReconciliationOutcome(StrEnum):
 @dataclass(frozen=True, slots=True)
 class IikoDocumentReconciliationResult:
     outcome: IikoDocumentReconciliationOutcome
-    document_id: UUID
+    client_document_id: UUID
+    iiko_document_id: UUID | None
     document_number: str | None
     status: IikoDocumentWriteStatus
     safe_to_retry: bool
@@ -88,7 +89,19 @@ _RECONCILABLE_STATUSES = {
     IikoDocumentWriteStatus.PENDING,
     IikoDocumentWriteStatus.UNKNOWN,
 }
-_MATCHABLE_IIKO_STATUSES = {"NEW", "PROCESSED"}
+
+class IikoOutgoingInvoiceReadBackOutcome(StrEnum):
+    VERIFIED_MATCH = "VERIFIED_MATCH"
+    NOT_FOUND = "NOT_FOUND"
+    AMBIGUOUS = "AMBIGUOUS"
+    CONFLICT = "CONFLICT"
+
+
+@dataclass(frozen=True, slots=True)
+class IikoOutgoingInvoiceReadBackMatch:
+    outcome: IikoOutgoingInvoiceReadBackOutcome
+    invoice: IikoOutgoingInvoiceDto | None = None
+    iiko_document_id: UUID | None = None
 
 
 def _payload_hash(payload: bytes) -> str:
@@ -116,7 +129,10 @@ def _document_from_intent(
         raise IikoDocumentIntentStateError(
             "IIKO_DOCUMENT_EXPECTED_PAYLOAD_INVALID"
         ) from error
-    if document.document_id != intent.iiko_document_id:
+    if (
+        document.document_id != intent.client_document_id
+        or document.default_store_id != intent.source_store_id
+    ):
         raise IikoDocumentIntentStateError(
             "IIKO_DOCUMENT_EXPECTED_PAYLOAD_INVALID"
         )
@@ -144,19 +160,19 @@ def _result(
 ) -> IikoDocumentReconciliationResult:
     return IikoDocumentReconciliationResult(
         outcome=outcome,
-        document_id=intent.iiko_document_id,
+        client_document_id=intent.client_document_id,
+        iiko_document_id=intent.iiko_document_id,
         document_number=intent.iiko_document_number,
         status=intent.status,
         safe_to_retry=safe_to_retry,
     )
 
 
-def _matches_expected_document(
+def _matches_expected_document_payload(
     actual: IikoOutgoingInvoiceDto,
     expected: IikoOutgoingInvoiceCreateDto,
 ) -> bool:
     try:
-        actual_id = UUID(actual.external_id or "")
         actual_store_id = UUID(actual.default_store_id)
         actual_counteragent_id = UUID(actual.counteragent_id)
     except ValueError:
@@ -170,13 +186,60 @@ def _matches_expected_document(
         for item in expected.items
     )
     return (
-        actual_id == expected.document_id
-        and actual_store_id == expected.default_store_id
+        actual_store_id == expected.default_store_id
         and actual_counteragent_id == expected.counteragent_id
-        and actual.status in _MATCHABLE_IIKO_STATUSES
         and actual.account_to_code == expected.account_to_code
         and actual.revenue_account_code == expected.revenue_account_code
         and actual_items == expected_items
+    )
+
+
+def match_authoritative_outgoing_invoice(
+    intent: IikoDocumentWrite,
+    expected: IikoOutgoingInvoiceCreateDto,
+    invoices: Sequence[IikoOutgoingInvoiceDto],
+) -> IikoOutgoingInvoiceReadBackMatch:
+    document_number = intent.iiko_document_number
+    if not document_number:
+        return IikoOutgoingInvoiceReadBackMatch(
+            outcome=IikoOutgoingInvoiceReadBackOutcome.NOT_FOUND
+        )
+
+    same_number = [
+        invoice
+        for invoice in invoices
+        if invoice.document_number == document_number
+    ]
+    if not same_number:
+        return IikoOutgoingInvoiceReadBackMatch(
+            outcome=IikoOutgoingInvoiceReadBackOutcome.NOT_FOUND
+        )
+
+    full_matches = [
+        invoice
+        for invoice in same_number
+        if _matches_expected_document_payload(invoice, expected)
+    ]
+    if not full_matches:
+        return IikoOutgoingInvoiceReadBackMatch(
+            outcome=IikoOutgoingInvoiceReadBackOutcome.CONFLICT
+        )
+    if len(full_matches) > 1:
+        return IikoOutgoingInvoiceReadBackMatch(
+            outcome=IikoOutgoingInvoiceReadBackOutcome.AMBIGUOUS
+        )
+
+    invoice = full_matches[0]
+    try:
+        iiko_document_id = UUID(invoice.external_id or "")
+    except ValueError:
+        return IikoOutgoingInvoiceReadBackMatch(
+            outcome=IikoOutgoingInvoiceReadBackOutcome.CONFLICT
+        )
+    return IikoOutgoingInvoiceReadBackMatch(
+        outcome=IikoOutgoingInvoiceReadBackOutcome.VERIFIED_MATCH,
+        invoice=invoice,
+        iiko_document_id=iiko_document_id,
     )
 
 
@@ -201,23 +264,28 @@ async def reconcile_outgoing_invoice_intent(
             raise IikoDocumentIntentStateError(
                 "IIKO_DOCUMENT_TYPE_NOT_RECONCILABLE"
             )
-        if intent.status == IikoDocumentWriteStatus.CREATED:
+        if (
+            intent.status == IikoDocumentWriteStatus.CREATED
+            and intent.iiko_document_id is not None
+        ):
             return _result(
                 intent,
                 IikoDocumentReconciliationOutcome.CREATED,
             )
-        if intent.status not in _RECONCILABLE_STATUSES:
+        if (
+            intent.status not in _RECONCILABLE_STATUSES
+            and intent.status != IikoDocumentWriteStatus.CREATED
+        ):
             raise IikoDocumentRetryNotAllowedError(
                 "IIKO_DOCUMENT_RECONCILIATION_NOT_ALLOWED"
             )
         expected = _document_from_intent(intent)
-        document_id = intent.iiko_document_id
         document_date = expected.date_incoming.date()
 
     try:
         invoices = await provider.get_outgoing_invoices(
-            date_from=document_date,
-            date_to=document_date,
+            date_from=document_date - timedelta(days=1),
+            date_to=document_date + timedelta(days=1),
         )
     except IikoConnectionError as error:
         with session.begin():
@@ -225,7 +293,7 @@ async def reconcile_outgoing_invoice_intent(
             if intent.status == IikoDocumentWriteStatus.CREATED:
                 return _result(
                     intent,
-                    IikoDocumentReconciliationOutcome.CREATED,
+                    IikoDocumentReconciliationOutcome.UNCERTAIN,
                 )
             if intent.status in _RECONCILABLE_STATUSES:
                 intent.status = IikoDocumentWriteStatus.UNKNOWN
@@ -238,50 +306,53 @@ async def reconcile_outgoing_invoice_intent(
                 "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
             ) from error
 
-    matches = [
-        invoice for invoice in invoices
-        if invoice.external_id is not None
-        and invoice.external_id.casefold() == str(document_id).casefold()
-    ]
-
-    conflict = False
+    reconciliation_error: str | None = None
     with session.begin():
         intent = _locked_intent(session, intent_id=intent_id)
-        if intent.status == IikoDocumentWriteStatus.CREATED:
+        if (
+            intent.status == IikoDocumentWriteStatus.CREATED
+            and intent.iiko_document_id is not None
+        ):
             return _result(
                 intent,
                 IikoDocumentReconciliationOutcome.CREATED,
             )
-        if intent.status not in _RECONCILABLE_STATUSES:
+        if (
+            intent.status not in _RECONCILABLE_STATUSES
+            and intent.status != IikoDocumentWriteStatus.CREATED
+        ):
             raise IikoDocumentIntentStateError(
                 "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
             )
         current_expected = _document_from_intent(intent)
-        current_payload_hash = _payload_hash(
-            current_expected.to_iiko_xml()
+        read_back = match_authoritative_outgoing_invoice(
+            intent,
+            current_expected,
+            invoices,
         )
 
-        if not matches:
+        if read_back.outcome == IikoOutgoingInvoiceReadBackOutcome.NOT_FOUND:
             return _result(
                 intent,
                 IikoDocumentReconciliationOutcome.UNCERTAIN,
-                safe_to_retry=is_outgoing_invoice_retry_safe(
-                    intent,
-                    # export/outgoingInvoice is not authoritative for
-                    # document absence: a created UUID may not be visible.
-                    authoritative_absence_confirmed=False,
-                    current_payload_hash=current_payload_hash,
-                ),
             )
 
-        if len(matches) != 1 or not _matches_expected_document(
-            matches[0],
-            current_expected,
-        ):
-            intent.last_error = "IIKO_DOCUMENT_RECONCILIATION_CONFLICT"
-            conflict = True
+        if read_back.outcome in {
+            IikoOutgoingInvoiceReadBackOutcome.CONFLICT,
+            IikoOutgoingInvoiceReadBackOutcome.AMBIGUOUS,
+        }:
+            reconciliation_error = (
+                "IIKO_DOCUMENT_RECONCILIATION_"
+                f"{read_back.outcome.value}"
+            )
+            intent.last_error = reconciliation_error
         else:
-            intent.iiko_document_number = matches[0].document_number
+            if read_back.invoice is None or read_back.iiko_document_id is None:
+                raise IikoDocumentIntentStateError(
+                    "IIKO_DOCUMENT_RECONCILIATION_INVALID_RESULT"
+                )
+            intent.iiko_document_id = read_back.iiko_document_id
+            intent.iiko_document_number = read_back.invoice.document_number
             intent.status = IikoDocumentWriteStatus.CREATED
             intent.last_error = None
             return _result(
@@ -289,9 +360,9 @@ async def reconcile_outgoing_invoice_intent(
                 IikoDocumentReconciliationOutcome.FOUND_MATCH,
             )
 
-    if conflict:
+    if reconciliation_error is not None:
         raise IikoDocumentReconciliationConflictError(
-            "IIKO_DOCUMENT_RECONCILIATION_CONFLICT"
+            reconciliation_error
         )
     raise IikoDocumentIntentStateError(
         "IIKO_DOCUMENT_RECONCILIATION_INVALID_RESULT"
@@ -410,7 +481,7 @@ async def create_persistent_outgoing_invoice(
         )
 
         document_id = (
-            existing.iiko_document_id
+            existing.client_document_id
             if existing is not None
             else uuid4()
         )
@@ -428,7 +499,7 @@ async def create_persistent_outgoing_invoice(
                 supply_request_id=supply_request_id,
                 source_store_id=document.default_store_id,
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=document.document_id,
+                client_document_id=document.document_id,
                 status=IikoDocumentWriteStatus.PENDING,
                 payload_hash=digest,
                 expected_payload=_normalized_payload(document),
@@ -470,7 +541,10 @@ async def create_persistent_outgoing_invoice(
 
     try:
         result = await provider.create_outgoing_invoice(document)
-        if result.document_id != document.document_id or not result.valid:
+        if (
+            result.client_document_id != document.document_id
+            or not result.valid
+        ):
             raise IikoContractError(
                 "IIKO_OUTGOING_INVOICE_RESULT_INVALID"
             )

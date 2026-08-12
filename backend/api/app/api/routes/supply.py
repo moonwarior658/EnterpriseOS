@@ -1007,12 +1007,20 @@ def read_request_iiko_documents(
                 write.source_store_id
             ),
             status=write.status,
+            iiko_document_id=write.iiko_document_id,
             document_number=write.iiko_document_number,
             error_code=write.last_error,
             operator_message=(
                 "Требуется проверка в iiko"
                 if write.status == IikoDocumentWriteStatus.UNKNOWN
-                else None
+                else (
+                    "Требуется подтверждение по данным iiko"
+                    if (
+                        write.status == IikoDocumentWriteStatus.CREATED
+                        and write.iiko_document_id is None
+                    )
+                    else None
+                )
             ),
         )
         for write in writes

@@ -321,6 +321,10 @@ class IikoDocumentWrite(Base):
             name="uq_iiko_document_writes_request_source_type",
         ),
         UniqueConstraint(
+            "client_document_id",
+            name="uq_iiko_document_writes_client_document_id",
+        ),
+        UniqueConstraint(
             "iiko_document_id",
             name="uq_iiko_document_writes_iiko_document_id",
         ),
@@ -354,7 +358,8 @@ class IikoDocumentWrite(Base):
         server_default=IikoDocumentType.OUTGOING_INVOICE.value,
         nullable=False,
     )
-    iiko_document_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    client_document_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_document_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     iiko_document_number: Mapped[str | None] = mapped_column(
         String(160),
         nullable=True,

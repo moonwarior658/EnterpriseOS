@@ -73,19 +73,20 @@ class RecordingProvider:
             request_status = session.scalar(select(SupplyRequest.status).where(
                 SupplyRequest.id == session.scalar(
                     select(IikoDocumentWrite.supply_request_id).where(
-                        IikoDocumentWrite.iiko_document_id == document.document_id
+                        IikoDocumentWrite.client_document_id
+                        == document.document_id
                     )
                 )
             ))
             intent_status = session.scalar(select(IikoDocumentWrite.status).where(
-                IikoDocumentWrite.iiko_document_id == document.document_id
+                IikoDocumentWrite.client_document_id == document.document_id
             ))
             self.persisted_states.append((request_status, intent_status))
         outcome = self.outcomes.pop(0) if self.outcomes else str(2700 + len(self.calls))
         if isinstance(outcome, Exception):
             raise outcome
         return IikoOutgoingInvoiceCreateResultDto(
-            document_id=document.document_id,
+            client_document_id=document.document_id,
             document_number=outcome,
             valid=True,
             warning=False,
@@ -364,7 +365,11 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         second = self._writes(request_id)[0]
         self.assertEqual(repeated.status, "PLANNED")
         self.assertEqual(len(provider.calls), 1)
-        self.assertEqual(second.iiko_document_id, first.iiko_document_id)
+        self.assertEqual(
+            second.client_document_id,
+            first.client_document_id,
+        )
+        self.assertIsNone(second.iiko_document_id)
 
     async def test_unknown_and_failed_never_auto_retry(self):
         cases = (

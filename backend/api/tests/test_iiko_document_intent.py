@@ -90,16 +90,17 @@ class RecordingProvider:
         self.calls.append(document)
         with self.session_factory() as session:
             intent = session.scalar(select(IikoDocumentWrite).where(
-                IikoDocumentWrite.iiko_document_id == document.document_id
+                IikoDocumentWrite.client_document_id
+                == document.document_id
             ))
             self.persisted_states.append(
-                (intent.iiko_document_id, intent.status) if intent else None
+                (intent.client_document_id, intent.status) if intent else None
             )
         outcome = self.outcomes.pop(0) if self.outcomes else "2709"
         if isinstance(outcome, Exception):
             raise outcome
         return IikoOutgoingInvoiceCreateResultDto(
-            document_id=document.document_id,
+            client_document_id=document.document_id,
             document_number=outcome,
             valid=True,
             warning=False,
@@ -206,6 +207,8 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
         status=IikoDocumentWriteStatus.UNKNOWN,
         payload_hash=None,
         document_number=None,
+        iiko_document_id=None,
+        lines=None,
         last_error=None,
     ):
         document = build_controlled_outgoing_invoice(
@@ -213,15 +216,16 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             date_incoming=DATE_INCOMING,
             department_code="М15",
             flow=SupplyProductSourceRole.MAIN,
-            lines=[line()],
+            lines=lines or [line()],
         )
         with self.sessions.begin() as session:
             intent = IikoDocumentWrite(
                 supply_request_id=self.request_id,
                 source_store_id=document.default_store_id,
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=document.document_id,
-                iiko_document_number=document_number,
+                client_document_id=document.document_id,
+                iiko_document_id=iiko_document_id,
+                iiko_document_number=document_number or "2712",
                 status=status,
                 payload_hash=(
                     payload_hash
@@ -238,7 +242,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _actual_invoice(document, **changes):
         values = {
-            "external_id": str(document.document_id),
+            "external_id": str(uuid4()),
             "document_number": "2712",
             "date_incoming": document.date_incoming,
             "status": "NEW",
@@ -298,12 +302,16 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.document_number, "2712")
         self.assertFalse(result.safe_to_retry)
         self.assertEqual(provider.calls, [(
-            DATE_INCOMING.date(),
-            DATE_INCOMING.date(),
+            DATE_INCOMING.date() - timedelta(days=1),
+            DATE_INCOMING.date() + timedelta(days=1),
         )])
         with self.sessions() as session:
             intent = session.get(IikoDocumentWrite, intent_id)
             self.assertIsNone(intent.last_error)
+            self.assertEqual(
+                intent.iiko_document_id,
+                UUID(provider.invoices[0].external_id),
+            )
 
     async def test_pending_found_matching_document_becomes_created(self):
         intent_id, document = self._seed_reconcilable_intent(
@@ -356,6 +364,71 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             ),
         ))
 
+    async def test_document_number_alone_is_conflict(self):
+        await self._assert_reconciliation_conflict(items=(
+            IikoOutgoingInvoiceItemDto(
+                product_id=PRODUCT_ID, amount=Decimal("99"), price=0
+            ),
+        ))
+
+    async def test_duplicate_product_lines_remain_distinct(self):
+        intent_id, document = self._seed_reconcilable_intent(
+            lines=[line("3"), line("10")]
+        )
+        provider = ReconciliationProvider([
+            self._actual_invoice(document)
+        ])
+        with self.sessions() as session:
+            result = await reconcile_outgoing_invoice_intent(
+                session, provider, intent_id=intent_id
+            )
+        self.assertEqual(
+            result.outcome,
+            IikoDocumentReconciliationOutcome.FOUND_MATCH,
+        )
+
+    async def test_duplicate_product_lines_are_not_summed(self):
+        intent_id, document = self._seed_reconcilable_intent(
+            lines=[line("3"), line("10")]
+        )
+        provider = ReconciliationProvider([
+            self._actual_invoice(
+                document,
+                items=(IikoOutgoingInvoiceItemDto(
+                    product_id=PRODUCT_ID,
+                    amount=Decimal("13"),
+                    price=0,
+                ),),
+            )
+        ])
+        with self.sessions() as session:
+            with self.assertRaises(IikoDocumentReconciliationConflictError):
+                await reconcile_outgoing_invoice_intent(
+                    session, provider, intent_id=intent_id
+                )
+
+    async def test_multiple_full_candidates_are_ambiguous(self):
+        intent_id, document = self._seed_reconcilable_intent()
+        provider = ReconciliationProvider([
+            self._actual_invoice(document),
+            self._actual_invoice(document),
+        ])
+        with self.sessions() as session:
+            with self.assertRaisesRegex(
+                IikoDocumentReconciliationConflictError,
+                "IIKO_DOCUMENT_RECONCILIATION_AMBIGUOUS",
+            ):
+                await reconcile_outgoing_invoice_intent(
+                    session, provider, intent_id=intent_id
+                )
+        with self.sessions() as session:
+            intent = session.get(IikoDocumentWrite, intent_id)
+            self.assertEqual(intent.status, IikoDocumentWriteStatus.UNKNOWN)
+            self.assertEqual(
+                intent.last_error,
+                "IIKO_DOCUMENT_RECONCILIATION_AMBIGUOUS",
+            )
+
     async def test_nonzero_price_is_conflict(self):
         await self._assert_reconciliation_conflict(items=(
             IikoOutgoingInvoiceItemDto(
@@ -364,9 +437,6 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
                 price=Decimal("0.01"),
             ),
         ))
-
-    async def test_unacceptable_iiko_status_is_conflict(self):
-        await self._assert_reconciliation_conflict(status="DELETED")
 
     async def test_changed_payload_hash_forbids_retry(self):
         intent_id, _ = self._seed_reconcilable_intent(
@@ -399,9 +469,11 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.safe_to_retry)
 
     async def test_created_returns_saved_result_without_get(self):
+        authoritative_id = uuid4()
         intent_id, _ = self._seed_reconcilable_intent(
             status=IikoDocumentWriteStatus.CREATED,
             document_number="2713",
+            iiko_document_id=authoritative_id,
         )
         provider = ReconciliationProvider([])
         with self.sessions() as session:
@@ -413,7 +485,35 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             IikoDocumentReconciliationOutcome.CREATED,
         )
         self.assertEqual(result.document_number, "2713")
+        self.assertEqual(result.iiko_document_id, authoritative_id)
         self.assertEqual(provider.calls, [])
+
+    async def test_created_without_authoritative_id_is_enriched_by_read_back(
+        self,
+    ):
+        intent_id, document = self._seed_reconcilable_intent(
+            status=IikoDocumentWriteStatus.CREATED,
+            document_number="2713",
+        )
+        authoritative_id = uuid4()
+        provider = ReconciliationProvider([
+            self._actual_invoice(
+                document,
+                external_id=str(authoritative_id),
+                document_number="2713",
+            )
+        ])
+        with self.sessions() as session:
+            result = await reconcile_outgoing_invoice_intent(
+                session, provider, intent_id=intent_id
+            )
+        self.assertEqual(
+            result.outcome,
+            IikoDocumentReconciliationOutcome.FOUND_MATCH,
+        )
+        self.assertEqual(result.iiko_document_id, authoritative_id)
+        self.assertEqual(result.status, IikoDocumentWriteStatus.CREATED)
+        self.assertFalse(hasattr(provider, "create_calls"))
 
     async def test_failed_reconciliation_is_not_run_by_default(self):
         intent_id, _ = self._seed_reconcilable_intent(
@@ -455,22 +555,20 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(intent.status, IikoDocumentWriteStatus.CREATED)
             self.assertEqual(intent.iiko_document_number, "2712")
 
-    async def test_document_number_is_not_used_as_identity(self):
+    async def test_different_client_and_iiko_ids_are_supported(self):
         intent_id, document = self._seed_reconcilable_intent()
-        wrong_document = self._actual_invoice(
+        authoritative_id = uuid4()
+        actual_document = self._actual_invoice(
             document,
-            external_id=str(uuid4()),
-            document_number="same-visible-number",
+            external_id=str(authoritative_id),
         )
-        provider = ReconciliationProvider([wrong_document])
+        provider = ReconciliationProvider([actual_document])
         with self.sessions() as session:
             result = await reconcile_outgoing_invoice_intent(
                 session, provider, intent_id=intent_id
             )
-        self.assertEqual(
-            result.outcome,
-            IikoDocumentReconciliationOutcome.UNCERTAIN,
-        )
+        self.assertEqual(result.iiko_document_id, authoritative_id)
+        self.assertNotEqual(result.client_document_id, authoritative_id)
         self.assertFalse(result.safe_to_retry)
 
     async def test_pending_is_committed_before_post_and_created_is_reused(
@@ -481,10 +579,11 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(provider.calls), 1)
         self.assertEqual(provider.persisted_states, [(
-            created.iiko_document_id,
+            created.client_document_id,
             IikoDocumentWriteStatus.PENDING,
         )])
         self.assertEqual(created.status, IikoDocumentWriteStatus.CREATED)
+        self.assertIsNone(created.iiko_document_id)
         self.assertEqual(created.iiko_document_number, "2709")
         self.assertIsNone(created.last_error)
 
@@ -494,7 +593,11 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
         ):
             repeated = await self._create(provider)
         self.assertEqual(repeated.id, created.id)
-        self.assertEqual(repeated.iiko_document_id, created.iiko_document_id)
+        self.assertEqual(
+            repeated.client_document_id,
+            created.client_document_id,
+        )
+        self.assertIsNone(repeated.iiko_document_id)
         self.assertEqual(repeated.iiko_document_number, "2709")
         self.assertEqual(len(provider.calls), 1)
 
@@ -510,7 +613,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
 
         with self.sessions() as session:
             intent = session.scalar(select(IikoDocumentWrite))
-            document_id = intent.iiko_document_id
+            document_id = intent.client_document_id
             self.assertEqual(intent.status, IikoDocumentWriteStatus.UNKNOWN)
             self.assertEqual(intent.last_error, "IIKO_CONNECTION_ERROR")
 
@@ -520,7 +623,8 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second_provider.calls, [])
         with self.sessions() as session:
             intent = session.scalar(select(IikoDocumentWrite))
-            self.assertEqual(intent.iiko_document_id, document_id)
+            self.assertEqual(intent.client_document_id, document_id)
+            self.assertIsNone(intent.iiko_document_id)
 
     async def test_existing_pending_requires_reconciliation_without_post(
         self,
@@ -539,7 +643,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
                 supply_request_id=self.request_id,
                 source_store_id=document.default_store_id,
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=document_id,
+                client_document_id=document_id,
                 status=IikoDocumentWriteStatus.PENDING,
                 payload_hash=hashlib.sha256(
                     document.to_iiko_xml()
@@ -574,7 +678,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
 
         with self.sessions() as session:
             intent = session.scalar(select(IikoDocumentWrite))
-            document_id = intent.iiko_document_id
+            document_id = intent.client_document_id
             self.assertEqual(intent.status, IikoDocumentWriteStatus.FAILED)
             self.assertEqual(intent.last_error, "IIKO_RESPONSE_ERROR_500")
 
@@ -587,7 +691,8 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
             retry_provider,
             allow_failed_retry=True,
         )
-        self.assertEqual(created.iiko_document_id, document_id)
+        self.assertEqual(created.client_document_id, document_id)
+        self.assertIsNone(created.iiko_document_id)
         self.assertEqual(created.iiko_document_number, "2711")
         self.assertEqual(created.status, IikoDocumentWriteStatus.CREATED)
         self.assertEqual(retry_provider.calls[0].document_id, document_id)
@@ -602,12 +707,14 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
     def test_database_constraints_enforce_idempotency(self) -> None:
         source_store_id = uuid4()
         document_id = uuid4()
+        authoritative_id = uuid4()
         with self.sessions.begin() as session:
             session.add(IikoDocumentWrite(
                 supply_request_id=self.request_id,
                 source_store_id=source_store_id,
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=document_id,
+                client_document_id=document_id,
+                iiko_document_id=authoritative_id,
                 status=IikoDocumentWriteStatus.PENDING,
                 payload_hash="a" * 64,
             ))
@@ -617,7 +724,7 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
                 supply_request_id=self.request_id,
                 source_store_id=source_store_id,
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=uuid4(),
+                client_document_id=uuid4(),
                 status=IikoDocumentWriteStatus.PENDING,
                 payload_hash="b" * 64,
             ))
@@ -629,9 +736,22 @@ class IikoDocumentIntentTests(unittest.IsolatedAsyncioTestCase):
                 supply_request_id=self.second_request_id,
                 source_store_id=uuid4(),
                 document_type=IikoDocumentType.OUTGOING_INVOICE,
-                iiko_document_id=document_id,
+                client_document_id=document_id,
                 status=IikoDocumentWriteStatus.PENDING,
                 payload_hash="c" * 64,
+            ))
+            with self.assertRaises(IntegrityError):
+                session.commit()
+
+        with self.sessions() as session:
+            session.add(IikoDocumentWrite(
+                supply_request_id=self.second_request_id,
+                source_store_id=uuid4(),
+                document_type=IikoDocumentType.OUTGOING_INVOICE,
+                client_document_id=uuid4(),
+                iiko_document_id=authoritative_id,
+                status=IikoDocumentWriteStatus.PENDING,
+                payload_hash="d" * 64,
             ))
             with self.assertRaises(IntegrityError):
                 session.commit()
