@@ -104,6 +104,7 @@
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_RUNNERS_ENABLED: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       GENERIC_TIMEZONE: Asia/Yekaterinburg
       TZ: Asia/Yekaterinburg
       EOS_API_BASE_URL: ${EOS_API_BASE_URL}
