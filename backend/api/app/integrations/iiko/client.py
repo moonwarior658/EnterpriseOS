@@ -69,6 +69,7 @@ _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _OUTGOING_INVOICE_IMPORT_PATH = "/api/documents/import/outgoingInvoice"
 _DOCUMENT_SERVICE_PATH = "/services/document"
 _DOCUMENT_GROUP_OPERATION_PATH = "/services/documentGroupOperation"
+_UPDATE_SERVICE_PATH = "/services/update"
 _BACK_VERSION = "9.2.7014.0"
 _MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
@@ -694,14 +695,79 @@ class IikoServerClient(IikoProvider):
             raise IikoResponseError(response.status_code)
         return self._parse_xml_response(response)
 
+    @staticmethod
+    def _rpc_direct_text(element: ET.Element, *names: str) -> str | None:
+        for child in element:
+            if child.tag.rsplit("}", 1)[-1] in names:
+                value = (child.text or "").strip()
+                if value:
+                    return value
+        return None
+
+    async def _get_current_rpc_entities_version(self) -> int:
+        seed = self._settings.rpc_entities_version_seed
+        expected_instance_id = self._settings.rpc_server_instance_id
+        if seed is None or expected_instance_id is None:
+            raise IikoConfigurationError("IIKO_RPC_ENTITY_SYNC_NOT_CONFIGURED")
+
+        call_id = uuid4()
+        args = ET.Element("args")
+        for name, value in (
+            ("entities-version", str(seed)),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true"),
+            ("client-call-id", str(call_id)),
+            ("use-raw-entities", "true"),
+            ("fromRevision", str(seed)),
+            ("timeoutMillis", "0"),
+            ("useRawEntities", "true"),
+        ):
+            ET.SubElement(args, name).text = value
+        response = await self._post_legacy_document_rpc(
+            _UPDATE_SERVICE_PATH,
+            params=(("methodName", "getEntitiesUpdate"),),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                args, encoding="utf-8", xml_declaration=True
+            ),
+            call_id=call_id,
+        )
+        success = self._rpc_direct_text(response, "success")
+        result_status = self._rpc_direct_text(response, "resultStatus")
+        updates = [
+            element for element in response.iter()
+            if element.tag.rsplit("}", 1)[-1]
+            in {"returnValue", "entitiesUpdate"}
+            and self._rpc_direct_text(element, "serverInstanceId") is not None
+            and self._rpc_direct_text(element, "revision") is not None
+        ]
+        if success != "true" or result_status != "SUCCESS" or len(updates) != 1:
+            raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID")
+        update = updates[0]
+        instance_id = self._rpc_direct_text(update, "serverInstanceId")
+        revision = self._rpc_direct_text(update, "revision")
+        full_update = self._rpc_direct_text(update, "fullUpdate")
+        try:
+            parsed_instance_id = UUID(instance_id or "")
+            parsed_revision = int(revision or "")
+        except (TypeError, ValueError) as error:
+            raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID") from error
+        if parsed_instance_id != expected_instance_id:
+            raise IikoContractError("IIKO_RPC_SERVER_INSTANCE_MISMATCH")
+        if full_update != "false":
+            raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
+        if parsed_revision < seed:
+            raise IikoContractError("IIKO_RPC_ENTITY_REVISION_INVALID")
+        return parsed_revision
+
     async def get_outgoing_invoice_for_update(
         self,
         document_id: UUID,
     ) -> IikoOutgoingInvoiceUpdateSourceDto:
+        current_entities_version = await self._get_current_rpc_entities_version()
         call_id = uuid4()
         args = ET.Element("args")
         for name, value in (
-            ("entities-version", "0"),
+            ("entities-version", str(current_entities_version)),
             ("client-type", "BACK"),
             ("enable-warnings", "true"),
             ("client-call-id", str(call_id)),
@@ -721,13 +787,7 @@ class IikoServerClient(IikoProvider):
         def local_name(element: ET.Element) -> str:
             return element.tag.rsplit("}", 1)[-1]
 
-        def direct_text(element: ET.Element, *names: str) -> str | None:
-            for child in element:
-                if local_name(child) in names:
-                    value = (child.text or "").strip()
-                    if value:
-                        return value
-            return None
+        direct_text = self._rpc_direct_text
 
         success = direct_text(response, "success")
         result_status = direct_text(response, "resultStatus")
@@ -754,6 +814,14 @@ class IikoServerClient(IikoProvider):
             direct_text(entities_update, "revision")
             if entities_update is not None else None
         )
+        entities_instance_id = (
+            direct_text(entities_update, "serverInstanceId")
+            if entities_update is not None else None
+        )
+        full_update = (
+            direct_text(entities_update, "fullUpdate")
+            if entities_update is not None else None
+        )
         if (
             external_id is None
             or document_number is None
@@ -767,6 +835,7 @@ class IikoServerClient(IikoProvider):
                 raise ValueError
             parsed_revision = int(revision)
             parsed_entities_version = int(entities_version)
+            parsed_entities_instance_id = UUID(entities_instance_id or "")
             items_element = next(
                 (child for child in document if local_name(child) == "items"),
                 None,
@@ -784,6 +853,15 @@ class IikoServerClient(IikoProvider):
             raise IikoContractError(
                 "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID"
             ) from error
+        if (
+            parsed_entities_instance_id
+            != self._settings.rpc_server_instance_id
+        ):
+            raise IikoContractError("IIKO_RPC_SERVER_INSTANCE_MISMATCH")
+        if full_update != "false":
+            raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
+        if parsed_entities_version < current_entities_version:
+            raise IikoContractError("IIKO_RPC_ENTITY_REVISION_INVALID")
         update_document = deepcopy(document)
         update_document.tag = "document"
         return IikoOutgoingInvoiceUpdateSourceDto(

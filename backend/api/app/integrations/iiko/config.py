@@ -1,4 +1,5 @@
 from functools import lru_cache
+from uuid import UUID
 
 from pydantic import AnyHttpUrl, PositiveFloat, PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,8 @@ class IikoSettings(BaseSettings):
     verify_tls: bool = True
     max_safe_retries: int = 1
     sync_page_size: PositiveInt = 500
+    rpc_entities_version_seed: PositiveInt | None = None
+    rpc_server_instance_id: UUID | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="IIKO_",
