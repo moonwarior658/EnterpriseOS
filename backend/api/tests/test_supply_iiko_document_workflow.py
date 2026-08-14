@@ -24,6 +24,7 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceCreateResultDto,
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceItemDto,
+    IikoOutgoingInvoiceUpdateSourceDto,
 )
 from app.models.iiko import (
     IikoDocumentWrite,
@@ -142,15 +143,51 @@ class FinalizationProvider:
         self.process_results = list(process_results)
         self.update_calls = []
         self.process_calls = []
+        self.rpc_read_calls = []
 
     async def get_outgoing_invoices(self, *, date_from, date_to):
         return self.invoices
 
+    async def get_outgoing_invoice_for_update(self, document_id):
+        self.rpc_read_calls.append(document_id)
+        invoice = next(
+            item for item in self.invoices
+            if UUID(item.external_id) == document_id
+        )
+        item_xml = "".join(
+            "<item><product>{}</product><amount>{}</amount><price>{}</price></item>".format(
+                item.product_id,
+                item.amount,
+                item.price,
+            )
+            for item in invoice.items
+        )
+        return IikoOutgoingInvoiceUpdateSourceDto(
+            external_id=invoice.external_id,
+            document_number=invoice.document_number,
+            status=invoice.status,
+            revision=7,
+            entities_version=101,
+            items=invoice.items,
+            raw_document_xml=(
+                "<document><id>{}</id><documentNumber>{}</documentNumber>"
+                "<status>{}</status><revision>7</revision><items>{}</items>"
+                "</document>"
+            ).format(
+                invoice.external_id,
+                invoice.document_number,
+                invoice.status,
+                item_xml,
+            ).encode(),
+        )
+
     async def update_outgoing_invoice(self, document, *, actual_quantities):
         self.update_calls.append((document, tuple(actual_quantities)))
-        index = self.invoices.index(document)
-        self.invoices[index] = document.model_copy(update={
-            "revision": (document.revision or 0) + 1,
+        index = next(
+            index for index, invoice in enumerate(self.invoices)
+            if invoice.external_id == document.external_id
+        )
+        self.invoices[index] = self.invoices[index].model_copy(update={
             "items": tuple(
                 item.model_copy(update={"amount": quantity})
                 for item, quantity in zip(
@@ -438,11 +475,7 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
     def _finalization_provider(self, request_id, *, process_results=()):
         read_back = self._confirm_read_back(request_id)
-        invoices = [
-            invoice.model_copy(update={"revision": 7})
-            for invoice in read_back.invoices
-        ]
-        return FinalizationProvider(invoices, process_results)
+        return FinalizationProvider(read_back.invoices, process_results)
 
     def _line_id(self, request_id):
         with self.sessions() as session:
@@ -524,6 +557,12 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(completed.status, "PARTIALLY_FULFILLED")
+        self.assertIsNone(provider.invoices[0].revision)
+        self.assertEqual(
+            provider.rpc_read_calls,
+            [UUID(provider.invoices[0].external_id)],
+        )
+        self.assertEqual(provider.update_calls[0][0].revision, 7)
         self.assertEqual(provider.update_calls[0][1], (Decimal("8"),))
         self.assertEqual(provider.process_calls[0][1], True)
         with self.sessions() as session:

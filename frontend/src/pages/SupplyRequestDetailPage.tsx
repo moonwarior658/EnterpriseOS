@@ -1174,6 +1174,8 @@ function SupplyRequestDetailPage() {
           'Документ iiko ещё не подтверждён. Проверьте документы в iiko и повторите.',
         SUPPLY_IIKO_DOCUMENT_NOT_NEW:
           'Документ iiko уже не в статусе NEW. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE:
+          'iiko не вернула актуальную версию накладной. Заявка не завершена.',
         SUPPLY_IIKO_DOCUMENT_UPDATE_VALIDATION_FAILED:
           'iiko отклонила фактические количества. Заявка не завершена.',
         SUPPLY_IIKO_DOCUMENT_PROCESS_VALIDATION_FAILED:

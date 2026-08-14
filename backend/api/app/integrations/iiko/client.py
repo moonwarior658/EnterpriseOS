@@ -47,6 +47,7 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceItemDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
+    IikoOutgoingInvoiceUpdateSourceDto,
     IikoPackageDto,
     IikoProductCategoryDto,
     IikoProductDto,
@@ -68,6 +69,7 @@ _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _OUTGOING_INVOICE_IMPORT_PATH = "/api/documents/import/outgoingInvoice"
 _DOCUMENT_SERVICE_PATH = "/services/document"
 _DOCUMENT_GROUP_OPERATION_PATH = "/services/documentGroupOperation"
+_BACK_VERSION = "9.2.7014.0"
 _MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
 _SENSITIVE_HEADER_RE = re.compile(
@@ -234,8 +236,8 @@ class IikoServerClient(IikoProvider):
         **kwargs: Any,
     ) -> httpx.Response:
         retries = self._settings.max_safe_retries if method == "GET" else 0
-        correlation_id = str(uuid4())
         request_headers = dict(kwargs.pop("headers", {}) or {})
+        correlation_id = request_headers.get("X-Resto-CorrelationId", str(uuid4()))
         for attempt in range(retries + 1):
             headers = dict(request_headers)
             headers["X-Resto-CorrelationId"] = correlation_id
@@ -655,18 +657,35 @@ class IikoServerClient(IikoProvider):
         *,
         params: Sequence[tuple[str, str]],
         content: bytes,
+        call_id: UUID | None = None,
     ) -> ET.Element:
         await self.authenticate()
-        response = await self._raw_request(
-            "POST",
-            path,
-            params=params,
-            content=content,
-            headers={
-                "Accept": "application/xml, text/plain",
-                "Content-Type": "application/xml",
-            },
-        )
+        login = self._settings.login
+        password = self._settings.password
+        if login is None or password is None:
+            raise IikoConfigurationError("IIKO_NOT_CONFIGURED")
+        password_hash = hashlib.sha1(
+            password.get_secret_value().encode("utf-8")
+        ).hexdigest()
+        try:
+            response = await self._raw_request(
+                "POST",
+                path,
+                params=params,
+                content=content,
+                headers={
+                    "Accept": "application/xml, text/plain",
+                    "Content-Type": "text/xml",
+                    "X-Resto-CorrelationId": str(call_id or uuid4()),
+                    "X-Resto-LoginName": login.get_secret_value(),
+                    "X-Resto-PasswordHash": password_hash,
+                    "X-Resto-BackVersion": _BACK_VERSION,
+                    "X-Resto-AuthType": "BACK",
+                    "X-Resto-ServerEdition": "CHAIN",
+                },
+            )
+        finally:
+            password_hash = ""
         if response.status_code == 401:
             raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
         if response.status_code == 403:
@@ -675,9 +694,111 @@ class IikoServerClient(IikoProvider):
             raise IikoResponseError(response.status_code)
         return self._parse_xml_response(response)
 
+    async def get_outgoing_invoice_for_update(
+        self,
+        document_id: UUID,
+    ) -> IikoOutgoingInvoiceUpdateSourceDto:
+        call_id = uuid4()
+        args = ET.Element("args")
+        for name, value in (
+            ("entities-version", "0"),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true"),
+            ("client-call-id", str(call_id)),
+            ("use-raw-entities", "true"),
+            ("id", str(document_id)),
+        ):
+            ET.SubElement(args, name).text = value
+        response = await self._post_legacy_document_rpc(
+            _DOCUMENT_SERVICE_PATH,
+            params=(("methodName", "getAbstractDocument"),),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                args, encoding="utf-8", xml_declaration=True
+            ),
+            call_id=call_id,
+        )
+
+        def local_name(element: ET.Element) -> str:
+            return element.tag.rsplit("}", 1)[-1]
+
+        def direct_text(element: ET.Element, *names: str) -> str | None:
+            for child in element:
+                if local_name(child) in names:
+                    value = (child.text or "").strip()
+                    if value:
+                        return value
+            return None
+
+        success = direct_text(response, "success")
+        result_status = direct_text(response, "resultStatus")
+        documents = [
+            element for element in response.iter()
+            if local_name(element) == "returnValue"
+            and element.attrib.get("cls") == "OutgoingInvoice"
+        ]
+        if success != "true" or result_status != "SUCCESS" or len(documents) != 1:
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_RPC_READ_INVALID")
+        document = documents[0]
+        external_id = direct_text(document, "id") or document.attrib.get("eid")
+        document_number = direct_text(document, "documentNumber")
+        status = direct_text(document, "status")
+        revision = direct_text(document, "revision")
+        entities_update = next(
+            (
+                element for element in response.iter()
+                if local_name(element) == "entitiesUpdate"
+            ),
+            None,
+        )
+        entities_version = (
+            direct_text(entities_update, "revision")
+            if entities_update is not None else None
+        )
+        if (
+            external_id is None
+            or document_number is None
+            or status is None
+            or revision is None
+            or entities_version is None
+        ):
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_RPC_READ_INVALID")
+        try:
+            if UUID(external_id) != document_id:
+                raise ValueError
+            parsed_revision = int(revision)
+            parsed_entities_version = int(entities_version)
+            items_element = next(
+                (child for child in document if local_name(child) == "items"),
+                None,
+            )
+            items = tuple(
+                IikoOutgoingInvoiceItemDto(
+                    product_id=direct_text(item, "productId", "product"),
+                    amount=direct_text(item, "amount"),
+                    price=direct_text(item, "price") or "0",
+                )
+                for item in (() if items_element is None else items_element)
+                if local_name(item) == "item"
+            )
+        except (TypeError, ValueError, ValidationError) as error:
+            raise IikoContractError(
+                "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID"
+            ) from error
+        update_document = deepcopy(document)
+        update_document.tag = "document"
+        return IikoOutgoingInvoiceUpdateSourceDto(
+            external_id=str(document_id),
+            document_number=document_number,
+            status=status,
+            revision=parsed_revision,
+            entities_version=parsed_entities_version,
+            items=items,
+            raw_document_xml=ET.tostring(update_document, encoding="utf-8"),
+        )
+
     async def update_outgoing_invoice(
         self,
-        document: IikoOutgoingInvoiceDto,
+        document: IikoOutgoingInvoiceUpdateSourceDto,
         *,
         actual_quantities: Sequence[Decimal],
     ) -> IikoDocumentValidationResultDto:
@@ -734,10 +855,25 @@ class IikoServerClient(IikoProvider):
             if amount is None:
                 raise IikoContractError("IIKO_OUTGOING_INVOICE_ITEMS_MISMATCH")
             amount.text = format(quantity, "f")
+        call_id = uuid4()
+        args = ET.Element("args")
+        for name, value in (
+            ("entities-version", str(document.entities_version)),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true"),
+            ("client-call-id", str(call_id)),
+            ("use-raw-entities", "true"),
+        ):
+            ET.SubElement(args, name).text = value
+        args.append(update_root)
+        ET.SubElement(args, "suppressWarnings", {"cls": "java.util.ArrayList"})
         response = await self._post_legacy_document_rpc(
             _DOCUMENT_SERVICE_PATH,
             params=(("methodName", "saveOrUpdateDocument"),),
-            content=ET.tostring(update_root, encoding="utf-8"),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                args, encoding="utf-8", xml_declaration=True
+            ),
+            call_id=call_id,
         )
         results = self._validation_results(response)
         if len(results) != 1:

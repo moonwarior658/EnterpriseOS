@@ -75,6 +75,16 @@ class IikoOutgoingInvoiceDto(IikoDto):
     raw_document_xml: bytes | None = Field(default=None, exclude=True, repr=False)
 
 
+class IikoOutgoingInvoiceUpdateSourceDto(IikoDto):
+    external_id: str
+    document_number: str
+    status: str
+    revision: int = Field(ge=0)
+    entities_version: int = Field(ge=0)
+    items: tuple[IikoOutgoingInvoiceItemDto, ...] = ()
+    raw_document_xml: bytes = Field(exclude=True, repr=False)
+
+
 class IikoOutgoingInvoiceItemCreateDto(IikoDto):
     product_id: UUID
     amount: Decimal = Field(gt=0, allow_inf_nan=False)

@@ -12,6 +12,7 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceCreateResultDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
+    IikoOutgoingInvoiceUpdateSourceDto,
     IikoPackageDto,
     IikoProductCategoryDto,
     IikoProductDto,
@@ -133,11 +134,18 @@ class IikoProvider(ABC):
 
     async def update_outgoing_invoice(
         self,
-        document: IikoOutgoingInvoiceDto,
+        document: IikoOutgoingInvoiceUpdateSourceDto,
         *,
         actual_quantities: Sequence[Decimal],
     ) -> IikoDocumentValidationResultDto:
         """Update one authoritative NEW invoice through legacy RPC."""
+        raise NotImplementedError
+
+    async def get_outgoing_invoice_for_update(
+        self,
+        document_id: UUID,
+    ) -> IikoOutgoingInvoiceUpdateSourceDto:
+        """Return one full fresh legacy-RPC invoice with its revision."""
         raise NotImplementedError
 
     async def process_outgoing_invoices(

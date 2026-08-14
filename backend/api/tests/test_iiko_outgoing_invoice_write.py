@@ -22,6 +22,7 @@ from app.integrations.iiko.document_write import (
 from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceItemDto,
+    IikoOutgoingInvoiceUpdateSourceDto,
 )
 from app.integrations.iiko.exceptions import (
     IikoConnectionError,
@@ -104,6 +105,49 @@ def successful_import_response(
 
 
 class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_fresh_revision_and_full_invoice_through_legacy_rpc(self):
+        requests: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/services/document"):
+                return response(request, text=(
+                    "<result><success>true</success><resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="OutgoingInvoice" '
+                    'eid="00000000-0000-4000-8000-000000000001">'
+                    "<documentNumber>2753</documentNumber><status>NEW</status>"
+                    "<revision>42</revision><preservedField>keep-me</preservedField>"
+                    "<items><item><product>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                    "</product><amount>10.000</amount><price>0</price>"
+                    "</item></items></returnValue>"
+                    "<entitiesUpdate><revision>101</revision></entitiesUpdate></result>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            document = await client.get_outgoing_invoice_for_update(DOCUMENT_ID)
+
+        read_request = next(
+            item for item in requests
+            if item.url.path.endswith("/services/document")
+        )
+        self.assertEqual(read_request.url.params["methodName"], "getAbstractDocument")
+        read_xml = xml_payload(read_request)
+        self.assertEqual(child_text(read_xml, "id"), str(DOCUMENT_ID))
+        self.assertEqual(child_text(read_xml, "entities-version"), "0")
+        self.assertEqual(document.external_id, str(DOCUMENT_ID))
+        self.assertEqual(document.document_number, "2753")
+        self.assertEqual(document.status, "NEW")
+        self.assertEqual(document.revision, 42)
+        self.assertEqual(document.entities_version, 101)
+        self.assertIn(b"preservedField", document.raw_document_xml)
+
     async def test_updates_fresh_existing_invoice_through_legacy_rpc(self):
         requests: list[httpx.Request] = []
         raw_xml = (
@@ -131,15 +175,12 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 return response(request, text="ok")
             raise AssertionError(request.url.path)
 
-        document = IikoOutgoingInvoiceDto(
+        document = IikoOutgoingInvoiceUpdateSourceDto(
             external_id=str(DOCUMENT_ID),
             document_number="2753",
             status="NEW",
-            counteragent_id="47c6accc-4bc7-6be1-0194-ccf9367e20cd",
-            default_store_id="24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
-            account_to_code="21",
-            revenue_account_code="20",
             revision=42,
+            entities_version=101,
             items=(IikoOutgoingInvoiceItemDto(
                 product_id=PRODUCT_ID,
                 amount=Decimal("10"),
@@ -159,10 +200,12 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertEqual(update.url.params["methodName"], "saveOrUpdateDocument")
         updated_xml = xml_payload(update)
-        self.assertEqual(child_text(updated_xml, "revision"), "42")
-        self.assertEqual(child_text(updated_xml, "preservedField"), "keep-me")
+        update_document = updated_xml.find("document")
+        self.assertEqual(child_text(updated_xml, "entities-version"), "101")
+        self.assertEqual(child_text(update_document, "revision"), "42")
+        self.assertEqual(child_text(update_document, "preservedField"), "keep-me")
         self.assertEqual(
-            child_text(updated_xml.find("items/item"), "amount"), "8"
+            child_text(update_document.find("items/item"), "amount"), "8"
         )
         self.assertTrue(result.valid)
         self.assertEqual(result.error_message, "saved")

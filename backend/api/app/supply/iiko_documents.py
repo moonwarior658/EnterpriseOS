@@ -591,12 +591,29 @@ async def finalize_supply_request_with_iiko_documents(
                         authoritative, document, required_status="PROCESSED"
                     )
                     continue
-                if authoritative.status != "NEW" or authoritative.revision is None:
+                if authoritative.status != "NEW":
                     raise SupplyIikoDocumentFinalizationError(
                         "SUPPLY_IIKO_DOCUMENT_NOT_NEW"
                     )
+                try:
+                    update_source = await provider.get_outgoing_invoice_for_update(
+                        document.iiko_document_id
+                    )
+                    update_source_id = UUID(update_source.external_id)
+                except (IikoError, ValueError) as error:
+                    raise SupplyIikoDocumentFinalizationError(
+                        "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE"
+                    ) from error
+                if (
+                    update_source_id != document.iiko_document_id
+                    or update_source.document_number != document.document_number
+                    or update_source.status != "NEW"
+                ):
+                    raise SupplyIikoDocumentFinalizationError(
+                        "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE"
+                    )
                 update_result = await provider.update_outgoing_invoice(
-                    authoritative,
+                    update_source,
                     actual_quantities=document.actual_quantities,
                 )
                 if (
