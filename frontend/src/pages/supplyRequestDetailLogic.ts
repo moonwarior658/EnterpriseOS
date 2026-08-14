@@ -102,7 +102,42 @@ export function supplyQuantityMillis(value: string): number | null {
 }
 
 export function formatSupplyQuantityMillis(value: number): string {
-  return (value / SUPPLY_QUANTITY_SCALE).toFixed(3)
+  return new Intl.NumberFormat('ru-RU', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value / SUPPLY_QUANTITY_SCALE)
+}
+
+export function formatSupplyQuantity(
+  value: string | null | undefined,
+): string {
+  if (value == null) return '—'
+  const millis = supplyQuantityMillis(value)
+  return millis === null ? '—' : formatSupplyQuantityMillis(millis)
+}
+
+export function supplySourceRoleLabel(
+  role: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD' | 'FIXED_ASSETS' | 'OTHER' | null,
+): string {
+  if (role === null) return 'Направление не определено'
+  return ({
+    MAIN: 'Основной',
+    PACKAGING: 'Упаковка',
+    HOUSEHOLD: 'Хозяйственный',
+    FIXED_ASSETS: 'Основные средства',
+    OTHER: 'Прочее',
+  } as const)[role]
+}
+
+export function supplyIikoDocumentStatusLabel(
+  status: 'PENDING' | 'CREATED' | 'FAILED' | 'UNKNOWN',
+): string {
+  return ({
+    PENDING: 'Создаётся',
+    CREATED: 'Создано',
+    FAILED: 'Ошибка создания',
+    UNKNOWN: 'Требуется проверка',
+  } as const)[status]
 }
 
 export function supplyExpectedDebtMillis(
@@ -294,6 +329,13 @@ export function isSupplyLineMatchReady(
     && quantity > 0
     && (unit.allows_fraction || quantity % SUPPLY_QUANTITY_SCALE === 0),
   )
+}
+
+export function supplyLineRequestedQuantityForMatch(
+  line: SupplyLine,
+  workingDraft: SupplyLineWorkingDraft,
+): string {
+  return line.quantity ?? line.parsed_quantity ?? workingDraft.quantity
 }
 
 export function updateSupplyLineMappingDraft(

@@ -59,7 +59,9 @@ from app.models.supply import (
 from app.models.user import User
 from app.models.work_request import WorkRequest
 from app.supply.iiko_documents import (
+    SupplyIikoDocumentFinalizationUnsupportedError,
     SupplyInternalTransferWriteUnsupportedError,
+    ensure_supply_iiko_document_finalization_supported,
     plan_supply_request_with_iiko_documents,
 )
 from app.supply.iiko_document_pdf import (
@@ -407,6 +409,40 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(provider.calls), 1)
         self.assertEqual(len(provider.calls[0].items), 2)
         self.assertEqual(len(self._writes(request_id)), 1)
+
+    async def test_planned_document_uses_requested_quantity_not_pending_actual(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        with self.sessions.begin() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            line.send_quantity = Decimal("0.5")
+        provider = RecordingProvider(self.sessions)
+
+        await self._plan(request_id, provider)
+
+        self.assertEqual(provider.calls[0].items[0].amount, Decimal("1"))
+
+    async def test_existing_iiko_document_blocks_local_fulfillment_finalization(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        await self._plan(request_id, RecordingProvider(self.sessions))
+
+        with self.sessions() as session:
+            with self.assertRaises(
+                SupplyIikoDocumentFinalizationUnsupportedError
+            ):
+                ensure_supply_iiko_document_finalization_supported(
+                    session,
+                    tenant_id=TENANT_ID,
+                    request_id=request_id,
+                )
+            session.rollback()
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.status, "PLANNED")
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
+                0,
+            )
 
     async def test_all_supported_departments_create_outgoing_invoice(self):
         for department_code in ("М15", "М35", "М6А"):

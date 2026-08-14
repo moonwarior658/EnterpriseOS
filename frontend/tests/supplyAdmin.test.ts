@@ -26,6 +26,7 @@ import {
   requiresSupplyLineMatch,
   saveDirtySupplyLines,
   supplyLineWorkingBaseline,
+  supplyLineRequestedQuantityForMatch,
   supplyExpectedDebtMillis,
   supplySendExcessMillis,
   supplyMatchProgress,
@@ -33,8 +34,11 @@ import {
   supplyPrintPurposeLabel,
   findNormalSupplyPrintJob,
   suggestSupplyWorkingName,
+  formatSupplyQuantity,
   formatSupplyQuantityMillis,
+  supplyIikoDocumentStatusLabel,
   supplyQuantityMillis,
+  supplySourceRoleLabel,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   type SupplyLineMappingState,
@@ -93,7 +97,7 @@ test('карточка разводит первую печать и reprint end
   assert.match(detail, /printJobsState !== 'ready'/)
   assert.match(detail, /printableIikoDocuments\.length > 0/)
   assert.match(detail, /iikoDocuments\.length > 0 \|\| printJobs\.length > 0/)
-  assert.match(detail, /document\.operator_message/)
+  assert.doesNotMatch(detail, /document\.operator_message/)
   assert.match(detail, /document\) => !document\.printable/)
   assert.match(detail, /Проверить документы в iiko/)
 })
@@ -107,13 +111,13 @@ test('карточка сохраняет факт и readonly исполнен�
     new URL('../src/pages/SupplyDebtListPage.tsx', import.meta.url),
     'utf8',
   )
-  assert.match(detail, /Отправить как запланировано/)
+  assert.match(detail, /Завершить заявку/)
   assert.match(detail, /Сохранить факт/)
   assert.match(detail, /Подтвердить включение/)
-  assert.match(detail, /request\.status === 'FULFILLED'/)
-  assert.match(detail, /Утверждено/)
+  assert.match(detail, /\['PARTIALLY_FULFILLED', 'FULFILLED'\]\.includes/)
+  assert.match(detail, /<dt>План<\/dt>/)
   assert.match(debts, /Долги подразделений/)
-  assert.match(debts, /Закрыть частично или полностью/)
+  assert.doesNotMatch(debts, /Закрыть частично или полностью/)
   assert.match(debts, /Отменить долг/)
   assert.match(debts, /История/)
 })
@@ -356,6 +360,17 @@ test('MATCH сразу валидирует актуальные quantity и uni
     { ...corrected, quantity: '2.5' },
     [pieceUnit],
   ), false)
+  assert.equal(
+    supplyLineRequestedQuantityForMatch(
+      {
+        quantity: '10',
+        parsed_quantity: '10',
+        send_quantity: '12',
+      } as SupplyLine,
+      { ...corrected, quantity: '12' },
+    ),
+    '10',
+  )
 })
 
 test('рабочее место показывает нужные строки, прогресс и следующий фокус', () => {
@@ -365,6 +380,10 @@ test('рабочее место показывает нужные строки, 
   )
   assert.match(detail, /requiresSupplyLineMatch\(line\)/)
   assert.match(detail, /Сопоставить с товаром EOS/)
+  assert.match(detail, /Изменить товар/)
+  assert.match(detail, /Заменить сопоставление/)
+  assert.match(detail, /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/)
+  assert.match(detail, /setSuggestionsOpen\(false\)/)
   assert.match(detail, /Перераспознать строку/)
   assert.match(detail, /Выбран товар EOS/)
   assert.match(detail, /nextSupplyLineToMatch/)
@@ -468,7 +487,26 @@ test('количества Supply сравниваются без float-ошиб
     supplyQuantityMillis('0.3'),
   )
   assert.equal(supplyQuantityMillis('1.2345'), null)
-  assert.equal(formatSupplyQuantityMillis(300), '0.300')
+  assert.equal(formatSupplyQuantityMillis(300), '0,3')
+  assert.equal(formatSupplyQuantity('100.000'), '100,0')
+  assert.equal(formatSupplyQuantity('4.000'), '4,0')
+  assert.equal(formatSupplyQuantity('0.000'), '0,0')
+})
+
+test('карточка локализует склады и документы iiko без технических UUID', () => {
+  const detail = readFileSync(
+    new URL('../src/pages/SupplyRequestDetailPage.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.equal(supplySourceRoleLabel('PACKAGING'), 'Упаковка')
+  assert.equal(supplySourceRoleLabel('HOUSEHOLD'), 'Хозяйственный')
+  assert.equal(supplyIikoDocumentStatusLabel('CREATED'), 'Создано')
+  assert.match(detail, /Предварительный просмотр по складам отгрузки/)
+  assert.match(detail, /sourceEditorOpen/)
+  assert.doesNotMatch(detail, />Read-only preview/)
+  assert.doesNotMatch(detail, />SOURCE:/)
+  assert.doesNotMatch(detail, /\{document\.flow\}/)
+  assert.doesNotMatch(detail, /Статус: \{document\.status\}/)
 })
 
 test('API-клиент передаёт фильтры, expected_version, алиас и allocations', async () => {

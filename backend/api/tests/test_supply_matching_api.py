@@ -18,6 +18,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.iiko import IikoDocumentWrite
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -89,6 +90,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         SupplyDepartmentDebt.__table__.create(self.engine)
         SupplyDepartmentDebtEvent.__table__.create(self.engine)
         SupplyRequestLineDebtLink.__table__.create(self.engine)
+        IikoDocumentWrite.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
             expire_on_commit=False,
@@ -1078,75 +1080,30 @@ class SupplyMatchingApiTests(unittest.TestCase):
             alias = session.get(SupplyProductAlias, alias_id)
             self.assertEqual(alias.product_id, self.cream.id)
 
-    def test_context_mapping_is_suggested_after_third_same_correction(self) -> None:
-        last_response = None
-        for quantity in ("1", "2", "3"):
-            created = self.create_request(f"овсяное {quantity} л")
-            last_response = self.match(
-                created["id"],
-                created["lines"][0]["id"],
-                {
-                    "action": "MATCH",
-                    "product_id": str(self.coffee_milk.id),
-                    "unit_id": str(self.units["L"].id),
-                    "quantity": quantity,
-                },
-            )
-        self.assertIsNotNone(last_response)
-        self.assertEqual(last_response.status_code, 200, last_response.text)
-        suggestion = last_response.json()["context_mapping_suggestion"]
-        self.assertEqual(suggestion["correction_count"], 3)
-        self.assertEqual(suggestion["product_id"], str(self.coffee_milk.id))
-        reloaded_line = self.client.get(
-            f"/supply/requests/{created['id']}"
-        ).json()["lines"][0]
-        self.assertEqual(
-            reloaded_line["context_mapping_suggestion"]["correction_count"],
-            3,
+    def test_manual_match_persists_context_for_next_request(self) -> None:
+        created = self.create_request("безлактозное 1 л")
+        matched = self.match(
+            created["id"],
+            created["lines"][0]["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.coffee_milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "1",
+            },
         )
-
-    def test_no_context_mapping_is_applied_before_explicit_confirmation(self) -> None:
-        third = None
-        for _ in range(3):
-            created = self.create_request("безлактозное 1 л")
-            response = self.match(
-                created["id"],
-                created["lines"][0]["id"],
-                {
-                    "action": "MATCH",
-                    "product_id": str(self.coffee_milk.id),
-                    "unit_id": str(self.units["L"].id),
-                    "quantity": "1",
-                },
-            )
-            third = (created, response)
-        fresh = self.create_request("безлактозное 2 л")
-        before_confirmation = self.recognize(fresh["id"])
-        self.assertEqual(before_confirmation.status_code, 200)
-        self.assertEqual(before_confirmation.json()["matched"], 0)
-        self.assertIsNotNone(
-            third[1].json()["context_mapping_suggestion"]
-        )
+        self.assertEqual(matched.status_code, 200, matched.text)
+        self.assertEqual(matched.json()["match_method"], "MANUAL")
         with self.session_factory() as session:
-            self.assertEqual(
-                session.query(SupplyDepartmentProductMapping).filter_by(
-                    normalized_phrase="безлактозное"
-                ).count(),
-                0,
-            )
-        confirmed = self.client.post(
-            "/supply/requests/"
-            f"{third[0]['id']}/lines/{third[0]['lines'][0]['id']}"
-            "/context-mapping",
-            json={"product_id": str(self.coffee_milk.id)},
-        )
-        self.assertEqual(confirmed.status_code, 201, confirmed.text)
-        with self.session_factory.begin() as session:
             mapping = session.query(SupplyDepartmentProductMapping).filter_by(
                 normalized_phrase="безлактозное"
             ).one()
-            mapping.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
-            mapping.updated_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            self.assertEqual(mapping.product_id, self.coffee_milk.id)
+            audit = session.query(
+                SupplyDepartmentProductMappingAuditEvent
+            ).filter_by(mapping_id=mapping.id).one()
+            self.assertEqual(audit.action.value, "CREATED")
+
         subsequent = self.create_request("безлактозное 3 л")
         recognized = self.recognize(subsequent["id"])
         self.assertEqual(recognized.status_code, 200, recognized.text)
@@ -1154,7 +1111,73 @@ class SupplyMatchingApiTests(unittest.TestCase):
         line = self.client.get(
             f"/supply/requests/{subsequent['id']}"
         ).json()["lines"][0]
+        self.assertEqual(line["product_id"], str(self.coffee_milk.id))
         self.assertEqual(line["match_method"], "CONTEXT_MAPPING")
+
+    def test_manual_rematch_replaces_context_without_changing_other_lines(self) -> None:
+        with self.session_factory.begin() as session:
+            mapping = SupplyDepartmentProductMapping(
+                tenant_id="eclair",
+                department_id=self.department.id,
+                phrase="молоко для коктейлей и кухни",
+                normalized_phrase="молоко для коктейлей и кухни",
+                product_id=self.milk.id,
+            )
+            session.add(mapping)
+            session.flush()
+            mapping_id = mapping.id
+        created = self.create_request(
+            "Молоко для коктейлей и кухни 10 л",
+            "Сливки 2 л",
+        )
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        before = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()
+        before = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": before["version"]},
+        ).json()
+        target, untouched = before["lines"]
+        working = self.client.patch(
+            f"/supply/requests/{created['id']}/lines/{target['id']}"
+            "/working-values",
+            json={
+                "request_version": before["version"],
+                "working_name": target["working_name"],
+                "requested_quantity": "10",
+                "send_quantity": "12",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+        self.assertEqual(working.status_code, 200, working.text)
+
+        replaced = self.match(
+            created["id"],
+            target["id"],
+            {
+                "action": "MATCH",
+                "product_id": str(self.coffee_milk.id),
+                "unit_id": str(self.units["L"].id),
+                "quantity": "10",
+            },
+        )
+        self.assertEqual(replaced.status_code, 200, replaced.text)
+        self.assertEqual(replaced.json()["product_id"], str(self.coffee_milk.id))
+        self.assertEqual(Decimal(replaced.json()["quantity"]), Decimal("10"))
+        self.assertEqual(Decimal(replaced.json()["send_quantity"]), Decimal("12"))
+        after = self.client.get(f"/supply/requests/{created['id']}").json()
+        self.assertEqual(after["lines"][1]["product_id"], untouched["product_id"])
+        self.assertEqual(after["lines"][1]["match_status"], untouched["match_status"])
+        with self.session_factory() as session:
+            mapping = session.get(SupplyDepartmentProductMapping, mapping_id)
+            self.assertEqual(mapping.product_id, self.coffee_milk.id)
+            self.assertEqual(mapping.version, 2)
+            audit = session.query(
+                SupplyDepartmentProductMappingAuditEvent
+            ).filter_by(mapping_id=mapping_id, action="REPLACED").one()
+            self.assertEqual(audit.previous_product_id, self.milk.id)
+            self.assertEqual(audit.product_id, self.coffee_milk.id)
 
     def test_context_mapping_only_applies_to_later_requests(self) -> None:
         old_request = self.create_request("контекстное 1 л")
@@ -1674,6 +1697,40 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(
             after_plan.json()["detail"]["code"],
             "SUPPLY_REQUEST_NOT_EDITABLE",
+        )
+
+    def test_admin_changes_unit_without_resetting_send_quantity(self) -> None:
+        created = self.create_request("Молоко 10 шт", "Сливки 2 л")
+        self.assertEqual(self.recognize(created["id"]).status_code, 200)
+        detail = self.client.get(f"/supply/requests/{created['id']}").json()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": detail["version"]},
+        ).json()
+        target, untouched = submitted["lines"]
+
+        corrected = self.client.patch(
+            f"/supply/requests/{created['id']}/lines/{target['id']}"
+            "/working-values",
+            json={
+                "request_version": submitted["version"],
+                "working_name": target["working_name"],
+                "requested_quantity": "10",
+                "send_quantity": "12",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        line = corrected.json()["line"]
+        self.assertEqual(Decimal(line["quantity"]), Decimal("10"))
+        self.assertEqual(Decimal(line["send_quantity"]), Decimal("12"))
+        self.assertEqual(line["requested_unit"]["code"], "L")
+        reloaded = self.client.get(f"/supply/requests/{created['id']}").json()
+        self.assertEqual(reloaded["lines"][1]["product_id"], untouched["product_id"])
+        self.assertEqual(
+            reloaded["lines"][1]["requested_unit_id"],
+            untouched["requested_unit_id"],
         )
 
     def test_simple_send_plans_without_fact_or_debt_then_completes_partial(

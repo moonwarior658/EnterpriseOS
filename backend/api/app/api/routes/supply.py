@@ -214,9 +214,11 @@ from app.supply.iiko_stock import (
     select_source_warehouse,
 )
 from app.supply.iiko_documents import (
+    SupplyIikoDocumentFinalizationUnsupportedError,
     SupplyIikoDocumentPreparationError,
     SupplyIikoDocumentWorkflowError,
     SupplyInternalTransferWriteUnsupportedError,
+    ensure_supply_iiko_document_finalization_supported,
     list_supply_iiko_document_writes,
     plan_supply_request_with_iiko_documents,
 )
@@ -2118,6 +2120,11 @@ def fulfill_as_planned(
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyRequest:
     try:
+        ensure_supply_iiko_document_finalization_supported(
+            db,
+            tenant_id=current_admin.tenant_id,
+            request_id=request_id,
+        )
         return fulfill_supply_request_as_planned(
             db,
             request_id,
@@ -2129,6 +2136,11 @@ def fulfill_as_planned(
         raise _not_found() from error
     except SupplyRequestVersionConflictError as error:
         raise _version_conflict(error) from error
+    except SupplyIikoDocumentFinalizationUnsupportedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": error.code},
+        ) from error
     except SupplyRequestCancelledError as error:
         raise HTTPException(
             status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}

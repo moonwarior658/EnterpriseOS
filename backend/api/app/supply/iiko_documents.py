@@ -59,6 +59,12 @@ class SupplyIikoDocumentPreparationError(SupplyIikoDocumentWorkflowError):
     pass
 
 
+class SupplyIikoDocumentFinalizationUnsupportedError(
+    SupplyIikoDocumentWorkflowError
+):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class SupplyOutgoingInvoiceGroup:
     flow: SupplyProductSourceRole
@@ -84,8 +90,33 @@ def list_supply_iiko_document_writes(
     ).all())
 
 
+def ensure_supply_iiko_document_finalization_supported(
+    session: Session,
+    *,
+    tenant_id: str,
+    request_id: UUID,
+) -> None:
+    """Fail closed until modify + proceed is confirmed for iikoServer.
+
+    Completing a request with an existing planned invoice would otherwise
+    finalize fulfillment and debt without updating the authoritative iiko
+    document. Requests outside the iiko document contour keep the existing
+    fulfillment path.
+    """
+    if list_supply_iiko_document_writes(
+        session,
+        tenant_id=tenant_id,
+        request_id=request_id,
+    ):
+        raise SupplyIikoDocumentFinalizationUnsupportedError(
+            "SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED"
+        )
+
+
 def _document_quantity(line: SupplyRequestLine) -> Decimal | None:
-    quantity = line.send_quantity if line.send_quantity is not None else line.quantity
+    # Planning documents describe the approved request quantity. The pending
+    # fulfillment fact is finalized separately and must not rewrite the plan.
+    quantity = line.quantity
     if quantity is None or quantity <= 0:
         return None
     return quantity

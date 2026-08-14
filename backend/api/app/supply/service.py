@@ -2353,6 +2353,54 @@ def manually_match_supply_request_line(
             )
         phrase = line.parsed_name or supply_line_product_name(line.raw_text)
         normalized_phrase = normalize_product_text(phrase)
+        context_mapping = session.scalar(
+            select(SupplyDepartmentProductMapping).where(
+                SupplyDepartmentProductMapping.tenant_id == tenant_id,
+                SupplyDepartmentProductMapping.department_id
+                == supply_request.department_id,
+                SupplyDepartmentProductMapping.normalized_phrase
+                == normalized_phrase,
+            ).with_for_update()
+        )
+        if context_mapping is None:
+            context_mapping = SupplyDepartmentProductMapping(
+                tenant_id=tenant_id,
+                department_id=supply_request.department_id,
+                phrase=phrase,
+                normalized_phrase=normalized_phrase,
+                product_id=product.id,
+                created_by_user_id=matched_by_user_id,
+                updated_by_user_id=matched_by_user_id,
+            )
+            session.add(context_mapping)
+            session.flush()
+            session.add(SupplyDepartmentProductMappingAuditEvent(
+                tenant_id=tenant_id,
+                mapping_id=context_mapping.id,
+                action=SupplyContextMappingAuditAction.CREATED,
+                department_id=context_mapping.department_id,
+                normalized_phrase=context_mapping.normalized_phrase,
+                previous_product_id=None,
+                product_id=product.id,
+                actor_user_id=matched_by_user_id,
+            ))
+        elif context_mapping.product_id != product.id:
+            if context_mapping.is_permanent:
+                raise SupplyRequestStateError
+            previous_product_id = context_mapping.product_id
+            context_mapping.product_id = product.id
+            context_mapping.updated_by_user_id = matched_by_user_id
+            context_mapping.version += 1
+            session.add(SupplyDepartmentProductMappingAuditEvent(
+                tenant_id=tenant_id,
+                mapping_id=context_mapping.id,
+                action=SupplyContextMappingAuditAction.REPLACED,
+                department_id=context_mapping.department_id,
+                normalized_phrase=context_mapping.normalized_phrase,
+                previous_product_id=previous_product_id,
+                product_id=product.id,
+                actor_user_id=matched_by_user_id,
+            ))
         correction_exists = session.scalar(
             select(SupplyDepartmentProductCorrection.id).where(
                 SupplyDepartmentProductCorrection.request_line_id == line.id,

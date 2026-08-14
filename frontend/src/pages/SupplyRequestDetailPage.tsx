@@ -42,6 +42,7 @@ import {
   clearSupplyLineMappingDraft,
   clearSupplyLineWorkingDraft,
   findNormalSupplyPrintJob,
+  formatSupplyQuantity,
   formatSupplyQuantityMillis,
   getSupplyLineMappingDraft,
   getSupplyLineWorkingDraft,
@@ -51,12 +52,15 @@ import {
   requiresSupplyLineMatch,
   saveDirtySupplyLines,
   supplyExpectedDebtMillis,
+  supplyIikoDocumentStatusLabel,
   supplyLineWorkingBaseline,
+  supplyLineRequestedQuantityForMatch,
   supplyMatchProgress,
   supplyPrintPurposeLabel,
   supplyPrintStatusLabel,
   supplyQuantityMillis,
   supplySendExcessMillis,
+  supplySourceRoleLabel,
   updateSupplyLineMappingDraft,
   updateSupplyLineWorkingDraft,
   suggestSupplyWorkingName,
@@ -84,6 +88,10 @@ function statusLabel(value: SupplyRequest['status']): string {
     FULFILLED: 'Исполнена',
     CANCELLED: 'Отменена',
   } as const)[value]
+}
+
+function sourceUserText(value: string): string {
+  return value.replace(/SOURCE/gu, 'склад отгрузки')
 }
 
 function workingSaveError(error: unknown): string {
@@ -125,6 +133,8 @@ function SupplyLineMappingEditor({
   onReparse: () => void
   inputRef: (element: HTMLInputElement | null) => void
 }) {
+  const autocompleteRef = useRef<HTMLDivElement>(null)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [searchResult, setSearchResult] = useState<{
     query: string
     items: SupplyProduct[]
@@ -139,7 +149,7 @@ function SupplyLineMappingEditor({
 
   useEffect(() => {
     const query = draft.searchQuery.trim()
-    if (!query) return
+    if (!suggestionsOpen || !query) return
 
     const controller = new AbortController()
     const timeout = window.setTimeout(() => {
@@ -161,7 +171,7 @@ function SupplyLineMappingEditor({
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [draft.searchQuery, line.id])
+  }, [draft.searchQuery, line.id, suggestionsOpen])
 
   return (
     <div className="supply-line-mapping-workspace">
@@ -169,7 +179,16 @@ function SupplyLineMappingEditor({
         <span>Исходная строка</span>
         <strong>{line.raw_text}</strong>
       </div>
-      <div className="supply-product-autocomplete">
+      <div
+        className="supply-product-autocomplete"
+        ref={autocompleteRef}
+        onBlur={(event) => {
+          const next = event.relatedTarget
+          if (!(next instanceof Node) || !autocompleteRef.current?.contains(next)) {
+            setSuggestionsOpen(false)
+          }
+        }}
+      >
         <label htmlFor={`supply-product-search-${line.id}`}>
           Товар EOS
         </label>
@@ -181,6 +200,7 @@ function SupplyLineMappingEditor({
           placeholder="Начните вводить название"
           value={draft.searchQuery}
           disabled={disabled}
+          onFocus={() => setSuggestionsOpen(true)}
           onChange={(event) => onChange({
             searchQuery: event.target.value,
             productId: '',
@@ -195,7 +215,7 @@ function SupplyLineMappingEditor({
             Не удалось загрузить предложения.
           </small>
         )}
-        {currentResult.items.length > 0 && (
+        {suggestionsOpen && currentResult.items.length > 0 && (
           <div className="supply-product-suggestions" role="listbox">
             {currentResult.items.map((product) => (
               <button
@@ -203,13 +223,16 @@ function SupplyLineMappingEditor({
                 role="option"
                 aria-selected={draft.productId === product.id}
                 key={product.id}
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => {
                   onChange({
+                    searchQuery: product.name,
                     productId: product.id,
                     selectedProduct: product,
                     status: 'idle',
                     error: '',
                   })
+                  setSuggestionsOpen(false)
                   setSearchResult({ query: '', items: [], state: 'idle' })
                 }}
               >
@@ -230,7 +253,9 @@ function SupplyLineMappingEditor({
         </div>
       )}
       <div className="supply-mapping-values">
-        <span>Количество: <strong>{workingDraft.quantity || '—'}</strong></span>
+        <span>
+          Количество: <strong>{formatSupplyQuantity(workingDraft.quantity)}</strong>
+        </span>
         <span>
           Единица:{' '}
           <strong>
@@ -240,6 +265,7 @@ function SupplyLineMappingEditor({
       </div>
       {line.match_status === 'NEEDS_REVIEW' && (
         <button
+          className="secondary-action"
           type="button"
           disabled={disabled || draft.status === 'loading'}
           onClick={onReparse}
@@ -248,7 +274,7 @@ function SupplyLineMappingEditor({
         </button>
       )}
       <button
-        className="supply-map-product-button"
+        className="primary-action supply-map-product-button"
         type="button"
         disabled={
           disabled || draft.status === 'loading' || !matchReady
@@ -257,7 +283,9 @@ function SupplyLineMappingEditor({
       >
         {draft.status === 'loading'
           ? 'Сопоставляем…'
-          : 'Сопоставить с товаром EOS'}
+          : line.product_id
+            ? 'Заменить сопоставление'
+            : 'Сопоставить с товаром EOS'}
       </button>
       {draft.error && (
         <small className="request-message-error">{draft.error}</small>
@@ -351,7 +379,7 @@ function FulfillmentEditor({
           <strong>
             {allocation.action === 'TRANSFER' ? 'Перемещение' : 'Закупка'}
           </strong>
-          <span>План: {allocation.planned_quantity}</span>
+          <span>План: {formatSupplyQuantity(allocation.planned_quantity)}</span>
           <label>
             <span>Отправлено</span>
             <input
@@ -396,6 +424,7 @@ function FulfillmentEditor({
         </div>
       ))}
       <button
+        className="secondary-action"
         type="button"
         disabled={
           saving || !dirty || invalid || request.status !== 'PLANNED'
@@ -435,11 +464,11 @@ function SupplyRequestReadOnlyCard({
         <div className="request-heading supply-simple-heading">
           <div>
             <p className="eyebrow">СНАБЖЕНИЕ · ТОЛЬКО ПРОСМОТР</p>
-            <h1>{request.public_number}</h1>
-            <p>
+            <h1>
               {request.department.name} · {request.direction.name}
               {' · '}{statusLabel(request.status)}
-            </p>
+            </h1>
+            <p className="supply-business-number">{request.public_number}</p>
           </div>
           <Link className="request-back-link" to="/supply/requests">
             ← К реестру
@@ -465,8 +494,8 @@ function SupplyRequestReadOnlyCard({
               <span role="cell">{line.working_name || line.raw_text}</span>
               <span role="cell">
                 {['PARTIALLY_FULFILLED', 'FULFILLED'].includes(request.status)
-                  ? line.fulfilled_total
-                  : line.send_quantity ?? line.quantity ?? '—'}
+                  ? formatSupplyQuantity(line.fulfilled_total)
+                  : formatSupplyQuantity(line.send_quantity ?? line.quantity)}
               </span>
               <span role="cell">
                 {line.requested_unit?.short_name_ru
@@ -495,6 +524,8 @@ function SupplyRequestDetailPage() {
   const recognitionAttempts = useRef(new Set<string>())
   const mappingInputRefs = useRef(new Map<string, HTMLInputElement>())
   const [mapping, setMapping] = useState<SupplyLineMappingState>({})
+  const [mappingEditors, setMappingEditors] = useState<Set<string>>(new Set())
+  const [sourceEditorOpen, setSourceEditorOpen] = useState(false)
   const [working, setWorking] = useState<SupplyLineWorkingState>({})
   const [fulfillment, setFulfillment] = useState<Record<string, string>>({})
   const [sourcePreview, setSourcePreview] = useState<SupplyProductSourcePreview | null>(null)
@@ -599,6 +630,7 @@ function SupplyRequestDetailPage() {
       setState('loading')
       setRequest(null)
       setMapping({})
+      setMappingEditors(new Set())
       setWorking({})
       setFulfillment({})
       void (async () => {
@@ -834,9 +866,9 @@ function SupplyRequestDetailPage() {
         SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED:
           'Создание внутреннего перемещения iiko пока не поддерживается.',
         SUPPLY_IIKO_DOCUMENT_PREPARATION_INCOMPLETE:
-          'Не удалось подготовить документы iiko: проверьте mapping товара, единицы и SOURCE.',
+          'Не удалось подготовить документы iiko: проверьте сопоставление товара, единицы и склад отгрузки.',
         SUPPLY_IIKO_DOCUMENT_SOURCE_MISMATCH:
-          'SOURCE не соответствует подтверждённому маршруту документа iiko.',
+          'Склад отгрузки не соответствует подтверждённому маршруту документа iiko.',
       } as Record<string, string>)[code ?? '']
         ?? 'Не удалось отправить заявку в работу')
     } finally {
@@ -944,7 +976,7 @@ function SupplyRequestDetailPage() {
     const replacement = product?.mapping_version != null
       && product.assigned_source?.mapping_id !== mappingId
     const comment = replacement
-      ? window.prompt('Укажите обязательный комментарий для постоянной замены SOURCE')
+      ? window.prompt('Укажите обязательный комментарий для постоянной замены склада отгрузки')
       : null
     if (replacement && !comment?.trim()) return
     setBusy(true)
@@ -958,7 +990,10 @@ function SupplyRequestDetailPage() {
         comment?.trim() ?? null,
       )
       await reloadSourcePreview()
-      setMessage(replacement ? 'SOURCE заменён' : 'SOURCE назначен')
+      setSourceEditorOpen(false)
+      setMessage(replacement
+        ? 'Склад отгрузки изменён'
+        : 'Склад отгрузки назначен')
     } catch (error) {
       const code = error instanceof SupplyApiError ? error.code : null
       if (code === 'VERSION_CONFLICT' || code === 'SUPPLY_PRODUCT_SOURCE_CONFLICT') {
@@ -966,17 +1001,17 @@ function SupplyRequestDetailPage() {
       }
       setMessage(({
         VERSION_CONFLICT:
-          'Назначение SOURCE уже изменилось. Данные обновлены.',
+          'Назначение склада отгрузки уже изменилось. Данные обновлены.',
         SUPPLY_PRODUCT_SOURCE_CONFLICT:
-          'SOURCE уже назначен параллельно. Данные обновлены.',
+          'Склад отгрузки уже назначен параллельно. Данные обновлены.',
         SUPPLY_PRODUCT_SOURCE_NOT_ALLOWED:
-          'Этот SOURCE нельзя назначить товару.',
+          'Этот склад отгрузки нельзя назначить товару.',
         SUPPLY_PRODUCT_SOURCE_PRODUCT_NOT_ELIGIBLE:
           'Сначала подтвердите IikoProductMapping товара.',
         SUPPLY_PRODUCT_SOURCE_REPLACEMENT_COMMENT_REQUIRED:
-          'Для постоянной замены SOURCE обязателен комментарий.',
+          'Для постоянной замены склада отгрузки обязателен комментарий.',
       } as Record<string, string>)[code ?? '']
-        ?? 'Не удалось назначить SOURCE')
+        ?? 'Не удалось назначить склад отгрузки')
     } finally {
       setBusy(false)
     }
@@ -990,10 +1025,10 @@ function SupplyRequestDetailPage() {
       const result = await bootstrapSupplyProductSources()
       await reloadSourcePreview()
       setMessage(
-        `Bootstrap: создано ${result.created}; уже назначено ${result.already_mapped}; конфликтов ${result.conflicts}; без SOURCE ${result.missing_source}; неоднозначно ${result.ambiguous_source}`,
+        `Назначено автоматически: ${result.created}; уже было назначено: ${result.already_mapped}; конфликтов: ${result.conflicts}; без склада отгрузки: ${result.missing_source}; неоднозначно: ${result.ambiguous_source}`,
       )
     } catch {
-      setMessage('Не удалось выполнить bootstrap SOURCE')
+      setMessage('Не удалось назначить склады отгрузки автоматически')
     } finally {
       setBusy(false)
     }
@@ -1058,7 +1093,7 @@ function SupplyRequestDetailPage() {
         VERSION_CONFLICT:
           'Расчёт уже изменился. Данные обновлены, повторите действие.',
         SUPPLY_STOCK_TRANSFER_EXCEEDS_AVAILABLE:
-          'Нельзя превысить количество строки или доступный остаток SOURCE.',
+          'Нельзя превысить количество строки или доступный остаток склада отгрузки.',
         SUPPLY_STOCK_TRANSFER_FRACTION_NOT_ALLOWED:
           'Для этой единицы разрешено только целое количество.',
         SUPPLY_STOCK_CALCULATION_CONFIRMED:
@@ -1129,6 +1164,8 @@ function SupplyRequestDetailPage() {
           'Для этой единицы разрешено только целое количество.',
         SUPPLY_REQUEST_VERSION_CONFLICT:
           'Заявка изменилась. Обновите карточку и повторите.',
+        SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED:
+          'Завершение заблокировано: изменение и проведение существующего документа iiko ещё не подтверждены.',
       } as Record<string, string>)[code ?? ''] ?? 'Не удалось завершить заявку')
     } finally {
       setBusy(false)
@@ -1138,7 +1175,7 @@ function SupplyRequestDetailPage() {
   async function confirmDebt(line: SupplyLine) {
     if (!request || busy || !line.quantity) return
     const confirmed = window.confirm(
-      `Подтвердить актуальное обязательство ${line.quantity} `
+      `Подтвердить актуальное обязательство ${formatSupplyQuantity(line.quantity)} `
       + `${line.requested_unit?.short_name_ru ?? ''}?`,
     )
     if (!confirmed) return
@@ -1164,7 +1201,7 @@ function SupplyRequestDetailPage() {
       || !line.quantity || !line.active_debt_id
     ) return
     const entered = window.prompt(
-      `Увеличьте количество заявки минимум до ${line.active_debt_quantity}`,
+      `Увеличьте количество заявки минимум до ${formatSupplyQuantity(line.active_debt_quantity)}`,
       line.active_debt_quantity,
     )
     if (entered === null || entered.trim() === '') return
@@ -1223,9 +1260,14 @@ function SupplyRequestDetailPage() {
         expected_version: request.version,
         product_id: draft.productId,
         unit_id: workingDraft.unitId,
-        quantity: workingDraft.quantity,
+        quantity: supplyLineRequestedQuantityForMatch(line, workingDraft),
       })
       setMapping((current) => clearSupplyLineMappingDraft(current, line.id))
+      setMappingEditors((current) => {
+        const next = new Set(current)
+        next.delete(line.id)
+        return next
+      })
       const updated = await reload()
       if (matchedLine.context_mapping_suggestion) {
         setRequest({
@@ -1342,11 +1384,11 @@ function SupplyRequestDetailPage() {
         <div className="request-heading supply-simple-heading">
           <div>
             <p className="eyebrow">СНАБЖЕНИЕ</p>
-            <h1>{request.public_number}</h1>
-            <p>
+            <h1>
               {request.department.name} · {request.direction.name}
               {' · '}{statusLabel(request.status)}
-            </p>
+            </h1>
+            <p className="supply-business-number">{request.public_number}</p>
           </div>
           <Link className="request-back-link" to="/supply/requests">
             ← К реестру
@@ -1357,11 +1399,17 @@ function SupplyRequestDetailPage() {
           <span>{formatDate(request.submitted_at ?? request.created_at)}</span>
           <details>
             <summary>Действия с заявкой</summary>
-            <button type="button" disabled={busy} onClick={() => void reload()}>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={busy}
+              onClick={() => void reload()}
+            >
               Обновить
             </button>
             {editable && (
               <button
+                className="secondary-action"
                 type="button"
                 disabled={busy || hasDirty}
                 onClick={() => void cancel()}
@@ -1378,42 +1426,52 @@ function SupplyRequestDetailPage() {
           <span>Требуют проверки: {matchProgress.needsReview}</span>
         </div>
 
-        <section className="supply-iiko-stock-check" aria-label="Распределение по SOURCE">
+        <section className="supply-iiko-stock-check" aria-label="Склады отгрузки">
           <div className="supply-iiko-stock-heading">
             <div>
               <strong>
-                SOURCE назначен: {sourcePreview?.assigned_products ?? 0} из{' '}
+                Склад отгрузки назначен: {sourcePreview?.assigned_products ?? 0} из{' '}
                 {sourcePreview?.total_products ?? 0}
               </strong>
               <small>
-                Постоянный маршрут товара для legal contour заявки
+                Постоянный маршрут товара для контура заявки
               </small>
             </div>
             <button
+              className="secondary-action"
               type="button"
               disabled={busy || hasDirty || sourceState !== 'ready'}
-              onClick={() => void bootstrapProductSources()}
+              onClick={() => setSourceEditorOpen((current) => !current)}
             >
-              Bootstrap SOURCE
+              {sourceEditorOpen ? 'Скрыть' : 'Изменить'}
             </button>
           </div>
           {sourceState === 'loading' && <p>Загружаем распределение…</p>}
           {sourceState === 'error' && (
             <p className="request-message-error">
-              Не удалось загрузить распределение SOURCE.
+              Не удалось загрузить склады отгрузки.
             </p>
           )}
           {sourceState === 'ready' && !sourcePreview?.legal_contour && (
-            <p>Распределение невозможно: у подразделения не указан legal contour.</p>
+            <p>Распределение невозможно: у подразделения не указан контур.</p>
           )}
-          {sourceState === 'ready' && sourcePreview?.products.length ? (
+          {sourceEditorOpen && sourceState === 'ready'
+          && sourcePreview?.products.length ? (
             <div className="supply-iiko-stock-lines">
+              <button
+                className="secondary-action supply-source-bootstrap"
+                type="button"
+                disabled={busy || hasDirty}
+                onClick={() => void bootstrapProductSources()}
+              >
+                Назначить автоматически
+              </button>
               {sourcePreview.products.map((product) => (
                 <div className="supply-iiko-stock-line" key={product.product_id}>
                   <strong>{product.product_name}</strong>
-                  <span>{product.role ?? 'Роль не определена'}</span>
+                  <span>{supplySourceRoleLabel(product.role)}</span>
                   <EosSelect
-                    aria-label={`SOURCE для ${product.product_name}`}
+                    aria-label={`Склад отгрузки для ${product.product_name}`}
                     value={product.assigned_source?.mapping_id ?? ''}
                     disabled={busy || hasDirty || !product.iiko_mapping_confirmed
                       || !product.role || product.available_sources.length === 0}
@@ -1422,7 +1480,7 @@ function SupplyRequestDetailPage() {
                       event.target.value,
                     )}
                   >
-                    <option value="">Выберите SOURCE</option>
+                    <option value="">Выберите склад отгрузки</option>
                     {product.available_sources.map((source) => (
                       <option value={source.mapping_id} key={source.mapping_id}>
                         {source.name}
@@ -1441,25 +1499,37 @@ function SupplyRequestDetailPage() {
             </div>
           ) : null}
           {sourceState === 'ready' && sourcePreview?.blocking_reasons.map((reason) => (
-            <p className="supply-iiko-stock-unavailable" key={reason}>{reason}</p>
+            <p className="supply-iiko-stock-unavailable" key={reason}>
+              {sourceUserText(reason)}
+            </p>
           ))}
           {sourceState === 'ready' && sourcePreview?.groups.length ? (
             <div className="supply-source-groups">
-              <strong>Read-only preview групп по складам</strong>
+              <div className="supply-source-preview-heading">
+                <strong>Предварительный просмотр по складам отгрузки</strong>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={busy || hasDirty}
+                  onClick={() => setSourceEditorOpen(true)}
+                >
+                  Изменить
+                </button>
+              </div>
               {sourcePreview.groups.map((group) => (
                 <div className="supply-source-group" key={group.source.mapping_id}>
                   <b>{group.source.name}</b>
                   <ul>
                     {group.lines.map((line) => (
                       <li key={line.line_id}>
-                        {line.product_name} — {line.quantity ?? '—'}{' '}
+                        {line.product_name} — {formatSupplyQuantity(line.quantity)}{' '}
                         {line.unit?.short_name_ru ?? ''}
                       </li>
                     ))}
                   </ul>
                 </div>
               ))}
-              <small>Каждая будущая накладная/ВП — только для одного SOURCE.</small>
+              <small>Каждый будущий документ относится только к одному складу отгрузки.</small>
             </div>
           ) : null}
         </section>
@@ -1469,10 +1539,11 @@ function SupplyRequestDetailPage() {
             <div className="supply-iiko-stock-heading">
               <div>
                 <strong>Документы iiko</strong>
-                <small>Расходные накладные по SOURCE</small>
+                <small>Расходные накладные по складам отгрузки</small>
               </div>
               {printableIikoDocuments.length > 0 && (
                 <button
+                  className="secondary-action"
                   type="button"
                   onClick={() => void downloadIikoPdf()}
                 >
@@ -1481,6 +1552,7 @@ function SupplyRequestDetailPage() {
               )}
               {!readOnly && printableIikoDocuments.length > 0 && (
                 <button
+                  className="secondary-action"
                   type="button"
                   disabled={busy || printJobsState !== 'ready'}
                   onClick={() => void sendToPrint()}
@@ -1500,23 +1572,17 @@ function SupplyRequestDetailPage() {
             <div className="supply-source-groups">
               {iikoDocuments.map((document) => (
                 <div
-                  className="supply-source-group"
+                  className="supply-source-group supply-iiko-document-card"
                   key={`${document.source_store_id}:${document.document_type}`}
                 >
-                  <b>{document.flow}</b>
-                  <small>SOURCE: {document.source_store_id}</small>
-                  <span>Статус: {document.status}</span>
+                  <b>{supplySourceRoleLabel(document.flow)}</b>
+                  <span>Статус: {supplyIikoDocumentStatusLabel(document.status)}</span>
                   {document.document_number && (
                     <span>Номер: {document.document_number}</span>
                   )}
-                  {document.operator_message && (
-                    <strong>{document.operator_message}</strong>
-                  )}
-                  {document.status === 'FAILED' && document.error_code && (
-                    <small>Код ошибки: {document.error_code}</small>
-                  )}
                   {document.printable && (
                     <button
+                      className="secondary-action"
                       type="button"
                       onClick={() => void downloadIikoPdf(
                         document.document_write_id,
@@ -1538,6 +1604,7 @@ function SupplyRequestDetailPage() {
                     <small>Дата: {formatDate(job.created_at)}</small>
                     {job.status === 'PRINT_FAILED' && !readOnly && (
                       <button
+                        className="secondary-action"
                         type="button"
                         disabled={busy}
                         onClick={() => void reprint(job.id)}
@@ -1564,6 +1631,7 @@ function SupplyRequestDetailPage() {
             </div>
             <div className="supply-stock-actions">
               <button
+                className="secondary-action"
                 type="button"
                 disabled={busy || hasDirty || hasStockDraft}
                 onClick={() => void calculateStock()}
@@ -1571,6 +1639,7 @@ function SupplyRequestDetailPage() {
                 Рассчитать по остаткам
               </button>
               <button
+                className="secondary-action"
                 type="button"
                 disabled={busy || hasDirty || hasStockDraft
                   || hasBlockedStock || !stockCalculation
@@ -1610,9 +1679,10 @@ function SupplyRequestDetailPage() {
                 <div className="supply-stock-grid" key={line.id} role="row">
                   <strong>{line.product_name}</strong>
                   <span>
-                    {line.requested_quantity ?? '—'} {line.requested_unit?.short_name_ru ?? ''}
+                    {formatSupplyQuantity(line.requested_quantity)}{' '}
+                    {line.requested_unit?.short_name_ru ?? ''}
                   </span>
-                  <span>{line.available_quantity ?? '—'}</span>
+                  <span>{formatSupplyQuantity(line.available_quantity)}</span>
                   {line.unavailable_reason ? (
                     <span className="supply-iiko-stock-unavailable">
                       {line.unavailable_reason}
@@ -1633,7 +1703,9 @@ function SupplyRequestDetailPage() {
                       onBlur={() => void saveStockTransferable(line.id)}
                     />
                   )}
-                  {!line.unavailable_reason && <span>{line.deficit_quantity ?? '—'}</span>}
+                  {!line.unavailable_reason && (
+                    <span>{formatSupplyQuantity(line.deficit_quantity)}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1695,6 +1767,10 @@ function SupplyRequestDetailPage() {
               && sending !== null
               && requested !== sending
             const fulfillmentMillis = supplyQuantityMillis(
+              fulfillment[line.id] ?? '0',
+            )
+            const fulfillmentDebt = supplyExpectedDebtMillis(
+              line.quantity ?? '',
               fulfillment[line.id] ?? '0',
             )
             const completedExcess = supplySendExcessMillis(
@@ -1771,9 +1847,9 @@ function SupplyRequestDetailPage() {
                     request.status,
                   ) ? (
                     <>
-                      <span>{line.fulfilled_total}</span>
+                      <span>{formatSupplyQuantity(line.fulfilled_total)}</span>
                       <small className="supply-send-summary">
-                        Остаток: {line.unresolved_quantity}
+                        Остаток: {formatSupplyQuantity(line.unresolved_quantity)}
                       </small>
                       {completedExcess !== null && completedExcess > 0 && (
                         <small className="supply-send-summary">
@@ -1783,24 +1859,23 @@ function SupplyRequestDetailPage() {
                       )}
                     </>
                   ) : (
-                    <span>{line.send_quantity ?? line.quantity ?? '—'}</span>
+                    <span>{formatSupplyQuantity(line.send_quantity ?? line.quantity)}</span>
                   )}
                   {request.status === 'PLANNED'
                     && requested !== null
                     && fulfillmentMillis !== null && (
                     <small className="supply-send-summary">
-                      Утверждено: {line.quantity}
-                      {' · '}остаток:{' '}
-                      {formatSupplyQuantityMillis(Math.max(
-                        requested - fulfillmentMillis,
-                        0,
-                      ))}
+                      План: {formatSupplyQuantity(line.quantity)}
+                      {fulfillmentDebt !== null && fulfillmentDebt > 0 && (
+                        <>{' · '}будет создан долг:{' '}
+                          {formatSupplyQuantityMillis(fulfillmentDebt)}</>
+                      )}
                     </small>
                   )}
                   {lineEditable && sendDiffers
                     && expectedDebt !== null && expectedDebt > 0 && (
                     <small className="supply-send-summary">
-                      Запрошено: {line.quantity}
+                      Запрошено: {formatSupplyQuantity(line.quantity)}
                       {' · '}долг после отправки:{' '}
                       {formatSupplyQuantityMillis(expectedDebt)}
                     </small>
@@ -1841,7 +1916,21 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <span role="cell" aria-hidden="true" />
+                {lineEditable && line.product_id
+                  && !mappingEditors.has(line.id) && (
+                  <button
+                    className="secondary-action supply-change-product-button"
+                    type="button"
+                    disabled={busy || hasDirty}
+                    onClick={() => setMappingEditors((current) => (
+                      new Set(current).add(line.id)
+                    ))}
+                  >
+                    Изменить товар
+                  </button>
+                )}
                 {(requiresSupplyLineMatch(line)
+                  || mappingEditors.has(line.id)
                   || line.active_debt_requires_matching) && (
                   <SupplyLineMappingEditor
                     line={line}
@@ -1872,6 +1961,7 @@ function SupplyRequestDetailPage() {
                     для этого подразделения. Сохранить правило для следующих
                     заявок?
                     <button
+                      className="secondary-action"
                       type="button"
                       disabled={busy}
                       onClick={() => void confirmContextMapping(line)}
@@ -1882,13 +1972,14 @@ function SupplyRequestDetailPage() {
                 )}
                 {line.active_debt_id && (
                   <div className="request-message request-message-warning">
-                    Активный долг: {line.active_debt_quantity}{' '}
+                    Активный долг: {formatSupplyQuantity(line.active_debt_quantity)}{' '}
                     {line.requested_unit?.short_name_ru ?? ''}.
                     {line.requires_debt_confirmation && (
                       <>
                         {' '}Увеличьте заявку либо подтвердите меньшее
                         актуальное количество.
                         <button
+                          className="secondary-action"
                           type="button"
                           disabled={busy || hasDirty}
                           onClick={() => void increaseRequestToDebt(line)}
@@ -1896,6 +1987,7 @@ function SupplyRequestDetailPage() {
                           Увеличить заявку
                         </button>
                         <button
+                          className="secondary-action"
                           type="button"
                           disabled={busy || hasDirty}
                           onClick={() => void confirmDebt(line)}
@@ -1916,18 +2008,18 @@ function SupplyRequestDetailPage() {
         ) && request.lines.map((line) => (
           <details className="supply-fulfillment" key={`fact-${line.id}`}>
             <summary>
-              {line.working_name}: отправлено {line.fulfilled_total} из{' '}
-              {line.quantity ?? '—'}
+              {line.working_name}: отправлено {formatSupplyQuantity(line.fulfilled_total)} из{' '}
+              {formatSupplyQuantity(line.quantity)}
             </summary>
             <dl className="supply-line-totals">
-              <div><dt>Утверждено</dt><dd>{line.quantity ?? '—'}</dd></div>
-              <div><dt>Отправлено</dt><dd>{line.fulfilled_total}</dd></div>
-              <div><dt>Осталось</dt><dd>{line.unresolved_quantity}</dd></div>
+              <div><dt>План</dt><dd>{formatSupplyQuantity(line.quantity)}</dd></div>
+              <div><dt>Отправлено</dt><dd>{formatSupplyQuantity(line.fulfilled_total)}</dd></div>
+              <div><dt>Осталось</dt><dd>{formatSupplyQuantity(line.unresolved_quantity)}</dd></div>
               <SupplyExcessFact line={line} />
               {line.active_debt_id && (
                 <div>
                   <dt>Активный долг</dt>
-                  <dd>{line.active_debt_quantity}</dd>
+                  <dd>{formatSupplyQuantity(line.active_debt_quantity)}</dd>
                 </div>
               )}
             </dl>
@@ -1936,6 +2028,7 @@ function SupplyRequestDetailPage() {
               <div className="request-message request-message-warning">
                 Подтвердите актуальное обязательство.
                 <button
+                  className="secondary-action"
                   type="button"
                   disabled={busy}
                   onClick={() => void confirmDebt(line)}
@@ -1987,6 +2080,7 @@ function SupplyRequestDetailPage() {
           || iikoDocuments.some((document) => !document.printable)
         ) && (
           <button
+            className="secondary-action"
             type="button"
             disabled={busy}
             onClick={() => void sendToWork()}

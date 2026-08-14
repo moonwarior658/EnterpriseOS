@@ -3102,15 +3102,26 @@
   font-size: 0.78rem;
 }
 
+.supply-business-number {
+  margin: 0.45rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
 .supply-iiko-stock-lines {
   display: grid;
   gap: 0.45rem;
   margin-top: 0.75rem;
 }
 
+.supply-source-bootstrap {
+  justify-self: start;
+}
+
 .supply-iiko-stock-line {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) repeat(4, minmax(7rem, auto));
+  grid-template-columns: minmax(12rem, 1fr) repeat(3, minmax(7rem, auto));
   gap: 0.65rem;
   align-items: center;
   padding-top: 0.45rem;
@@ -3137,6 +3148,24 @@
   margin-top: 0.9rem;
   padding-top: 0.75rem;
   border-top: 1px solid #e2e2dc;
+}
+
+.supply-source-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.supply-iiko-document-card {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(10rem, auto) minmax(8rem, auto) auto;
+  align-items: center;
+  gap: 0.55rem 1rem;
+}
+
+.supply-iiko-document-card .secondary-action {
+  justify-self: end;
 }
 
 .supply-source-group {
@@ -3403,6 +3432,11 @@
   background: #fafaf7;
 }
 
+.supply-change-product-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .supply-source-line,
 .supply-selected-product,
 .supply-product-autocomplete {
@@ -3485,6 +3519,11 @@
   justify-self: stretch;
 }
 
+.supply-admin-page .secondary-action,
+.supply-admin-page .primary-action {
+  min-height: 2.35rem;
+}
+
 .supply-line-error {
   grid-column: 1 / -1;
   color: #a12727;
@@ -3558,6 +3597,18 @@
     border: 1px solid #e2e2dc;
     border-radius: 0.65rem;
     background: #fff;
+  }
+
+  .supply-source-preview-heading,
+  .supply-iiko-document-card {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .supply-source-preview-heading .secondary-action,
+  .supply-iiko-document-card .secondary-action {
+    width: 100%;
+    justify-self: stretch;
   }
 
   .supply-simple-name {

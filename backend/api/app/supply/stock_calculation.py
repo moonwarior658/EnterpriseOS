@@ -184,16 +184,46 @@ def _read(calculation: SupplyStockCalculation) -> SupplyStockCalculationRead:
 def get_stock_calculation(
     session: Session, *, tenant_id: str, request_id: UUID
 ) -> SupplyStockCalculationRead | None:
-    request_exists = session.scalar(select(SupplyRequest.id).where(
-        SupplyRequest.id == request_id,
-        SupplyRequest.tenant_id == tenant_id,
-    ))
-    if request_exists is None:
-        raise SupplyStockCalculationNotFoundError
+    try:
+        request = _load_request(
+            session, tenant_id=tenant_id, request_id=request_id
+        )
+    except LookupError as error:
+        raise SupplyStockCalculationNotFoundError from error
     calculation = _latest_calculation(
         session, tenant_id=tenant_id, request_id=request_id
     )
+    if (
+        calculation is not None
+        and calculation.status == SupplyStockCalculationStatus.PRELIMINARY
+        and not _calculation_matches_request(calculation, request)
+    ):
+        return None
     return _read(calculation) if calculation else None
+
+
+def _calculation_matches_request(
+    calculation: SupplyStockCalculation,
+    request: SupplyRequest,
+) -> bool:
+    current = {
+        line.id: (
+            line.product_id,
+            line.requested_unit_id,
+            line.quantity,
+        )
+        for line in request.lines
+        if line.match_status == "MATCHED" and line.product_id is not None
+    }
+    persisted = {
+        line.request_line_id: (
+            line.product_id,
+            line.requested_unit_id,
+            line.requested_quantity,
+        )
+        for line in calculation.lines
+    }
+    return current == persisted
 
 
 def _source_is_valid(
@@ -352,6 +382,7 @@ def calculate_stock(
     session.add(calculation)
     session.flush()
     for line in matched_lines:
+        assert line.quantity is not None
         item = eligible.get(line.id)
         if item is None:
             calculation.lines.append(SupplyStockCalculationLine(
@@ -416,7 +447,7 @@ def adjust_transferable_quantity(
     actor_user_id: int | None,
 ) -> SupplyStockCalculationRead:
     try:
-        _load_request(
+        request = _load_request(
             session,
             tenant_id=tenant_id,
             request_id=request_id,
@@ -444,6 +475,12 @@ def adjust_transferable_quantity(
         )
     if calculation.status == SupplyStockCalculationStatus.CONFIRMED:
         raise SupplyStockCalculationConfirmedError
+    if not _calculation_matches_request(calculation, request):
+        raise SupplyStockCalculationVersionConflictError(
+            current_calculation_id=None,
+            current_revision=None,
+            current_version=None,
+        )
     line = next((item for item in calculation.lines if item.id == line_id), None)
     if line is None or line.unavailable_reason is not None:
         raise SupplyStockCalculationNotFoundError
@@ -504,7 +541,7 @@ def confirm_stock_calculation(
     actor_user_id: int | None,
 ) -> SupplyStockCalculationRead:
     try:
-        _load_request(
+        request = _load_request(
             session,
             tenant_id=tenant_id,
             request_id=request_id,
@@ -532,6 +569,12 @@ def confirm_stock_calculation(
         )
     if calculation.status == SupplyStockCalculationStatus.CONFIRMED:
         raise SupplyStockCalculationConfirmedError
+    if not _calculation_matches_request(calculation, request):
+        raise SupplyStockCalculationVersionConflictError(
+            current_calculation_id=None,
+            current_revision=None,
+            current_version=None,
+        )
     blocked_reasons = sorted({
         line.unavailable_reason
         for line in calculation.lines

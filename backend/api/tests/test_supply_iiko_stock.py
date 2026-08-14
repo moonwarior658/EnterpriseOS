@@ -546,6 +546,138 @@ class SupplyIikoStockTests(unittest.TestCase):
         self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("5"))
         self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("0"))
 
+    def test_send_quantity_does_not_change_or_invalidate_stock_plan(self) -> None:
+        with self.sessions.begin() as session:
+            request_line = session.get(SupplyRequestLine, self.line_id)
+            request_line.quantity = Decimal("10")
+            stock_line = session.scalar(select(IikoStockBalanceSnapshotLine))
+            stock_line.quantity = Decimal("20")
+
+        preliminary = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(preliminary.status_code, 200, preliminary.text)
+        preliminary_body = preliminary.json()
+        preliminary_line = preliminary_body["groups"][0]["lines"][0]
+        self.assertEqual(
+            Decimal(preliminary_line["requested_quantity"]), Decimal("10")
+        )
+        self.assertEqual(
+            Decimal(preliminary_line["transferable_quantity"]), Decimal("10")
+        )
+
+        with self.sessions.begin() as session:
+            request_line = session.get(SupplyRequestLine, self.line_id)
+            request_line.send_quantity = Decimal("8")
+
+        still_preliminary = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertEqual(
+            still_preliminary.status_code, 200, still_preliminary.text
+        )
+        self.assertEqual(still_preliminary.json()["id"], preliminary_body["id"])
+        self.assertEqual(
+            Decimal(
+                still_preliminary.json()["groups"][0]["lines"][0]
+                ["requested_quantity"]
+            ),
+            Decimal("10"),
+        )
+
+        confirmed = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": preliminary_body["id"],
+                "expected_revision": preliminary_body["revision"],
+                "expected_version": preliminary_body["version"],
+            },
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "CONFIRMED")
+
+        current = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        current_line = current.json()["groups"][0]["lines"][0]
+        self.assertEqual(current.json()["status"], "CONFIRMED")
+        self.assertEqual(
+            Decimal(current_line["requested_quantity"]), Decimal("10")
+        )
+        self.assertEqual(
+            Decimal(current_line["transferable_quantity"]), Decimal("10")
+        )
+        with self.sessions() as session:
+            request_line = session.get(SupplyRequestLine, self.line_id)
+            self.assertEqual(request_line.send_quantity, Decimal("8"))
+            self.assertEqual(
+                request_line.quantity - request_line.send_quantity,
+                Decimal("2"),
+            )
+
+    def test_product_change_invalidates_preliminary_calculation(self) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(calculated.status_code, 200, calculated.text)
+        with self.sessions.begin() as session:
+            unit = session.get(SupplyUnit, self.unit_id)
+            replacement = SupplyProduct(
+                tenant_id="tenant-a",
+                name="Молоко для кофе",
+                normalized_name="молоко для кофе",
+                default_unit=unit,
+                is_active=True,
+            )
+            session.add(replacement)
+            session.flush()
+            line = session.get(SupplyRequestLine, self.line_id)
+            line.product_id = replacement.id
+
+        current = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertIsNone(current.json())
+
+    def test_requested_quantity_and_unit_changes_invalidate_preliminary(
+        self,
+    ) -> None:
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(calculated.status_code, 200, calculated.text)
+        with self.sessions.begin() as session:
+            line = session.get(SupplyRequestLine, self.line_id)
+            line.quantity = Decimal("6")
+        current = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertIsNone(current.json())
+
+        recalculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(recalculated.status_code, 200, recalculated.text)
+        with self.sessions.begin() as session:
+            liters = SupplyUnit(
+                tenant_id="tenant-a",
+                code="L",
+                name_ru="Литр",
+                short_name_ru="л",
+                allows_fraction=True,
+            )
+            session.add(liters)
+            session.flush()
+            line = session.get(SupplyRequestLine, self.line_id)
+            line.requested_unit_id = liters.id
+        current = self.client.get(
+            f"/supply/requests/{self.request_id}/stock-calculation"
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertIsNone(current.json())
+
     def test_calculation_available_less_than_requested(self) -> None:
         self._add_stock_sync(
             "3.000", self.initial_sync_at + timedelta(hours=1)
@@ -638,6 +770,17 @@ class SupplyIikoStockTests(unittest.TestCase):
             "Единица заявки не совпадает с unit_id iiko",
         )
         self.assertIsNone(line["available_quantity"])
+
+        with self.sessions.begin() as session:
+            mapping = session.scalar(select(IikoUnitMapping))
+            mapping.eos_unit_id = self.unit_id
+        fixed = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(fixed.status_code, 200, fixed.text)
+        fixed_line = fixed.json()["groups"][0]["lines"][0]
+        self.assertIsNone(fixed_line["unavailable_reason"])
+        self.assertEqual(Decimal(fixed_line["transferable_quantity"]), Decimal("5"))
 
     def test_missing_product_mapping_remains_blocked(self) -> None:
         with self.sessions.begin() as session:
