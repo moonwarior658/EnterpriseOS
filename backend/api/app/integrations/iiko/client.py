@@ -847,6 +847,10 @@ class IikoServerClient(IikoProvider):
                 )
                 for item in (() if items_element is None else items_element)
                 if local_name(item) == "item"
+                or (
+                    local_name(item) == "i"
+                    and item.attrib.get("cls") == "OutgoingInvoiceItem"
+                )
             )
         except (TypeError, ValueError, ValidationError) as error:
             raise IikoContractError(
@@ -910,6 +914,10 @@ class IikoServerClient(IikoProvider):
         item_elements = [] if items_element is None else [
             item for item in items_element
             if item.tag.rsplit("}", 1)[-1] == "item"
+            or (
+                item.tag.rsplit("}", 1)[-1] == "i"
+                and item.attrib.get("cls") == "OutgoingInvoiceItem"
+            )
         ]
         if len(item_elements) != len(actual_quantities):
             raise IikoContractError("IIKO_OUTGOING_INVOICE_ITEMS_MISMATCH")
@@ -921,6 +929,10 @@ class IikoServerClient(IikoProvider):
         update_items = [
             item for item in update_items_element
             if item.tag.rsplit("}", 1)[-1] == "item"
+            or (
+                item.tag.rsplit("}", 1)[-1] == "i"
+                and item.attrib.get("cls") == "OutgoingInvoiceItem"
+            )
         ]
         for item, quantity in zip(update_items, actual_quantities, strict=True):
             if not quantity.is_finite() or quantity < 0:

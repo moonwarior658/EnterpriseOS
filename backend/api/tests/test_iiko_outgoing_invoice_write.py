@@ -135,9 +135,10 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                     'eid="00000000-0000-4000-8000-000000000001">'
                     "<documentNumber>2753</documentNumber><status>NEW</status>"
                     "<revision>42</revision><preservedField>keep-me</preservedField>"
-                    "<items><item><product>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                    '<items><i cls="OutgoingInvoiceItem"><product>'
+                    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
                     "</product><amount>10.000</amount><price>0</price>"
-                    "</item></items></returnValue>"
+                    "</i></items></returnValue>"
                     "<entitiesUpdate>"
                     f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
                     "<revision>103</revision><fullUpdate>false</fullUpdate>"
@@ -180,6 +181,8 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document.status, "NEW")
         self.assertEqual(document.revision, 42)
         self.assertEqual(document.entities_version, 103)
+        self.assertEqual(len(document.items), 1)
+        self.assertEqual(document.items[0].amount, Decimal("10.000"))
         self.assertIn(b"preservedField", document.raw_document_xml)
 
     async def test_entity_revision_bootstrap_fails_closed(self):
@@ -242,9 +245,10 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             b"<document><id>00000000-0000-4000-8000-000000000001</id>"
             b"<documentNumber>2753</documentNumber><revision>42</revision>"
             b"<status>NEW</status><preservedField>keep-me</preservedField>"
-            b"<items><item><productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            b'<items><i cls="OutgoingInvoiceItem">'
+            b"<productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
             b"</productId><amount>10.000</amount><price>0</price>"
-            b"</item></items></document>"
+            b"</i></items></document>"
         )
 
         async def handler(request: httpx.Request) -> httpx.Response:
@@ -293,7 +297,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(child_text(update_document, "revision"), "42")
         self.assertEqual(child_text(update_document, "preservedField"), "keep-me")
         self.assertEqual(
-            child_text(update_document.find("items/item"), "amount"), "8"
+            child_text(update_document.find("items/i"), "amount"), "8"
         )
         self.assertTrue(result.valid)
         self.assertEqual(result.error_message, "saved")
