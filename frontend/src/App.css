@@ -2985,6 +2985,79 @@
   min-width: 13rem;
 }
 
+.eos-product-combobox {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: min(16rem, 100%);
+  max-width: 100%;
+}
+
+.eos-product-combobox .eos-search-field,
+.eos-product-combobox .eos-search-field input {
+  width: 100%;
+}
+
+.eos-combobox-options {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  left: 0;
+  max-width: 100%;
+  max-height: min(17rem, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #d8d8d2;
+  border-radius: 0.6rem;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 14%);
+  background: #fff;
+}
+
+.eos-combobox-options[data-placement="above"] {
+  top: auto;
+  bottom: calc(100% + 0.3rem);
+}
+
+.eos-combobox-options button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.62rem 0.7rem;
+  border: 0;
+  border-bottom: 1px solid #eeeeea;
+  border-radius: 0;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+}
+
+.eos-combobox-options button:last-child {
+  border-bottom: 0;
+}
+
+.eos-combobox-options button:hover,
+.eos-combobox-options button[data-active="true"] {
+  background: #f1f5ff;
+}
+
+.eos-combobox-options button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.eos-combobox-options button small {
+  flex: none;
+  color: #686868;
+}
+
+.eos-combobox-message {
+  display: block;
+  padding: 0.7rem;
+  color: #686868;
+  font-size: 0.82rem;
+}
+
 .iiko-mapping-row.is-warehouse .iiko-mapping-target .eos-select {
   min-width: 10.5rem;
   width: 10.5rem;
@@ -3172,6 +3245,21 @@
   padding: 0.65rem 0.75rem;
   border-radius: 0.65rem;
   background: #f6f6f2;
+}
+
+.supply-print-history-item {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(10rem, auto) minmax(16rem, auto) auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.supply-print-history-item small {
+  color: #686868;
+}
+
+.supply-print-history-item .secondary-action {
+  justify-self: end;
 }
 
 .supply-source-group ul {
@@ -3600,13 +3688,15 @@
   }
 
   .supply-source-preview-heading,
-  .supply-iiko-document-card {
+  .supply-iiko-document-card,
+  .supply-print-history-item {
     display: grid;
     grid-template-columns: 1fr;
   }
 
   .supply-source-preview-heading .secondary-action,
-  .supply-iiko-document-card .secondary-action {
+  .supply-iiko-document-card .secondary-action,
+  .supply-print-history-item .secondary-action {
     width: 100%;
     justify-self: stretch;
   }

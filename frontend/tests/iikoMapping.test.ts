@@ -10,6 +10,7 @@ import {
   iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
   mappingActionLabel,
+  nextComboboxIndex,
 } from '../src/pages/iikoMappingLogic.ts'
 import {
   bootstrapIikoProductCatalog,
@@ -78,8 +79,9 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /bootstrapResult\.skipped/)
   assert.match(
     page,
-    /await bootstrapIikoProductCatalog\(\)[\s\S]*?await getSupplyProducts\(\)[\s\S]*?setProducts\(productPage\.items\)[\s\S]*?await load\(\)/,
+    /await bootstrapIikoProductCatalog\(\)[\s\S]*?await load\(\)/,
   )
+  assert.doesNotMatch(page, /setProducts\(/)
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
   assert.match(page, /Снять остатки/)
@@ -94,7 +96,48 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.match(page, /Частичный снимок сохранён для аудита/)
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
+  assert.match(
+    page,
+    /Склады отгрузки подбираются автоматически по юридическому контуру/,
+  )
+  assert.doesNotMatch(page, /SOURCE подбираются автоматически/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
+})
+
+test('mapping товаров использует ограниченный серверный EOS combobox', () => {
+  const page = readFileSync(
+    new URL('../src/pages/IikoMappingPage.tsx', import.meta.url),
+    'utf8',
+  )
+  const combobox = readFileSync(
+    new URL('../src/components/EosProductCombobox.tsx', import.meta.url),
+    'utf8',
+  )
+  const css = readFileSync(new URL('../src/App.css', import.meta.url), 'utf8')
+
+  assert.match(page, /<EosProductCombobox/)
+  assert.doesNotMatch(page, /setProducts/)
+  assert.match(combobox, /normalizedQuery\.length < 2/)
+  assert.match(combobox, /getSupplyProducts\(normalizedQuery/)
+  assert.match(combobox, /page\.items\.slice\(0, 20\)/)
+  assert.match(combobox, /role="combobox"/)
+  assert.match(combobox, /role="listbox"/)
+  assert.match(combobox, /ArrowDown/)
+  assert.match(combobox, /ArrowUp/)
+  assert.match(combobox, /Enter/)
+  assert.match(combobox, /Escape/)
+  assert.match(combobox, /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/)
+  assert.match(combobox, /window\.innerHeight - bounds\.bottom/)
+  assert.match(combobox, /data-placement=\{dropdownPlacement\}/)
+  assert.match(css, /max-height: min\(17rem, 40vh\)/)
+  assert.match(css, /data-placement="above"/)
+  assert.match(css, /overflow-y: auto/)
+
+  assert.equal(nextComboboxIndex(-1, 3, 1), 0)
+  assert.equal(nextComboboxIndex(-1, 3, -1), 2)
+  assert.equal(nextComboboxIndex(2, 3, 1), 0)
+  assert.equal(nextComboboxIndex(0, 3, -1), 2)
+  assert.equal(nextComboboxIndex(0, 0, 1), -1)
 })
 
 test('snapshot deduplicate SOURCE и синхронно блокирует второй запуск', () => {

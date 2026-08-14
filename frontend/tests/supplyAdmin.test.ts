@@ -100,6 +100,10 @@ test('карточка разводит первую печать и reprint end
   assert.doesNotMatch(detail, /document\.operator_message/)
   assert.match(detail, /document\) => !document\.printable/)
   assert.match(detail, /Проверить документы в iiko/)
+  assert.match(detail, /supply-print-history-item/)
+  assert.match(detail, /<strong>\{supplyPrintPurposeLabel\(job\.purpose\)\}<\/strong>/)
+  assert.match(detail, /<span>Статус: \{supplyPrintStatusLabel\(job\.status\)\}<\/span>/)
+  assert.match(detail, /<small>Дата: \{formatDate\(job\.created_at\)\}<\/small>/)
 })
 
 test('карточка сохраняет факт и readonly исполненной заявки', () => {

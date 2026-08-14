@@ -1598,7 +1598,10 @@ function SupplyRequestDetailPage() {
               <div className="supply-source-groups" aria-label="История печати">
                 <strong>История печати</strong>
                 {printJobs.map((job) => (
-                  <div className="supply-source-group" key={job.id}>
+                  <div
+                    className="supply-source-group supply-print-history-item"
+                    key={job.id}
+                  >
                     <strong>{supplyPrintPurposeLabel(job.purpose)}</strong>
                     <span>Статус: {supplyPrintStatusLabel(job.status)}</span>
                     <small>Дата: {formatDate(job.created_at)}</small>

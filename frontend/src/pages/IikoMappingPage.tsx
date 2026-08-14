@@ -6,11 +6,10 @@ import {
   EosSearchField,
   EosSelect,
 } from '../components/EosFormControls'
+import { EosProductCombobox } from '../components/EosProductCombobox'
 import {
   getSupplyDepartments,
-  getSupplyProducts,
   getSupplyUnits,
-  type SupplyProduct,
   type SupplyReference,
   type SupplyUnit,
 } from '../services/supplyAdmin'
@@ -100,10 +99,10 @@ function IikoMappingPage() {
     run: IikoStockBalanceSnapshotRun
     sources: IikoWarehouseMapping[]
   } | null>(null)
-  const [products, setProducts] = useState<SupplyProduct[]>([])
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [departments, setDepartments] = useState<SupplyReference[]>([])
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
+  const [targetLabels, setTargetLabels] = useState<Record<string, string>>({})
   const [roleDrafts, setRoleDrafts] = useState<
     Record<string, IikoWarehouseRole>
   >({})
@@ -145,6 +144,18 @@ function IikoMappingPage() {
         }
         return next
       })
+      if (tab === 'products') {
+        setTargetLabels((current) => {
+          const next = { ...current }
+          for (const rawItem of page.items) {
+            const item = rawItem as IikoProductMapping
+            if (next[item.id] === undefined) {
+              next[item.id] = item.eos_product_name ?? ''
+            }
+          }
+          return next
+        })
+      }
       if (tab === 'warehouses') {
         setDestinationTypeDrafts((current) => {
           const next = { ...current }
@@ -189,13 +200,9 @@ function IikoMappingPage() {
   }, [conflictsOnly, includeDeleted, offset, search, status, tab])
 
   useEffect(() => {
-    void Promise.all([
-      getSupplyProducts(),
-      getSupplyUnits(),
-    ]).then(([productPage, nextUnits]) => {
-      setProducts(productPage.items)
-      setUnits(nextUnits)
-    }).catch(() => setError('Не удалось загрузить справочники EOS'))
+    void getSupplyUnits().then(setUnits).catch(
+      () => setError('Не удалось загрузить справочники EOS'),
+    )
   }, [])
 
   useEffect(() => {
@@ -238,8 +245,6 @@ function IikoMappingPage() {
     try {
       const result = await bootstrapIikoProductCatalog()
       setBootstrapResult(result)
-      const productPage = await getSupplyProducts()
-      setProducts(productPage.items)
       await load()
     } catch (actionError) {
       setError(
@@ -371,6 +376,7 @@ function IikoMappingPage() {
       if (action === 'ignore') await ignoreMapping(tab, item.id)
       else await unmapMapping(tab, item.id)
       setTargetDrafts((current) => ({ ...current, [item.id]: '' }))
+      setTargetLabels((current) => ({ ...current, [item.id]: '' }))
       setDestinationTypeDrafts((current) => withoutDraft(current, item.id))
       setRoleDrafts((current) => withoutDraft(current, item.id))
       setLegalContourDrafts((current) => withoutDraft(current, item.id))
@@ -387,11 +393,6 @@ function IikoMappingPage() {
   }
 
   function targetOptions() {
-    if (tab === 'products') {
-      return products.map((item) => (
-        <option key={item.id} value={item.id}>{item.name}</option>
-      ))
-    }
     if (tab === 'units') {
       return units.map((item) => (
         <option key={item.id} value={item.id}>{item.name_ru}</option>
@@ -482,7 +483,7 @@ function IikoMappingPage() {
           <div>
             <strong>Снимок остатков</strong>
             <p>
-              SOURCE подбираются автоматически по юридическому контуру.
+              Склады отгрузки подбираются автоматически по юридическому контуру.
             </p>
           </div>
           <label className="iiko-stock-snapshot-department">
@@ -693,17 +694,36 @@ function IikoMappingPage() {
                     || (destinationTypeDrafts[item.id] ?? 'DESTINATION')
                       === 'DESTINATION'
                   ) && (
-                    <EosSelect
-                      aria-label={`Объект EOS для ${item.source_name}`}
-                      value={targetDrafts[item.id] ?? ''}
-                      onChange={(event) => setTargetDrafts((current) => ({
-                        ...current,
-                        [item.id]: event.target.value,
-                      }))}
-                    >
-                      <option value="">Выберите объект EOS</option>
-                      {targetOptions()}
-                    </EosSelect>
+                    tab === 'products' ? (
+                      <EosProductCombobox
+                        id={`iiko-product-mapping-${item.id}`}
+                        value={targetDrafts[item.id] ?? ''}
+                        selectedLabel={targetLabels[item.id] ?? ''}
+                        disabled={busyId !== null}
+                        onChange={(product) => {
+                          setTargetDrafts((current) => ({
+                            ...current,
+                            [item.id]: product.id,
+                          }))
+                          setTargetLabels((current) => ({
+                            ...current,
+                            [item.id]: product.name,
+                          }))
+                        }}
+                      />
+                    ) : (
+                      <EosSelect
+                        aria-label={`Объект EOS для ${item.source_name}`}
+                        value={targetDrafts[item.id] ?? ''}
+                        onChange={(event) => setTargetDrafts((current) => ({
+                          ...current,
+                          [item.id]: event.target.value,
+                        }))}
+                      >
+                        <option value="">Выберите объект EOS</option>
+                        {targetOptions()}
+                      </EosSelect>
+                    )
                   )}
                   {tab === 'warehouses' && (
                     <>

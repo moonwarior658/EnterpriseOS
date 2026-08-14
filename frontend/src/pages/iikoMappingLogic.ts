@@ -21,6 +21,16 @@ export function acquireIikoStockSnapshotGuard(
   return true
 }
 
+export function nextComboboxIndex(
+  current: number,
+  itemCount: number,
+  direction: 1 | -1,
+): number {
+  if (itemCount === 0) return -1
+  if (current < 0) return direction === 1 ? 0 : itemCount - 1
+  return (current + direction + itemCount) % itemCount
+}
+
 export function iikoStockSnapshotStatusLabel(
   status: IikoSyncStatus,
 ): string {
