@@ -735,8 +735,7 @@ class IikoServerClient(IikoProvider):
         result_status = self._rpc_direct_text(response, "resultStatus")
         updates = [
             element for element in response.iter()
-            if element.tag.rsplit("}", 1)[-1]
-            in {"returnValue", "entitiesUpdate"}
+            if element.tag.rsplit("}", 1)[-1] == "returnValue"
             and self._rpc_direct_text(element, "serverInstanceId") is not None
             and self._rpc_direct_text(element, "revision") is not None
         ]

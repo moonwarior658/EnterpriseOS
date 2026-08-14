@@ -122,7 +122,11 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                     '<returnValue cls="EntitiesUpdate">'
                     f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
                     "<revision>101</revision><fullUpdate>false</fullUpdate>"
-                    "<items /></returnValue></result>"
+                    "<items /></returnValue>"
+                    "<entitiesUpdate>"
+                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
+                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
+                    "</entitiesUpdate></result>"
                 ))
             if request.url.path.endswith("/services/document"):
                 return response(request, text=(
