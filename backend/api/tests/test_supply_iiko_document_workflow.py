@@ -20,6 +20,7 @@ from app.api.routes.supply import read_request_iiko_documents
 from app.integrations.iiko.document_routing import resolve_outgoing_invoice_route
 from app.integrations.iiko.exceptions import IikoConnectionError, IikoResponseError
 from app.integrations.iiko.schemas import (
+    IikoDocumentValidationResultDto,
     IikoOutgoingInvoiceCreateResultDto,
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceItemDto,
@@ -59,11 +60,12 @@ from app.models.supply import (
 from app.models.user import User
 from app.models.work_request import WorkRequest
 from app.supply.iiko_documents import (
-    SupplyIikoDocumentFinalizationUnsupportedError,
+    SupplyIikoDocumentFinalizationError,
     SupplyInternalTransferWriteUnsupportedError,
-    ensure_supply_iiko_document_finalization_supported,
+    finalize_supply_request_with_iiko_documents,
     plan_supply_request_with_iiko_documents,
 )
+from app.schemas.supply import SupplyRequestFulfillmentItem
 from app.supply.iiko_document_pdf import (
     SupplyIikoDocumentPrintError,
     SupplyIikoPrintableDocument,
@@ -132,6 +134,60 @@ class ReadBackProvider:
     async def get_outgoing_invoices(self, *, date_from, date_to):
         self.calls.append((date_from, date_to))
         return self.invoices
+
+
+class FinalizationProvider:
+    def __init__(self, invoices, process_results=()) -> None:
+        self.invoices = list(invoices)
+        self.process_results = list(process_results)
+        self.update_calls = []
+        self.process_calls = []
+
+    async def get_outgoing_invoices(self, *, date_from, date_to):
+        return self.invoices
+
+    async def update_outgoing_invoice(self, document, *, actual_quantities):
+        self.update_calls.append((document, tuple(actual_quantities)))
+        index = self.invoices.index(document)
+        self.invoices[index] = document.model_copy(update={
+            "revision": (document.revision or 0) + 1,
+            "items": tuple(
+                item.model_copy(update={"amount": quantity})
+                for item, quantity in zip(
+                    document.items, actual_quantities, strict=True
+                )
+            ),
+        })
+        return IikoDocumentValidationResultDto(
+            valid=True,
+            warning=False,
+            document_number=document.document_number,
+        )
+
+    async def process_outgoing_invoices(
+        self, document_ids, *, enable_warnings
+    ):
+        self.process_calls.append((tuple(document_ids), enable_warnings))
+        if self.process_results:
+            results = self.process_results.pop(0)
+        else:
+            results = tuple(
+                IikoDocumentValidationResultDto(
+                    valid=True,
+                    warning=False,
+                    document_number=invoice.document_number,
+                )
+                for invoice in self.invoices
+                if UUID(invoice.external_id) in document_ids
+            )
+        if all(result.valid for result in results):
+            selected_numbers = {result.document_number for result in results}
+            self.invoices = [
+                invoice.model_copy(update={"status": "PROCESSED"})
+                if invoice.document_number in selected_numbers else invoice
+                for invoice in self.invoices
+            ]
+        return results
 
 
 class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -380,6 +436,35 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 ))
         return ReadBackProvider(invoices)
 
+    def _finalization_provider(self, request_id, *, process_results=()):
+        read_back = self._confirm_read_back(request_id)
+        invoices = [
+            invoice.model_copy(update={"revision": 7})
+            for invoice in read_back.invoices
+        ]
+        return FinalizationProvider(invoices, process_results)
+
+    def _line_id(self, request_id):
+        with self.sessions() as session:
+            return session.scalar(select(SupplyRequestLine.id).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+
+    async def _finalize(self, request_id, provider, quantity, *, version):
+        with self.sessions() as session:
+            return await finalize_supply_request_with_iiko_documents(
+                session,
+                provider,
+                tenant_id=TENANT_ID,
+                request_id=request_id,
+                expected_version=version,
+                user_id=self.user_id,
+                items=[SupplyRequestFulfillmentItem(
+                    line_id=self._line_id(request_id),
+                    fulfilled_quantity=Decimal(quantity),
+                )],
+            )
+
     async def test_groups_one_two_and_three_flows_by_source(self):
         cases = (
             ((SupplyProductSourceRole.MAIN,), 1),
@@ -423,25 +508,139 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(provider.calls[0].items[0].amount, Decimal("1"))
 
-    async def test_existing_iiko_document_blocks_local_fulfillment_finalization(self):
+    async def test_actual_eight_updates_processes_and_creates_debt_two(self):
         request_id = self._create_request((SupplyProductSourceRole.MAIN,))
-        await self._plan(request_id, RecordingProvider(self.sessions))
+        with self.sessions.begin() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            line.quantity = Decimal("10")
+            line.send_quantity = Decimal("10")
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._finalization_provider(request_id)
+
+        completed = await self._finalize(
+            request_id, provider, "8", version=planned.version
+        )
+
+        self.assertEqual(completed.status, "PARTIALLY_FULFILLED")
+        self.assertEqual(provider.update_calls[0][1], (Decimal("8"),))
+        self.assertEqual(provider.process_calls[0][1], True)
+        with self.sessions() as session:
+            debt = session.scalar(select(SupplyDepartmentDebt))
+            self.assertIsNotNone(debt)
+            self.assertEqual(debt.outstanding_quantity, Decimal("2"))
+
+    async def test_actual_ten_fulfills_without_debt(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        with self.sessions.begin() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            line.quantity = Decimal("10")
+            line.send_quantity = Decimal("10")
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._finalization_provider(request_id)
+
+        completed = await self._finalize(
+            request_id, provider, "10", version=planned.version
+        )
+
+        self.assertEqual(completed.status, "FULFILLED")
+        with self.sessions() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
+            )
+
+    async def test_process_warning_is_acknowledged_exactly_once(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        number = self._writes(request_id)[0].iiko_document_number
+        provider = self._finalization_provider(request_id, process_results=(
+            (IikoDocumentValidationResultDto(
+                valid=False, warning=True, document_number=number,
+                error_message="warning detail", additional_info="confirm",
+            ),),
+            (IikoDocumentValidationResultDto(
+                valid=True, warning=False, document_number=number,
+            ),),
+        ))
+
+        completed = await self._finalize(
+            request_id, provider, "1", version=planned.version
+        )
+
+        self.assertEqual(completed.status, "FULFILLED")
+        self.assertEqual(
+            [enable_warnings for _, enable_warnings in provider.process_calls],
+            [True, False],
+        )
+
+    async def test_hard_process_error_keeps_eos_state_unchanged(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        number = self._writes(request_id)[0].iiko_document_number
+        provider = self._finalization_provider(request_id, process_results=((
+            IikoDocumentValidationResultDto(
+                valid=False, warning=False, document_number=number,
+                error_message="hard validation error",
+            ),
+        ),))
+
+        with self.assertRaisesRegex(
+            SupplyIikoDocumentFinalizationError,
+            "SUPPLY_IIKO_DOCUMENT_PROCESS_VALIDATION_FAILED",
+        ):
+            await self._finalize(
+                request_id, provider, "0.5", version=planned.version
+            )
 
         with self.sessions() as session:
-            with self.assertRaises(
-                SupplyIikoDocumentFinalizationUnsupportedError
-            ):
-                ensure_supply_iiko_document_finalization_supported(
-                    session,
-                    tenant_id=TENANT_ID,
-                    request_id=request_id,
-                )
-            session.rollback()
             request = session.get(SupplyRequest, request_id)
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
             self.assertEqual(request.status, "PLANNED")
+            self.assertEqual(line.send_quantity, Decimal("1"))
             self.assertEqual(
-                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
-                0,
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
+            )
+
+    async def test_processed_readback_recovers_once_without_duplicates(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        with self.sessions.begin() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            line.quantity = Decimal("10")
+            line.send_quantity = Decimal("10")
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._finalization_provider(request_id)
+        provider.invoices = [invoice.model_copy(update={
+            "status": "PROCESSED",
+            "items": tuple(
+                item.model_copy(update={"amount": Decimal("8")})
+                for item in invoice.items
+            ),
+        }) for invoice in provider.invoices]
+
+        first = await self._finalize(
+            request_id, provider, "8", version=planned.version
+        )
+        second = await self._finalize(
+            request_id, provider, "8", version=planned.version
+        )
+
+        self.assertEqual(first.status, "PARTIALLY_FULFILLED")
+        self.assertEqual(second.status, "PARTIALLY_FULFILLED")
+        self.assertEqual(provider.update_calls, [])
+        self.assertEqual(provider.process_calls, [])
+        with self.sessions() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(IikoDocumentWrite.id))), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 1
             )
 
     async def test_all_supported_departments_create_outgoing_invoice(self):

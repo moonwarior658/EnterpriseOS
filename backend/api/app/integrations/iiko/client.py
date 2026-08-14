@@ -6,7 +6,9 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from datetime import date, datetime, time
+from decimal import Decimal
 from types import TracebackType
 from typing import Any, Self
 from uuid import UUID, uuid4
@@ -38,6 +40,7 @@ from app.integrations.iiko.mapper import (
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
+    IikoDocumentValidationResultDto,
     IikoIncomingInvoiceDto,
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
@@ -63,6 +66,8 @@ _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
 _INCOMING_INVOICE_EXPORT_PATH = "/api/documents/export/incomingInvoice"
 _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _OUTGOING_INVOICE_IMPORT_PATH = "/api/documents/import/outgoingInvoice"
+_DOCUMENT_SERVICE_PATH = "/services/document"
+_DOCUMENT_GROUP_OPERATION_PATH = "/services/documentGroupOperation"
 _MAX_XML_RESPONSE_BYTES = 10 * 1024 * 1024
 _RESPONSE_BODY_LOG_LIMIT = 1500
 _SENSITIVE_HEADER_RE = re.compile(
@@ -565,7 +570,9 @@ class IikoServerClient(IikoProvider):
                     default_store_id=required_values["defaultStoreId"],
                     account_to_code=required_values["accountToCode"],
                     revenue_account_code=required_values["revenueAccountCode"],
+                    revision=optional_text(document, "revision"),
                     items=tuple(items),
+                    raw_document_xml=ET.tostring(document, encoding="utf-8"),
                 ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
@@ -574,6 +581,194 @@ class IikoServerClient(IikoProvider):
                     f"document_number={document_number} field={field}"
                 ) from error
         return invoices
+
+    @staticmethod
+    def _validation_results(root: ET.Element) -> tuple[
+        IikoDocumentValidationResultDto, ...
+    ]:
+        def local_name(element: ET.Element) -> str:
+            return element.tag.rsplit("}", 1)[-1]
+
+        def optional_text(element: ET.Element, name: str) -> str | None:
+            child = next(
+                (item for item in element if local_name(item) == name),
+                None,
+            )
+            value = child.text.strip() if child is not None and child.text else ""
+            return value or None
+
+        candidates = [
+            element for element in root.iter()
+            if local_name(element) == "documentValidationResult"
+        ]
+        if local_name(root) == "documentValidationResult" and root not in candidates:
+            candidates.insert(0, root)
+        if not candidates:
+            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+
+        results: list[IikoDocumentValidationResultDto] = []
+        for element in candidates:
+            bool_values: dict[str, bool] = {}
+            for name in ("valid", "warning"):
+                value = optional_text(element, name)
+                if value is None or value.lower() not in {"true", "false"}:
+                    raise IikoContractError(
+                        f"IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID field={name}"
+                    )
+                bool_values[name] = value.lower() == "true"
+            results.append(IikoDocumentValidationResultDto(
+                valid=bool_values["valid"],
+                warning=bool_values["warning"],
+                document_number=optional_text(element, "documentNumber"),
+                error_message=optional_text(element, "errorMessage"),
+                additional_info=optional_text(element, "additionalInfo"),
+            ))
+        return tuple(results)
+
+    def _log_validation_result(
+        self,
+        *,
+        operation: str,
+        result: IikoDocumentValidationResultDto,
+    ) -> None:
+        password = self._settings.password
+        login = self._settings.login
+        secrets = (
+            self._token or "",
+            password.get_secret_value() if password is not None else "",
+            login.get_secret_value() if login is not None else "",
+        )
+        logger.info(
+            "iiko document validation operation=%s valid=%s warning=%s "
+            "document_number=%s error_message=%s additional_info=%s",
+            operation,
+            result.valid,
+            result.warning,
+            result.document_number,
+            _sanitize_response_body(result.error_message or "", secret_values=secrets),
+            _sanitize_response_body(result.additional_info or "", secret_values=secrets),
+        )
+
+    async def _post_legacy_document_rpc(
+        self,
+        path: str,
+        *,
+        params: Sequence[tuple[str, str]],
+        content: bytes,
+    ) -> ET.Element:
+        await self.authenticate()
+        response = await self._raw_request(
+            "POST",
+            path,
+            params=params,
+            content=content,
+            headers={
+                "Accept": "application/xml, text/plain",
+                "Content-Type": "application/xml",
+            },
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        return self._parse_xml_response(response)
+
+    async def update_outgoing_invoice(
+        self,
+        document: IikoOutgoingInvoiceDto,
+        *,
+        actual_quantities: Sequence[Decimal],
+    ) -> IikoDocumentValidationResultDto:
+        if document.status != "NEW":
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_NOT_NEW")
+        if document.revision is None or document.raw_document_xml is None:
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_REVISION_REQUIRED")
+        try:
+            document_id = UUID(document.external_id or "")
+            root = ET.fromstring(document.raw_document_xml)
+        except (ValueError, ET.ParseError) as error:
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_UPDATE_INVALID") from error
+        id_element = next(
+            (item for item in root if item.tag.rsplit("}", 1)[-1] == "id"),
+            None,
+        )
+        revision_element = next(
+            (item for item in root if item.tag.rsplit("}", 1)[-1] == "revision"),
+            None,
+        )
+        if (
+            id_element is None
+            or (id_element.text or "").strip() != str(document_id)
+            or revision_element is None
+            or (revision_element.text or "").strip() != str(document.revision)
+        ):
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_UPDATE_IDENTITY_INVALID")
+        items_element = next(
+            (item for item in root if item.tag.rsplit("}", 1)[-1] == "items"),
+            None,
+        )
+        item_elements = [] if items_element is None else [
+            item for item in items_element
+            if item.tag.rsplit("}", 1)[-1] == "item"
+        ]
+        if len(item_elements) != len(actual_quantities):
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_ITEMS_MISMATCH")
+        update_root = deepcopy(root)
+        update_items_element = next(
+            item for item in update_root
+            if item.tag.rsplit("}", 1)[-1] == "items"
+        )
+        update_items = [
+            item for item in update_items_element
+            if item.tag.rsplit("}", 1)[-1] == "item"
+        ]
+        for item, quantity in zip(update_items, actual_quantities, strict=True):
+            if not quantity.is_finite() or quantity < 0:
+                raise IikoContractError("IIKO_OUTGOING_INVOICE_QUANTITY_INVALID")
+            amount = next(
+                (child for child in item if child.tag.rsplit("}", 1)[-1] == "amount"),
+                None,
+            )
+            if amount is None:
+                raise IikoContractError("IIKO_OUTGOING_INVOICE_ITEMS_MISMATCH")
+            amount.text = format(quantity, "f")
+        response = await self._post_legacy_document_rpc(
+            _DOCUMENT_SERVICE_PATH,
+            params=(("methodName", "saveOrUpdateDocument"),),
+            content=ET.tostring(update_root, encoding="utf-8"),
+        )
+        results = self._validation_results(response)
+        if len(results) != 1:
+            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+        result = results[0]
+        self._log_validation_result(operation="update", result=result)
+        return result
+
+    async def process_outgoing_invoices(
+        self,
+        document_ids: Sequence[UUID],
+        *,
+        enable_warnings: bool,
+    ) -> tuple[IikoDocumentValidationResultDto, ...]:
+        if not document_ids or len(set(document_ids)) != len(document_ids):
+            raise IikoContractError("IIKO_DOCUMENT_IDS_INVALID")
+        root = ET.Element("documentIds")
+        for document_id in document_ids:
+            ET.SubElement(root, "documentId").text = str(document_id)
+        response = await self._post_legacy_document_rpc(
+            _DOCUMENT_GROUP_OPERATION_PATH,
+            params=(
+                ("methodName", "processDocuments"),
+                ("enable-warnings", "true" if enable_warnings else "false"),
+            ),
+            content=ET.tostring(root, encoding="utf-8"),
+        )
+        results = self._validation_results(response)
+        for result in results:
+            self._log_validation_result(operation="process", result=result)
+        return results
 
     async def create_outgoing_invoice(
         self,
@@ -597,47 +792,20 @@ class IikoServerClient(IikoProvider):
             raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
         if not response.is_success:
             raise IikoResponseError(response.status_code)
-        root = self._parse_xml_response(response)
-        if root.tag.rsplit("}", 1)[-1] != "documentValidationResult":
-            raise IikoContractError(
-                "IIKO_OUTGOING_INVOICE_RESPONSE_INVALID"
-            )
-
-        def required_text(name: str) -> str:
-            element = next(
-                (
-                    child for child in root
-                    if child.tag.rsplit("}", 1)[-1] == name
-                ),
-                None,
-            )
-            value = element.text.strip() if element is not None and element.text else ""
-            if not value:
-                raise IikoContractError(
-                    f"IIKO_OUTGOING_INVOICE_RESPONSE_INVALID field={name}"
-                )
-            return value
-
-        def required_bool(name: str) -> bool:
-            value = required_text(name).lower()
-            if value not in {"true", "false"}:
-                raise IikoContractError(
-                    f"IIKO_OUTGOING_INVOICE_RESPONSE_INVALID field={name}"
-                )
-            return value == "true"
-
-        valid = required_bool("valid")
-        warning = required_bool("warning")
-        document_number = required_text("documentNumber")
-        if not valid:
+        results = self._validation_results(self._parse_xml_response(response))
+        if len(results) != 1 or results[0].document_number is None:
+            raise IikoContractError("IIKO_OUTGOING_INVOICE_RESPONSE_INVALID")
+        validation = results[0]
+        self._log_validation_result(operation="create", result=validation)
+        if not validation.valid:
             raise IikoContractError(
                 "IIKO_OUTGOING_INVOICE_VALIDATION_FAILED"
             )
         return IikoOutgoingInvoiceCreateResultDto(
             client_document_id=document.document_id,
-            document_number=document_number,
+            document_number=validation.document_number,
             valid=True,
-            warning=warning,
+            warning=validation.warning,
         )
 
     async def get_incoming_invoices(

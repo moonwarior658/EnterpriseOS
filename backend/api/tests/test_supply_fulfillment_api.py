@@ -19,6 +19,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.iiko import IikoDocumentWrite
 from app.models.supply import (
     Department,
     SupplyDepartmentDebt,
@@ -81,6 +82,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             SupplyDepartmentDebt.__table__,
             SupplyDepartmentDebtEvent.__table__,
             SupplyRequestLineDebtLink.__table__,
+            IikoDocumentWrite.__table__,
         ):
             table.create(self.engine)
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)

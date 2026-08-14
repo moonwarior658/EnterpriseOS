@@ -56,7 +56,7 @@ class IikoSupplierDto(IikoDto):
 
 class IikoOutgoingInvoiceItemDto(IikoDto):
     product_id: UUID
-    amount: Decimal = Field(gt=0, allow_inf_nan=False)
+    amount: Decimal = Field(ge=0, allow_inf_nan=False)
     price: Decimal = Field(allow_inf_nan=False)
 
 
@@ -70,7 +70,9 @@ class IikoOutgoingInvoiceDto(IikoDto):
     default_store_id: str
     account_to_code: str
     revenue_account_code: str
+    revision: int | None = Field(default=None, ge=0)
     items: tuple[IikoOutgoingInvoiceItemDto, ...] = ()
+    raw_document_xml: bytes | None = Field(default=None, exclude=True, repr=False)
 
 
 class IikoOutgoingInvoiceItemCreateDto(IikoDto):
@@ -84,6 +86,14 @@ class IikoOutgoingInvoiceCreateResultDto(IikoDto):
     document_number: str = Field(min_length=1)
     valid: Literal[True]
     warning: bool
+
+
+class IikoDocumentValidationResultDto(IikoDto):
+    valid: bool
+    warning: bool
+    document_number: str | None = None
+    error_message: str | None = None
+    additional_info: str | None = None
 
 
 class IikoOutgoingInvoiceCreateDto(IikoDto):

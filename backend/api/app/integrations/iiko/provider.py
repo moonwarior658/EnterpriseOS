@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
 
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
+    IikoDocumentValidationResultDto,
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
     IikoOrganizationDto,
@@ -126,6 +129,24 @@ class IikoProvider(ABC):
         document: IikoOutgoingInvoiceCreateDto,
     ) -> IikoOutgoingInvoiceCreateResultDto:
         """Submit one controlled NEW outgoing invoice with a caller-owned ID."""
+        raise NotImplementedError
+
+    async def update_outgoing_invoice(
+        self,
+        document: IikoOutgoingInvoiceDto,
+        *,
+        actual_quantities: Sequence[Decimal],
+    ) -> IikoDocumentValidationResultDto:
+        """Update one authoritative NEW invoice through legacy RPC."""
+        raise NotImplementedError
+
+    async def process_outgoing_invoices(
+        self,
+        document_ids: Sequence[UUID],
+        *,
+        enable_warnings: bool,
+    ) -> tuple[IikoDocumentValidationResultDto, ...]:
+        """Process existing invoices through the confirmed BackOffice RPC."""
         raise NotImplementedError
 
     @abstractmethod

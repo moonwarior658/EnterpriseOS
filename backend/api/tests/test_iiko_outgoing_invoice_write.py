@@ -19,6 +19,10 @@ from app.integrations.iiko.document_write import (
     IikoOutgoingInvoiceValidationError,
     create_controlled_outgoing_invoice,
 )
+from app.integrations.iiko.schemas import (
+    IikoOutgoingInvoiceDto,
+    IikoOutgoingInvoiceItemDto,
+)
 from app.integrations.iiko.exceptions import (
     IikoConnectionError,
     IikoContractError,
@@ -100,6 +104,119 @@ def successful_import_response(
 
 
 class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_updates_fresh_existing_invoice_through_legacy_rpc(self):
+        requests: list[httpx.Request] = []
+        raw_xml = (
+            b"<document><id>00000000-0000-4000-8000-000000000001</id>"
+            b"<documentNumber>2753</documentNumber><revision>42</revision>"
+            b"<status>NEW</status><preservedField>keep-me</preservedField>"
+            b"<items><item><productId>aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            b"</productId><amount>10.000</amount><price>0</price>"
+            b"</item></items></document>"
+        )
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/services/document"):
+                return response(request, text=(
+                    "<documentValidationResult><valid>true</valid>"
+                    "<warning>false</warning><documentNumber>2753</documentNumber>"
+                    "<errorMessage>saved</errorMessage>"
+                    "<additionalInfo>revision 43</additionalInfo>"
+                    "</documentValidationResult>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        document = IikoOutgoingInvoiceDto(
+            external_id=str(DOCUMENT_ID),
+            document_number="2753",
+            status="NEW",
+            counteragent_id="47c6accc-4bc7-6be1-0194-ccf9367e20cd",
+            default_store_id="24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
+            account_to_code="21",
+            revenue_account_code="20",
+            revision=42,
+            items=(IikoOutgoingInvoiceItemDto(
+                product_id=PRODUCT_ID,
+                amount=Decimal("10"),
+                price=Decimal("0"),
+            ),),
+            raw_document_xml=raw_xml,
+        )
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            result = await client.update_outgoing_invoice(
+                document, actual_quantities=(Decimal("8"),)
+            )
+
+        update = next(item for item in requests if item.url.path.endswith(
+            "/services/document"
+        ))
+        self.assertEqual(update.url.params["methodName"], "saveOrUpdateDocument")
+        updated_xml = xml_payload(update)
+        self.assertEqual(child_text(updated_xml, "revision"), "42")
+        self.assertEqual(child_text(updated_xml, "preservedField"), "keep-me")
+        self.assertEqual(
+            child_text(updated_xml.find("items/item"), "amount"), "8"
+        )
+        self.assertTrue(result.valid)
+        self.assertEqual(result.error_message, "saved")
+        self.assertEqual(result.additional_info, "revision 43")
+
+    async def test_process_parses_warning_details_and_acknowledges_once(self):
+        requests: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/services/documentGroupOperation"):
+                warnings = request.url.params["enable-warnings"]
+                return response(request, text=(
+                    "<documentValidationResults><documentValidationResult>"
+                    f"<valid>{'false' if warnings == 'true' else 'true'}</valid>"
+                    f"<warning>{'true' if warnings == 'true' else 'false'}</warning>"
+                    "<documentNumber>2753</documentNumber>"
+                    "<errorMessage>stock warning</errorMessage>"
+                    "<additionalInfo>operator acknowledgement required</additionalInfo>"
+                    "</documentValidationResult></documentValidationResults>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            first = await client.process_outgoing_invoices(
+                (DOCUMENT_ID,), enable_warnings=True
+            )
+            second = await client.process_outgoing_invoices(
+                (DOCUMENT_ID,), enable_warnings=False
+            )
+
+        process_requests = [item for item in requests if item.url.path.endswith(
+            "/services/documentGroupOperation"
+        )]
+        self.assertEqual(len(process_requests), 2)
+        self.assertEqual(
+            [item.url.params["enable-warnings"] for item in process_requests],
+            ["true", "false"],
+        )
+        self.assertEqual(first[0].document_number, "2753")
+        self.assertFalse(first[0].valid)
+        self.assertTrue(first[0].warning)
+        self.assertEqual(first[0].error_message, "stock warning")
+        self.assertEqual(
+            first[0].additional_info, "operator acknowledgement required"
+        )
+        self.assertTrue(second[0].valid)
+
     async def test_posts_exact_new_payload_with_caller_uuid_and_route(
         self,
     ) -> None:

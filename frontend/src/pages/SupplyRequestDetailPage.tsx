@@ -1139,20 +1139,26 @@ function SupplyRequestDetailPage() {
   }
 
   async function fulfillAsPlanned() {
-    if (!request || busy || invalidFulfillment) return
+    if (
+      !request || busy || invalidFulfillment || primaryActionInFlight.current
+    ) return
+    primaryActionInFlight.current = true
     setBusy(true)
     setMessage('')
     try {
-      setRequest(await fulfillSupplyAsPlanned(
+      const completed = await fulfillSupplyAsPlanned(
         request.id,
         request.version,
         request.lines.map((line) => ({
           line_id: line.id,
           fulfilled_quantity: fulfillment[line.id] ?? '0',
         })),
-      ))
+      )
+      setRequest(completed)
       setFulfillment({})
-      setMessage('Заявка завершена')
+      setMessage(completed.status === 'PARTIALLY_FULFILLED'
+        ? 'Заявка завершена частично. Незакрытое количество сохранено в долге.'
+        : 'Заявка выполнена полностью.')
     } catch (error) {
       const code = error instanceof SupplyApiError ? error.code : null
       setMessage(({
@@ -1164,11 +1170,24 @@ function SupplyRequestDetailPage() {
           'Для этой единицы разрешено только целое количество.',
         SUPPLY_REQUEST_VERSION_CONFLICT:
           'Заявка изменилась. Обновите карточку и повторите.',
-        SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED:
-          'Завершение заблокировано: изменение и проведение существующего документа iiko ещё не подтверждены.',
+        SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED:
+          'Документ iiko ещё не подтверждён. Проверьте документы в iiko и повторите.',
+        SUPPLY_IIKO_DOCUMENT_NOT_NEW:
+          'Документ iiko уже не в статусе NEW. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_UPDATE_VALIDATION_FAILED:
+          'iiko отклонила фактические количества. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_PROCESS_VALIDATION_FAILED:
+          'iiko не разрешила провести накладную. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_WARNING_ACK_FAILED:
+          'Не удалось подтвердить предупреждение iiko. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_FINAL_STATUS_INVALID:
+          'iiko не подтвердила статус PROCESSED. Заявка не завершена.',
+        SUPPLY_IIKO_DOCUMENT_FINALIZATION_FAILED:
+          'Не удалось завершить документ в iiko. Заявка и долг не изменены.',
       } as Record<string, string>)[code ?? ''] ?? 'Не удалось завершить заявку')
     } finally {
       setBusy(false)
+      primaryActionInFlight.current = false
     }
   }
 

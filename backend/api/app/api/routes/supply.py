@@ -196,7 +196,6 @@ from app.supply.service import (
     update_supply_storage_zone,
     update_supply_request_cycle,
     update_supply_line_fulfillment,
-    fulfill_supply_request_as_planned,
     confirm_supply_debt_inclusion,
     count_supply_requests,
     list_supply_debts,
@@ -214,11 +213,11 @@ from app.supply.iiko_stock import (
     select_source_warehouse,
 )
 from app.supply.iiko_documents import (
-    SupplyIikoDocumentFinalizationUnsupportedError,
+    SupplyIikoDocumentFinalizationError,
     SupplyIikoDocumentPreparationError,
     SupplyIikoDocumentWorkflowError,
     SupplyInternalTransferWriteUnsupportedError,
-    ensure_supply_iiko_document_finalization_supported,
+    finalize_supply_request_with_iiko_documents,
     list_supply_iiko_document_writes,
     plan_supply_request_with_iiko_documents,
 )
@@ -2113,21 +2112,19 @@ def update_line_fulfillment(
     "/requests/{request_id}/fulfill-as-planned",
     response_model=SupplyRequestRead,
 )
-def fulfill_as_planned(
+async def fulfill_as_planned(
     request_id: UUID,
     payload: SupplyRequestFulfillmentUpdate,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyRequest:
     try:
-        ensure_supply_iiko_document_finalization_supported(
+        return await finalize_supply_request_with_iiko_documents(
             db,
+            provider,
             tenant_id=current_admin.tenant_id,
             request_id=request_id,
-        )
-        return fulfill_supply_request_as_planned(
-            db,
-            request_id,
             expected_version=payload.expected_version,
             user_id=current_admin.id,
             items=payload.items,
@@ -2136,7 +2133,7 @@ def fulfill_as_planned(
         raise _not_found() from error
     except SupplyRequestVersionConflictError as error:
         raise _version_conflict(error) from error
-    except SupplyIikoDocumentFinalizationUnsupportedError as error:
+    except SupplyIikoDocumentFinalizationError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": error.code},
