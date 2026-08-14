@@ -7,9 +7,11 @@ Stage 3 Supply.
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
 Supply domain model — completed at 100%. The required working contour of
 Stage 3.1A is completed. Production verification was performed on 2 August
-2026. Stage 3.1B начат: read-stock scope, authoritative document read-back и
-verified PDF подтверждены в production; текущий срез — 5.5 Print Agent + print
-queue. Весь Stage 3.1B не завершён.
+2026. В Stage 3.1B production-confirmed read-stock scope, создание
+`OUTGOING_INVOICE`, authoritative document read-back, verified PDF и
+физическая печать по 2 копии через Print Agent. Весь Stage 3.1B не завершён:
+остаётся финализация существующей непроведённой iiko-накладной по фактическим
+количествам.
 
 ## Current state
 
@@ -39,9 +41,11 @@ queue. Весь Stage 3.1B не завершён.
   3.4 долги в разных единицах не сравниваются и не объединяются.
 - Повторные долги считаются по циклам: первый цикл без тревоги, второй —
   жёлтый, третий и последующие — красные.
-- Stage 3.1B / 4, 5.4A и 5.4B подтверждены в production. Текущий локальный
-  срез 5.5 доводит verified PDF через persistent print job, Automation
-  Core/outbox и n8n до Print Agent; `INTERNAL_TRANSFER` отложен.
+- Stage 3.1B / 4 и print-контур 5 подтверждены в production: EOS передаёт
+  verified PDF через persistent print job, Automation Core/outbox и n8n в
+  устойчиво запущенный Windows Print Agent; несколько расходных накладных
+  физически распечатаны по 2 копии, normal print и explicit reprint работают.
+  `INTERNAL_TRANSFER` отложен.
 
 В Stage 3.1B выполнено:
 
@@ -49,13 +53,32 @@ queue. Весь Stage 3.1B не завершён.
 - чтение складов и остатков в staging-контур EOS;
 - явный mapping товаров, единиц и складов iiko ↔ EOS;
 - admin-only API/UI для mapping и аудит решений;
-- безопасное создание первичного каталога EOS из iiko staging.
+- безопасное создание первичного каталога EOS из iiko staging;
+- contextual mapping/remapping из карточки заявки с аудитом `CREATED` /
+  `REPLACED`, защитой permanent mappings и сохранением `send_quantity`;
+- source grouping, создание `OUTGOING_INVOICE`, authoritative read-back,
+  canonical PDF, persistent print/reprint flow и история печати;
+- operational cleanup карточки заявки: русские business labels без UUID и
+  внутренних кодов, «Склад отгрузки», searchable product combobox и
+  структурированная история печати.
 
-Также production-confirmed создание `OUTGOING_INVOICE`, authoritative
-read-back и verified PDF. Print queue и Print Agent реализуются локально в
-срезе 5.5; production deployment и физическая печать не выполнялись.
-`INTERNAL_TRANSFER`, подтверждение передачи и signed-return остаются вне
-текущего среза.
+Архитектурный инвариант plan/fact: `line.quantity` хранит requested/planned
+quantity и является единственным количеством stock calculation;
+`send_quantity` хранит actual fulfillment, не участвует в stock calculation и
+не инвалидирует подтверждённый план. Положительный остаток
+`planned - actual` образует долг.
+
+Незавершённый blocker Stage 3.1B: для уже созданной непроведённой
+`OUTGOING_INVOICE` пока нет подтверждённого iikoServer contract изменения по
+actual quantities, проведения и authoritative read-back после этих операций.
+При существующем iiko intent завершение fail closed возвращает
+`SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED`: статус заявки и долги не
+меняются, дубль документа не создаётся. `INTERNAL_TRANSFER`, подтверждение
+передачи и signed-return остаются вне завершённого contour.
+
+Следующий срез: подтвердить iikoServer contract update/proceed существующей
+`OUTGOING_INVOICE` на безопасном тестовом контуре, затем реализовать
+`actual → iiko update → proceed → read-back → debt/final status`.
 
 Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
 автоматизирован.

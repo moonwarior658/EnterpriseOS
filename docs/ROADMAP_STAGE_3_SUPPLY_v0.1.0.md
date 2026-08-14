@@ -2,9 +2,9 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **12 августа 2026 года**
-Статус: **обязательный рабочий контур Stage 3.1A завершён; Stage 3.1B / 4, 5.4A и 5.4B подтверждены в production; Stage 3.1B / 5.5 Print Agent + print queue реализуется текущим срезом; `INTERNAL_TRANSFER` отложен; весь Stage 3.1B не завершён**
-Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B / 5 продолжается срезом 5.5 автоматической печати verified PDF**
+Дата обновления: **14 августа 2026 года**
+Статус: **обязательный рабочий контур Stage 3.1A завершён; в Stage 3.1B production-confirmed read-only iiko, stock calculation, source grouping, создание `OUTGOING_INVOICE`, authoritative read-back, PDF, физическая печать/reprint, mapping/remapping, operational UI и planned/actual model; финализация существующей iiko-накладной остаётся blocker; весь Stage 3.1B не завершён**
+Общий прогресс этапа 3: **Stage 3.0 и Stage 3.1A завершены; Stage 3.1B продолжается срезом actual → iiko update → proceed → read-back → debt/final status**
 
 ---
 
@@ -724,16 +724,19 @@ Supplier aliases, поставщики и закупочные документ�
 
 # Этап 3.1B — iiko, документы и печать
 
-Прогресс: **read-only срез Stage 3.1B / 4 завершён в текущем operational
-scope; Stage 3.1B в целом продолжается**
+Прогресс: **операционный контур до физической печати и reprint подтверждён в
+production; Stage 3.1B в целом продолжается**
 
-Статус: **read-only snapshot и stock calculation подтверждены в production
-10.08.2026; изменяющие операции iiko ещё не реализованы.**
+Статус: **read-only snapshot, stock calculation, создание
+`OUTGOING_INVOICE`, authoritative read-back, PDF и физическая печать
+подтверждены в production; modify/proceed существующей накладной не
+реализованы.**
 
-Интеграция — прямое read-only подключение EOS к **iikoServer REST API 9.2.7014.0**.
-Это не iikoCloud и не iikoTransport. Относительные пути ниже вызываются
-относительно настроенного base URL iikoServer; EOS не добавляет префикс
-`/resto` вручную.
+Интеграция использует прямой адаптер EOS к **iikoServer REST API 9.2.7014.0**:
+read-only методы для reference/stock/read-back и узкий подтверждённый write
+создания `OUTGOING_INVOICE`. Это не iikoCloud и не iikoTransport.
+Относительные пути ниже вызываются относительно настроенного base URL
+iikoServer; EOS не добавляет префикс `/resto` вручную.
 
 ## Что уже выполнено из объёма 3.1B
 
@@ -742,11 +745,17 @@ scope; Stage 3.1B в целом продолжается**
 - явный mapping товаров, единиц и складов iiko ↔ EOS;
 - admin-only API/UI для mapping и бессрочный аудит решений;
 - безопасное создание первичного каталога EOS из iiko staging;
-- immutable `STOCK_BALANCE_SNAPSHOT` и read-stock calculation Supply.
+- immutable `STOCK_BALANCE_SNAPSHOT` и read-stock calculation Supply;
+- source grouping и создание `OUTGOING_INVOICE`;
+- authoritative read-back, canonical PDF, persistent print/reprint flow и
+  физическая печать по 2 копии;
+- contextual mapping/remapping и operational cleanup карточки Supply-заявки;
+- разделение requested/planned quantity и actual `send_quantity`.
 
-Ниже сохранена детализация выполненных срезов. Завершение read-only operational
-scope не означает завершения всего Stage 3.1B: write-контур документов и
-печать остаются следующей работой.
+Ниже сохранена детализация выполненных срезов. Завершение print-контура не
+означает завершения всего Stage 3.1B: update/proceed существующей
+`OUTGOING_INVOICE`, authoritative read-back после проведения и финальная
+транзакция debt + fulfillment остаются следующей работой.
 
 ### Stage 3.1B / 1 — read-only доступ и reference snapshot
 
@@ -1101,7 +1110,7 @@ Production-проверка stock calculation:
       Supply и Repair без выдачи mutation-прав; tenant isolation сохраняется.
 - [x] Миграция `20260806_0029` применена в production.
 
-## Следующий срез: Stage 3.1B / 5 — перемещения, документы, печать и подтверждение получения
+## Текущий срез: Stage 3.1B / 5 — перемещения, документы, печать и подтверждение получения
 
 Срез следует за завершённым operational scope 3.1B / 4 и объединяет единый
 физический и документный результат: отдельное перемещение, подтверждённый
@@ -1165,12 +1174,28 @@ Stage 3.1B / 5.4B подтверждён в production: EOS повторно п�
 read-back boundary и строит canonical combined PDF всей заявки в порядке
 `MAIN → PACKAGING → HOUSEHOLD`, начиная каждый документ с новой страницы.
 
-Stage 3.1B / 5.5 — текущий локальный срез: persistent print job и existing
-Automation Core/outbox передают scoped reference на verified PDF через n8n в
-локальный Print Agent. Обычный повторный запрос дедуплицируется по request и
+Stage 3.1B / 5.5 подтверждён end-to-end в production:
+
+`EOS → outbox → n8n → GET PDF → Windows Print Agent → SumatraPDF → HP LaserJet
+Pro MFP M125rnw → callback → EOS`.
+
+Несколько расходных накладных физически распечатаны по 2 копии; normal print
+и explicit reprint работают. Persistent print job передаёт scoped reference
+на verified PDF через existing Automation Core/outbox и n8n в устойчиво
+запущенный Print Agent. Обычный повторный запрос дедуплицируется по request и
 fingerprint; explicit reprint создаёт новый job и idempotency key. Print Agent
 хранит durable SQLite registry до вызова backend и при неопределённом результате
 не выполняет слепой retry.
+
+Production fixes print/read-back:
+
+- [x] Цена исключена из authoritative identity.
+- [x] Mutable `document_status` исключён из printable fingerprint.
+- [x] `CREATED` без authoritative UUID проходит reconciliation и получает
+      `iiko_document_id` только из подтверждённого read-back.
+- [x] Исправлен reprint endpoint; normal print и reprint доступны в UI.
+- [x] Исправлен n8n env access, разделены credentials, Print Agent запущен
+      устойчиво.
 
 Production printer contract 5.5:
 
@@ -1181,27 +1206,45 @@ Production printer contract 5.5:
 - каждый print job всегда передаёт `copies=2`; selector принтера и copies в UI
   отсутствуют; direct IP printing и printer discovery не входят в scope.
 
-Stage 3.1B / 5.4B подтверждён в production: EOS повторно проходит verified
-read-back boundary, строит canonical combined PDF всей заявки в порядке
-`MAIN → PACKAGING → HOUSEHOLD`, начиная каждый документ с новой страницы.
+### Завершённый operational срез: mapping/remapping и карточка заявки
 
-Stage 3.1B / 5.5 — текущий локальный срез: persistent print job и existing
-Automation Core/outbox передают scoped reference на verified PDF через n8n в
-локальный Print Agent. Обычный повторный запрос дедуплицируется по request и
-fingerprint; explicit reprint создаёт новый job и idempotency key. Print Agent
-хранит durable SQLite registry до вызова backend и при неопределённом результате
-не выполняет слепой retry.
+- [x] Для `MATCHED` строки доступно действие «Изменить товар» и controlled
+      autocomplete; blur/pointer race устранён.
+- [x] Замена создаёт contextual mapping с аудитом `CREATED` / `REPLACED`;
+      permanent mappings защищены, следующий аналогичный phrase распознаётся
+      по сохранённому правилу.
+- [x] Remap не переписывает requested quantity через `send_quantity`; единица
+      редактируется отдельно.
+- [x] Stock calculation invalidation зависит от товара, единицы и requested
+      quantity, но не от `send_quantity`.
+- [x] Карточка использует заголовок «объект · направление · статус», а business
+      number показывает вторично; `SOURCE` заменён на «Склад отгрузки», его
+      назначение скрыто под «Изменить».
+- [x] Preview и iiko document labels локализованы; UUID/internal codes скрыты;
+      quantities отображаются с одним знаком после запятой; история печати
+      структурирована.
+- [x] Product select заменён на searchable EOS combobox с server-side search
+      максимум 20, keyboard navigation и adaptive dropdown placement.
 
-Production printer contract 5.5:
+### Инвариант planned vs actual
 
-- Windows queue: `HP LaserJet Pro MFP M125rnw`;
-- driver: `HP LaserJet Pro MFP M125-M126 PCLmS`;
-- WSD port: `WSD-8c4720e8-beaa-4019-9e81-5a2ccddfce79`;
-- physical IP `192.168.0.14` хранится только как operational reference;
-- каждый print job всегда передаёт `copies=2`; selector принтера и copies в UI
-  отсутствуют; direct IP printing и printer discovery не входят в scope.
+- `line.quantity` — requested/planned quantity; stock calculation использует
+  только его.
+- `send_quantity` — actual fulfillment; он не участвует в stock calculation и
+  не инвалидирует `CONFIRMED` plan.
+- Положительная разница `planned - actual` создаёт долг:
+  `planned 10 кг → actual 8 кг → debt 2 кг`.
 
-Stage 3.1B / 5.3 реализован локально: действие «Отдать в работу» сохраняет
+### Production hotfix 13.08.2026
+
+В заявке `ЗАЯВКА-20260813-М15-MAIN-001` точечно исправлен ошибочный mapping
+молока на «Молоко для кофе» и удалены только preliminary calculations этой
+заявки. До исправления проверено отсутствие iiko documents, print jobs и
+debts; другие заявки не изменялись, backup создан. После incident штатный
+mapping/remap UI исправлен, поэтому повторение такого ручного hotfix не
+требуется.
+
+Stage 3.1B / 5.3 работает в production: действие «Отдать в работу» сохраняет
 существующий переход заявки в `PLANNED`, после его commit группирует строки по
 подтверждённому SOURCE/flow и вызывает только
 `create_persistent_outgoing_invoice(...)` — не более одного intent на
@@ -1211,8 +1254,8 @@ Stage 3.1B / 5.3 реализован локально: действие «От�
 `SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED` и не подменяется
 расходной накладной. Generic Automation outbox здесь не используется: его
 automatic delivery retry несовместим с fail-closed правилом `UNKNOWN`; commit
-`PENDING` до POST обеспечивает persistent intent boundary. Production
-confirmation 5.3 не выполнялся и остаётся отдельным шагом.
+`PENDING` до POST обеспечивает persistent intent boundary. Документы этого
+контура прошли authoritative read-back, PDF и physical print.
 
 Controlled production probe от 11.08.2026 дал новый UUID, валидный routing,
 HTTP `409` с ответом `Cannot find InternalTransfer document by id <UUID>`, а
@@ -1224,29 +1267,34 @@ endpoint**. Реализация `create_internal_transfer` и controlled write 
 probes не выполнять. Подтверждение routing contract не означает завершения
 Stage 3.1B / 5 или всего Stage 3.1B.
 
-Непосредственный следующий шаг:
+Непосредственный следующий срез:
 
-1. Выполнить migration 0032 и read-only enrichment существующих документов
-   №2711 / №2712 / №2713 после отдельной проверки backup/recovery; automatic
-   retry после неопределённого результата остаётся запрещён fail closed.
-2. Отдельно подтвердить в production локально реализованную workflow-интеграцию
-   Stage 3.1B / 5.3 без automatic retry и без `INTERNAL_TRANSFER` write.
-3. Провести отдельную production verification цепочки
-   `n8n → Print Agent → Windows queue`; текущая реализация production не
-   затрагивала.
+**Stage 3.1B / next — подтвердить iikoServer contract update/proceed для
+существующей `OUTGOING_INVOICE` на безопасном тестовом контуре, затем
+реализовать actual → iiko update → proceed → read-back → debt/final status.**
 
-Эксплуатационная цель до отпуска — замкнуть цепочку:
-`автор заявки → mapping → SOURCE → stock calculation → iiko transfer document
-→ print`.
+Пока не реализованы изменение уже созданной непроведённой
+`OUTGOING_INVOICE` по actual quantities, её проведение и authoritative
+read-back после modify/proceed. Контракт не угадывался, production iiko для
+экспериментов не использовался. При существующем iiko intent завершение
+fail closed возвращает `SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED`:
+статус заявки не меняется, долг и дубль документа не создаются.
+
+Текущая эксплуатационная цель — замкнуть оставшуюся цепочку:
+`actual → iiko update → proceed → authoritative read-back → debt/final status`.
 
 - [ ] Создать отдельную сущность перемещения с источником, назначением,
       строками, плановым и фактически переданным количеством.
-- [ ] Сформировать и подтвердить документ iiko через версионируемый provider,
-      transactional outbox и идемпотентную обработку результата.
-- [x] Локально сформировать verified PDF в EOS, поставить persistent print job
-      в Automation Core/outbox, передать scoped retrieval contract в Print
-      Agent и сохранить статусы и журнал печати; production verification
-      остаётся отдельным шагом.
+- [x] Сформировать и подтвердить `OUTGOING_INVOICE` через версионируемый
+      provider, persistent intent до POST и fail-closed reconciliation.
+- [x] Сформировать verified PDF в EOS, поставить persistent print job в
+      Automation Core/outbox, передать scoped retrieval contract в Print
+      Agent, сохранить статусы и журнал и подтвердить physical print/reprint
+      end-to-end в production.
+- [ ] Изменить существующую непроведённую `OUTGOING_INVOICE` по actual,
+      провести её и подтвердить результат authoritative read-back.
+- [ ] После успешного iiko proceed выполнить единую финальную транзакцию
+      fulfillment + debt.
 - [ ] Зафиксировать получателя и подтверждение фактической передачи.
 - [ ] Принять и сохранить возвращённый подписанный документ, связанный с
       версией перемещения и документа iiko.
@@ -1313,78 +1361,78 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 ## 3.1B.6. Разделение по складам
 
-- [ ] Заявка направления `MAIN — Основной` включает продукты и упаковку.
-- [ ] Перед формированием документов разделять позиции:
+- [x] Заявка направления `MAIN — Основной` включает продукты и упаковку.
+- [x] Перед формированием документов разделять позиции:
   - продукты;
   - упаковка;
   - хозтовары.
-- [ ] Создавать до трёх документов на подразделение.
+- [x] Создавать до трёх документов на подразделение.
 - [ ] Связывать документ со строками заявки.
 
 ## 3.1B.7. Документы
 
 - [ ] Внутренние перемещения.
-- [ ] Расходные накладные.
-- [ ] UUID документа.
-- [ ] Читаемый номер.
-- [ ] Статусы.
-- [ ] Версия.
-- [ ] Связь с iiko document ID.
-- [ ] Связь с заявкой.
+- [x] Расходные накладные.
+- [x] UUID документа.
+- [x] Читаемый номер.
+- [x] Статусы.
+- [x] Версия/fingerprint printable представления.
+- [x] Связь с authoritative iiko document ID.
+- [x] Связь с заявкой.
 - [ ] Связь со строками заявки.
 
 ## 3.1B.8. Создание документов iiko
 
-- [ ] Сформировать payload в EOS.
-- [ ] Передать через provider.
-- [ ] Использовать transactional outbox.
-- [ ] Получить callback.
-- [ ] Считать успехом только подтверждение iiko.
-- [ ] Создавать исключение при ошибке.
-- [ ] Добавить повторный запуск.
+- [x] Сформировать payload в EOS.
+- [x] Передать через provider после commit persistent intent.
+- [x] Считать authoritative success только после подтверждённого read-back.
+- [x] Сохранять типизированное исключение/неопределённое состояние при ошибке.
+- [x] Не выполнять blind retry неизвестного результата; сначала reconciliation.
+- [ ] Изменить и провести существующую накладную по actual quantities.
+- [ ] Подтвердить результат modify/proceed authoritative read-back.
 
 ## 3.1B.9. PDF
 
-- [ ] Формировать PDF внутри EOS.
-- [ ] Хранить версию.
-- [ ] Хранить связь с iiko.
-- [ ] Добавить повторное формирование.
-- [ ] Не формировать бизнес-документ в n8n.
+- [x] Формировать PDF внутри EOS.
+- [x] Хранить/проверять version fingerprint.
+- [x] Хранить связь с iiko.
+- [x] Поддерживать повторное формирование только из authoritative read-back.
+- [x] Не формировать бизнес-документ в n8n.
 
 ## 3.1B.10. Print Agent
 
-- [ ] Создать локальный агент.
-- [ ] Ограничить одним принтером.
-- [ ] Добавить токен.
-- [ ] Добавить whitelist.
-- [ ] Передавать PDF.
-- [ ] Передавать количество копий.
-- [ ] Поддержать idempotency key.
-- [ ] Хранить журнал.
+- [x] Создать локальный агент.
+- [x] Ограничить одним принтером.
+- [x] Добавить отдельные credentials агента.
+- [x] Добавить whitelist.
+- [x] Передавать PDF.
+- [x] Передавать `copies=2` server-side.
+- [x] Поддержать idempotency key.
+- [x] Хранить durable журнал.
 
 ## 3.1B.11. Печать через Automation Core
 
-- [ ] Создать automation type.
-- [ ] EOS → outbox → n8n → Print Agent.
-- [ ] Получать callback.
-- [ ] Добавить статусы:
+- [x] Создать automation type.
+- [x] EOS → outbox → n8n → Print Agent.
+- [x] Получать callback.
+- [x] Добавить статусы:
   - `QUEUED_FOR_PRINT`;
   - `PRINTING`;
   - `PRINTED`;
   - `PRINT_FAILED`.
-- [ ] Добавить повторную печать.
+- [x] Добавить явную повторную печать.
 - [ ] Создавать исключение на Dashboard.
 
 ## 3.1B.12. Закрытие цикла
 
-- [ ] Кнопка `Отправить на печать`.
-- [ ] Проверить обработку всех строк.
-- [ ] Создать документы.
-- [ ] Зафиксировать финальную версию.
-- [ ] Поставить документы в очередь.
+- [x] Кнопка `Отправить на печать` и explicit reprint.
+- [x] Проверить обработку всех строк перед printable read-back.
+- [x] Создать `OUTGOING_INVOICE`.
+- [x] Зафиксировать authoritative printable version.
+- [x] Поставить документы в очередь и подтвердить физическую печать.
 - [ ] Закрыть цикл.
 - [ ] Создать долги.
-- [ ] Не возвращать заявку в редактирование при ошибке печати.
+- [x] Не возвращать заявку в редактирование при ошибке печати.
 
 ### Критерий готовности 3.1B
 
@@ -1785,14 +1833,14 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 
 # Общие критерии завершения этапа 3
 
-- [ ] Подразделения подают заявки через EOS.
+- [x] Подразделения подают заявки через EOS.
 - [ ] Пользовательский ввод автоматически нормализуется.
-- [ ] Маппинг обучается на реальных заявках.
-- [ ] Снабжение видит запросили / отправили / долг.
-- [ ] Долги не теряются между циклами.
-- [ ] Остатки поступают из iiko.
-- [ ] Документы создаются в iiko.
-- [ ] Документы автоматически печатаются.
+- [x] Маппинг обучается на реальных заявках.
+- [x] Снабжение видит запросили / отправили / долг.
+- [x] Долги не теряются между циклами.
+- [x] Остатки поступают из iiko.
+- [x] `OUTGOING_INVOICE` создаются в iiko.
+- [x] Verified документы автоматически печатаются.
 - [ ] Закупки распределяются по поставщикам.
 - [ ] Заказы отправляются через EOS.
 - [ ] Ответы и PDF поставщиков связаны с заказами.
@@ -1806,6 +1854,30 @@ Stage 3.1B / 5 или всего Stage 3.1B.
 ---
 
 # Changelog
+
+## 2026-08-14
+
+- Production print flow подтверждён end-to-end до физической печати и callback
+  в EOS: несколько расходных накладных распечатаны по 2 копии; normal print и
+  explicit reprint работают.
+- Зафиксированы print/read-back fixes: цена исключена из authoritative
+  identity, mutable document status — из fingerprint, `CREATED` без
+  authoritative UUID проходит reconciliation; исправлены reprint endpoint,
+  n8n env access и разделение credentials, Print Agent стабилизирован.
+- Завершены contextual mapping/remapping и operational cleanup карточки Supply:
+  изменение `MATCHED` товара, controlled autocomplete, аудит
+  `CREATED` / `REPLACED`, защита permanent mappings, редактирование единицы,
+  русские business labels, searchable combobox и структурированная история
+  печати.
+- Закреплён planned/actual invariant: stock calculation использует только
+  `line.quantity`; `send_quantity` хранит факт и не инвалидирует plan; долг —
+  положительная разница planned и actual.
+- По production incident `ЗАЯВКА-20260813-М15-MAIN-001` точечно исправлен
+  mapping молока и удалены только preliminary calculations этой заявки после
+  backup и проверки отсутствия связанных iiko documents, print jobs и debts.
+- Весь Stage 3.1B не закрыт: следующий срез — безопасно подтвердить iikoServer
+  update/proceed contract существующей `OUTGOING_INVOICE`, затем реализовать
+  actual → update → proceed → read-back → debt/final status.
 
 ## 2026-08-12
 
