@@ -600,9 +600,22 @@ class IikoServerClient(IikoProvider):
             value = child.text.strip() if child is not None and child.text else ""
             return value or None
 
+        success = optional_text(root, "success")
+        result_status = optional_text(root, "resultStatus")
+        if (
+            success is not None
+            or result_status is not None
+        ) and (success != "true" or result_status != "SUCCESS"):
+            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+
         candidates = [
             element for element in root.iter()
             if local_name(element) == "documentValidationResult"
+            or (
+                local_name(element) == "v"
+                and optional_text(element, "valid") is not None
+                and optional_text(element, "warning") is not None
+            )
         ]
         if local_name(root) == "documentValidationResult" and root not in candidates:
             candidates.insert(0, root)
@@ -979,16 +992,28 @@ class IikoServerClient(IikoProvider):
     ) -> tuple[IikoDocumentValidationResultDto, ...]:
         if not document_ids or len(set(document_ids)) != len(document_ids):
             raise IikoContractError("IIKO_DOCUMENT_IDS_INVALID")
-        root = ET.Element("documentIds")
+        current_entities_version = await self._get_current_rpc_entities_version()
+        call_id = uuid4()
+        root = ET.Element("args")
+        for name, value in (
+            ("entities-version", str(current_entities_version)),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true" if enable_warnings else "false"),
+            ("client-call-id", str(call_id)),
+            ("use-raw-entities", "true"),
+        ):
+            ET.SubElement(root, name).text = value
+        dictionary = ET.SubElement(root, "documentIds")
         for document_id in document_ids:
-            ET.SubElement(root, "documentId").text = str(document_id)
+            ET.SubElement(dictionary, "k").text = str(document_id)
+            ET.SubElement(dictionary, "v").text = "OUTGOING_INVOICE"
         response = await self._post_legacy_document_rpc(
             _DOCUMENT_GROUP_OPERATION_PATH,
-            params=(
-                ("methodName", "processDocuments"),
-                ("enable-warnings", "true" if enable_warnings else "false"),
+            params=(("methodName", "processDocuments"),),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                root, encoding="utf-8", xml_declaration=True
             ),
-            content=ET.tostring(root, encoding="utf-8"),
+            call_id=call_id,
         )
         results = self._validation_results(response)
         for result in results:

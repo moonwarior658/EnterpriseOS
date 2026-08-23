@@ -305,21 +305,38 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_process_parses_warning_details_and_acknowledges_once(self):
         requests: list[httpx.Request] = []
+        process_count = 0
 
         async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal process_count
             requests.append(request)
             if request.url.path.endswith("/api/auth"):
                 return response(request, text="token")
-            if request.url.path.endswith("/services/documentGroupOperation"):
-                warnings = request.url.params["enable-warnings"]
+            if request.url.path.endswith("/services/update"):
                 return response(request, text=(
-                    "<documentValidationResults><documentValidationResult>"
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="EntitiesUpdate">'
+                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
+                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
+                    "<items /></returnValue></result>"
+                ))
+            if request.url.path.endswith("/services/documentGroupOperation"):
+                process_count += 1
+                request_xml = xml_payload(request)
+                warnings = child_text(request_xml, "enable-warnings")
+                return response(request, text=(
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="java.util.HashMap">'
+                    f"<k>{DOCUMENT_ID}</k>"
+                    '<v cls="DocumentValidationResult">'
                     f"<valid>{'false' if warnings == 'true' else 'true'}</valid>"
                     f"<warning>{'true' if warnings == 'true' else 'false'}</warning>"
                     "<documentNumber>2753</documentNumber>"
                     "<errorMessage>stock warning</errorMessage>"
                     "<additionalInfo>operator acknowledgement required</additionalInfo>"
-                    "</documentValidationResult></documentValidationResults>"
+                    "</v></returnValue></result>"
                 ))
             if request.url.path.endswith("/api/logout"):
                 return response(request, text="ok")
@@ -339,10 +356,27 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             "/services/documentGroupOperation"
         )]
         self.assertEqual(len(process_requests), 2)
-        self.assertEqual(
-            [item.url.params["enable-warnings"] for item in process_requests],
-            ["true", "false"],
-        )
+        self.assertEqual(process_count, 2)
+        for index, request in enumerate(process_requests):
+            request_xml = xml_payload(request)
+            self.assertEqual(request.url.params["methodName"], "processDocuments")
+            self.assertNotIn("enable-warnings", request.url.params)
+            self.assertEqual(child_text(request_xml, "entities-version"), "101")
+            self.assertEqual(child_text(request_xml, "client-type"), "BACK")
+            self.assertEqual(child_text(request_xml, "use-raw-entities"), "true")
+            self.assertEqual(
+                child_text(request_xml, "enable-warnings"),
+                "true" if index == 0 else "false",
+            )
+            call_id = child_text(request_xml, "client-call-id")
+            self.assertIsNotNone(call_id)
+            self.assertEqual(
+                request.headers["X-Resto-CorrelationId"], call_id
+            )
+            document_ids = request_xml.find("documentIds")
+            self.assertIsNotNone(document_ids)
+            self.assertEqual(child_text(document_ids, "k"), str(DOCUMENT_ID))
+            self.assertEqual(child_text(document_ids, "v"), "OUTGOING_INVOICE")
         self.assertEqual(first[0].document_number, "2753")
         self.assertFalse(first[0].valid)
         self.assertTrue(first[0].warning)

@@ -138,9 +138,16 @@ class ReadBackProvider:
 
 
 class FinalizationProvider:
-    def __init__(self, invoices, process_results=()) -> None:
+    def __init__(
+        self,
+        invoices,
+        process_results=(),
+        *,
+        process_updates_status=True,
+    ) -> None:
         self.invoices = list(invoices)
         self.process_results = list(process_results)
+        self.process_updates_status = process_updates_status
         self.update_calls = []
         self.process_calls = []
         self.rpc_read_calls = []
@@ -217,7 +224,10 @@ class FinalizationProvider:
                 for invoice in self.invoices
                 if UUID(invoice.external_id) in document_ids
             )
-        if all(result.valid for result in results):
+        if (
+            self.process_updates_status
+            and all(result.valid for result in results)
+        ):
             selected_numbers = {result.document_number for result in results}
             self.invoices = [
                 invoice.model_copy(update={"status": "PROCESSED"})
@@ -473,9 +483,19 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 ))
         return ReadBackProvider(invoices)
 
-    def _finalization_provider(self, request_id, *, process_results=()):
+    def _finalization_provider(
+        self,
+        request_id,
+        *,
+        process_results=(),
+        process_updates_status=True,
+    ):
         read_back = self._confirm_read_back(request_id)
-        return FinalizationProvider(read_back.invoices, process_results)
+        return FinalizationProvider(
+            read_back.invoices,
+            process_results,
+            process_updates_status=process_updates_status,
+        )
 
     def _line_id(self, request_id):
         with self.sessions() as session:
@@ -634,6 +654,75 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 request_id, provider, "0.5", version=planned.version
             )
 
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            self.assertEqual(request.status, "PLANNED")
+            self.assertEqual(line.send_quantity, Decimal("1"))
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
+            )
+
+    async def test_warning_ack_failure_keeps_eos_state_unchanged(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        number = self._writes(request_id)[0].iiko_document_number
+        provider = self._finalization_provider(request_id, process_results=(
+            (IikoDocumentValidationResultDto(
+                valid=False,
+                warning=True,
+                document_number=number,
+            ),),
+            (IikoDocumentValidationResultDto(
+                valid=False,
+                warning=False,
+                document_number=number,
+                error_message="ack rejected",
+            ),),
+        ))
+
+        with self.assertRaisesRegex(
+            SupplyIikoDocumentFinalizationError,
+            "SUPPLY_IIKO_DOCUMENT_WARNING_ACK_FAILED",
+        ):
+            await self._finalize(
+                request_id, provider, "0.5", version=planned.version
+            )
+
+        self.assertEqual(
+            [enable_warnings for _, enable_warnings in provider.process_calls],
+            [True, False],
+        )
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            self.assertEqual(request.status, "PLANNED")
+            self.assertEqual(line.send_quantity, Decimal("1"))
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
+            )
+
+    async def test_non_processed_readback_keeps_eos_state_unchanged(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._finalization_provider(
+            request_id,
+            process_updates_status=False,
+        )
+
+        with self.assertRaisesRegex(
+            SupplyIikoDocumentFinalizationError,
+            "SUPPLY_IIKO_DOCUMENT_FINAL_STATUS_INVALID",
+        ):
+            await self._finalize(
+                request_id, provider, "0.5", version=planned.version
+            )
+
+        self.assertEqual(len(provider.process_calls), 1)
         with self.sessions() as session:
             request = session.get(SupplyRequest, request_id)
             line = session.scalar(select(SupplyRequestLine).where(
