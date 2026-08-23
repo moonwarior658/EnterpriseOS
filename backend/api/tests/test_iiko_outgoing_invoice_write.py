@@ -116,6 +116,28 @@ def update_source() -> IikoOutgoingInvoiceUpdateSourceDto:
     )
 
 
+def production_update_source(
+    *,
+    raw_eid: str = str(DOCUMENT_ID),
+    raw_revision: str | None = "42",
+) -> IikoOutgoingInvoiceUpdateSourceDto:
+    revision_xml = (
+        f"<revision>{raw_revision}</revision>"
+        if raw_revision is not None else ""
+    )
+    return update_source().model_copy(update={
+        "raw_document_xml": (
+            f'<document cls="OutgoingInvoice" eid="{raw_eid}">'
+            f"{revision_xml}<documentNumber>2753</documentNumber>"
+            "<status>NEW</status><items>"
+            '<i cls="OutgoingInvoiceItem">'
+            f"<product>{PRODUCT_ID}</product>"
+            "<amount>10.000</amount><price>0</price>"
+            "</i></items></document>"
+        ).encode(),
+    })
+
+
 def successful_import_response(
     request: httpx.Request,
     *,
@@ -352,6 +374,78 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("http_status=200", rendered)
         self.assertIn("valid=True", rendered)
         self.assertIn("error_message=saved", rendered)
+
+    async def test_update_accepts_production_eid_identity_shape(self):
+        requests: list[httpx.Request] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/services/document"):
+                return response(request, text=(
+                    "<documentValidationResult><valid>true</valid>"
+                    "<warning>false</warning>"
+                    "<documentNumber>2753</documentNumber>"
+                    "</documentValidationResult>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            result = await client.update_outgoing_invoice(
+                production_update_source(),
+                actual_quantities=(Decimal("8"),),
+            )
+
+        save_request = next(
+            item for item in requests
+            if item.url.path.endswith("/services/document")
+        )
+        document = xml_payload(save_request).find("document")
+        self.assertEqual(document.attrib["cls"], "OutgoingInvoice")
+        self.assertEqual(document.attrib["eid"], str(DOCUMENT_ID))
+        self.assertIsNone(document.find("id"))
+        self.assertEqual(child_text(document, "revision"), "42")
+        self.assertTrue(result.valid)
+
+    async def test_update_rejects_wrong_production_eid(self):
+        document = production_update_source(
+            raw_eid="00000000-0000-4000-8000-000000000099"
+        )
+        async with IikoServerClient(make_settings()) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_OUTGOING_INVOICE_UPDATE_IDENTITY_INVALID",
+            ):
+                await client.update_outgoing_invoice(
+                    document, actual_quantities=(Decimal("8"),)
+                )
+
+    async def test_update_rejects_missing_production_revision(self):
+        document = production_update_source(raw_revision=None)
+        async with IikoServerClient(make_settings()) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_OUTGOING_INVOICE_UPDATE_IDENTITY_INVALID",
+            ):
+                await client.update_outgoing_invoice(
+                    document, actual_quantities=(Decimal("8"),)
+                )
+
+    async def test_update_rejects_wrong_production_revision(self):
+        document = production_update_source(raw_revision="41")
+        async with IikoServerClient(make_settings()) as client:
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_OUTGOING_INVOICE_UPDATE_IDENTITY_INVALID",
+            ):
+                await client.update_outgoing_invoice(
+                    document, actual_quantities=(Decimal("8"),)
+                )
 
     async def test_save_parse_error_logs_safe_structure_without_secrets(self):
         async def handler(request: httpx.Request) -> httpx.Response:

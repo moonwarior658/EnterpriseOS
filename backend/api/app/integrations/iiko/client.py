@@ -1168,17 +1168,15 @@ class IikoServerClient(IikoProvider):
             root = ET.fromstring(document.raw_document_xml)
         except (ValueError, ET.ParseError) as error:
             raise IikoContractError("IIKO_OUTGOING_INVOICE_UPDATE_INVALID") from error
-        id_element = next(
-            (item for item in root if item.tag.rsplit("}", 1)[-1] == "id"),
-            None,
-        )
         revision_element = next(
             (item for item in root if item.tag.rsplit("}", 1)[-1] == "revision"),
             None,
         )
+        raw_document_id = (
+            self._rpc_direct_text(root, "id") or root.attrib.get("eid")
+        )
         if (
-            id_element is None
-            or (id_element.text or "").strip() != str(document_id)
+            raw_document_id != str(document_id)
             or revision_element is None
             or (revision_element.text or "").strip() != str(document.revision)
         ):
