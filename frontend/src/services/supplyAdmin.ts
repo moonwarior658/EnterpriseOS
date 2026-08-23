@@ -113,7 +113,7 @@ export type SupplyRequest = SupplyRequestSummary & {
 
 export type SupplyIikoDocument = {
   document_write_id: string
-  document_type: 'OUTGOING_INVOICE'
+  document_type: 'OUTGOING_INVOICE' | 'INTERNAL_TRANSFER'
   source_store_id: string
   flow: 'MAIN' | 'PACKAGING' | 'HOUSEHOLD'
   status: 'PENDING' | 'CREATED' | 'FAILED' | 'UNKNOWN'

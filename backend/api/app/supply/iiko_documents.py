@@ -1,32 +1,39 @@
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.config import settings
 from app.integrations.iiko.document_intent import (
     IikoDocumentReconciliationRequiredError,
     IikoDocumentRetryNotAllowedError,
+    create_persistent_internal_transfer,
     create_persistent_outgoing_invoice,
     reconcile_outgoing_invoice_intent,
 )
 from app.integrations.iiko.document_routing import (
     internal_transfer_flows_for_department,
     outgoing_invoice_flows_for_department,
+    resolve_internal_transfer_route,
     resolve_outgoing_invoice_route,
 )
-from app.integrations.iiko.document_write import IikoOutgoingInvoiceLineInput
+from app.integrations.iiko.document_write import IikoDocumentLineInput
 from app.integrations.iiko.exceptions import IikoError
 from app.integrations.iiko.observability import (
     iiko_finalization_log_context,
     log_finalization_event,
 )
 from app.integrations.iiko.provider import IikoProvider
-from app.integrations.iiko.schemas import IikoOutgoingInvoiceDto
+from app.integrations.iiko.schemas import (
+    IikoOutgoingInvoiceDto,
+    InternalTransferDto,
+)
 from app.models.iiko import (
     IikoDocumentType,
     IikoDocumentWrite,
@@ -59,12 +66,6 @@ class SupplyIikoDocumentWorkflowError(RuntimeError):
         super().__init__(code)
 
 
-class SupplyInternalTransferWriteUnsupportedError(
-    SupplyIikoDocumentWorkflowError
-):
-    pass
-
-
 class SupplyIikoDocumentPreparationError(SupplyIikoDocumentWorkflowError):
     pass
 
@@ -74,9 +75,10 @@ class SupplyIikoDocumentFinalizationError(SupplyIikoDocumentWorkflowError):
 
 
 @dataclass(frozen=True, slots=True)
-class SupplyOutgoingInvoiceGroup:
+class SupplyIikoDocumentGroup:
+    document_type: IikoDocumentType
     flow: SupplyProductSourceRole
-    lines: tuple[IikoOutgoingInvoiceLineInput, ...]
+    lines: tuple[IikoDocumentLineInput, ...]
 
 
 def list_supply_iiko_document_writes(
@@ -112,7 +114,7 @@ def prepare_outgoing_invoice_groups(
     *,
     tenant_id: str,
     request_id: UUID,
-) -> tuple[SupplyOutgoingInvoiceGroup, ...]:
+) -> tuple[SupplyIikoDocumentGroup, ...]:
     request = session.scalar(
         select(SupplyRequest)
         .where(
@@ -133,15 +135,14 @@ def prepare_outgoing_invoice_groups(
         if (quantity := _document_quantity(line)) is not None
     ]
     department_code = request.department.code
-    if (
-        document_lines
-        and internal_transfer_flows_for_department(department_code)
-    ):
-        raise SupplyInternalTransferWriteUnsupportedError(
-            "SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED"
-        )
-
-    supported_flows = outgoing_invoice_flows_for_department(department_code)
+    internal_flows = internal_transfer_flows_for_department(department_code)
+    outgoing_flows = outgoing_invoice_flows_for_department(department_code)
+    if internal_flows:
+        document_type = IikoDocumentType.INTERNAL_TRANSFER
+        supported_flows = internal_flows
+    else:
+        document_type = IikoDocumentType.OUTGOING_INVOICE
+        supported_flows = outgoing_flows
     if (
         not document_lines
         or not supported_flows
@@ -196,7 +197,7 @@ def prepare_outgoing_invoice_groups(
 
     grouped: dict[
         SupplyProductSourceRole,
-        list[IikoOutgoingInvoiceLineInput],
+        list[IikoDocumentLineInput],
     ] = defaultdict(list)
     for line, quantity in document_lines:
         product_mapping = product_mappings.get(line.product_id)
@@ -218,15 +219,22 @@ def prepare_outgoing_invoice_groups(
             raise SupplyIikoDocumentPreparationError(
                 "SUPPLY_IIKO_DOCUMENT_PREPARATION_INCOMPLETE"
             )
-        route = resolve_outgoing_invoice_route(
-            department_code,
-            source_mapping.role,
+        route_source_id = (
+            resolve_internal_transfer_route(
+                department_code,
+                source_mapping.role,
+            ).from_store_id
+            if document_type == IikoDocumentType.INTERNAL_TRANSFER
+            else resolve_outgoing_invoice_route(
+                department_code,
+                source_mapping.role,
+            ).source_store_id
         )
-        if source.iiko_warehouse_id != route.source_store_id:
+        if source.iiko_warehouse_id != route_source_id:
             raise SupplyIikoDocumentPreparationError(
                 "SUPPLY_IIKO_DOCUMENT_SOURCE_MISMATCH"
             )
-        grouped[source_mapping.role].append(IikoOutgoingInvoiceLineInput(
+        grouped[source_mapping.role].append(IikoDocumentLineInput(
             iiko_product_id=product_mapping.iiko_product_id,
             product_mapping_status=product_mapping.status,
             iiko_unit_id=unit_mapping.iiko_unit_id,
@@ -239,7 +247,11 @@ def prepare_outgoing_invoice_groups(
         SupplyProductSourceRole.HOUSEHOLD: 2,
     }
     return tuple(
-        SupplyOutgoingInvoiceGroup(flow=flow, lines=tuple(lines))
+        SupplyIikoDocumentGroup(
+            document_type=document_type,
+            flow=flow,
+            lines=tuple(lines),
+        )
         for flow, lines in sorted(
             grouped.items(), key=lambda item: flow_order[item[0]]
         )
@@ -291,16 +303,31 @@ async def plan_supply_request_with_iiko_documents(
 
     for group in groups:
         try:
-            intent = await create_persistent_outgoing_invoice(
-                session,
-                provider,
-                supply_request_id=request_id,
-                date_incoming=planned_at,
-                department_code=department_code,
-                flow=group.flow,
-                lines=group.lines,
-            )
+            if group.document_type == IikoDocumentType.INTERNAL_TRANSFER:
+                intent = await create_persistent_internal_transfer(
+                    session,
+                    provider,
+                    supply_request_id=request_id,
+                    date_incoming=planned_at.astimezone(
+                        ZoneInfo(settings.business_timezone)
+                    ),
+                    department_code=department_code,
+                    flow=group.flow,
+                    lines=group.lines,
+                )
+            else:
+                intent = await create_persistent_outgoing_invoice(
+                    session,
+                    provider,
+                    supply_request_id=request_id,
+                    date_incoming=planned_at,
+                    department_code=department_code,
+                    flow=group.flow,
+                    lines=group.lines,
+                )
             if (
+                group.document_type == IikoDocumentType.OUTGOING_INVOICE
+                and
                 intent.status == IikoDocumentWriteStatus.CREATED
                 and intent.iiko_document_id is None
             ):
@@ -317,15 +344,22 @@ async def plan_supply_request_with_iiko_documents(
             continue
         except Exception:
             session.rollback()
-            existing = session.scalar(select(IikoDocumentWrite.id).where(
-                IikoDocumentWrite.supply_request_id == request_id,
-                IikoDocumentWrite.source_store_id
-                == resolve_outgoing_invoice_route(
+            source_store_id = (
+                resolve_internal_transfer_route(
                     department_code,
                     group.flow,
-                ).source_store_id,
+                ).from_store_id
+                if group.document_type == IikoDocumentType.INTERNAL_TRANSFER
+                else resolve_outgoing_invoice_route(
+                    department_code,
+                    group.flow,
+                ).source_store_id
+            )
+            existing = session.scalar(select(IikoDocumentWrite.id).where(
+                IikoDocumentWrite.supply_request_id == request_id,
+                IikoDocumentWrite.source_store_id == source_store_id,
                 IikoDocumentWrite.document_type
-                == IikoDocumentType.OUTGOING_INVOICE,
+                == group.document_type,
             ))
             session.rollback()
             if existing is None:
@@ -342,10 +376,12 @@ async def plan_supply_request_with_iiko_documents(
 
 @dataclass(frozen=True, slots=True)
 class _FinalizationDocument:
+    document_type: IikoDocumentType
     iiko_document_id: UUID
     document_number: str
     date_incoming: datetime
     source_store_id: UUID
+    destination_store_id: UUID | None
     product_ids: tuple[UUID, ...]
     actual_quantities: tuple[Decimal, ...]
 
@@ -396,7 +432,6 @@ def _finalization_documents(
         select(IikoDocumentWrite)
         .where(
             IikoDocumentWrite.supply_request_id == request_id,
-            IikoDocumentWrite.document_type == IikoDocumentType.OUTGOING_INVOICE,
         )
         .order_by(IikoDocumentWrite.created_at, IikoDocumentWrite.id)
     ).all())
@@ -490,6 +525,11 @@ def _finalization_documents(
                 UUID(str(item["product_id"]))
                 for item in intent.expected_payload["items"]
             )
+            destination_store_id = (
+                UUID(str(intent.expected_payload["store_to_id"]))
+                if intent.document_type == IikoDocumentType.INTERNAL_TRANSFER
+                else None
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise SupplyIikoDocumentFinalizationError(
                 "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
@@ -502,10 +542,12 @@ def _finalization_documents(
                 "SUPPLY_IIKO_DOCUMENT_ITEMS_MISMATCH"
             )
         documents.append(_FinalizationDocument(
+            document_type=intent.document_type,
             iiko_document_id=intent.iiko_document_id,
             document_number=intent.iiko_document_number,
             date_incoming=date_incoming,
             source_store_id=intent.source_store_id,
+            destination_store_id=destination_store_id,
             product_ids=expected_product_ids,
             actual_quantities=tuple(quantity for _, quantity in actual_lines),
         ))
@@ -595,6 +637,59 @@ def _verify_actual_invoice(
         )
 
 
+async def _authoritative_internal_transfer(
+    provider: IikoProvider,
+    document: _FinalizationDocument,
+    *,
+    supply_request_id: UUID,
+) -> InternalTransferDto:
+    with iiko_finalization_log_context(
+        supply_request_id=supply_request_id,
+        document_number=document.document_number,
+        document_id=document.iiko_document_id,
+    ):
+        result = await provider.get_internal_transfer_by_id(
+            document.iiko_document_id
+        )
+        log_finalization_event(
+            "stage_success",
+            stage="authoritative REST read-back",
+            rpc_method="GET internalTransfer/byId",
+            returned_document_status=result.status,
+        )
+    return result
+
+
+def _verify_internal_transfer_identity(
+    transfer: InternalTransferDto,
+    document: _FinalizationDocument,
+    *,
+    verify_actual: bool,
+) -> None:
+    if (
+        transfer.id != document.iiko_document_id
+        or transfer.document_number != document.document_number
+        or transfer.status != "NEW"
+        or transfer.store_from_id != document.source_store_id
+        or transfer.store_to_id != document.destination_store_id
+        or Counter(item.product_id for item in transfer.items)
+        != Counter(document.product_ids)
+    ):
+        raise SupplyIikoDocumentFinalizationError(
+            "SUPPLY_IIKO_DOCUMENT_UPDATE_NOT_VERIFIED"
+        )
+    if verify_actual and Counter(
+        (item.product_id, item.amount) for item in transfer.items
+    ) != Counter(zip(
+        document.product_ids,
+        document.actual_quantities,
+        strict=True,
+    )):
+        raise SupplyIikoDocumentFinalizationError(
+            "SUPPLY_IIKO_DOCUMENT_QUANTITIES_MISMATCH"
+        )
+
+
 async def finalize_supply_request_with_iiko_documents(
     session: Session,
     provider: IikoProvider,
@@ -621,6 +716,51 @@ async def finalize_supply_request_with_iiko_documents(
         try:
             to_process: list[_FinalizationDocument] = []
             for document in documents:
+                if document.document_type == IikoDocumentType.INTERNAL_TRANSFER:
+                    authoritative_transfer = (
+                        await _authoritative_internal_transfer(
+                            provider,
+                            document,
+                            supply_request_id=request_id,
+                        )
+                    )
+                    _verify_internal_transfer_identity(
+                        authoritative_transfer,
+                        document,
+                        verify_actual=False,
+                    )
+                    with iiko_finalization_log_context(
+                        supply_request_id=request_id,
+                        document_number=document.document_number,
+                        document_id=document.iiko_document_id,
+                    ):
+                        update_result = await provider.update_internal_transfer(
+                            authoritative_transfer,
+                            actual_quantities=document.actual_quantities,
+                        )
+                        log_finalization_event(
+                            "stage_success",
+                            stage="POST internalTransfer edit",
+                            rpc_method="POST internalTransfer",
+                            returned_document_status=update_result.status,
+                        )
+                    _verify_internal_transfer_identity(
+                        update_result,
+                        document,
+                        verify_actual=True,
+                    )
+                    updated_transfer = await _authoritative_internal_transfer(
+                        provider,
+                        document,
+                        supply_request_id=request_id,
+                    )
+                    _verify_internal_transfer_identity(
+                        updated_transfer,
+                        document,
+                        verify_actual=True,
+                    )
+                    continue
+
                 authoritative = await _authoritative_finalization_invoice(
                     provider,
                     document,
@@ -799,6 +939,18 @@ async def finalize_supply_request_with_iiko_documents(
                         )
 
             for document in documents:
+                if document.document_type == IikoDocumentType.INTERNAL_TRANSFER:
+                    updated_transfer = await _authoritative_internal_transfer(
+                        provider,
+                        document,
+                        supply_request_id=request_id,
+                    )
+                    _verify_internal_transfer_identity(
+                        updated_transfer,
+                        document,
+                        verify_actual=True,
+                    )
+                    continue
                 processed = await _authoritative_finalization_invoice(
                     provider,
                     document,
@@ -850,6 +1002,10 @@ async def finalize_supply_request_with_iiko_documents(
         expected_version=expected_version,
         user_id=user_id,
         items=items,
+        mark_partial_fulfilled_at=any(
+            document.document_type == IikoDocumentType.INTERNAL_TRANSFER
+            for document in documents
+        ),
     )
     if documents:
         with iiko_finalization_log_context(supply_request_id=request_id):

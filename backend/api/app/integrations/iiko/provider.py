@@ -7,6 +7,7 @@ from uuid import UUID
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
+    InternalTransferDto,
     IikoDocumentValidationResultDto,
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
@@ -155,6 +156,29 @@ class IikoProvider(ABC):
         enable_warnings: bool,
     ) -> tuple[IikoDocumentValidationResultDto, ...]:
         """Process existing invoices through the confirmed BackOffice RPC."""
+        raise NotImplementedError
+
+    async def get_internal_transfer_by_id(
+        self,
+        document_id: UUID,
+    ) -> InternalTransferDto:
+        """Return one authoritative internal transfer through REST byId."""
+        raise NotImplementedError
+
+    async def create_internal_transfer(
+        self,
+        document: InternalTransferDto,
+    ) -> InternalTransferDto:
+        """Create one NEW transfer without a caller-owned iiko document ID."""
+        raise NotImplementedError
+
+    async def update_internal_transfer(
+        self,
+        document: InternalTransferDto,
+        *,
+        actual_quantities: Sequence[Decimal],
+    ) -> InternalTransferDto:
+        """Update one existing NEW transfer while preserving its identity."""
         raise NotImplementedError
 
     @abstractmethod

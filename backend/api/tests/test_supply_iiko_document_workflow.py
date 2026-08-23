@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -17,7 +17,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.routes.supply import read_request_iiko_documents
-from app.integrations.iiko.document_routing import resolve_outgoing_invoice_route
+from app.integrations.iiko.document_routing import (
+    resolve_internal_transfer_route,
+    resolve_outgoing_invoice_route,
+)
 from app.integrations.iiko.exceptions import IikoConnectionError, IikoResponseError
 from app.integrations.iiko.schemas import (
     IikoDocumentValidationResultDto,
@@ -25,8 +28,10 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceItemDto,
     IikoOutgoingInvoiceUpdateSourceDto,
+    InternalTransferDto,
 )
 from app.models.iiko import (
+    IikoDocumentType,
     IikoDocumentWrite,
     IikoDocumentWriteStatus,
     IikoMappingStatus,
@@ -62,7 +67,6 @@ from app.models.user import User
 from app.models.work_request import WorkRequest
 from app.supply.iiko_documents import (
     SupplyIikoDocumentFinalizationError,
-    SupplyInternalTransferWriteUnsupportedError,
     finalize_supply_request_with_iiko_documents,
     plan_supply_request_with_iiko_documents,
 )
@@ -92,6 +96,11 @@ class RecordingProvider:
         self.persisted_states = []
         self.read_back_calls = []
         self.read_back_invoices = []
+        self.internal_create_calls = []
+        self.internal_update_calls = []
+        self.internal_transfers = {}
+        self.internal_read_calls = []
+        self.process_calls = []
 
     async def create_outgoing_invoice(self, document):
         self.calls.append(document)
@@ -125,6 +134,41 @@ class RecordingProvider:
     async def get_outgoing_invoices(self, *, date_from, date_to):
         self.read_back_calls.append((date_from, date_to))
         return self.read_back_invoices
+
+    async def create_internal_transfer(self, document):
+        self.internal_create_calls.append(document)
+        document_id = uuid4()
+        created = document.model_copy(update={
+            "id": document_id,
+            "document_number": f"IT-{len(self.internal_create_calls)}",
+        })
+        self.internal_transfers[document_id] = created
+        return created
+
+    async def get_internal_transfer_by_id(self, document_id):
+        self.internal_read_calls.append(document_id)
+        return self.internal_transfers[document_id]
+
+    async def update_internal_transfer(
+        self, document, *, actual_quantities
+    ):
+        self.internal_update_calls.append((document, tuple(actual_quantities)))
+        updated = document.model_copy(update={
+            "items": tuple(
+                item.model_copy(update={"amount": quantity})
+                for item, quantity in zip(
+                    document.items,
+                    actual_quantities,
+                    strict=True,
+                )
+            ),
+        })
+        self.internal_transfers[document.id] = updated
+        return updated
+
+    async def process_outgoing_invoices(self, *args, **kwargs):
+        self.process_calls.append((args, kwargs))
+        raise AssertionError("INTERNAL_TRANSFER must never be processed")
 
 
 class ReadBackProvider:
@@ -353,6 +397,32 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             session.add(request)
             source_mapping_ids = {}
             for position, flow in enumerate(flows, start=1):
+                if department_code == "ЦЕХ":
+                    transfer_route = resolve_internal_transfer_route(
+                        department_code,
+                        flow,
+                    )
+                    destination = session.scalar(
+                        select(IikoWarehouseMapping).where(
+                            IikoWarehouseMapping.tenant_id == TENANT_ID,
+                            IikoWarehouseMapping.iiko_warehouse_id
+                            == transfer_route.to_store_id,
+                        )
+                    )
+                    if destination is None:
+                        session.add(IikoWarehouseMapping(
+                            tenant_id=TENANT_ID,
+                            iiko_warehouse_id=transfer_route.to_store_id,
+                            eos_department_id=department.id,
+                            destination_type=(
+                                IikoWarehouseDestinationType.DESTINATION
+                            ),
+                            role=IikoWarehouseRole(flow.value),
+                            status=IikoMappingStatus.CONFIRMED,
+                            source_name="Цех Производство ИП",
+                            is_deleted=False,
+                            reasons=[],
+                        ))
                 product_id = uuid4()
                 product = SupplyProduct(
                     id=product_id,
@@ -939,18 +1009,226 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(documents[0].error_code, "IIKO_CONNECTION_ERROR")
         self.assertNotIn("secret", documents[0].error_code)
 
-    async def test_internal_transfer_is_not_replaced_with_outgoing_invoice(self):
+    async def test_internal_transfer_create_persists_returned_identity(self):
         request_id = self._create_request(
             (SupplyProductSourceRole.MAIN,),
             department_code="ЦЕХ",
         )
         provider = RecordingProvider(self.sessions)
-        with self.assertRaises(SupplyInternalTransferWriteUnsupportedError):
-            await self._plan(request_id, provider)
+        planned = await self._plan(request_id, provider)
+
         self.assertEqual(provider.calls, [])
-        self.assertEqual(self._writes(request_id), [])
+        self.assertEqual(len(provider.internal_create_calls), 1)
+        submitted = provider.internal_create_calls[0]
+        self.assertIsNone(submitted.id)
+        self.assertIsNone(submitted.document_number)
+        self.assertEqual(submitted.status, "NEW")
+        writes = self._writes(request_id)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(
+            writes[0].document_type,
+            IikoDocumentType.INTERNAL_TRANSFER,
+        )
+        self.assertIsNotNone(writes[0].iiko_document_id)
+        self.assertEqual(writes[0].iiko_document_number, "IT-1")
+        self.assertEqual(writes[0].status, IikoDocumentWriteStatus.CREATED)
+        self.assertEqual(provider.internal_read_calls, [
+            writes[0].iiko_document_id,
+        ])
+        self.assertEqual(planned.status, "PLANNED")
+
+    async def test_internal_transfer_repeat_does_not_create_duplicate(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        planned = await self._plan(request_id, provider)
+
+        await self._plan(request_id, provider, version=planned.version)
+
+        self.assertEqual(len(provider.internal_create_calls), 1)
+        self.assertEqual(len(self._writes(request_id)), 1)
+
+    async def test_internal_transfer_create_error_never_retries(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        provider.create_internal_transfer = AsyncMock(
+            side_effect=IikoResponseError(500)
+        )
+
+        planned = await self._plan(request_id, provider)
+        await self._plan(request_id, provider, version=planned.version)
+
+        self.assertEqual(provider.create_internal_transfer.await_count, 1)
+        writes = self._writes(request_id)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0].status, IikoDocumentWriteStatus.FAILED)
+        self.assertIsNone(writes[0].iiko_document_id)
         with self.sessions() as session:
-            self.assertEqual(session.get(SupplyRequest, request_id).status, "IN_REVIEW")
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.status, "PLANNED")
+            self.assertIsNone(request.fulfilled_at)
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
+                0,
+            )
+
+    async def test_internal_transfer_create_readback_failure_persists_identity(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        provider.get_internal_transfer_by_id = AsyncMock(
+            side_effect=IikoConnectionError("readback failed")
+        )
+
+        planned = await self._plan(request_id, provider)
+        await self._plan(request_id, provider, version=planned.version)
+
+        self.assertEqual(len(provider.internal_create_calls), 1)
+        writes = self._writes(request_id)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0].status, IikoDocumentWriteStatus.UNKNOWN)
+        self.assertIsNotNone(writes[0].iiko_document_id)
+        self.assertEqual(writes[0].iiko_document_number, "IT-1")
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.status, "PLANNED")
+            self.assertIsNone(request.fulfilled_at)
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
+                0,
+            )
+
+    async def test_internal_transfer_finalization_updates_new_and_applies_debt(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        planned = await self._plan(request_id, provider)
+
+        completed = await self._finalize(
+            request_id,
+            provider,
+            "0.5",
+            version=planned.version,
+        )
+
+        self.assertEqual(completed.status, "PARTIALLY_FULFILLED")
+        self.assertIsNotNone(completed.fulfilled_at)
+        self.assertEqual(len(provider.internal_update_calls), 1)
+        updated = next(iter(provider.internal_transfers.values()))
+        self.assertEqual(updated.status, "NEW")
+        self.assertEqual(updated.items[0].amount, Decimal("0.5"))
+        self.assertEqual(provider.process_calls, [])
+        with self.sessions() as session:
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            debt = session.scalar(select(SupplyDepartmentDebt).where(
+                SupplyDepartmentDebt.latest_request_id == request_id
+            ))
+            self.assertEqual(line.send_quantity, Decimal("0.5"))
+            self.assertEqual(debt.outstanding_quantity, Decimal("0.5"))
+
+    async def test_internal_transfer_update_error_fails_closed(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        planned = await self._plan(request_id, provider)
+        provider.update_internal_transfer = AsyncMock(
+            side_effect=IikoResponseError(500)
+        )
+
+        with self.assertRaises(SupplyIikoDocumentFinalizationError):
+            await self._finalize(
+                request_id,
+                provider,
+                "0.5",
+                version=planned.version,
+            )
+
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            self.assertEqual(request.status, "PLANNED")
+            self.assertIsNone(request.fulfilled_at)
+            self.assertEqual(line.send_quantity, Decimal("1"))
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
+                0,
+            )
+
+    async def test_internal_transfer_readback_error_fails_closed(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        planned = await self._plan(request_id, provider)
+        transfer = next(iter(provider.internal_transfers.values()))
+        provider.get_internal_transfer_by_id = AsyncMock(side_effect=(
+            transfer,
+            IikoConnectionError("readback failed"),
+        ))
+
+        with self.assertRaises(SupplyIikoDocumentFinalizationError):
+            await self._finalize(
+                request_id,
+                provider,
+                "0.5",
+                version=planned.version,
+            )
+
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.status, "PLANNED")
+            self.assertIsNone(request.fulfilled_at)
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))),
+                0,
+            )
+
+    async def test_internal_transfer_reuses_pdf_renderer_and_fingerprint(self):
+        request_id = self._create_request(
+            (SupplyProductSourceRole.MAIN,),
+            department_code="ЦЕХ",
+        )
+        provider = RecordingProvider(self.sessions)
+        await self._plan(request_id, provider)
+
+        with self.sessions() as session:
+            documents = await build_printable_iiko_documents(
+                session,
+                provider,
+                tenant_id=TENANT_ID,
+                request_id=request_id,
+            )
+
+        self.assertEqual(len(documents), 1)
+        document = documents[0]
+        self.assertEqual(
+            document.document_type,
+            IikoDocumentType.INTERNAL_TRANSFER,
+        )
+        self.assertEqual(document.document_title, "ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ")
+        self.assertEqual(document.destination_department_name, "Цех Производство ИП")
+        self.assertIsNone(document.counteragent_representation)
+        self.assertEqual(document.lines[0].quantity, Decimal("1"))
+        first = render_iiko_documents_pdf(documents)
+        second = render_iiko_documents_pdf(documents)
+        self.assertEqual(first.version_fingerprint, second.version_fingerprint)
+        self.assertEqual(first.content, second.content)
 
     async def test_intent_and_supply_commit_precede_post_and_no_incoming_is_created(self):
         request_id = self._create_request((SupplyProductSourceRole.MAIN,))

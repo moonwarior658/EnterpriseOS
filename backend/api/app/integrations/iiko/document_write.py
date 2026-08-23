@@ -8,6 +8,8 @@ from app.integrations.iiko.document_routing import (
     OUTGOING_INVOICE_ACCOUNT_TO_CODE,
     OUTGOING_INVOICE_REVENUE_ACCOUNT_CODE,
     IikoOutgoingInvoiceRoute,
+    IikoInternalTransferRoute,
+    resolve_internal_transfer_route,
     resolve_outgoing_invoice_route,
 )
 from app.integrations.iiko.exceptions import IikoContractError
@@ -16,6 +18,8 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
     IikoOutgoingInvoiceItemCreateDto,
+    InternalTransferDto,
+    InternalTransferItemDto,
 )
 from app.models.iiko import IikoMappingStatus
 from app.models.supply import SupplyProductSourceRole
@@ -26,11 +30,14 @@ class IikoOutgoingInvoiceValidationError(IikoContractError):
 
 
 @dataclass(frozen=True, slots=True)
-class IikoOutgoingInvoiceLineInput:
+class IikoDocumentLineInput:
     iiko_product_id: UUID | None
     product_mapping_status: IikoMappingStatus | str | None
     iiko_unit_id: UUID | None
     quantity: Decimal
+
+
+IikoOutgoingInvoiceLineInput = IikoDocumentLineInput
 
 
 def _validated_route(route: IikoOutgoingInvoiceRoute) -> None:
@@ -61,7 +68,7 @@ def _validated_route(route: IikoOutgoingInvoiceRoute) -> None:
 
 
 def _validated_items(
-    lines: Sequence[IikoOutgoingInvoiceLineInput],
+    lines: Sequence[IikoDocumentLineInput],
 ) -> tuple[IikoOutgoingInvoiceItemCreateDto, ...]:
     if not lines:
         raise IikoOutgoingInvoiceValidationError(
@@ -97,6 +104,56 @@ def _validated_items(
             amount=line.quantity,
         ))
     return tuple(items)
+
+
+def _validated_internal_transfer_route(
+    route: IikoInternalTransferRoute,
+) -> None:
+    if not isinstance(route.from_store_id, UUID):
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_INTERNAL_TRANSFER_ROUTE_INVALID field=store_from_id"
+        )
+    if not isinstance(route.to_store_id, UUID):
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_INTERNAL_TRANSFER_ROUTE_INVALID field=store_to_id"
+        )
+    if route.from_store_id == route.to_store_id:
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_INTERNAL_TRANSFER_ROUTE_INVALID field=stores"
+        )
+
+
+def build_controlled_internal_transfer(
+    *,
+    date_incoming: datetime,
+    department_code: str,
+    flow: SupplyProductSourceRole | str,
+    lines: Sequence[IikoDocumentLineInput],
+) -> InternalTransferDto:
+    if not isinstance(date_incoming, datetime):
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_DOCUMENT_DATE_REQUIRED"
+        )
+    if date_incoming.tzinfo is None or date_incoming.utcoffset() is None:
+        raise IikoOutgoingInvoiceValidationError(
+            "IIKO_DOCUMENT_TIMEZONE_REQUIRED"
+        )
+    route = resolve_internal_transfer_route(department_code, flow)
+    _validated_internal_transfer_route(route)
+    items = _validated_items(lines)
+    return InternalTransferDto(
+        date_incoming=date_incoming,
+        status="NEW",
+        store_from_id=route.from_store_id,
+        store_to_id=route.to_store_id,
+        items=tuple(
+            InternalTransferItemDto(
+                product_id=item.product_id,
+                amount=item.amount,
+            )
+            for item in items
+        ),
+    )
 
 
 def build_controlled_outgoing_invoice(

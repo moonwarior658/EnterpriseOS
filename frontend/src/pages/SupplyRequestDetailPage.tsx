@@ -863,8 +863,6 @@ function SupplyRequestDetailPage() {
           'Проверьте название, количество и фасовку каждой строки.',
         SUPPLY_SEND_QUANTITY_INVALID:
           'Для этой единицы разрешено только целое количество.',
-        SUPPLY_INTERNAL_TRANSFER_DOCUMENT_WRITE_UNSUPPORTED:
-          'Создание внутреннего перемещения iiko пока не поддерживается.',
         SUPPLY_IIKO_DOCUMENT_PREPARATION_INCOMPLETE:
           'Не удалось подготовить документы iiko: проверьте сопоставление товара, единицы и склад отгрузки.',
         SUPPLY_IIKO_DOCUMENT_SOURCE_MISMATCH:
@@ -1560,7 +1558,7 @@ function SupplyRequestDetailPage() {
             <div className="supply-iiko-stock-heading">
               <div>
                 <strong>Документы iiko</strong>
-                <small>Расходные накладные по складам отгрузки</small>
+                <small>Документы по складам отгрузки</small>
               </div>
               {printableIikoDocuments.length > 0 && (
                 <button

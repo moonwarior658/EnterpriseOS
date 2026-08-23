@@ -1,4 +1,5 @@
 import hashlib
+import json
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,10 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.integrations.iiko.document_write import (
+    IikoDocumentLineInput,
     IikoOutgoingInvoiceLineInput,
+    build_controlled_internal_transfer,
     build_controlled_outgoing_invoice,
 )
 from app.integrations.iiko.document_routing import (
+    resolve_internal_transfer_route,
     resolve_outgoing_invoice_route,
 )
 from app.integrations.iiko.exceptions import (
@@ -31,6 +35,7 @@ from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceDto,
+    InternalTransferDto,
 )
 from app.models.iiko import (
     IikoDocumentType,
@@ -116,6 +121,46 @@ def _normalized_payload(
     document: IikoOutgoingInvoiceCreateDto,
 ) -> dict:
     return document.model_dump(mode="json")
+
+
+def _normalized_internal_transfer(
+    document: InternalTransferDto,
+) -> dict:
+    return document.model_dump(mode="json")
+
+
+def _internal_transfer_payload_hash(document: InternalTransferDto) -> str:
+    payload = json.dumps(
+        document.to_create_payload(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return _payload_hash(payload)
+
+
+def _matches_internal_transfer(
+    actual: InternalTransferDto,
+    expected: InternalTransferDto,
+    *,
+    expected_id: UUID | None = None,
+    expected_number: str | None = None,
+) -> bool:
+    if expected_id is not None and actual.id != expected_id:
+        return False
+    if expected_number is not None and actual.document_number != expected_number:
+        return False
+    return (
+        actual.status == "NEW"
+        and actual.store_from_id == expected.store_from_id
+        and actual.store_to_id == expected.store_to_id
+        and Counter(
+            (item.product_id, item.amount) for item in actual.items
+        )
+        == Counter(
+            (item.product_id, item.amount) for item in expected.items
+        )
+    )
 
 
 def _document_from_intent(
@@ -284,6 +329,45 @@ async def read_verified_outgoing_invoice(
             "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
         )
     return read_back.invoice
+
+
+async def read_verified_internal_transfer(
+    provider: IikoProvider,
+    *,
+    intent: IikoDocumentWrite,
+) -> InternalTransferDto:
+    if (
+        intent.document_type != IikoDocumentType.INTERNAL_TRANSFER
+        or intent.status != IikoDocumentWriteStatus.CREATED
+        or intent.iiko_document_id is None
+        or not intent.iiko_document_number
+        or intent.expected_payload is None
+    ):
+        raise IikoDocumentAuthoritativeReadBackError(
+            "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
+        )
+    try:
+        expected = InternalTransferDto.model_validate(intent.expected_payload)
+    except Exception as error:
+        raise IikoDocumentIntentStateError(
+            "IIKO_DOCUMENT_EXPECTED_PAYLOAD_INVALID"
+        ) from error
+    actual = await provider.get_internal_transfer_by_id(
+        intent.iiko_document_id
+    )
+    if (
+        actual.id != intent.iiko_document_id
+        or actual.document_number != intent.iiko_document_number
+        or actual.status != "NEW"
+        or actual.store_from_id != expected.store_from_id
+        or actual.store_to_id != expected.store_to_id
+        or Counter(item.product_id for item in actual.items)
+        != Counter(item.product_id for item in expected.items)
+    ):
+        raise IikoDocumentAuthoritativeReadBackError(
+            "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
+        )
+    return actual
 
 
 async def reconcile_outgoing_invoice_intent(
@@ -602,6 +686,132 @@ async def create_persistent_outgoing_invoice(
                 "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
             )
         intent.iiko_document_number = result.document_number
+        intent.status = IikoDocumentWriteStatus.CREATED
+        intent.last_error = None
+
+    return intent
+
+
+async def create_persistent_internal_transfer(
+    session: Session,
+    provider: IikoProvider,
+    *,
+    supply_request_id: UUID,
+    date_incoming: datetime,
+    department_code: str,
+    flow: SupplyProductSourceRole | str,
+    lines: Sequence[IikoDocumentLineInput],
+) -> IikoDocumentWrite:
+    if session.in_transaction():
+        raise IikoDocumentIntentStateError(
+            "IIKO_DOCUMENT_SESSION_TRANSACTION_ACTIVE"
+        )
+
+    route = resolve_internal_transfer_route(department_code, flow)
+    document = build_controlled_internal_transfer(
+        date_incoming=date_incoming,
+        department_code=department_code,
+        flow=flow,
+        lines=lines,
+    )
+    digest = _internal_transfer_payload_hash(document)
+
+    with session.begin():
+        supply_request = session.scalar(
+            select(SupplyRequest)
+            .where(SupplyRequest.id == supply_request_id)
+            .with_for_update(of=SupplyRequest)
+        )
+        if supply_request is None:
+            raise IikoDocumentSupplyRequestNotFoundError(
+                "IIKO_DOCUMENT_SUPPLY_REQUEST_NOT_FOUND"
+            )
+        existing = session.scalar(
+            select(IikoDocumentWrite)
+            .where(
+                IikoDocumentWrite.supply_request_id == supply_request_id,
+                IikoDocumentWrite.source_store_id == route.from_store_id,
+                IikoDocumentWrite.document_type
+                == IikoDocumentType.INTERNAL_TRANSFER,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if existing is not None:
+            if existing.payload_hash != digest:
+                raise IikoDocumentPayloadConflictError(
+                    "IIKO_DOCUMENT_PAYLOAD_CONFLICT"
+                )
+            if existing.status == IikoDocumentWriteStatus.CREATED:
+                return existing
+            if existing.status in {
+                IikoDocumentWriteStatus.PENDING,
+                IikoDocumentWriteStatus.UNKNOWN,
+            }:
+                raise IikoDocumentReconciliationRequiredError(
+                    "IIKO_DOCUMENT_RECONCILIATION_REQUIRED"
+                )
+            raise IikoDocumentRetryNotAllowedError(
+                "IIKO_DOCUMENT_RETRY_NOT_ALLOWED"
+            )
+
+        intent = IikoDocumentWrite(
+            supply_request_id=supply_request_id,
+            source_store_id=route.from_store_id,
+            document_type=IikoDocumentType.INTERNAL_TRANSFER,
+            # Internal transfer JSON create deliberately does not send this
+            # EOS tracking identity to iiko.
+            client_document_id=uuid4(),
+            status=IikoDocumentWriteStatus.PENDING,
+            payload_hash=digest,
+            expected_payload=_normalized_internal_transfer(document),
+        )
+        session.add(intent)
+        session.flush()
+        intent_id = intent.id
+
+    try:
+        created = await provider.create_internal_transfer(document)
+        if (
+            created.id is None
+            or not created.document_number
+            or not _matches_internal_transfer(created, document)
+        ):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_RESULT_INVALID")
+        with session.begin():
+            intent = _locked_intent(session, intent_id=intent_id)
+            if intent.status != IikoDocumentWriteStatus.PENDING:
+                raise IikoDocumentIntentStateError(
+                    "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
+                )
+            intent.iiko_document_id = created.id
+            intent.iiko_document_number = created.document_number
+
+        authoritative = await provider.get_internal_transfer_by_id(created.id)
+        if not _matches_internal_transfer(
+            authoritative,
+            document,
+            expected_id=created.id,
+            expected_number=created.document_number,
+        ):
+            raise IikoDocumentAuthoritativeReadBackError(
+                "SUPPLY_IIKO_DOCUMENT_NOT_VERIFIED"
+            )
+    except Exception as error:
+        _record_failure(session, intent_id=intent_id, error=error)
+        raise
+
+    with session.begin():
+        intent = _locked_intent(session, intent_id=intent_id)
+        if (
+            intent.status != IikoDocumentWriteStatus.PENDING
+            or intent.iiko_document_id != authoritative.id
+            or intent.iiko_document_number != authoritative.document_number
+        ):
+            raise IikoDocumentIntentStateError(
+                "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
+            )
+        intent.expected_payload = _normalized_internal_transfer(authoritative)
         intent.status = IikoDocumentWriteStatus.CREATED
         intent.last_error = None
 

@@ -3439,6 +3439,7 @@ def _finish_request_status(
     *,
     user_id: int,
     explicit_action: bool,
+    mark_partial_fulfilled_at: bool = False,
 ) -> None:
     session.flush()
     refreshed = get_supply_request(session, supply_request.id)
@@ -3458,6 +3459,9 @@ def _finish_request_status(
         supply_request.fulfilled_by_user_id = user_id
     else:
         supply_request.status = "PARTIALLY_FULFILLED"
+        if mark_partial_fulfilled_at:
+            supply_request.fulfilled_at = datetime.now(timezone.utc)
+            supply_request.fulfilled_by_user_id = user_id
 
 
 def update_supply_line_fulfillment(
@@ -3545,6 +3549,7 @@ def fulfill_supply_request_as_planned(
     expected_version: int,
     user_id: int,
     items: list[SupplyRequestFulfillmentItem] | None = None,
+    mark_partial_fulfilled_at: bool = False,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session, request_id, expected_version=expected_version
@@ -3640,7 +3645,11 @@ def fulfill_supply_request_as_planned(
                 user_id=user_id, comment="Отправлено как запланировано",
             )
         _finish_request_status(
-            session, supply_request, user_id=user_id, explicit_action=True
+            session,
+            supply_request,
+            user_id=user_id,
+            explicit_action=True,
+            mark_partial_fulfilled_at=mark_partial_fulfilled_at,
         )
         supply_request.version += 1
         session.commit()

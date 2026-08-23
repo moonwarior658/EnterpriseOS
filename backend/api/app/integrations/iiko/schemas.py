@@ -106,6 +106,90 @@ class IikoDocumentValidationResultDto(IikoDto):
     additional_info: str | None = None
 
 
+class InternalTransferItemDto(IikoDto):
+    product_id: UUID
+    amount: Decimal = Field(ge=0, allow_inf_nan=False)
+    num: int | None = Field(default=None, ge=1)
+    measure_unit_id: UUID | None = None
+    container_id: UUID | None = None
+    cost: Decimal | None = Field(default=None, allow_inf_nan=False)
+
+    @staticmethod
+    def _json_number(value: Decimal) -> int | float:
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+
+    def to_create_payload(self) -> dict[str, Any]:
+        return {
+            "productId": str(self.product_id),
+            "amount": self._json_number(self.amount),
+        }
+
+    def to_update_payload(self) -> dict[str, Any]:
+        return {
+            "num": self.num,
+            "productId": str(self.product_id),
+            "amount": self._json_number(self.amount),
+            "measureUnitId": (
+                str(self.measure_unit_id) if self.measure_unit_id else None
+            ),
+            "containerId": str(self.container_id) if self.container_id else None,
+            "cost": (
+                self._json_number(self.cost) if self.cost is not None else None
+            ),
+        }
+
+
+class InternalTransferDto(IikoDto):
+    id: UUID | None = None
+    date_incoming: datetime
+    document_number: str | None = None
+    status: Literal["NEW", "PROCESSED", "DELETED"]
+    conception_id: UUID | None = None
+    comment: str | None = None
+    store_from_id: UUID
+    store_to_id: UUID
+    items: tuple[InternalTransferItemDto, ...] = Field(min_length=1)
+
+    def _date_incoming_payload(self) -> str:
+        # The confirmed REST contract uses a local date-time without an offset.
+        return self.date_incoming.replace(tzinfo=None).isoformat(
+            timespec="seconds"
+        )
+
+    def to_create_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "dateIncoming": self._date_incoming_payload(),
+            "status": self.status,
+            "storeFromId": str(self.store_from_id),
+            "storeToId": str(self.store_to_id),
+            "items": [item.to_create_payload() for item in self.items],
+        }
+        if self.conception_id is not None:
+            payload["conceptionId"] = str(self.conception_id)
+        if self.comment is not None:
+            payload["comment"] = self.comment
+        return payload
+
+    def to_update_payload(self) -> dict[str, Any]:
+        if self.id is None or not self.document_number:
+            raise ValueError("Authoritative internal transfer identity required")
+        return {
+            "id": str(self.id),
+            "dateIncoming": self._date_incoming_payload(),
+            "documentNumber": self.document_number,
+            "status": self.status,
+            "conceptionId": (
+                str(self.conception_id) if self.conception_id else None
+            ),
+            "comment": self.comment,
+            "storeFromId": str(self.store_from_id),
+            "storeToId": str(self.store_to_id),
+            "items": [item.to_update_payload() for item in self.items],
+        }
+
+
 class IikoOutgoingInvoiceCreateDto(IikoDto):
     document_id: UUID
     date_incoming: datetime

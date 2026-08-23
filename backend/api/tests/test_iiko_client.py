@@ -1,7 +1,9 @@
 import logging
+import json
 import unittest
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from uuid import UUID
 
 import httpx
 
@@ -14,6 +16,10 @@ from app.integrations.iiko.exceptions import (
     IikoContractError,
     IikoRateLimitError,
     IikoResponseError,
+)
+from app.integrations.iiko.schemas import (
+    InternalTransferDto,
+    InternalTransferItemDto,
 )
 
 
@@ -46,6 +52,121 @@ def response(
 
 
 class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_transfer_create_omits_server_owned_fields(self) -> None:
+        requests: list[httpx.Request] = []
+        document_id = "4d8f99fe-70d6-a84e-01a0-278b13b1e3c4"
+        product_id = "77f4b2ca-36f8-4c4f-95ed-5aacd5998f70"
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.method == "POST":
+                requests.append(request)
+                body = json.loads(request.content)
+                return response(request, json={
+                    "result": "SUCCESS",
+                    "errors": [],
+                    "response": {
+                        **body,
+                        "id": document_id,
+                        "documentNumber": "0456",
+                        "items": [{
+                            **body["items"][0],
+                            "num": 1,
+                            "measureUnitId": None,
+                            "containerId": None,
+                            "cost": None,
+                        }],
+                    },
+                })
+            return response(request, text="ok")
+
+        document = InternalTransferDto(
+            date_incoming=datetime(2026, 8, 24, tzinfo=timezone.utc),
+            status="NEW",
+            store_from_id="24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
+            store_to_id="1c22edc0-7ded-41c9-b781-0389462c7247",
+            items=(InternalTransferItemDto(
+                product_id=product_id,
+                amount=Decimal("0.01"),
+            ),),
+        )
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            created = await client.create_internal_transfer(document)
+
+        self.assertEqual(created.id, UUID(document_id))
+        self.assertEqual(created.document_number, "0456")
+        self.assertEqual(len(requests), 1)
+        body = json.loads(requests[0].content)
+        self.assertEqual(body["dateIncoming"], "2026-08-24T00:00:00")
+        self.assertEqual(body["status"], "NEW")
+        self.assertEqual(body["items"], [{
+            "productId": product_id,
+            "amount": 0.01,
+        }])
+        for server_owned in ("id", "documentNumber"):
+            self.assertNotIn(server_owned, body)
+        for optional_item in (
+            "num", "measureUnitId", "containerId", "cost"
+        ):
+            self.assertNotIn(optional_item, body["items"][0])
+
+    async def test_internal_transfer_update_preserves_identity_and_date(self) -> None:
+        posts: list[dict] = []
+        document_id = UUID("4d8f99fe-70d6-a84e-01a0-278b13b1e3c4")
+        base = {
+            "id": str(document_id),
+            "dateIncoming": "2026-08-24T00:02:26",
+            "documentNumber": "0456",
+            "status": "NEW",
+            "comment": "smoke",
+            "storeFromId": "24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
+            "storeToId": "1c22edc0-7ded-41c9-b781-0389462c7247",
+            "items": [{
+                "num": 1,
+                "productId": "77f4b2ca-36f8-4c4f-95ed-5aacd5998f70",
+                "amount": 0.01,
+                "measureUnitId": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+                "containerId": None,
+                "cost": None,
+            }],
+        }
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.method == "GET" and request.url.path.endswith("/byId"):
+                return response(request, json=base)
+            if request.method == "POST":
+                body = json.loads(request.content)
+                posts.append(body)
+                return response(request, json={
+                    "result": "SUCCESS", "errors": [], "response": body,
+                })
+            return response(request, text="ok")
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            authoritative = await client.get_internal_transfer_by_id(
+                document_id
+            )
+            updated = await client.update_internal_transfer(
+                authoritative,
+                actual_quantities=(Decimal("0.02"),),
+            )
+
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(posts[0]["id"], str(document_id))
+        self.assertEqual(posts[0]["documentNumber"], "0456")
+        self.assertEqual(posts[0]["dateIncoming"], "2026-08-24T00:02:26")
+        self.assertEqual(posts[0]["status"], "NEW")
+        self.assertEqual(posts[0]["items"][0]["amount"], 0.02)
+        self.assertEqual(updated.id, document_id)
+        self.assertEqual(updated.items[0].amount, Decimal("0.02"))
+
     async def test_invalid_xml_reports_only_sanitized_bounded_preview(
         self,
     ) -> None:

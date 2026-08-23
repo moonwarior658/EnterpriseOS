@@ -50,6 +50,8 @@ from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoDocumentValidationResultDto,
     IikoIncomingInvoiceDto,
+    InternalTransferDto,
+    InternalTransferItemDto,
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
     IikoOutgoingInvoiceItemDto,
@@ -75,6 +77,7 @@ _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
 _INCOMING_INVOICE_EXPORT_PATH = "/api/documents/export/incomingInvoice"
 _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _OUTGOING_INVOICE_IMPORT_PATH = "/api/documents/import/outgoingInvoice"
+_INTERNAL_TRANSFER_PATH = "/api/v2/documents/internalTransfer"
 _DOCUMENT_SERVICE_PATH = "/services/document"
 _DOCUMENT_GROUP_OPERATION_PATH = "/services/documentGroupOperation"
 _UPDATE_SERVICE_PATH = "/services/update"
@@ -1377,6 +1380,145 @@ class IikoServerClient(IikoProvider):
             valid=True,
             warning=validation.warning,
         )
+
+    @staticmethod
+    def _internal_transfer_from_payload(
+        payload: Any,
+    ) -> InternalTransferDto:
+        if not isinstance(payload, dict):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID")
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID")
+        try:
+            items = tuple(
+                InternalTransferItemDto(
+                    num=item.get("num"),
+                    product_id=item["productId"],
+                    amount=item["amount"],
+                    measure_unit_id=item.get("measureUnitId"),
+                    container_id=item.get("containerId"),
+                    cost=item.get("cost"),
+                )
+                for item in raw_items
+                if isinstance(item, dict)
+            )
+            if len(items) != len(raw_items):
+                raise ValueError("Invalid internal transfer item")
+            return InternalTransferDto(
+                id=payload.get("id"),
+                date_incoming=payload["dateIncoming"],
+                document_number=payload.get("documentNumber"),
+                status=payload["status"],
+                conception_id=payload.get("conceptionId"),
+                comment=payload.get("comment"),
+                store_from_id=payload["storeFromId"],
+                store_to_id=payload["storeToId"],
+                items=items,
+            )
+        except (KeyError, TypeError, ValueError, ValidationError) as error:
+            raise IikoContractError(
+                "IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID"
+            ) from error
+
+    async def _save_internal_transfer(
+        self,
+        payload: dict[str, Any],
+    ) -> InternalTransferDto:
+        await self.authenticate()
+        response = await self._raw_request(
+            "POST",
+            _INTERNAL_TRANSFER_PATH,
+            json=payload,
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        try:
+            envelope = response.json()
+        except ValueError as error:
+            raise IikoContractError(
+                "IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID"
+            ) from error
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("result") != "SUCCESS"
+            or envelope.get("errors") not in (None, [])
+        ):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID")
+        return self._internal_transfer_from_payload(envelope.get("response"))
+
+    async def get_internal_transfer_by_id(
+        self,
+        document_id: UUID,
+    ) -> InternalTransferDto:
+        await self.authenticate()
+        response = await self._raw_request(
+            "GET",
+            f"{_INTERNAL_TRANSFER_PATH}/byId",
+            params={"id": str(document_id)},
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise IikoContractError(
+                "IIKO_INTERNAL_TRANSFER_RESPONSE_INVALID"
+            ) from error
+        document = self._internal_transfer_from_payload(payload)
+        if document.id != document_id:
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_IDENTITY_INVALID")
+        return document
+
+    async def create_internal_transfer(
+        self,
+        document: InternalTransferDto,
+    ) -> InternalTransferDto:
+        if (
+            document.id is not None
+            or document.document_number is not None
+            or document.status != "NEW"
+        ):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_CREATE_INVALID")
+        return await self._save_internal_transfer(document.to_create_payload())
+
+    async def update_internal_transfer(
+        self,
+        document: InternalTransferDto,
+        *,
+        actual_quantities: Sequence[Decimal],
+    ) -> InternalTransferDto:
+        if (
+            document.id is None
+            or not document.document_number
+            or document.status != "NEW"
+            or len(document.items) != len(actual_quantities)
+        ):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_UPDATE_INVALID")
+        if any(
+            not quantity.is_finite() or quantity < 0
+            for quantity in actual_quantities
+        ):
+            raise IikoContractError("IIKO_INTERNAL_TRANSFER_QUANTITY_INVALID")
+        updated = document.model_copy(update={
+            "items": tuple(
+                item.model_copy(update={"amount": quantity})
+                for item, quantity in zip(
+                    document.items,
+                    actual_quantities,
+                    strict=True,
+                )
+            ),
+        })
+        return await self._save_internal_transfer(updated.to_update_payload())
 
     async def get_incoming_invoices(
         self,

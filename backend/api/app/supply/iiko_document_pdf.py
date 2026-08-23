@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.integrations.iiko.document_intent import (
     IikoDocumentAuthoritativeReadBackError,
     IikoDocumentIntentStateError,
+    read_verified_internal_transfer,
     read_verified_outgoing_invoice,
 )
 from app.integrations.iiko.provider import IikoProvider
@@ -72,12 +73,17 @@ class SupplyIikoPrintableDocument:
     source_store_id: UUID
     source_store_name: str
     destination_department_name: str
-    counteragent_representation: str
+    counteragent_representation: str | None
     lines: tuple[SupplyIikoPrintableLine, ...]
     iiko_document_id: UUID
     supply_request_id: UUID
     flow: SupplyProductSourceRole
     version_fingerprint: str
+    document_type: IikoDocumentType = IikoDocumentType.OUTGOING_INVOICE
+    document_title: str = "РАСХОДНАЯ НАКЛАДНАЯ"
+    source_label: str = "Поставщик"
+    destination_label: str = "Получатель"
+    show_source_store_line: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +132,6 @@ def _get_request_and_writes(
         raise SupplyRequestNotFoundError
     query = select(IikoDocumentWrite).where(
         IikoDocumentWrite.supply_request_id == request_id,
-        IikoDocumentWrite.document_type == IikoDocumentType.OUTGOING_INVOICE,
     )
     if document_write_id is not None:
         query = query.where(IikoDocumentWrite.id == document_write_id)
@@ -160,6 +165,27 @@ def _resolve_source_name(
         IikoWarehouseMapping.iiko_warehouse_id == source_store_id,
         IikoWarehouseMapping.destination_type
         == IikoWarehouseDestinationType.SOURCE,
+        IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
+        IikoWarehouseMapping.is_deleted.is_(False),
+    )).all())
+    if len(mappings) != 1 or not mappings[0].source_name.strip():
+        raise SupplyIikoDocumentPrintError(
+            "SUPPLY_IIKO_DOCUMENT_PRINT_DATA_INCOMPLETE"
+        )
+    return mappings[0].source_name.strip()
+
+
+def _resolve_destination_name(
+    session: Session,
+    *,
+    tenant_id: str,
+    destination_store_id: UUID,
+) -> str:
+    mappings = list(session.scalars(select(IikoWarehouseMapping).where(
+        IikoWarehouseMapping.tenant_id == tenant_id,
+        IikoWarehouseMapping.iiko_warehouse_id == destination_store_id,
+        IikoWarehouseMapping.destination_type
+        == IikoWarehouseDestinationType.DESTINATION,
         IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
         IikoWarehouseMapping.is_deleted.is_(False),
     )).all())
@@ -256,10 +282,16 @@ async def build_printable_iiko_documents(
     documents: list[SupplyIikoPrintableDocument] = []
     for write in writes:
         try:
-            invoice = await read_verified_outgoing_invoice(
-                provider,
-                intent=write,
-            )
+            if write.document_type == IikoDocumentType.INTERNAL_TRANSFER:
+                source = await read_verified_internal_transfer(
+                    provider,
+                    intent=write,
+                )
+            else:
+                source = await read_verified_outgoing_invoice(
+                    provider,
+                    intent=write,
+                )
         except IikoDocumentAuthoritativeReadBackError as error:
             raise SupplyIikoDocumentPrintError(str(error)) from error
         except IikoDocumentIntentStateError as error:
@@ -267,9 +299,10 @@ async def build_printable_iiko_documents(
                 "SUPPLY_IIKO_DOCUMENT_PRINT_DATA_INCOMPLETE"
             ) from error
         if (
-            invoice.date_incoming is None
+            source.date_incoming is None
             or write.iiko_document_id is None
-            or not invoice.document_number.strip()
+            or not source.document_number
+            or not source.document_number.strip()
         ):
             raise SupplyIikoDocumentPrintError(
                 "SUPPLY_IIKO_DOCUMENT_PRINT_DATA_INCOMPLETE"
@@ -282,24 +315,46 @@ async def build_printable_iiko_documents(
         lines = _resolve_lines(
             session,
             tenant_id=tenant_id,
-            items=invoice.items,
+            items=source.items,
         )
         from app.integrations.iiko.document_routing import (
             outgoing_invoice_flow_for_source_store,
         )
+        is_transfer = (
+            write.document_type == IikoDocumentType.INTERNAL_TRANSFER
+        )
+        destination_name = (
+            _resolve_destination_name(
+                session,
+                tenant_id=tenant_id,
+                destination_store_id=source.store_to_id,
+            )
+            if is_transfer
+            else department_name
+        )
         document = SupplyIikoPrintableDocument(
-            document_number=invoice.document_number.strip(),
-            document_date=invoice.date_incoming.date(),
-            document_status=invoice.status,
+            document_number=source.document_number.strip(),
+            document_date=source.date_incoming.date(),
+            document_status=source.status,
             source_store_id=write.source_store_id,
             source_store_name=source_name,
-            destination_department_name=department_name,
-            counteragent_representation=department_name,
+            destination_department_name=destination_name,
+            counteragent_representation=(None if is_transfer else department_name),
             lines=lines,
             iiko_document_id=write.iiko_document_id,
             supply_request_id=request_id,
             flow=outgoing_invoice_flow_for_source_store(write.source_store_id),
             version_fingerprint="",
+            document_type=write.document_type,
+            document_title=(
+                "ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ"
+                if is_transfer else "РАСХОДНАЯ НАКЛАДНАЯ"
+            ),
+            source_label=("Склад-источник" if is_transfer else "Поставщик"),
+            destination_label=(
+                "Склад-получатель" if is_transfer else "Получатель"
+            ),
+            show_source_store_line=not is_transfer,
         )
         documents.append(replace(
             document,
@@ -363,7 +418,7 @@ def render_iiko_documents_pdf(
         leftMargin=15 * mm,
         topMargin=15 * mm,
         bottomMargin=15 * mm,
-        title="Расходная накладная",
+        title="Документы iiko",
         author="EnterpriseOS",
     )
     styles = getSampleStyleSheet()
@@ -424,7 +479,7 @@ def render_iiko_documents_pdf(
         ]))
         title_block = Table(
             [[
-                Paragraph("РАСХОДНАЯ НАКЛАДНАЯ", title),
+                Paragraph(_text(document.document_title), title),
                 document_metadata,
             ]],
             colWidths=[104 * mm, 70 * mm],
@@ -442,18 +497,25 @@ def render_iiko_documents_pdf(
             title_block,
             Spacer(1, 6 * mm),
             Paragraph(
-                f"<b>Поставщик:</b> {_text(document.source_store_name)}",
+                f"<b>{_text(document.source_label)}:</b> "
+                f"{_text(document.source_store_name)}",
                 normal,
             ),
             Spacer(1, 1.5 * mm),
             Paragraph(
-                f"<b>Получатель:</b> "
+                f"<b>{_text(document.destination_label)}:</b> "
                 f"{_text(document.destination_department_name)}",
                 normal,
             ),
-            Spacer(1, 1.5 * mm),
-            Paragraph(
-                f"<b>Склад:</b> {_text(document.source_store_name)}", normal
+            *(
+                [
+                    Spacer(1, 1.5 * mm),
+                    Paragraph(
+                        f"<b>Склад:</b> {_text(document.source_store_name)}",
+                        normal,
+                    ),
+                ]
+                if document.show_source_store_line else []
             ),
             Spacer(1, 1.5 * mm),
             Paragraph("<b>Примечание:</b>", normal),

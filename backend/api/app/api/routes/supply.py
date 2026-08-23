@@ -216,7 +216,6 @@ from app.supply.iiko_documents import (
     SupplyIikoDocumentFinalizationError,
     SupplyIikoDocumentPreparationError,
     SupplyIikoDocumentWorkflowError,
-    SupplyInternalTransferWriteUnsupportedError,
     finalize_supply_request_with_iiko_documents,
     list_supply_iiko_document_writes,
     plan_supply_request_with_iiko_documents,
@@ -2048,11 +2047,6 @@ async def plan_request(
         raise HTTPException(
             status_code=422,
             detail={"code": "SUPPLY_SEND_QUANTITY_INVALID"},
-        ) from error
-    except SupplyInternalTransferWriteUnsupportedError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": error.code},
         ) from error
     except SupplyIikoDocumentPreparationError as error:
         raise HTTPException(

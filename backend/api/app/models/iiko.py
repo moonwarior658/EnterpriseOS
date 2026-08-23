@@ -60,6 +60,7 @@ class IikoStockBalanceSnapshotSourceStatus(StrEnum):
 
 class IikoDocumentType(StrEnum):
     OUTGOING_INVOICE = "OUTGOING_INVOICE"
+    INTERNAL_TRANSFER = "INTERNAL_TRANSFER"
 
 
 class IikoDocumentWriteStatus(StrEnum):
