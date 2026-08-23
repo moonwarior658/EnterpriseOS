@@ -7,11 +7,11 @@ Stage 3 Supply.
 Automation Core is completed. Stage 3.0 — preparation and acceptance of the
 Supply domain model — completed at 100%. The required working contour of
 Stage 3.1A is completed. Production verification was performed on 2 August
-2026. В Stage 3.1B production-confirmed read-stock scope, создание
-`OUTGOING_INVOICE`, authoritative document read-back, verified PDF и
-физическая печать по 2 копии через Print Agent. Весь Stage 3.1B не завершён:
-остаётся финализация существующей непроведённой iiko-накладной по фактическим
-количествам.
+2026. Stage 3.1B завершён в текущем operational scope и production-verified:
+read-stock, `OUTGOING_INVOICE`, `INTERNAL_TRANSFER`, authoritative document
+read-back, actual/debt/terminal EOS state, единый UI, verified PDF и физическая
+печать по 2 копии через Print Agent. `INTERNAL_TRANSFER` при completion не
+проводится в iiko и остаётся `NEW`; это осознанная граница текущего scope.
 
 ## Current state
 
@@ -41,11 +41,11 @@ Stage 3.1A is completed. Production verification was performed on 2 August
   3.4 долги в разных единицах не сравниваются и не объединяются.
 - Повторные долги считаются по циклам: первый цикл без тревоги, второй —
   жёлтый, третий и последующие — красные.
-- Stage 3.1B / 4 и print-контур 5 подтверждены в production: EOS передаёт
+- Stage 3.1B / 4 и operational-контур 5 подтверждены в production: EOS передаёт
   verified PDF через persistent print job, Automation Core/outbox и n8n в
   устойчиво запущенный Windows Print Agent; несколько расходных накладных
   физически распечатаны по 2 копии, normal print и explicit reprint работают.
-  `INTERNAL_TRANSFER` отложен.
+  `OUTGOING_INVOICE` и `INTERNAL_TRANSFER` production-verified пользователем.
 
 В Stage 3.1B выполнено:
 
@@ -56,11 +56,18 @@ Stage 3.1A is completed. Production verification was performed on 2 August
 - безопасное создание первичного каталога EOS из iiko staging;
 - contextual mapping/remapping из карточки заявки с аудитом `CREATED` /
   `REPLACED`, защитой permanent mappings и сохранением `send_quantity`;
-- source grouping, создание `OUTGOING_INVOICE`, authoritative read-back,
-  canonical PDF, persistent print/reprint flow и история печати;
+- source grouping, создание `OUTGOING_INVOICE` и `INTERNAL_TRANSFER`, update
+  existing `INTERNAL_TRANSFER NEW` по actual и authoritative `byId` read-back;
+- completion после успешного read-back сохраняет actual, применяет debt
+  `max(planned - actual, 0)`, terminal EOS state и `fulfilled_at`;
+- canonical PDF, persistent print/reprint flow и история печати переиспользованы
+  для обоих document types без отдельного pipeline;
 - operational cleanup карточки заявки: русские business labels без UUID и
   внутренних кодов, «Склад отгрузки», searchable product combobox и
-  структурированная история печати.
+  структурированная история печати;
+- единый UI двух document types: общая таблица, inline quantity/unit,
+  mapping workspace, dirty-state и «Сохранить заявку», completion и
+  PDF/print/history; manual mapping работает при нераспознанных quantity/unit.
 
 Архитектурный инвариант plan/fact: `line.quantity` хранит requested/planned
 quantity и является единственным количеством stock calculation;
@@ -68,17 +75,23 @@ quantity и является единственным количеством sto
 не инвалидирует подтверждённый план. Положительный остаток
 `planned - actual` образует долг.
 
-Незавершённый blocker Stage 3.1B: для уже созданной непроведённой
-`OUTGOING_INVOICE` пока нет подтверждённого iikoServer contract изменения по
-actual quantities, проведения и authoritative read-back после этих операций.
-При существующем iiko intent завершение fail closed возвращает
-`SUPPLY_IIKO_DOCUMENT_FINALIZATION_UNSUPPORTED`: статус заявки и долги не
-меняются, дубль документа не создаётся. `INTERNAL_TRANSFER`, подтверждение
-передачи и signed-return остаются вне завершённого contour.
+Production contract `INTERNAL_TRANSFER`:
 
-Следующий срез: подтвердить iikoServer contract update/proceed существующей
-`OUTGOING_INVOICE` на безопасном тестовом контуре, затем реализовать
-`actual → iiko update → proceed → read-back → debt/final status`.
+- create `NEW` — `POST /resto/api/v2/documents/internalTransfer` одним JSON
+  object без `id`/`documentNumber`; iiko возвращает UUID и номер;
+- edit existing `NEW` — тот же POST с существующим `id` и authoritative
+  `dateIncoming`;
+- немедленный authoritative read-back — только `GET .../byId`; `byNumber` не
+  используется из-за наблюдавшегося transient stale amount после edit;
+- caller-owned iiko UUID, POST retry, `status=PROCESSED`, `processDocuments` и
+  legacy RPC не используются;
+- completion fail closed: до успешного `byId` match EOS status, `fulfilled_at`
+  и debt не изменяются; после успеха iiko document остаётся `NEW`.
+
+Stage 3.1B закрыт только в этом operational scope. Проведение
+`INTERNAL_TRANSFER` в iiko, отдельная сущность физической передачи,
+signed-return и отдельное покрытие уже существующего долга остаются вне
+завершённого contour и не считаются реализованными.
 
 Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
 автоматизирован.
@@ -95,11 +108,10 @@ actual quantities, проведения и authoritative read-back после э
 Этот backlog не входит в текущий эксплуатационный критерий закрытия 3.1A и
 не блокирует переход к Stage 3.1B.
 
-Отдельное фактическое погашение долга относится к Stage 3.1B / 5: долг не
-уменьшается до подтверждения фактической передачи и возврата подписанного
-документа. Реальные остатки относятся к 3.1B / 4, перемещения, документы iiko,
-PDF, печать и подтверждение получения — к 3.1B / 5, supplier aliases и
-поставщики — к 3.1C.
+Отдельное погашение уже существующего долга через физическое перемещение и
+signed-return остаётся backlog за пределами закрытого operational scope. Это не
+отменяет создание debt текущей заявки как `max(planned - actual, 0)` после
+успешной финализации. Supplier aliases и поставщики относятся к 3.1C.
 
 ## Architecture
 
