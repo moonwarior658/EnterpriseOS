@@ -539,9 +539,9 @@ class SupplyLineManualMatch(BaseModel):
     def validate_action_fields(self):
         references = (self.product_id, self.unit_id, self.quantity)
         if self.action == SupplyLineMatchAction.MATCH:
-            if any(value is None for value in references):
+            if self.product_id is None:
                 raise ValueError(
-                    "Для MATCH обязательны товар, единица и количество"
+                    "Для MATCH обязателен товар"
                 )
         elif any(value is not None for value in references):
             raise ValueError(

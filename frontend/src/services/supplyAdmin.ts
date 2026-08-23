@@ -620,6 +620,16 @@ export function saveSupplyLineWorkingValues(
   )
 }
 
+export function submitSupplyRequest(
+  id: string,
+  version: number,
+): Promise<SupplyRequest> {
+  return request(`/supply/requests/${id}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_version: version }),
+  })
+}
+
 export function saveSupplyAllocations(
   requestId: string,
   lineId: string,

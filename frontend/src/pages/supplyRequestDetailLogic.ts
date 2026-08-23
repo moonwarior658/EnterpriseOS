@@ -331,11 +331,23 @@ export function isSupplyLineMatchReady(
   )
 }
 
+export function supplyLineUnitAfterProductSelection(
+  currentUnitId: string,
+  units: SupplyUnit[],
+  product: SupplyProduct,
+): string {
+  const currentUnit = units.find(
+    (unit) => unit.id === currentUnitId && unit.is_active,
+  )
+  if (currentUnit) return currentUnit.id
+  return product.default_unit.is_active ? product.default_unit.id : ''
+}
+
 export function supplyLineRequestedQuantityForMatch(
-  line: SupplyLine,
+  _line: SupplyLine,
   workingDraft: SupplyLineWorkingDraft,
 ): string {
-  return line.quantity ?? line.parsed_quantity ?? workingDraft.quantity
+  return workingDraft.quantity
 }
 
 export function updateSupplyLineMappingDraft(

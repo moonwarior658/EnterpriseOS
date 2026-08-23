@@ -12,6 +12,7 @@ import {
   saveSupplyAllocations,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
+  submitSupplyRequest,
 } from '../src/services/supplyAdmin.ts'
 import {
   clearSupplyLineWorkingDraft,
@@ -27,6 +28,7 @@ import {
   saveDirtySupplyLines,
   supplyLineWorkingBaseline,
   supplyLineRequestedQuantityForMatch,
+  supplyLineUnitAfterProductSelection,
   supplyExpectedDebtMillis,
   supplySendExcessMillis,
   supplyMatchProgress,
@@ -144,8 +146,11 @@ test('основной экран компактный и не требует р
   assert.match(detail, /Отправить/)
   assert.match(detail, /Фасовка \/ единица/)
   assert.match(detail, /Не сопоставлено/)
-  assert.match(detail, /Сохранить изменения/)
+  assert.match(detail, /Сохранить заявку/)
   assert.match(detail, /Отправить в работу/)
+  assert.match(detail, /lineValuesEditable/)
+  assert.doesNotMatch(detail, /supply-mapping-quantity-/)
+  assert.doesNotMatch(detail, /supply-mapping-unit-/)
   assert.doesNotMatch(detail, /AllocationEditor/)
   assert.doesNotMatch(detail, /Сохранить решение/)
   assert.match(registry, /Требуется сопоставить/)
@@ -342,7 +347,7 @@ test('editable state сопоставления изолирован по дву
   assert.equal(state['line-2'].error, 'Ошибка второй строки')
 })
 
-test('MATCH сразу валидирует актуальные quantity и unit основной строки', () => {
+test('MATCH валидирует ручные quantity и unit и использует их в command', () => {
   const mapping = {
     ...createSupplyLineMappingDraft('Контейнеры'),
     productId: 'product-1',
@@ -373,7 +378,26 @@ test('MATCH сразу валидирует актуальные quantity и uni
       } as SupplyLine,
       { ...corrected, quantity: '12' },
     ),
-    '10',
+    '12',
+  )
+  const product = {
+    id: 'product-1',
+    name: 'Фартук одноразовый',
+    is_active: true,
+    default_unit: pieceUnit,
+    aliases: [],
+  }
+  assert.equal(
+    supplyLineUnitAfterProductSelection('', [pieceUnit], product),
+    pieceUnit.id,
+  )
+  assert.equal(
+    supplyLineUnitAfterProductSelection(
+      'unit-kg',
+      [{ ...pieceUnit, id: 'unit-kg', code: 'KG', allows_fraction: true }],
+      product,
+    ),
+    'unit-kg',
   )
 })
 
@@ -561,6 +585,7 @@ test('API-клиент передаёт фильтры, expected_version, али
     await getSupplyDebts(new URLSearchParams({ severity: 'CRITICAL' }))
     await getSupplyProducts('Молоко')
     await recognizeSupplyRequest('request', 10)
+    await submitSupplyRequest('request', 11)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -597,4 +622,6 @@ test('API-клиент передаёт фильтры, expected_version, али
   assert.match(calls[8].url, /offset=0/)
   assert.equal(JSON.parse(String(calls[9].options.body)).expected_version, 10)
   assert.equal(Object.hasOwn(JSON.parse(String(calls[9].options.body)), 'force'), false)
+  assert.match(calls[10].url, /\/supply\/requests\/request\/submit$/)
+  assert.equal(JSON.parse(String(calls[10].options.body)).expected_version, 11)
 })

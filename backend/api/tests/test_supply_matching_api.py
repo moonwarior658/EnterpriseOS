@@ -506,6 +506,39 @@ class SupplyMatchingApiTests(unittest.TestCase):
             ).filter_by(request_line_id=UUID(line_id)).one()
             self.assertEqual(correction.corrected_by_user_id, 2)
 
+    def test_draft_working_values_can_be_saved_before_submit(self) -> None:
+        created = self.create_request("Молоко 1 л")
+        recognized = self.recognize(created["id"])
+        self.assertEqual(recognized.status_code, 200, recognized.text)
+        detail = self.client.get(
+            f"/supply/requests/{created['id']}"
+        ).json()
+        line = detail["lines"][0]
+
+        saved = self.client.patch(
+            f"/supply/requests/{created['id']}/lines/{line['id']}"
+            "/working-values",
+            json={
+                "request_version": detail["version"],
+                "working_name": line["working_name"],
+                "requested_quantity": "1",
+                "send_quantity": "2",
+                "requested_unit_id": str(self.units["L"].id),
+            },
+        )
+
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(
+            Decimal(saved.json()["line"]["send_quantity"]),
+            Decimal("2"),
+        )
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": saved.json()["request_version"]},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        self.assertEqual(submitted.json()["status"], "SUBMITTED")
+
     def test_reparse_does_not_replace_existing_manual_product_mapping(self) -> None:
         created = self.create_request(
             "Пластиковые контейнеры маленькие 200 шт."
@@ -548,24 +581,54 @@ class SupplyMatchingApiTests(unittest.TestCase):
         self.assertEqual(line["match_method"], "MANUAL")
         self.assertEqual(line["matched_by_user_id"], 2)
 
-    def test_match_rejects_missing_quantity_or_unit(self) -> None:
+    def test_match_uses_existing_quantity_and_product_base_unit(self) -> None:
         created = self.create_request("Неизвестный товар")
         self.recognize(created["id"])
         line_id = created["lines"][0]["id"]
-        for missing_field in ("quantity", "unit_id"):
-            payload = {
-                "expected_version": 2,
+        with self.session_factory.begin() as session:
+            line = session.get(SupplyRequestLine, UUID(line_id))
+            line.quantity = Decimal("3")
+            line.requested_unit_id = None
+
+        response = self.match(
+            created["id"],
+            line_id,
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()
+        self.assertEqual(Decimal(line["quantity"]), Decimal("3"))
+        self.assertEqual(line["requested_unit"]["code"], "L")
+
+    def test_match_rejects_missing_or_nonpositive_quantity(self) -> None:
+        created = self.create_request("Неизвестный товар")
+        self.recognize(created["id"])
+        line_id = created["lines"][0]["id"]
+        missing = self.match(
+            created["id"],
+            line_id,
+            {
                 "action": "MATCH",
                 "product_id": str(self.milk.id),
                 "unit_id": str(self.units["PCS"].id),
-                "quantity": "200",
-            }
-            del payload[missing_field]
-            response = self.client.post(
-                f"/supply/requests/{created['id']}/lines/{line_id}/match",
-                json=payload,
-            )
-            self.assertEqual(response.status_code, 422, response.text)
+            },
+        )
+        self.assertEqual(missing.status_code, 422, missing.text)
+        nonpositive = self.match(
+            created["id"],
+            line_id,
+            {
+                "action": "MATCH",
+                "product_id": str(self.milk.id),
+                "unit_id": str(self.units["PCS"].id),
+                "quantity": "0",
+            },
+        )
+        self.assertEqual(nonpositive.status_code, 422, nonpositive.text)
 
     def test_archive_preserves_old_match_and_restore_enables_new_matches(
         self,

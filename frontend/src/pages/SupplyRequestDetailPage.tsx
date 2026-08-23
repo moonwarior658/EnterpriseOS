@@ -27,6 +27,7 @@ import {
   reparseSupplyLine,
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
+  submitSupplyRequest,
   updateSupplyStockTransferable,
   SupplyApiError,
   type SupplyLine,
@@ -55,6 +56,7 @@ import {
   supplyIikoDocumentStatusLabel,
   supplyLineWorkingBaseline,
   supplyLineRequestedQuantityForMatch,
+  supplyLineUnitAfterProductSelection,
   supplyMatchProgress,
   supplyPrintPurposeLabel,
   supplyPrintStatusLabel,
@@ -118,7 +120,9 @@ function SupplyLineMappingEditor({
   workingDraft,
   units,
   disabled,
+  reparseDisabled,
   onChange,
+  onWorkingChange,
   onMatch,
   onReparse,
   inputRef,
@@ -128,7 +132,9 @@ function SupplyLineMappingEditor({
   workingDraft: SupplyLineWorkingDraft
   units: SupplyUnit[]
   disabled: boolean
+  reparseDisabled: boolean
   onChange: (changes: Partial<SupplyLineMappingDraft>) => void
+  onWorkingChange: (changes: Partial<SupplyLineWorkingDraft>) => void
   onMatch: () => void
   onReparse: () => void
   inputRef: (element: HTMLInputElement | null) => void
@@ -144,7 +150,6 @@ function SupplyLineMappingEditor({
   const currentResult = searchResult.query === currentQuery
     ? searchResult
     : { query: currentQuery, items: [], state: 'idle' as const }
-  const currentUnit = units.find((unit) => unit.id === workingDraft.unitId)
   const matchReady = isSupplyLineMatchReady(draft, workingDraft, units)
 
   useEffect(() => {
@@ -232,6 +237,13 @@ function SupplyLineMappingEditor({
                     status: 'idle',
                     error: '',
                   })
+                  onWorkingChange({
+                    unitId: supplyLineUnitAfterProductSelection(
+                      workingDraft.unitId,
+                      units,
+                      product,
+                    ),
+                  })
                   setSuggestionsOpen(false)
                   setSearchResult({ query: '', items: [], state: 'idle' })
                 }}
@@ -252,22 +264,11 @@ function SupplyLineMappingEditor({
           </small>
         </div>
       )}
-      <div className="supply-mapping-values">
-        <span>
-          Количество: <strong>{formatSupplyQuantity(workingDraft.quantity)}</strong>
-        </span>
-        <span>
-          Единица:{' '}
-          <strong>
-            {currentUnit?.short_name_ru ?? 'не определена'}
-          </strong>
-        </span>
-      </div>
       {line.match_status === 'NEEDS_REVIEW' && (
         <button
           className="secondary-action"
           type="button"
-          disabled={disabled || draft.status === 'loading'}
+          disabled={reparseDisabled || draft.status === 'loading'}
           onClick={onReparse}
         >
           Перераспознать строку
@@ -546,6 +547,7 @@ function SupplyRequestDetailPage() {
   const editable = request
     ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
     : false
+  const draftEditable = request?.status === 'DRAFT'
   const dirtyIds = useMemo(() => request?.lines
     .filter((line) => {
       const draft = working[line.id]
@@ -828,6 +830,32 @@ function SupplyRequestDetailPage() {
       setMessage(failedCount
         ? `Часть изменений не сохранена: ${failedCount}`
         : 'Все изменения сохранены')
+    } finally {
+      primaryActionInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  async function submitDraft() {
+    if (
+      !request || request.status !== 'DRAFT' || busy
+      || primaryActionInFlight.current || hasDirty || !readyToSend
+    ) return
+    primaryActionInFlight.current = true
+    setBusy(true)
+    setMessage('')
+    try {
+      setRequest(await submitSupplyRequest(request.id, request.version))
+      setMessage('Заявка сохранена')
+    } catch (error) {
+      const code = error instanceof SupplyApiError ? error.code : null
+      setMessage(({
+        SUPPLY_REQUEST_VERSION_CONFLICT:
+          'Заявка изменилась. Обновите карточку и повторите.',
+        SUPPLY_DUPLICATES_PRESENT:
+          'Сначала устраните отмеченные дубли.',
+      } as Record<string, string>)[code ?? '']
+        ?? 'Не удалось сохранить заявку')
     } finally {
       primaryActionInFlight.current = false
       setBusy(false)
@@ -1748,10 +1776,19 @@ function SupplyRequestDetailPage() {
           {request.lines.map((line) => {
             const lineEditable = editable
               && line.debt_inclusion_status !== 'CONFIRMED_PARTIAL'
-            const canMapLine = lineEditable || (
-              line.active_debt_requires_matching
-              && !!line.active_debt_id
-              && ['PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED'].includes(
+            const lineValuesEditable = (editable || draftEditable)
+              && line.debt_inclusion_status !== 'CONFIRMED_PARTIAL'
+            const canMapUnmatchedLine = !line.product_id
+              && line.debt_inclusion_status !== 'CONFIRMED_PARTIAL'
+              && ['DRAFT', 'PLANNED'].includes(request.status)
+            const canMapLine = lineEditable
+              || canMapUnmatchedLine
+              || (
+                line.active_debt_requires_matching
+                && !!line.active_debt_id
+                && [
+                  'PLANNED', 'PARTIALLY_FULFILLED', 'FULFILLED',
+                ].includes(
                 request.status,
               )
             )
@@ -1829,7 +1866,7 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <div role="cell">
-                  {lineEditable ? (
+                  {lineValuesEditable ? (
                     <input
                       className="supply-simple-quantity"
                       aria-label={`Отправить, строка ${line.position}`}
@@ -1911,7 +1948,7 @@ function SupplyRequestDetailPage() {
                   )}
                 </div>
                 <div role="cell">
-                  {lineEditable ? (
+                  {lineValuesEditable ? (
                     <EosSelect
                       aria-label={`Фасовка, строка ${line.position}`}
                       value={draft.unitId}
@@ -1960,7 +1997,13 @@ function SupplyRequestDetailPage() {
                     workingDraft={draft}
                     units={units}
                     disabled={busy || !canMapLine}
+                    reparseDisabled={busy || !lineEditable}
                     onChange={updateMapping}
+                    onWorkingChange={(changes) => changeWorking(
+                      line,
+                      draft,
+                      changes,
+                    )}
                     onMatch={() => void mapLine(line, draft)}
                     onReparse={() => void reparseLine(line)}
                     inputRef={(element) => {
@@ -2077,14 +2120,24 @@ function SupplyRequestDetailPage() {
 
       <div className="supply-sticky-actions">
         {message && <span role="status">{message}</span>}
-        {editable && hasDirty && (
+        {(editable || draftEditable) && hasDirty && (
           <button
             className="supply-primary-action"
             type="button"
             disabled={busy || invalidDirty}
             onClick={() => void saveAllWorkingValues()}
           >
-            {busy ? 'Сохраняем…' : 'Сохранить изменения'}
+            {busy ? 'Сохраняем…' : 'Сохранить заявку'}
+          </button>
+        )}
+        {draftEditable && !hasDirty && (
+          <button
+            className="supply-primary-action"
+            type="button"
+            disabled={busy || !readyToSend}
+            onClick={() => void submitDraft()}
+          >
+            {busy ? 'Сохраняем…' : 'Сохранить заявку'}
           </button>
         )}
         {editable && !hasDirty && (

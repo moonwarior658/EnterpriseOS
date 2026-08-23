@@ -2282,16 +2282,29 @@ def manually_match_supply_request_line(
     }
 
     if payload.action == SupplyLineMatchAction.MATCH:
+        assert payload.product_id is not None
         product = get_supply_product(
             session,
             payload.product_id,
             tenant_id=tenant_id,
             require_active=True,
         )
-        unit = _get_supply_unit(
-            session, payload.unit_id, tenant_id=tenant_id
+        quantity = (
+            payload.quantity
+            if payload.quantity is not None
+            else line.quantity
         )
-        validate_quantity_for_unit(payload.quantity, unit)
+        if quantity is None:
+            raise InvalidSupplyQuantityError
+        unit_id = (
+            payload.unit_id
+            or line.requested_unit_id
+            or product.default_unit_id
+        )
+        unit = _get_supply_unit(
+            session, unit_id, tenant_id=tenant_id
+        )
+        validate_quantity_for_unit(quantity, unit)
         debt_link = line.debt_link
         legacy_debts: list[SupplyDepartmentDebt] = []
         legacy_debt_ids: set[UUID] = set()
@@ -2309,12 +2322,12 @@ def manually_match_supply_request_line(
         if late_match and (
             (line.product_id is not None and not legacy_debts)
             or line.requested_unit_id != unit.id
-            or line.quantity != payload.quantity
+            or line.quantity != quantity
         ):
             raise SupplyRequestStateError
         line.product_id = product.id
         line.requested_unit_id = unit.id
-        line.quantity = payload.quantity
+        line.quantity = quantity
         line.match_status = "MATCHED"
         line.match_method = "MANUAL"
         line.match_confidence = Decimal("1.0000")
@@ -2880,7 +2893,7 @@ def update_supply_line_working_values(
         line_id=line_id,
         expected_version=payload.request_version,
     )
-    if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
+    if supply_request.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
         raise SupplyRequestStateError
     if line.debt_link and line.debt_link.inclusion_confirmed:
         raise SupplyRequestStateError
