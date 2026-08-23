@@ -29,6 +29,7 @@ from app.integrations.iiko.exceptions import (
     IikoContractError,
     IikoResponseError,
 )
+from app.integrations.iiko.observability import iiko_finalization_log_context
 from app.models.iiko import IikoMappingStatus
 from app.models.supply import SupplyProductSourceRole
 
@@ -92,6 +93,29 @@ def child_text(element: ET.Element, name: str) -> str | None:
     return child.text if child is not None else None
 
 
+def update_source() -> IikoOutgoingInvoiceUpdateSourceDto:
+    return IikoOutgoingInvoiceUpdateSourceDto(
+        external_id=str(DOCUMENT_ID),
+        document_number="2753",
+        status="NEW",
+        revision=42,
+        entities_version=101,
+        items=(IikoOutgoingInvoiceItemDto(
+            product_id=PRODUCT_ID,
+            amount=Decimal("10"),
+            price=Decimal("0"),
+        ),),
+        raw_document_xml=(
+            f"<document><id>{DOCUMENT_ID}</id>"
+            "<documentNumber>2753</documentNumber><status>NEW</status>"
+            "<revision>42</revision><items><item>"
+            f"<productId>{PRODUCT_ID}</productId>"
+            "<amount>10.000</amount><price>0</price>"
+            "</item></items></document>"
+        ).encode(),
+    )
+
+
 def successful_import_response(
     request: httpx.Request,
     *,
@@ -151,7 +175,16 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         async with IikoServerClient(
             make_settings(), transport=httpx.MockTransport(handler)
         ) as client:
-            document = await client.get_outgoing_invoice_for_update(DOCUMENT_ID)
+            with iiko_finalization_log_context(
+                supply_request_id=UUID(
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+                document_number="2753",
+                document_id=DOCUMENT_ID,
+            ), self.assertLogs("eos.iiko.finalization", level="INFO") as logs:
+                document = await client.get_outgoing_invoice_for_update(
+                    DOCUMENT_ID
+                )
 
         rpc_requests = [
             item for item in requests
@@ -184,6 +217,11 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(document.items), 1)
         self.assertEqual(document.items[0].amount, Decimal("10.000"))
         self.assertIn(b"preservedField", document.raw_document_xml)
+        rendered = "\n".join(logs.output)
+        self.assertIn("stage=getEntitiesUpdate", rendered)
+        self.assertIn("stage=getAbstractDocument", rendered)
+        self.assertIn("http_status=200", rendered)
+        self.assertIn("entities_revision=103", rendered)
 
     async def test_entity_revision_bootstrap_fails_closed(self):
         cases = (
@@ -283,9 +321,16 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         async with IikoServerClient(
             make_settings(), transport=httpx.MockTransport(handler)
         ) as client:
-            result = await client.update_outgoing_invoice(
-                document, actual_quantities=(Decimal("8"),)
-            )
+            with iiko_finalization_log_context(
+                supply_request_id=UUID(
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+                document_number="2753",
+                document_id=DOCUMENT_ID,
+            ), self.assertLogs("eos.iiko.finalization", level="INFO") as logs:
+                result = await client.update_outgoing_invoice(
+                    document, actual_quantities=(Decimal("8"),)
+                )
 
         update = next(item for item in requests if item.url.path.endswith(
             "/services/document"
@@ -302,6 +347,107 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.valid)
         self.assertEqual(result.error_message, "saved")
         self.assertEqual(result.additional_info, "revision 43")
+        rendered = "\n".join(logs.output)
+        self.assertIn("stage=saveOrUpdateDocument", rendered)
+        self.assertIn("http_status=200", rendered)
+        self.assertIn("valid=True", rendered)
+        self.assertIn("error_message=saved", rendered)
+
+    async def test_save_parse_error_logs_safe_structure_without_secrets(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="secret-token")
+            if request.url.path.endswith("/services/document"):
+                return response(request, text=(
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="DocumentValidationResult">'
+                    "<valid>true</valid><warning>false</warning>"
+                    "<documentNumber>2753</documentNumber>"
+                    "<errorMessage>Authorization: Bearer secret-token</errorMessage>"
+                    "<additionalInfo>password=integration-password</additionalInfo>"
+                    "</returnValue></result>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            with iiko_finalization_log_context(
+                supply_request_id=UUID(
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+                document_number="2753",
+                document_id=DOCUMENT_ID,
+            ), self.assertLogs("eos.iiko.finalization", level="ERROR") as logs:
+                with self.assertRaisesRegex(
+                    IikoContractError,
+                    "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
+                ):
+                    await client.update_outgoing_invoice(
+                        update_source(), actual_quantities=(Decimal("10"),)
+                    )
+
+        rendered = "\n".join(logs.output)
+        self.assertIn("stage=saveOrUpdateDocument", rendered)
+        self.assertIn("client_error_code=IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID", rendered)
+        self.assertIn('returnValue', rendered)
+        self.assertIn('DocumentValidationResult', rendered)
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("integration-password", rendered)
+        self.assertNotIn("Authorization", rendered)
+
+    async def test_process_parse_error_logs_safe_structure(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="secret-token")
+            if request.url.path.endswith("/services/update"):
+                return response(request, text=(
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="EntitiesUpdate">'
+                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
+                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
+                    "<items /></returnValue></result>"
+                ))
+            if request.url.path.endswith("/services/documentGroupOperation"):
+                return response(request, text=(
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="UnexpectedResult">'
+                    "<message>Bearer secret-token</message>"
+                    "</returnValue></result>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            with iiko_finalization_log_context(
+                supply_request_id=UUID(
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+                document_number="2753",
+                document_id=DOCUMENT_ID,
+            ), self.assertLogs("eos.iiko.finalization", level="ERROR") as logs:
+                with self.assertRaisesRegex(
+                    IikoContractError,
+                    "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
+                ):
+                    await client.process_outgoing_invoices(
+                        (DOCUMENT_ID,), enable_warnings=True
+                    )
+
+        rendered = "\n".join(logs.output)
+        self.assertIn("stage=processDocuments warnings=true", rendered)
+        self.assertIn("client_error_code=IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID", rendered)
+        self.assertIn("UnexpectedResult", rendered)
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("Bearer", rendered)
 
     async def test_process_parses_warning_details_and_acknowledges_once(self):
         requests: list[httpx.Request] = []

@@ -7,6 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
 from types import TracebackType
@@ -23,6 +24,7 @@ from app.integrations.iiko.exceptions import (
     IikoConfigurationError,
     IikoConnectionError,
     IikoContractError,
+    IikoError,
     IikoRateLimitError,
     IikoResponseError,
 )
@@ -36,6 +38,12 @@ from app.integrations.iiko.mapper import (
     map_stock_balance,
     map_unit,
     map_warehouse,
+)
+from app.integrations.iiko.observability import (
+    has_iiko_finalization_log_context,
+    log_finalization_event,
+    sanitize_log_value,
+    xml_structure_summary,
 )
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
@@ -92,6 +100,16 @@ _SENSITIVE_XML_ELEMENT_RE = re.compile(
     r"access[_-]?token|refresh[_-]?token|api[_-]?key|secret|"
     r"client[_-]?secret)\b[^>]*>).*?(</\s*\2\s*>)"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _IikoRpcObservation:
+    stage: str
+    rpc_method: str
+    endpoint: str
+    http_status: int | None
+    response_size_bytes: int | None
+    root: ET.Element | None
 
 
 def _sanitize_response_body(
@@ -187,6 +205,7 @@ class IikoServerClient(IikoProvider):
         self._request_lock = asyncio.Lock()
         self._products_cache: list[dict[str, Any]] | None = None
         self._warehouses_cache: list[dict[str, Any]] | None = None
+        self._last_rpc_observation: _IikoRpcObservation | None = None
 
     async def authenticate(self) -> None:
         self._settings.validate_enabled()
@@ -347,13 +366,40 @@ class IikoServerClient(IikoProvider):
             params=params,
             headers={"Accept": "application/xml"},
         )
-        if response.status_code == 401:
-            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
-        if response.status_code == 403:
-            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
-        if not response.is_success:
-            raise IikoResponseError(response.status_code)
-        return self._parse_xml_response(response)
+        try:
+            if response.status_code == 401:
+                raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+            if response.status_code == 403:
+                raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+            if not response.is_success:
+                raise IikoResponseError(response.status_code)
+            root = self._parse_xml_response(response)
+        except IikoError as error:
+            if has_iiko_finalization_log_context():
+                log_finalization_event(
+                    "rest_failure",
+                    level=logging.ERROR,
+                    stage="authoritative REST read-back",
+                    rpc_method="GET",
+                    endpoint=path,
+                    http_status=response.status_code,
+                    response_size_bytes=len(response.content),
+                    exception_class=error.__class__.__name__,
+                    client_error_code=self._client_error_code(error),
+                    response_structure=xml_structure_summary(None),
+                )
+            raise
+        if has_iiko_finalization_log_context():
+            log_finalization_event(
+                "rest_response",
+                stage="authoritative REST read-back",
+                rpc_method="GET",
+                endpoint=path,
+                http_status=response.status_code,
+                response_size_bytes=len(response.content),
+                response_structure=xml_structure_summary(root),
+            )
+        return root
 
     def _parse_xml_response(self, response: httpx.Response) -> ET.Element:
         if not response.content or len(response.content) > _MAX_XML_RESPONSE_BYTES:
@@ -665,14 +711,165 @@ class IikoServerClient(IikoProvider):
             _sanitize_response_body(result.additional_info or "", secret_values=secrets),
         )
 
+    @staticmethod
+    def _client_error_code(error: Exception) -> str:
+        if isinstance(error, IikoError) and error.args:
+            value = str(error.args[0])
+            if value.startswith("IIKO_"):
+                return value.split()[0]
+        return getattr(error, "code", error.__class__.__name__)
+
+    def _safe_rpc_text(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        login = self._settings.login
+        password = self._settings.password
+        sanitized = _sanitize_response_body(
+            value,
+            secret_values=(
+                self._token or "",
+                login.get_secret_value() if login is not None else "",
+                password.get_secret_value() if password is not None else "",
+            ),
+        )
+        if "[REDACTED]" in sanitized:
+            return "<redacted>"
+        return sanitize_log_value(sanitized)
+
+    @staticmethod
+    def _rpc_any_text(
+        root: ET.Element | None,
+        name: str,
+    ) -> str | None:
+        if root is None:
+            return None
+        element = next(
+            (
+                item for item in root.iter()
+                if item.tag.rsplit("}", 1)[-1] == name
+            ),
+            None,
+        )
+        value = (
+            (element.text or "").strip()
+            if element is not None
+            else ""
+        )
+        return value or None
+
+    def _log_rpc_failure(
+        self,
+        error: Exception,
+        *,
+        observation: _IikoRpcObservation | None = None,
+    ) -> None:
+        if not has_iiko_finalization_log_context():
+            return
+        item = observation or self._last_rpc_observation
+        root = item.root if item else None
+        log_finalization_event(
+            "rpc_failure",
+            level=logging.ERROR,
+            stage=item.stage if item else "legacy_rpc",
+            rpc_method=item.rpc_method if item else None,
+            endpoint=item.endpoint if item else None,
+            http_status=item.http_status if item else None,
+            response_size_bytes=item.response_size_bytes if item else None,
+            exception_class=error.__class__.__name__,
+            client_error_code=self._client_error_code(error),
+            success=self._rpc_any_text(root, "success"),
+            result_status=self._rpc_any_text(root, "resultStatus"),
+            valid=self._rpc_any_text(root, "valid"),
+            warning=self._rpc_any_text(root, "warning"),
+            returned_document_number=self._rpc_any_text(
+                root, "documentNumber"
+            ),
+            error_message=self._safe_rpc_text(
+                self._rpc_any_text(root, "errorMessage")
+            ),
+            additional_info=self._safe_rpc_text(
+                self._rpc_any_text(root, "additionalInfo")
+            ),
+            returned_document_status=self._rpc_any_text(root, "status"),
+            returned_document_revision=self._rpc_any_text(root, "revision"),
+            full_update=self._rpc_any_text(root, "fullUpdate"),
+            response_structure=(
+                xml_structure_summary(root) if item else None
+            ),
+        )
+
+    def _log_rpc_success(
+        self,
+        *,
+        success: str | None = None,
+        result_status: str | None = None,
+        valid: bool | None = None,
+        warning: bool | None = None,
+        document_number: str | None = None,
+        error_message: str | None = None,
+        additional_info: str | None = None,
+        returned_document_status: str | None = None,
+        returned_document_revision: int | None = None,
+        entities_revision: int | None = None,
+        full_update: str | None = None,
+    ) -> None:
+        if not has_iiko_finalization_log_context():
+            return
+        item = self._last_rpc_observation
+        if item is None:
+            return
+        response_root = item.root
+        log_finalization_event(
+            "rpc_response",
+            stage=item.stage,
+            rpc_method=item.rpc_method,
+            endpoint=item.endpoint,
+            http_status=item.http_status,
+            response_size_bytes=item.response_size_bytes,
+            success=success,
+            result_status=result_status,
+            valid=valid,
+            warning=warning,
+            returned_document_number=document_number,
+            error_message=self._safe_rpc_text(error_message),
+            additional_info=self._safe_rpc_text(additional_info),
+            returned_document_status=(
+                returned_document_status
+                or self._rpc_any_text(response_root, "status")
+            ),
+            returned_document_revision=(
+                returned_document_revision
+                if returned_document_revision is not None
+                else (
+                    self._rpc_any_text(response_root, "revision")
+                    if item.rpc_method != "getEntitiesUpdate"
+                    else None
+                )
+            ),
+            entities_revision=entities_revision,
+            full_update=(
+                full_update
+                if full_update is not None
+                else self._rpc_any_text(response_root, "fullUpdate")
+            ),
+            response_structure=xml_structure_summary(item.root),
+        )
+
+    def _observed_contract_error(self, code: str) -> IikoContractError:
+        error = IikoContractError(code)
+        self._log_rpc_failure(error)
+        return error
+
     async def _post_legacy_document_rpc(
         self,
         path: str,
         *,
         params: Sequence[tuple[str, str]],
         content: bytes,
+        stage: str,
         call_id: UUID | None = None,
     ) -> ET.Element:
+        self._last_rpc_observation = None
         await self.authenticate()
         login = self._settings.login
         password = self._settings.password
@@ -700,13 +897,45 @@ class IikoServerClient(IikoProvider):
             )
         finally:
             password_hash = ""
+        rpc_method = next(
+            (value for name, value in params if name == "methodName"),
+            "unknown",
+        )
+        observation = _IikoRpcObservation(
+            stage=stage,
+            rpc_method=rpc_method,
+            endpoint=path,
+            http_status=response.status_code,
+            response_size_bytes=len(response.content),
+            root=None,
+        )
+        self._last_rpc_observation = observation
         if response.status_code == 401:
-            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+            error = IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+            self._log_rpc_failure(error, observation=observation)
+            raise error
         if response.status_code == 403:
-            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+            error = IikoAuthorizationError("IIKO_ACCESS_DENIED")
+            self._log_rpc_failure(error, observation=observation)
+            raise error
         if not response.is_success:
-            raise IikoResponseError(response.status_code)
-        return self._parse_xml_response(response)
+            error = IikoResponseError(response.status_code)
+            self._log_rpc_failure(error, observation=observation)
+            raise error
+        try:
+            root = self._parse_xml_response(response)
+        except IikoError as error:
+            self._log_rpc_failure(error, observation=observation)
+            raise
+        self._last_rpc_observation = _IikoRpcObservation(
+            stage=stage,
+            rpc_method=rpc_method,
+            endpoint=path,
+            http_status=response.status_code,
+            response_size_bytes=len(response.content),
+            root=root,
+        )
+        return root
 
     @staticmethod
     def _rpc_direct_text(element: ET.Element, *names: str) -> str | None:
@@ -742,33 +971,48 @@ class IikoServerClient(IikoProvider):
             content=b"\xef\xbb\xbf" + ET.tostring(
                 args, encoding="utf-8", xml_declaration=True
             ),
+            stage="getEntitiesUpdate",
             call_id=call_id,
         )
-        success = self._rpc_direct_text(response, "success")
-        result_status = self._rpc_direct_text(response, "resultStatus")
-        updates = [
-            element for element in response.iter()
-            if element.tag.rsplit("}", 1)[-1] == "returnValue"
-            and self._rpc_direct_text(element, "serverInstanceId") is not None
-            and self._rpc_direct_text(element, "revision") is not None
-        ]
-        if success != "true" or result_status != "SUCCESS" or len(updates) != 1:
-            raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID")
-        update = updates[0]
-        instance_id = self._rpc_direct_text(update, "serverInstanceId")
-        revision = self._rpc_direct_text(update, "revision")
-        full_update = self._rpc_direct_text(update, "fullUpdate")
         try:
-            parsed_instance_id = UUID(instance_id or "")
-            parsed_revision = int(revision or "")
-        except (TypeError, ValueError) as error:
-            raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID") from error
-        if parsed_instance_id != expected_instance_id:
-            raise IikoContractError("IIKO_RPC_SERVER_INSTANCE_MISMATCH")
-        if full_update != "false":
-            raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
-        if parsed_revision < seed:
-            raise IikoContractError("IIKO_RPC_ENTITY_REVISION_INVALID")
+            success = self._rpc_direct_text(response, "success")
+            result_status = self._rpc_direct_text(response, "resultStatus")
+            updates = [
+                element for element in response.iter()
+                if element.tag.rsplit("}", 1)[-1] == "returnValue"
+                and self._rpc_direct_text(element, "serverInstanceId") is not None
+                and self._rpc_direct_text(element, "revision") is not None
+            ]
+            if (
+                success != "true"
+                or result_status != "SUCCESS"
+                or len(updates) != 1
+            ):
+                raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID")
+            update = updates[0]
+            instance_id = self._rpc_direct_text(update, "serverInstanceId")
+            revision = self._rpc_direct_text(update, "revision")
+            full_update = self._rpc_direct_text(update, "fullUpdate")
+            try:
+                parsed_instance_id = UUID(instance_id or "")
+                parsed_revision = int(revision or "")
+            except (TypeError, ValueError) as error:
+                raise IikoContractError("IIKO_RPC_ENTITY_SYNC_INVALID") from error
+            if parsed_instance_id != expected_instance_id:
+                raise IikoContractError("IIKO_RPC_SERVER_INSTANCE_MISMATCH")
+            if full_update != "false":
+                raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
+            if parsed_revision < seed:
+                raise IikoContractError("IIKO_RPC_ENTITY_REVISION_INVALID")
+        except IikoError as error:
+            self._log_rpc_failure(error)
+            raise
+        self._log_rpc_success(
+            success=success,
+            result_status=result_status,
+            entities_revision=parsed_revision,
+            full_update=full_update,
+        )
         return parsed_revision
 
     async def get_outgoing_invoice_for_update(
@@ -793,6 +1037,7 @@ class IikoServerClient(IikoProvider):
             content=b"\xef\xbb\xbf" + ET.tostring(
                 args, encoding="utf-8", xml_declaration=True
             ),
+            stage="getAbstractDocument",
             call_id=call_id,
         )
 
@@ -809,7 +1054,9 @@ class IikoServerClient(IikoProvider):
             and element.attrib.get("cls") == "OutgoingInvoice"
         ]
         if success != "true" or result_status != "SUCCESS" or len(documents) != 1:
-            raise IikoContractError("IIKO_OUTGOING_INVOICE_RPC_READ_INVALID")
+            raise self._observed_contract_error(
+                "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID"
+            )
         document = documents[0]
         external_id = direct_text(document, "id") or document.attrib.get("eid")
         document_number = direct_text(document, "documentNumber")
@@ -841,7 +1088,9 @@ class IikoServerClient(IikoProvider):
             or revision is None
             or entities_version is None
         ):
-            raise IikoContractError("IIKO_OUTGOING_INVOICE_RPC_READ_INVALID")
+            raise self._observed_contract_error(
+                "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID"
+            )
         try:
             if UUID(external_id) != document_id:
                 raise ValueError
@@ -866,21 +1115,25 @@ class IikoServerClient(IikoProvider):
                 )
             )
         except (TypeError, ValueError, ValidationError) as error:
-            raise IikoContractError(
+            raise self._observed_contract_error(
                 "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID"
             ) from error
         if (
             parsed_entities_instance_id
             != self._settings.rpc_server_instance_id
         ):
-            raise IikoContractError("IIKO_RPC_SERVER_INSTANCE_MISMATCH")
+            raise self._observed_contract_error(
+                "IIKO_RPC_SERVER_INSTANCE_MISMATCH"
+            )
         if full_update != "false":
-            raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
+            raise self._observed_contract_error("IIKO_RPC_FULL_SYNC_REQUIRED")
         if parsed_entities_version < current_entities_version:
-            raise IikoContractError("IIKO_RPC_ENTITY_REVISION_INVALID")
+            raise self._observed_contract_error(
+                "IIKO_RPC_ENTITY_REVISION_INVALID"
+            )
         update_document = deepcopy(document)
         update_document.tag = "document"
-        return IikoOutgoingInvoiceUpdateSourceDto(
+        result = IikoOutgoingInvoiceUpdateSourceDto(
             external_id=str(document_id),
             document_number=document_number,
             status=status,
@@ -889,6 +1142,16 @@ class IikoServerClient(IikoProvider):
             items=items,
             raw_document_xml=ET.tostring(update_document, encoding="utf-8"),
         )
+        self._log_rpc_success(
+            success=success,
+            result_status=result_status,
+            document_number=document_number,
+            returned_document_status=status,
+            returned_document_revision=parsed_revision,
+            entities_revision=parsed_entities_version,
+            full_update=full_update,
+        )
+        return result
 
     async def update_outgoing_invoice(
         self,
@@ -975,13 +1238,30 @@ class IikoServerClient(IikoProvider):
             content=b"\xef\xbb\xbf" + ET.tostring(
                 args, encoding="utf-8", xml_declaration=True
             ),
+            stage="saveOrUpdateDocument",
             call_id=call_id,
         )
-        results = self._validation_results(response)
-        if len(results) != 1:
-            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+        try:
+            results = self._validation_results(response)
+            if len(results) != 1:
+                raise IikoContractError(
+                    "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID"
+                )
+        except IikoError as error:
+            self._log_rpc_failure(error)
+            raise
         result = results[0]
         self._log_validation_result(operation="update", result=result)
+        self._log_rpc_success(
+            success=self._rpc_direct_text(response, "success"),
+            result_status=self._rpc_direct_text(response, "resultStatus"),
+            valid=result.valid,
+            warning=result.warning,
+            document_number=result.document_number,
+            error_message=result.error_message,
+            additional_info=result.additional_info,
+            entities_revision=document.entities_version,
+        )
         return result
 
     async def process_outgoing_invoices(
@@ -1013,11 +1293,30 @@ class IikoServerClient(IikoProvider):
             content=b"\xef\xbb\xbf" + ET.tostring(
                 root, encoding="utf-8", xml_declaration=True
             ),
+            stage=(
+                "processDocuments warnings=true"
+                if enable_warnings
+                else "processDocuments warnings=false"
+            ),
             call_id=call_id,
         )
-        results = self._validation_results(response)
+        try:
+            results = self._validation_results(response)
+        except IikoError as error:
+            self._log_rpc_failure(error)
+            raise
         for result in results:
             self._log_validation_result(operation="process", result=result)
+            self._log_rpc_success(
+                success=self._rpc_direct_text(response, "success"),
+                result_status=self._rpc_direct_text(response, "resultStatus"),
+                valid=result.valid,
+                warning=result.warning,
+                document_number=result.document_number,
+                error_message=result.error_message,
+                additional_info=result.additional_info,
+                entities_revision=current_entities_version,
+            )
         return results
 
     async def create_outgoing_invoice(

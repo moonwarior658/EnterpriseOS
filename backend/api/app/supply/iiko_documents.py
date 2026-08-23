@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,10 @@ from app.integrations.iiko.document_routing import (
 )
 from app.integrations.iiko.document_write import IikoOutgoingInvoiceLineInput
 from app.integrations.iiko.exceptions import IikoError
+from app.integrations.iiko.observability import (
+    iiko_finalization_log_context,
+    log_finalization_event,
+)
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import IikoOutgoingInvoiceDto
 from app.models.iiko import (
@@ -514,11 +519,18 @@ def _finalization_documents(
 async def _authoritative_finalization_invoice(
     provider: IikoProvider,
     document: _FinalizationDocument,
+    *,
+    supply_request_id: UUID,
 ) -> IikoOutgoingInvoiceDto:
-    invoices = await provider.get_outgoing_invoices(
-        date_from=document.date_incoming.date() - timedelta(days=1),
-        date_to=document.date_incoming.date() + timedelta(days=1),
-    )
+    with iiko_finalization_log_context(
+        supply_request_id=supply_request_id,
+        document_number=document.document_number,
+        document_id=document.iiko_document_id,
+    ):
+        invoices = await provider.get_outgoing_invoices(
+            date_from=document.date_incoming.date() - timedelta(days=1),
+            date_to=document.date_incoming.date() + timedelta(days=1),
+        )
     matches = []
     for invoice in invoices:
         try:
@@ -531,10 +543,36 @@ async def _authoritative_finalization_invoice(
         ):
             matches.append(invoice)
     if len(matches) != 1:
+        with iiko_finalization_log_context(
+            supply_request_id=supply_request_id,
+            document_number=document.document_number,
+            document_id=document.iiko_document_id,
+        ):
+            log_finalization_event(
+                "stage_failure",
+                level=logging.ERROR,
+                stage="authoritative REST read-back",
+                rpc_method="GET outgoingInvoice export",
+                domain_error_code="SUPPLY_IIKO_DOCUMENT_READBACK_NOT_FOUND",
+                match_count=len(matches),
+            )
         raise SupplyIikoDocumentFinalizationError(
             "SUPPLY_IIKO_DOCUMENT_READBACK_NOT_FOUND"
         )
-    return matches[0]
+    result = matches[0]
+    with iiko_finalization_log_context(
+        supply_request_id=supply_request_id,
+        document_number=document.document_number,
+        document_id=document.iiko_document_id,
+    ):
+        log_finalization_event(
+            "stage_success",
+            stage="authoritative REST read-back",
+            rpc_method="GET outgoingInvoice export",
+            returned_document_status=result.status,
+            returned_document_revision=result.revision,
+        )
+    return result
 
 
 def _verify_actual_invoice(
@@ -584,7 +622,9 @@ async def finalize_supply_request_with_iiko_documents(
             to_process: list[_FinalizationDocument] = []
             for document in documents:
                 authoritative = await _authoritative_finalization_invoice(
-                    provider, document
+                    provider,
+                    document,
+                    supply_request_id=request_id,
                 )
                 if authoritative.status == "PROCESSED":
                     _verify_actual_invoice(
@@ -596,9 +636,24 @@ async def finalize_supply_request_with_iiko_documents(
                         "SUPPLY_IIKO_DOCUMENT_NOT_NEW"
                     )
                 try:
-                    update_source = await provider.get_outgoing_invoice_for_update(
-                        document.iiko_document_id
-                    )
+                    with iiko_finalization_log_context(
+                        supply_request_id=request_id,
+                        document_number=document.document_number,
+                        document_id=document.iiko_document_id,
+                    ):
+                        update_source = (
+                            await provider.get_outgoing_invoice_for_update(
+                                document.iiko_document_id
+                            )
+                        )
+                        log_finalization_event(
+                            "stage_success",
+                            stage="getAbstractDocument",
+                            rpc_method="getAbstractDocument",
+                            returned_document_status=update_source.status,
+                            returned_document_revision=update_source.revision,
+                            entities_revision=update_source.entities_version,
+                        )
                     update_source_id = UUID(update_source.external_id)
                 except (IikoError, ValueError) as error:
                     raise SupplyIikoDocumentFinalizationError(
@@ -612,10 +667,23 @@ async def finalize_supply_request_with_iiko_documents(
                     raise SupplyIikoDocumentFinalizationError(
                         "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE"
                     )
-                update_result = await provider.update_outgoing_invoice(
-                    update_source,
-                    actual_quantities=document.actual_quantities,
-                )
+                with iiko_finalization_log_context(
+                    supply_request_id=request_id,
+                    document_number=document.document_number,
+                    document_id=document.iiko_document_id,
+                ):
+                    update_result = await provider.update_outgoing_invoice(
+                        update_source,
+                        actual_quantities=document.actual_quantities,
+                    )
+                    log_finalization_event(
+                        "stage_success",
+                        stage="saveOrUpdateDocument",
+                        rpc_method="saveOrUpdateDocument",
+                        valid=update_result.valid,
+                        warning=update_result.warning,
+                        returned_document_number=update_result.document_number,
+                    )
                 if (
                     not update_result.valid
                     or update_result.document_number != document.document_number
@@ -624,16 +692,27 @@ async def finalize_supply_request_with_iiko_documents(
                         "SUPPLY_IIKO_DOCUMENT_UPDATE_VALIDATION_FAILED"
                     )
                 updated = await _authoritative_finalization_invoice(
-                    provider, document
+                    provider,
+                    document,
+                    supply_request_id=request_id,
                 )
                 _verify_actual_invoice(updated, document, required_status="NEW")
                 to_process.append(document)
 
             if to_process:
-                first_results = await provider.process_outgoing_invoices(
-                    [document.iiko_document_id for document in to_process],
-                    enable_warnings=True,
-                )
+                with iiko_finalization_log_context(
+                    supply_request_id=request_id,
+                    document_number=",".join(
+                        document.document_number for document in to_process
+                    ),
+                    document_id=",".join(
+                        str(document.iiko_document_id) for document in to_process
+                    ),
+                ):
+                    first_results = await provider.process_outgoing_invoices(
+                        [document.iiko_document_id for document in to_process],
+                        enable_warnings=True,
+                    )
                 result_by_number = {
                     result.document_number: result for result in first_results
                     if result.document_number is not None
@@ -649,6 +728,19 @@ async def finalize_supply_request_with_iiko_documents(
                         raise SupplyIikoDocumentFinalizationError(
                             "SUPPLY_IIKO_DOCUMENT_PROCESS_RESPONSE_INVALID"
                         )
+                    with iiko_finalization_log_context(
+                        supply_request_id=request_id,
+                        document_number=document.document_number,
+                        document_id=document.iiko_document_id,
+                    ):
+                        log_finalization_event(
+                            "stage_success",
+                            stage="processDocuments warnings=true",
+                            rpc_method="processDocuments",
+                            valid=result.valid,
+                            warning=result.warning,
+                            returned_document_number=result.document_number,
+                        )
                     if result.valid:
                         continue
                     if result.warning:
@@ -658,14 +750,45 @@ async def finalize_supply_request_with_iiko_documents(
                         "SUPPLY_IIKO_DOCUMENT_PROCESS_VALIDATION_FAILED"
                     )
                 if warning_documents:
-                    ack_results = await provider.process_outgoing_invoices(
-                        [document.iiko_document_id for document in warning_documents],
-                        enable_warnings=False,
-                    )
+                    with iiko_finalization_log_context(
+                        supply_request_id=request_id,
+                        document_number=",".join(
+                            document.document_number
+                            for document in warning_documents
+                        ),
+                        document_id=",".join(
+                            str(document.iiko_document_id)
+                            for document in warning_documents
+                        ),
+                    ):
+                        ack_results = await provider.process_outgoing_invoices(
+                            [
+                                document.iiko_document_id
+                                for document in warning_documents
+                            ],
+                            enable_warnings=False,
+                        )
                     ack_by_number = {
                         result.document_number: result for result in ack_results
                         if result.document_number is not None
                     }
+                    for document in warning_documents:
+                        result = ack_by_number.get(document.document_number)
+                        with iiko_finalization_log_context(
+                            supply_request_id=request_id,
+                            document_number=document.document_number,
+                            document_id=document.iiko_document_id,
+                        ):
+                            log_finalization_event(
+                                "stage_success",
+                                stage="processDocuments warnings=false",
+                                rpc_method="processDocuments",
+                                valid=result.valid if result else None,
+                                warning=result.warning if result else None,
+                                returned_document_number=(
+                                    result.document_number if result else None
+                                ),
+                            )
                     if any(
                         (result := ack_by_number.get(document.document_number)) is None
                         or not result.valid
@@ -677,16 +800,41 @@ async def finalize_supply_request_with_iiko_documents(
 
             for document in documents:
                 processed = await _authoritative_finalization_invoice(
-                    provider, document
+                    provider,
+                    document,
+                    supply_request_id=request_id,
                 )
                 _verify_actual_invoice(
                     processed, document, required_status="PROCESSED"
                 )
-        except SupplyIikoDocumentFinalizationError:
+        except SupplyIikoDocumentFinalizationError as error:
             session.rollback()
+            with iiko_finalization_log_context(supply_request_id=request_id):
+                log_finalization_event(
+                    "fail_closed",
+                    level=logging.ERROR,
+                    stage="EOS commit / fail-closed",
+                    domain_error_code=error.code,
+                    exception_class=error.__class__.__name__,
+                )
             raise
         except IikoError as error:
             session.rollback()
+            with iiko_finalization_log_context(supply_request_id=request_id):
+                log_finalization_event(
+                    "fail_closed",
+                    level=logging.ERROR,
+                    stage="EOS commit / fail-closed",
+                    domain_error_code=(
+                        "SUPPLY_IIKO_DOCUMENT_FINALIZATION_FAILED"
+                    ),
+                    client_error_code=(
+                        str(error.args[0]).split()[0]
+                        if error.args and str(error.args[0]).startswith("IIKO_")
+                        else error.code
+                    ),
+                    exception_class=error.__class__.__name__,
+                )
             raise SupplyIikoDocumentFinalizationError(
                 "SUPPLY_IIKO_DOCUMENT_FINALIZATION_FAILED"
             ) from error
@@ -696,10 +844,19 @@ async def finalize_supply_request_with_iiko_documents(
         session.rollback()
         return current
     session.rollback()
-    return fulfill_supply_request_as_planned(
+    result = fulfill_supply_request_as_planned(
         session,
         request_id,
         expected_version=expected_version,
         user_id=user_id,
         items=items,
     )
+    if documents:
+        with iiko_finalization_log_context(supply_request_id=request_id):
+            log_finalization_event(
+                "stage_success",
+                stage="EOS commit / fail-closed",
+                domain_status=result.status,
+                fulfilled_at=result.fulfilled_at,
+            )
+    return result

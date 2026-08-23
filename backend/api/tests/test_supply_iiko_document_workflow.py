@@ -635,6 +635,46 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             [True, False],
         )
 
+    async def test_successful_finalization_logs_all_executed_stages(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(
+            request_id, RecordingProvider(self.sessions)
+        )
+        write = self._writes(request_id)[0]
+        provider = self._finalization_provider(request_id, process_results=(
+            (IikoDocumentValidationResultDto(
+                valid=False,
+                warning=True,
+                document_number=write.iiko_document_number,
+            ),),
+            (IikoDocumentValidationResultDto(
+                valid=True,
+                warning=False,
+                document_number=write.iiko_document_number,
+            ),),
+        ))
+
+        with self.assertLogs("eos.iiko.finalization", level="INFO") as logs:
+            completed = await self._finalize(
+                request_id, provider, "1", version=planned.version
+            )
+
+        self.assertEqual(completed.status, "FULFILLED")
+        rendered = "\n".join(logs.output)
+        for stage in (
+            "authoritative REST read-back",
+            "getAbstractDocument",
+            "saveOrUpdateDocument",
+            "processDocuments warnings=true",
+            "processDocuments warnings=false",
+            "EOS commit / fail-closed",
+        ):
+            self.assertIn(f"stage={stage}", rendered)
+        self.assertIn(f"supply_request_id={request_id}", rendered)
+        self.assertIn(
+            f"authoritative_uuid={provider.invoices[0].external_id}", rendered
+        )
+
     async def test_hard_process_error_keeps_eos_state_unchanged(self):
         request_id = self._create_request((SupplyProductSourceRole.MAIN,))
         planned = await self._plan(request_id, RecordingProvider(self.sessions))
