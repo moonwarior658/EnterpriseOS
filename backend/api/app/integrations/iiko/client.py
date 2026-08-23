@@ -654,9 +654,30 @@ class IikoServerClient(IikoProvider):
         ) and (success != "true" or result_status != "SUCCESS"):
             raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
 
+        validation_fields = {
+            "valid",
+            "warning",
+            "documentNumber",
+            "otherSuggestedNumber",
+            "errorMessage",
+            "additionalInfo",
+        }
+        direct_return_values = [
+            element for element in root
+            if local_name(element) == "returnValue"
+            and validation_fields.issubset({
+                local_name(child) for child in element
+            })
+        ]
+        if direct_return_values and (
+            success != "true" or result_status != "SUCCESS"
+        ):
+            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+
         candidates = [
             element for element in root.iter()
             if local_name(element) == "documentValidationResult"
+            or element in direct_return_values
             or (
                 local_name(element) == "v"
                 and optional_text(element, "valid") is not None
@@ -665,7 +686,9 @@ class IikoServerClient(IikoProvider):
         ]
         if local_name(root) == "documentValidationResult" and root not in candidates:
             candidates.insert(0, root)
-        if not candidates:
+        if not candidates or (
+            direct_return_values and len(candidates) != 1
+        ):
             raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
 
         results: list[IikoDocumentValidationResultDto] = []

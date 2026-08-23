@@ -154,6 +154,122 @@ def successful_import_response(
 
 
 class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
+    def test_validation_results_parse_production_return_value(self):
+        root = ET.fromstring(
+            "<result><returnValue>"
+            "<valid>true</valid><warning>false</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "<otherSuggestedNumber></otherSuggestedNumber>"
+            "<errorMessage>saved</errorMessage>"
+            "<additionalInfo>revision 16276898</additionalInfo>"
+            "</returnValue><success>true</success>"
+            "<resultStatus>SUCCESS</resultStatus></result>"
+        )
+
+        results = IikoServerClient._validation_results(root)
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].valid)
+        self.assertFalse(results[0].warning)
+        self.assertEqual(results[0].document_number, "2735")
+        self.assertEqual(results[0].error_message, "saved")
+        self.assertEqual(results[0].additional_info, "revision 16276898")
+
+    def test_validation_results_parse_production_return_value_warning(self):
+        root = ET.fromstring(
+            "<result><returnValue>"
+            "<valid>false</valid><warning>true</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "<otherSuggestedNumber>2735-1</otherSuggestedNumber>"
+            "<errorMessage>confirmation required</errorMessage>"
+            "<additionalInfo>warning details</additionalInfo>"
+            "</returnValue><success>true</success>"
+            "<resultStatus>SUCCESS</resultStatus></result>"
+        )
+
+        result = IikoServerClient._validation_results(root)[0]
+
+        self.assertFalse(result.valid)
+        self.assertTrue(result.warning)
+        self.assertEqual(result.error_message, "confirmation required")
+        self.assertEqual(result.additional_info, "warning details")
+
+    def test_validation_results_reject_malformed_direct_return_value(self):
+        root = ET.fromstring(
+            "<result><returnValue>"
+            "<valid>true</valid><warning>false</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "<errorMessage></errorMessage><additionalInfo></additionalInfo>"
+            "</returnValue><success>true</success>"
+            "<resultStatus>SUCCESS</resultStatus></result>"
+        )
+
+        with self.assertRaisesRegex(
+            IikoContractError,
+            "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
+        ):
+            IikoServerClient._validation_results(root)
+
+    def test_validation_results_reject_ambiguous_direct_return_values(self):
+        result_xml = (
+            "<valid>true</valid><warning>false</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "<otherSuggestedNumber></otherSuggestedNumber>"
+            "<errorMessage></errorMessage><additionalInfo></additionalInfo>"
+        )
+        root = ET.fromstring(
+            f"<result><returnValue>{result_xml}</returnValue>"
+            f"<returnValue>{result_xml}</returnValue>"
+            "<success>true</success><resultStatus>SUCCESS</resultStatus>"
+            "</result>"
+        )
+
+        with self.assertRaisesRegex(
+            IikoContractError,
+            "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
+        ):
+            IikoServerClient._validation_results(root)
+
+    def test_validation_results_direct_return_value_requires_success_headers(self):
+        validation_xml = (
+            "<returnValue><valid>true</valid><warning>false</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "<otherSuggestedNumber></otherSuggestedNumber>"
+            "<errorMessage></errorMessage><additionalInfo></additionalInfo>"
+            "</returnValue>"
+        )
+        cases = (
+            "<success>true</success>",
+            "<resultStatus>SUCCESS</resultStatus>",
+            "<success>false</success><resultStatus>SUCCESS</resultStatus>",
+            "<success>true</success><resultStatus>FAILED</resultStatus>",
+        )
+        for headers in cases:
+            with self.subTest(headers=headers), self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
+            ):
+                IikoServerClient._validation_results(ET.fromstring(
+                    f"<result>{validation_xml}{headers}</result>"
+                ))
+
+    def test_validation_results_keep_hashmap_v_shape(self):
+        root = ET.fromstring(
+            "<result><returnValue cls=\"java.util.HashMap\"><e>"
+            "<k>document-id</k><v cls=\"DocumentValidationResult\">"
+            "<valid>true</valid><warning>false</warning>"
+            "<documentNumber>2735</documentNumber>"
+            "</v></e></returnValue><success>true</success>"
+            "<resultStatus>SUCCESS</resultStatus></result>"
+        )
+
+        results = IikoServerClient._validation_results(root)
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].valid)
+        self.assertFalse(results[0].warning)
+        self.assertEqual(results[0].document_number, "2735")
+
     async def test_reads_fresh_revision_and_full_invoice_through_legacy_rpc(self):
         requests: list[httpx.Request] = []
 
