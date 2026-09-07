@@ -68,6 +68,11 @@ class SupplyPrintPurpose(StrEnum):
     REPRINT = "REPRINT"
 
 
+class SupplyProductSupplierRole(StrEnum):
+    PRIMARY = "PRIMARY"
+    BACKUP = "BACKUP"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -519,6 +524,228 @@ class SupplyProduct(Base):
         passive_deletes=True,
         order_by="SupplyProductAlias.created_at",
     )
+
+
+class SupplySupplier(Base):
+    __tablename__ = "supply_suppliers"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_suppliers_tenant_id"
+        ),
+        Index(
+            "ix_supply_suppliers_tenant_active_name",
+            "tenant_id",
+            "is_active",
+            "display_name",
+        ),
+        Index(
+            "uq_supply_suppliers_tenant_active_inn",
+            "tenant_id",
+            "inn",
+            unique=True,
+            postgresql_where=text("inn IS NOT NULL AND is_active = true"),
+            sqlite_where=text("inn IS NOT NULL AND is_active = true"),
+        ),
+        CheckConstraint(
+            "(is_active = true AND archived_at IS NULL AND "
+            "archived_by_user_id IS NULL) OR "
+            "(is_active = false AND archived_at IS NOT NULL AND "
+            "archived_by_user_id IS NOT NULL)",
+            name="ck_supply_suppliers_archive_state",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    legal_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    inn: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    kpp: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ogrn: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    legal_address: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    actual_address: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    bik: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    correspondent_account: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    settlement_account: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    order_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    archived_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class SupplyProductSupplier(Base):
+    __tablename__ = "supply_product_suppliers"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_product_suppliers_tenant_id"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_product_suppliers_product_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"],
+            ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_supply_product_suppliers_supplier_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "package_unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_product_suppliers_package_unit_tenant",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_supply_product_suppliers_product_order",
+            "tenant_id", "product_id", "is_active", "priority",
+        ),
+        Index(
+            "uq_supply_product_suppliers_active_pair",
+            "tenant_id", "product_id", "supplier_id",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = true"),
+        ),
+        Index(
+            "uq_supply_product_suppliers_active_primary",
+            "tenant_id", "product_id",
+            unique=True,
+            postgresql_where=text(
+                "is_active = true AND role = 'PRIMARY'"
+            ),
+            sqlite_where=text("is_active = true AND role = 'PRIMARY'"),
+        ),
+        CheckConstraint(
+            "role IN ('PRIMARY', 'BACKUP')",
+            name="ck_supply_product_suppliers_role",
+        ),
+        CheckConstraint(
+            "priority >= 0", name="ck_supply_product_suppliers_priority"
+        ),
+        CheckConstraint(
+            "package_quantity > 0",
+            name="ck_supply_product_suppliers_package_quantity",
+        ),
+        CheckConstraint(
+            "price_per_package IS NULL OR price_per_package > 0",
+            name="ck_supply_product_suppliers_price",
+        ),
+        CheckConstraint(
+            "currency = 'RUB'",
+            name="ck_supply_product_suppliers_currency",
+        ),
+        CheckConstraint(
+            "is_available = false OR unavailable_until IS NULL",
+            name="ck_supply_product_suppliers_availability",
+        ),
+        CheckConstraint(
+            "(is_active = true AND archived_at IS NULL AND "
+            "archived_by_user_id IS NULL) OR "
+            "(is_active = false AND archived_at IS NOT NULL AND "
+            "archived_by_user_id IS NOT NULL)",
+            name="ck_supply_product_suppliers_archive_state",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_product_name: Mapped[str | None] = mapped_column(
+        String(240), nullable=True
+    )
+    supplier_sku: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    role: Mapped[str] = mapped_column(
+        String(16), default="BACKUP", server_default="BACKUP", nullable=False
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, default=100, server_default="100", nullable=False
+    )
+    package_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), nullable=False
+    )
+    package_unit_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    price_per_package: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3), default="RUB", server_default="RUB", nullable=False
+    )
+    is_available: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+    unavailable_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    archived_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False
+    )
+
+    product: Mapped[SupplyProduct] = relationship(overlaps="supplier,package_unit")
+    supplier: Mapped[SupplySupplier] = relationship(overlaps="product,package_unit")
+    package_unit: Mapped[SupplyUnit] = relationship(overlaps="product,supplier")
+
+    @property
+    def price_per_base_unit(self) -> Decimal | None:
+        if self.price_per_package is None:
+            return None
+        return (self.price_per_package / self.package_quantity).quantize(
+            Decimal("0.01")
+        )
+
+    @property
+    def base_unit(self) -> SupplyUnit:
+        return self.product.default_unit
 
 
 class SupplyProductAlias(Base):

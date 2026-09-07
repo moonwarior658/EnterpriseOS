@@ -20,6 +20,7 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyProductSupplier,
     SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
@@ -27,6 +28,7 @@ from app.models.supply import (
     SupplyRequestLine,
     SupplyRequestLineDebtLink,
     SupplyStorageZone,
+    SupplySupplier,
     SupplyUnit,
 )
 from app.schemas.supply import (
@@ -44,6 +46,10 @@ from app.schemas.supply import (
     SupplyProductUpdate,
     SupplyReferenceCreate,
     SupplyReferenceUpdate,
+    SupplySupplierCreate,
+    SupplySupplierUpdate,
+    SupplyProductSupplierCreate,
+    SupplyProductSupplierUpdate,
     SupplyRecognitionResult,
     SupplyRecognitionSummary,
     SupplyRequestCreate,
@@ -180,6 +186,14 @@ class DuplicateSupplyProductAliasError(ValueError):
     pass
 
 
+class SupplySupplierNotFoundError(LookupError):
+    pass
+
+
+class DuplicateActiveSupplySupplierInnError(ValueError):
+    pass
+
+
 class SupplyProductAliasNotFoundError(LookupError):
     pass
 
@@ -213,6 +227,26 @@ class DuplicateSupplyProductIikoIdError(ValueError):
 
 
 class SupplyProductRestoreConflictError(ValueError):
+    pass
+
+
+class SupplyProductSupplierNotFoundError(LookupError):
+    pass
+
+
+class DuplicateActiveSupplyProductSupplierError(ValueError):
+    pass
+
+
+class ActivePrimarySupplyProductSupplierExistsError(ValueError):
+    pass
+
+
+class InactiveSupplySupplierError(ValueError):
+    pass
+
+
+class InvalidSupplyProductSupplierAvailabilityError(ValueError):
     pass
 
 
@@ -823,6 +857,527 @@ def update_supply_storage_zone(
         get_supply_storage_zone(session, zone_id),
         payload,
         duplicate_error=DuplicateSupplyStorageZoneError,
+    )
+
+
+def get_supply_supplier(
+    session: Session,
+    supplier_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplySupplier:
+    supplier = session.scalar(
+        select(SupplySupplier).where(
+            SupplySupplier.id == supplier_id,
+            SupplySupplier.tenant_id == tenant_id,
+        )
+    )
+    if supplier is None:
+        raise SupplySupplierNotFoundError
+    return supplier
+
+
+def list_supply_suppliers(
+    session: Session,
+    *,
+    tenant_id: str,
+    active: bool | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[SupplySupplier], int]:
+    filters = [SupplySupplier.tenant_id == tenant_id]
+    if active is not None:
+        filters.append(SupplySupplier.is_active == active)
+    if search is not None and (query := search.strip()):
+        filters.append(
+            or_(
+                SupplySupplier.display_name.ilike(f"%{query}%"),
+                SupplySupplier.legal_name.ilike(f"%{query}%"),
+                SupplySupplier.inn.contains(query),
+            )
+        )
+    total = session.scalar(
+        select(func.count()).select_from(SupplySupplier).where(*filters)
+    )
+    items = session.scalars(
+        select(SupplySupplier)
+        .where(*filters)
+        .order_by(SupplySupplier.display_name.asc(), SupplySupplier.id.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return list(items), int(total or 0)
+
+
+def _active_supplier_inn_exists(
+    session: Session,
+    inn: str | None,
+    *,
+    tenant_id: str,
+    exclude_supplier_id: UUID | None = None,
+) -> bool:
+    if inn is None:
+        return False
+    statement = select(SupplySupplier.id).where(
+        SupplySupplier.tenant_id == tenant_id,
+        SupplySupplier.inn == inn,
+        SupplySupplier.is_active.is_(True),
+    )
+    if exclude_supplier_id is not None:
+        statement = statement.where(SupplySupplier.id != exclude_supplier_id)
+    return session.scalar(statement.limit(1)) is not None
+
+
+def create_supply_supplier(
+    session: Session,
+    payload: SupplySupplierCreate,
+    *,
+    tenant_id: str,
+) -> SupplySupplier:
+    if _active_supplier_inn_exists(session, payload.inn, tenant_id=tenant_id):
+        raise DuplicateActiveSupplySupplierInnError
+    supplier = SupplySupplier(
+        tenant_id=tenant_id,
+        **payload.model_dump(),
+        is_active=True,
+    )
+    try:
+        session.add(supplier)
+        session.flush()
+        session.commit()
+        session.expire(supplier)
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplySupplierInnError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_supplier(session, supplier.id, tenant_id=tenant_id)
+
+
+def update_supply_supplier(
+    session: Session,
+    supplier_id: UUID,
+    payload: SupplySupplierUpdate,
+    *,
+    tenant_id: str,
+) -> SupplySupplier:
+    supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "inn" in changes and supplier.is_active and _active_supplier_inn_exists(
+        session,
+        changes["inn"],
+        tenant_id=tenant_id,
+        exclude_supplier_id=supplier.id,
+    ):
+        raise DuplicateActiveSupplySupplierInnError
+    for field, value in changes.items():
+        setattr(supplier, field, value)
+    try:
+        session.flush()
+        session.commit()
+        session.expire(supplier)
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplySupplierInnError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_supplier(session, supplier.id, tenant_id=tenant_id)
+
+
+def archive_supply_supplier(
+    session: Session,
+    supplier_id: UUID,
+    *,
+    tenant_id: str,
+    archived_by_user_id: int,
+) -> SupplySupplier:
+    supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
+    if not supplier.is_active:
+        return supplier
+    try:
+        supplier.is_active = False
+        supplier.archived_at = datetime.now(timezone.utc)
+        supplier.archived_by_user_id = archived_by_user_id
+        session.flush()
+        session.commit()
+        session.expire(supplier)
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_supplier(session, supplier.id, tenant_id=tenant_id)
+
+
+def restore_supply_supplier(
+    session: Session,
+    supplier_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplySupplier:
+    supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
+    if supplier.is_active:
+        return supplier
+    if _active_supplier_inn_exists(
+        session,
+        supplier.inn,
+        tenant_id=tenant_id,
+        exclude_supplier_id=supplier.id,
+    ):
+        raise DuplicateActiveSupplySupplierInnError
+    try:
+        supplier.is_active = True
+        supplier.archived_at = None
+        supplier.archived_by_user_id = None
+        session.flush()
+        session.commit()
+        session.expire(supplier)
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplySupplierInnError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_supplier(session, supplier.id, tenant_id=tenant_id)
+
+
+def _product_supplier_options():
+    return (
+        joinedload(SupplyProductSupplier.supplier),
+        joinedload(SupplyProductSupplier.package_unit),
+        joinedload(SupplyProductSupplier.product).joinedload(
+            SupplyProduct.default_unit
+        ),
+    )
+
+
+def _get_product_for_supplier_relation(
+    session: Session,
+    product_id: UUID,
+    *,
+    tenant_id: str,
+    require_active: bool = False,
+) -> SupplyProduct:
+    product = session.scalar(select(SupplyProduct).where(
+        SupplyProduct.id == product_id,
+        SupplyProduct.tenant_id == tenant_id,
+    ))
+    if product is None:
+        raise SupplyProductNotFoundError
+    if require_active and not product.is_active:
+        raise InactiveSupplyProductError
+    return product
+
+
+def get_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplyProductSupplier:
+    relation = session.scalar(
+        select(SupplyProductSupplier)
+        .where(
+            SupplyProductSupplier.id == relation_id,
+            SupplyProductSupplier.product_id == product_id,
+            SupplyProductSupplier.tenant_id == tenant_id,
+        )
+        .options(*_product_supplier_options())
+    )
+    if relation is None:
+        raise SupplyProductSupplierNotFoundError
+    return relation
+
+
+def list_supply_product_suppliers(
+    session: Session,
+    product_id: UUID,
+    *,
+    tenant_id: str,
+    active: bool | None,
+) -> list[SupplyProductSupplier]:
+    _get_product_for_supplier_relation(
+        session, product_id, tenant_id=tenant_id
+    )
+    filters = [
+        SupplyProductSupplier.tenant_id == tenant_id,
+        SupplyProductSupplier.product_id == product_id,
+    ]
+    if active is not None:
+        filters.append(SupplyProductSupplier.is_active == active)
+    return list(session.scalars(
+        select(SupplyProductSupplier)
+        .where(*filters)
+        .options(*_product_supplier_options())
+        .order_by(
+            case((SupplyProductSupplier.role == "PRIMARY", 0), else_=1),
+            SupplyProductSupplier.priority.asc(),
+            SupplyProductSupplier.created_at.asc(),
+            SupplyProductSupplier.id.asc(),
+        )
+    ).all())
+
+
+def _active_product_supplier_exists(
+    session: Session,
+    *,
+    tenant_id: str,
+    product_id: UUID,
+    supplier_id: UUID,
+    exclude_relation_id: UUID | None = None,
+) -> bool:
+    statement = select(SupplyProductSupplier.id).where(
+        SupplyProductSupplier.tenant_id == tenant_id,
+        SupplyProductSupplier.product_id == product_id,
+        SupplyProductSupplier.supplier_id == supplier_id,
+        SupplyProductSupplier.is_active.is_(True),
+    )
+    if exclude_relation_id is not None:
+        statement = statement.where(
+            SupplyProductSupplier.id != exclude_relation_id
+        )
+    return session.scalar(statement.limit(1)) is not None
+
+
+def _active_primary_product_supplier_exists(
+    session: Session,
+    *,
+    tenant_id: str,
+    product_id: UUID,
+    exclude_relation_id: UUID | None = None,
+) -> bool:
+    statement = select(SupplyProductSupplier.id).where(
+        SupplyProductSupplier.tenant_id == tenant_id,
+        SupplyProductSupplier.product_id == product_id,
+        SupplyProductSupplier.role == "PRIMARY",
+        SupplyProductSupplier.is_active.is_(True),
+    )
+    if exclude_relation_id is not None:
+        statement = statement.where(
+            SupplyProductSupplier.id != exclude_relation_id
+        )
+    return session.scalar(statement.limit(1)) is not None
+
+
+def _require_active_supplier(
+    session: Session, supplier_id: UUID, *, tenant_id: str
+) -> SupplySupplier:
+    supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
+    if not supplier.is_active:
+        raise InactiveSupplySupplierError
+    return supplier
+
+
+def create_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    payload: SupplyProductSupplierCreate,
+    *,
+    tenant_id: str,
+) -> SupplyProductSupplier:
+    product = _get_product_for_supplier_relation(
+        session, product_id, tenant_id=tenant_id, require_active=True
+    )
+    supplier = _require_active_supplier(
+        session, payload.supplier_id, tenant_id=tenant_id
+    )
+    package_unit = _get_supply_unit(
+        session, payload.package_unit_id, tenant_id=tenant_id
+    )
+    if _active_product_supplier_exists(
+        session,
+        tenant_id=tenant_id,
+        product_id=product.id,
+        supplier_id=supplier.id,
+    ):
+        raise DuplicateActiveSupplyProductSupplierError
+    if payload.role == "PRIMARY" and _active_primary_product_supplier_exists(
+        session, tenant_id=tenant_id, product_id=product.id
+    ):
+        raise ActivePrimarySupplyProductSupplierExistsError
+    relation = SupplyProductSupplier(
+        tenant_id=tenant_id,
+        product_id=product.id,
+        supplier_id=supplier.id,
+        package_unit_id=package_unit.id,
+        **payload.model_dump(exclude={"supplier_id", "package_unit_id"}),
+        is_active=True,
+    )
+    try:
+        session.add(relation)
+        session.flush()
+        session.commit()
+        relation_id = relation.id
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplyProductSupplierError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+
+
+def update_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    payload: SupplyProductSupplierUpdate,
+    *,
+    tenant_id: str,
+) -> SupplyProductSupplier:
+    relation = get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+    changes = payload.model_dump(exclude_unset=True)
+    if "package_unit_id" in changes:
+        changes["package_unit_id"] = _get_supply_unit(
+            session, changes["package_unit_id"], tenant_id=tenant_id
+        ).id
+    final_available = changes.get("is_available", relation.is_available)
+    if final_available:
+        if "unavailable_until" in changes and changes["unavailable_until"] is not None:
+            raise InvalidSupplyProductSupplierAvailabilityError
+        changes["unavailable_until"] = None
+    for field, value in changes.items():
+        setattr(relation, field, value)
+    try:
+        session.flush()
+        session.commit()
+        relation_id = relation.id
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplyProductSupplierError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+
+
+def archive_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    *,
+    tenant_id: str,
+    archived_by_user_id: int,
+) -> SupplyProductSupplier:
+    relation = get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+    if not relation.is_active:
+        return relation
+    relation.is_active = False
+    relation.archived_at = datetime.now(timezone.utc)
+    relation.archived_by_user_id = archived_by_user_id
+    try:
+        session.commit()
+        relation_id = relation.id
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+
+
+def restore_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplyProductSupplier:
+    relation = get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+    if relation.is_active:
+        return relation
+    _get_product_for_supplier_relation(
+        session, product_id, tenant_id=tenant_id, require_active=True
+    )
+    _require_active_supplier(session, relation.supplier_id, tenant_id=tenant_id)
+    _get_supply_unit(session, relation.package_unit_id, tenant_id=tenant_id)
+    if _active_product_supplier_exists(
+        session,
+        tenant_id=tenant_id,
+        product_id=product_id,
+        supplier_id=relation.supplier_id,
+        exclude_relation_id=relation.id,
+    ):
+        raise DuplicateActiveSupplyProductSupplierError
+    if relation.role == "PRIMARY" and _active_primary_product_supplier_exists(
+        session,
+        tenant_id=tenant_id,
+        product_id=product_id,
+        exclude_relation_id=relation.id,
+    ):
+        raise ActivePrimarySupplyProductSupplierExistsError
+    relation.is_active = True
+    relation.archived_at = None
+    relation.archived_by_user_id = None
+    try:
+        session.flush()
+        session.commit()
+        relation_id = relation.id
+    except IntegrityError as error:
+        session.rollback()
+        raise DuplicateActiveSupplyProductSupplierError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+
+
+def make_primary_supply_product_supplier(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplyProductSupplier:
+    _get_product_for_supplier_relation(
+        session, product_id, tenant_id=tenant_id, require_active=True
+    )
+    try:
+        relations = list(session.scalars(
+            select(SupplyProductSupplier)
+            .where(
+                SupplyProductSupplier.tenant_id == tenant_id,
+                SupplyProductSupplier.product_id == product_id,
+                SupplyProductSupplier.is_active.is_(True),
+            )
+            .order_by(SupplyProductSupplier.id.asc())
+            .with_for_update()
+        ).all())
+        target = next((item for item in relations if item.id == relation_id), None)
+        if target is None:
+            raise SupplyProductSupplierNotFoundError
+        for relation in relations:
+            if relation.id != target.id and relation.role == "PRIMARY":
+                relation.role = "BACKUP"
+        session.flush()
+        target.role = "PRIMARY"
+        session.flush()
+        session.commit()
+    except (SupplyProductSupplierNotFoundError,):
+        session.rollback()
+        raise
+    except IntegrityError as error:
+        session.rollback()
+        raise ActivePrimarySupplyProductSupplierExistsError from error
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
     )
 
 

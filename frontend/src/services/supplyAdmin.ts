@@ -21,6 +21,93 @@ export type SupplyProduct = {
   aliases: Array<{ id: string; alias: string; status: string }>
 }
 
+export type SupplySupplier = {
+  id: string
+  display_name: string
+  legal_name: string | null
+  inn: string | null
+  kpp: string | null
+  ogrn: string | null
+  legal_address: string | null
+  actual_address: string | null
+  bank_name: string | null
+  bik: string | null
+  correspondent_account: string | null
+  settlement_account: string | null
+  order_email: string | null
+  phone: string | null
+  comment: string | null
+  is_active: boolean
+  archived_at: string | null
+  archived_by_user_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupplySupplierInput = {
+  display_name: string
+  legal_name?: string | null
+  inn?: string | null
+  kpp?: string | null
+  ogrn?: string | null
+  legal_address?: string | null
+  actual_address?: string | null
+  bank_name?: string | null
+  bik?: string | null
+  correspondent_account?: string | null
+  settlement_account?: string | null
+  order_email?: string | null
+  phone?: string | null
+  comment?: string | null
+}
+
+export type SupplySupplierPage = {
+  items: SupplySupplier[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type SupplyProductSupplierRole = 'PRIMARY' | 'BACKUP'
+
+export type SupplyProductSupplier = {
+  id: string
+  product_id: string
+  supplier_id: string
+  supplier: SupplySupplier
+  supplier_product_name: string | null
+  supplier_sku: string | null
+  role: SupplyProductSupplierRole
+  priority: number
+  package_quantity: string
+  package_unit_id: string
+  package_unit: SupplyUnit
+  base_unit: SupplyUnit
+  price_per_package: string | null
+  price_per_base_unit: string | null
+  currency: 'RUB'
+  is_available: boolean
+  unavailable_until: string | null
+  is_active: boolean
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupplyProductSupplierInput = {
+  supplier_id?: string
+  supplier_product_name?: string | null
+  supplier_sku?: string | null
+  role?: SupplyProductSupplierRole
+  priority?: number
+  package_quantity?: string
+  package_unit_id?: string
+  price_per_package?: string | null
+  currency?: 'RUB'
+  is_available?: boolean
+  unavailable_until?: string | null
+}
+
 export type SupplyAllocation = {
   id: string
   action: 'TRANSFER' | 'PURCHASE' | 'CANCEL'
@@ -307,11 +394,18 @@ export type SupplyCycle = { id: string; cycle_date: string; direction_id: string
 export class SupplyApiError extends Error {
   code: string | null
   currentVersion: number | null
+  status: number | null
 
-  constructor(message: string, code: string | null, currentVersion: number | null) {
+  constructor(
+    message: string,
+    code: string | null,
+    currentVersion: number | null,
+    status: number | null = null,
+  ) {
     super(message)
     this.code = code
     this.currentVersion = currentVersion
+    this.status = status
   }
 }
 
@@ -338,6 +432,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       'Не удалось выполнить действие',
       payload?.code ?? null,
       payload?.current_version ?? null,
+      response.status,
     )
   }
   return response.json() as Promise<T>
@@ -524,6 +619,119 @@ export function getSupplyProducts(
   if (search) query.set('search', search)
   return request(`/supply/products?${query}`, { signal })
 }
+
+export function getSupplySuppliers(
+  active: boolean,
+  search = '',
+  offset = 0,
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<SupplySupplierPage> {
+  const query = new URLSearchParams({
+    active: String(active),
+    limit: String(limit),
+    offset: String(offset),
+  })
+  if (search.trim()) query.set('search', search.trim())
+  return request(`/supply/suppliers?${query.toString()}`, { signal })
+}
+
+export function getSupplySupplier(
+  supplierId: string,
+  signal?: AbortSignal,
+): Promise<SupplySupplier> {
+  return request(`/supply/suppliers/${supplierId}`, { signal })
+}
+
+export function createSupplySupplier(
+  input: SupplySupplierInput,
+): Promise<SupplySupplier> {
+  return request('/supply/suppliers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateSupplySupplier(
+  supplierId: string,
+  input: SupplySupplierInput,
+): Promise<SupplySupplier> {
+  return request(`/supply/suppliers/${supplierId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function archiveSupplySupplier(
+  supplierId: string,
+): Promise<SupplySupplier> {
+  return request(`/supply/suppliers/${supplierId}/archive`, {
+    method: 'POST',
+  })
+}
+
+export function restoreSupplySupplier(
+  supplierId: string,
+): Promise<SupplySupplier> {
+  return request(`/supply/suppliers/${supplierId}/restore`, {
+    method: 'POST',
+  })
+}
+
+export function getSupplyProductSuppliers(
+  productId: string,
+  active: boolean,
+  signal?: AbortSignal,
+): Promise<SupplyProductSupplier[]> {
+  return request(
+    `/supply/products/${productId}/suppliers?active=${String(active)}`,
+    { signal },
+  )
+}
+
+export function createSupplyProductSupplier(
+  productId: string,
+  input: SupplyProductSupplierInput & { supplier_id: string },
+): Promise<SupplyProductSupplier> {
+  return request(`/supply/products/${productId}/suppliers`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateSupplyProductSupplier(
+  productId: string,
+  relationId: string,
+  input: SupplyProductSupplierInput,
+): Promise<SupplyProductSupplier> {
+  return request(`/supply/products/${productId}/suppliers/${relationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+function productSupplierAction(
+  productId: string,
+  relationId: string,
+  action: 'archive' | 'restore' | 'make-primary',
+): Promise<SupplyProductSupplier> {
+  return request(
+    `/supply/products/${productId}/suppliers/${relationId}/${action}`,
+    { method: 'POST' },
+  )
+}
+
+export const archiveSupplyProductSupplier = (productId: string, relationId: string) => (
+  productSupplierAction(productId, relationId, 'archive')
+)
+
+export const restoreSupplyProductSupplier = (productId: string, relationId: string) => (
+  productSupplierAction(productId, relationId, 'restore')
+)
+
+export const makePrimarySupplyProductSupplier = (productId: string, relationId: string) => (
+  productSupplierAction(productId, relationId, 'make-primary')
+)
 
 export function getSupplyUnits(signal?: AbortSignal): Promise<SupplyUnit[]> {
   return request('/supply/units', { signal })

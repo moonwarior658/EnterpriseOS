@@ -40,6 +40,8 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyProductSupplier,
+    SupplyProductSupplierRole,
     SupplyProductSourceMapping,
     SupplyProductSourceMappingAuditEvent,
     SupplyPrintJob,
@@ -56,6 +58,7 @@ from app.models.supply import (
     SupplyRequestLine,
     SupplyRequestLineDebtLink,
     SupplyStorageZone,
+    SupplySupplier,
     SupplyUnit,
 )
 from app.models.work_request import (
@@ -101,6 +104,8 @@ __all__ = [
     "SupplyProduct",
     "SupplyProductAlias",
     "SupplyProductCategory",
+    "SupplyProductSupplier",
+    "SupplyProductSupplierRole",
     "SupplyProductSourceMapping",
     "SupplyProductSourceMappingAuditEvent",
     "SupplyPrintJob",
@@ -117,6 +122,7 @@ __all__ = [
     "SupplyRequestLine",
     "SupplyRequestLineDebtLink",
     "SupplyStorageZone",
+    "SupplySupplier",
     "SupplyUnit",
     "User",
     "WorkRequest",

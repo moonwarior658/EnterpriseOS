@@ -51,6 +51,7 @@ import {
   iikoLegalContourLabel,
   mappingActionLabel,
 } from './iikoMappingLogic'
+import { SupplyProductSuppliersPanel } from './SupplyProductSuppliersPanel'
 
 
 type MappingItem =
@@ -112,6 +113,10 @@ function IikoMappingPage() {
   const [legalContourDrafts, setLegalContourDrafts] = useState<
     Record<string, IikoLegalContour>
   >({})
+  const [supplierProduct, setSupplierProduct] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   const load = useCallback(async () => {
     setState('loading')
@@ -793,6 +798,21 @@ function IikoMappingPage() {
                   )}
                 </div>
                 <div className="iiko-mapping-actions">
+                  {tab === 'products'
+                    && (item as IikoProductMapping).eos_product_id
+                    && (item as IikoProductMapping).eos_product_name && (
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        disabled={busyId !== null}
+                        onClick={() => setSupplierProduct({
+                          id: (item as IikoProductMapping).eos_product_id!,
+                          name: (item as IikoProductMapping).eos_product_name!,
+                        })}
+                      >
+                        Поставщики
+                      </button>
+                  )}
                   <button
                     type="button"
                     className="primary-action"
@@ -829,6 +849,13 @@ function IikoMappingPage() {
           itemCount={items.length}
           onPageChange={setOffset}
         />
+        {supplierProduct && (
+          <SupplyProductSuppliersPanel
+            productId={supplierProduct.id}
+            productName={supplierProduct.name}
+            onClose={() => setSupplierProduct(null)}
+          />
+        )}
       </div>
     </section>
   )

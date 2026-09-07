@@ -141,6 +141,17 @@ function AppLayout() {
               </NavLink>
 
               <NavLink
+                to="/supply/suppliers"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Поставщики</span>
+                <span>→</span>
+              </NavLink>
+
+              <NavLink
                 to="/integrations/iiko/mappings"
                 onClick={closeMenu}
                 className={({ isActive }) =>

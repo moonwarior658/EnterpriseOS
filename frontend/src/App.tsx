@@ -11,6 +11,7 @@ import PublicSupplyRequestPage from './pages/PublicSupplyRequestPage'
 import SupplyRequestDetailPage from './pages/SupplyRequestDetailPage'
 import SupplyRequestListPage from './pages/SupplyRequestListPage'
 import SupplyDebtListPage from './pages/SupplyDebtListPage'
+import SupplySuppliersPage from './pages/SupplySuppliersPage'
 import UsersPage from './pages/UsersPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
@@ -81,6 +82,11 @@ function App() {
         <Route
           path="/supply/debts"
           element={<ProtectedRoute adminOnly><SupplyDebtListPage /></ProtectedRoute>}
+        />
+
+        <Route
+          path="/supply/suppliers"
+          element={<ProtectedRoute adminOnly><SupplySuppliersPage /></ProtectedRoute>}
         />
 
         <Route

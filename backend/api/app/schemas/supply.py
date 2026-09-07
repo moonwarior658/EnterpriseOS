@@ -12,6 +12,7 @@ from app.models.iiko import (
 )
 from app.models.supply import (
     LegalContour,
+    SupplyProductSupplierRole,
     SupplyProductSourceRole,
     SupplyPrintJobStatus,
     SupplyPrintPurpose,
@@ -29,6 +30,13 @@ MAX_IIKO_ID_LENGTH = 160
 MAX_PUBLIC_LINE_COUNT = 200
 MAX_PUBLIC_AUTHOR_NAME_LENGTH = 160
 MAX_PUBLIC_AUTHOR_PHONE_LENGTH = 40
+MAX_SUPPLIER_NAME_LENGTH = 240
+MAX_SUPPLIER_REGISTRATION_LENGTH = 32
+MAX_SUPPLIER_ADDRESS_LENGTH = 1_000
+MAX_SUPPLIER_ACCOUNT_LENGTH = 64
+MAX_SUPPLIER_EMAIL_LENGTH = 320
+MAX_SUPPLIER_PHONE_LENGTH = 40
+MAX_SUPPLIER_SKU_LENGTH = 120
 
 
 class SupplyRequestStatus(StrEnum):
@@ -337,6 +345,110 @@ class SupplyReferencePage(BaseModel):
     offset: int = Field(ge=0)
 
 
+class SupplySupplierCreate(BaseModel):
+    display_name: str
+    legal_name: str | None = None
+    inn: str | None = None
+    kpp: str | None = None
+    ogrn: str | None = None
+    legal_address: str | None = None
+    actual_address: str | None = None
+    bank_name: str | None = None
+    bik: str | None = None
+    correspondent_account: str | None = None
+    settlement_account: str | None = None
+    order_email: str | None = None
+    phone: str | None = None
+    comment: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Отображаемое название не может быть null")
+        return _strip_required(
+            value,
+            label="Отображаемое название",
+            max_length=MAX_SUPPLIER_NAME_LENGTH,
+        )
+
+    @field_validator("legal_name", "bank_name")
+    @classmethod
+    def validate_optional_name(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_NAME_LENGTH)
+
+    @field_validator("inn", "kpp", "ogrn", "bik")
+    @classmethod
+    def validate_registration_value(cls, value: str | None) -> str | None:
+        return _strip_optional(
+            value,
+            max_length=MAX_SUPPLIER_REGISTRATION_LENGTH,
+        )
+
+    @field_validator("legal_address", "actual_address")
+    @classmethod
+    def validate_address(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_ADDRESS_LENGTH)
+
+    @field_validator("correspondent_account", "settlement_account")
+    @classmethod
+    def validate_account(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_ACCOUNT_LENGTH)
+
+    @field_validator("order_email")
+    @classmethod
+    def validate_order_email(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_EMAIL_LENGTH)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_PHONE_LENGTH)
+
+    @field_validator("comment")
+    @classmethod
+    def validate_comment(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_DESCRIPTION_LENGTH)
+
+
+class SupplySupplierUpdate(SupplySupplierCreate):
+    display_name: str | None = None
+
+
+class SupplySupplierRead(BaseModel):
+    id: UUID
+    display_name: str
+    legal_name: str | None
+    inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    legal_address: str | None
+    actual_address: str | None
+    bank_name: str | None
+    bik: str | None
+    correspondent_account: str | None
+    settlement_account: str | None
+    order_email: str | None
+    phone: str | None
+    comment: str | None
+    is_active: bool
+    archived_at: datetime | None
+    archived_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplySupplierPage(BaseModel):
+    items: list[SupplySupplierRead]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
 class SupplyProductCreate(BaseModel):
     name: str
     default_unit_id: UUID
@@ -438,6 +550,118 @@ class SupplyProductPage(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
     offset: int = Field(ge=0)
+
+
+class SupplyProductSupplierCreate(BaseModel):
+    supplier_id: UUID
+    supplier_product_name: str | None = None
+    supplier_sku: str | None = None
+    role: SupplyProductSupplierRole = SupplyProductSupplierRole.BACKUP
+    priority: int = Field(default=100, ge=0)
+    package_quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
+    package_unit_id: UUID
+    price_per_package: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=2
+    )
+    currency: str = "RUB"
+    is_available: bool = True
+    unavailable_until: date | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("supplier_product_name")
+    @classmethod
+    def validate_supplier_product_name(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_PRODUCT_NAME_LENGTH)
+
+    @field_validator("supplier_sku")
+    @classmethod
+    def validate_supplier_sku(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_SKU_LENGTH)
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        if value.strip().upper() != "RUB":
+            raise ValueError("В этом срезе поддерживается только RUB")
+        return "RUB"
+
+    @model_validator(mode="after")
+    def validate_availability(self):
+        if self.is_available and self.unavailable_until is not None:
+            raise ValueError(
+                "unavailable_until допустим только для недоступного товара"
+            )
+        return self
+
+
+class SupplyProductSupplierUpdate(BaseModel):
+    supplier_product_name: str | None = None
+    supplier_sku: str | None = None
+    priority: int | None = Field(default=None, ge=0)
+    package_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=3
+    )
+    package_unit_id: UUID | None = None
+    price_per_package: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=2
+    )
+    currency: str | None = None
+    is_available: bool | None = None
+    unavailable_until: date | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("supplier_product_name")
+    @classmethod
+    def validate_supplier_product_name(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_PRODUCT_NAME_LENGTH)
+
+    @field_validator("supplier_sku")
+    @classmethod
+    def validate_supplier_sku(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=MAX_SUPPLIER_SKU_LENGTH)
+
+    @field_validator("priority", "package_quantity", "package_unit_id", "is_available")
+    @classmethod
+    def reject_null_required_fields(cls, value):
+        if value is None:
+            raise ValueError("Поле не может быть null")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Валюта не может быть null")
+        return SupplyProductSupplierCreate.validate_currency(value)
+
+
+class SupplyProductSupplierRead(BaseModel):
+    id: UUID
+    product_id: UUID
+    supplier_id: UUID
+    supplier: SupplySupplierRead
+    supplier_product_name: str | None
+    supplier_sku: str | None
+    role: SupplyProductSupplierRole
+    priority: int
+    package_quantity: Decimal
+    package_unit_id: UUID
+    package_unit: SupplyUnitRead
+    base_unit: SupplyUnitRead
+    price_per_package: Decimal | None
+    price_per_base_unit: Decimal | None
+    currency: str
+    is_available: bool
+    unavailable_until: date | None
+    is_active: bool
+    archived_at: datetime | None
+    archived_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SupplyRequestLineCreate(BaseModel):

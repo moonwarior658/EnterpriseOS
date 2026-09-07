@@ -27,11 +27,13 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductAlias,
     SupplyProductCategory,
+    SupplyProductSupplier,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
     SupplyStorageZone,
+    SupplySupplier,
     SupplyUnit,
     SupplyDepartmentDebt,
 )
@@ -61,6 +63,9 @@ from app.schemas.supply import (
     SupplyProductPage,
     SupplyProductRead,
     SupplyProductUpdate,
+    SupplyProductSupplierCreate,
+    SupplyProductSupplierRead,
+    SupplyProductSupplierUpdate,
     SupplyReferenceCreate,
     SupplyReferencePage,
     SupplyReferenceRead,
@@ -91,6 +96,10 @@ from app.schemas.supply import (
     SupplyStockCalculationRead,
     SupplyStockCalculationConfirm,
     SupplyStockTransferQuantityUpdate,
+    SupplySupplierCreate,
+    SupplySupplierPage,
+    SupplySupplierRead,
+    SupplySupplierUpdate,
     SupplyProductSourceAssign,
     SupplyProductSourceBootstrapRead,
     SupplyProductSourceMappingRead,
@@ -109,12 +118,17 @@ from app.supply.service import (
     DuplicateSupplyProductError,
     DuplicateSupplyProductIikoIdError,
     DuplicateSupplyStorageZoneError,
+    DuplicateActiveSupplySupplierInnError,
+    DuplicateActiveSupplyProductSupplierError,
+    ActivePrimarySupplyProductSupplierExistsError,
     InactiveDepartmentError,
     InactiveDirectionError,
     InactiveSupplyProductError,
     InactiveSupplyProductCategoryError,
     InactiveSupplyStorageZoneError,
     InactiveSupplyUnitError,
+    InactiveSupplySupplierError,
+    InvalidSupplyProductSupplierAvailabilityError,
     InvalidSupplyQuantityError,
     SupplyAllocationExceedsRequestedError,
     SupplyAllocationUnitMismatchError,
@@ -143,6 +157,7 @@ from app.supply.service import (
     SupplyProductCategoryNotFoundError,
     SupplyProductNotFoundError,
     SupplyProductRestoreConflictError,
+    SupplyProductSupplierNotFoundError,
     SupplyRequestNotFoundError,
     SupplyRequestLineNotFoundError,
     SupplyRequestCycleHasRequestsError,
@@ -155,18 +170,25 @@ from app.supply.service import (
     SupplyContextMappingVersionConflictError,
     SupplyUnitNotFoundError,
     SupplyStorageZoneNotFoundError,
+    SupplySupplierNotFoundError,
+    archive_supply_supplier,
+    archive_supply_product_supplier,
     archive_supply_product,
     create_supply_product_category,
     create_supply_product,
     create_supply_product_alias,
     create_supply_request_cycle,
     create_supply_storage_zone,
+    create_supply_supplier,
+    create_supply_product_supplier,
     create_supply_request,
     delete_supply_product_alias,
     disable_supply_product_alias,
     get_supply_product_category,
     get_supply_product,
     get_supply_storage_zone,
+    get_supply_supplier,
+    get_supply_product_supplier,
     get_supply_request,
     get_supply_request_cycle,
     list_departments,
@@ -174,6 +196,8 @@ from app.supply.service import (
     list_supply_product_categories,
     list_supply_products,
     list_supply_storage_zones,
+    list_supply_suppliers,
+    list_supply_product_suppliers,
     list_supply_requests,
     list_supply_request_cycles,
     list_supply_units,
@@ -189,11 +213,16 @@ from app.supply.service import (
     recognize_supply_request,
     reparse_supply_request_line,
     restore_supply_product,
+    restore_supply_supplier,
+    restore_supply_product_supplier,
+    make_primary_supply_product_supplier,
     resolve_supply_duplicate_group,
     submit_supply_request,
     update_supply_product_category,
     update_supply_product,
     update_supply_storage_zone,
+    update_supply_supplier,
+    update_supply_product_supplier,
     update_supply_request_cycle,
     update_supply_line_fulfillment,
     confirm_supply_debt_inclusion,
@@ -276,6 +305,31 @@ def _product_not_found() -> HTTPException:
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Товар не найден",
     )
+
+
+def _supplier_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Поставщик не найден",
+    )
+
+
+def _supplier_inn_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Активный поставщик с таким ИНН уже существует",
+    )
+
+
+def _product_supplier_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Связь товара с поставщиком не найдена",
+    )
+
+
+def _product_supplier_conflict(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
 
 def _invalid_product_reference(detail: str) -> HTTPException:
@@ -629,6 +683,128 @@ def update_storage_zone(
         ) from error
 
 
+@router.get("/suppliers", response_model=SupplySupplierPage)
+def read_supply_suppliers(
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    active: bool | None = None,
+    search: Annotated[str | None, Query(max_length=240)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SupplySupplierPage:
+    items, total = list_supply_suppliers(
+        db,
+        tenant_id=current_admin.tenant_id,
+        active=active,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return SupplySupplierPage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/suppliers",
+    response_model=SupplySupplierRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier(
+    payload: SupplySupplierCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplier:
+    try:
+        return create_supply_supplier(
+            db,
+            payload,
+            tenant_id=current_admin.tenant_id,
+        )
+    except DuplicateActiveSupplySupplierInnError as error:
+        raise _supplier_inn_conflict() from error
+
+
+@router.get("/suppliers/{supplier_id}", response_model=SupplySupplierRead)
+def read_supply_supplier(
+    supplier_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplier:
+    try:
+        return get_supply_supplier(
+            db,
+            supplier_id,
+            tenant_id=current_admin.tenant_id,
+        )
+    except SupplySupplierNotFoundError as error:
+        raise _supplier_not_found() from error
+
+
+@router.patch("/suppliers/{supplier_id}", response_model=SupplySupplierRead)
+def update_supplier(
+    supplier_id: UUID,
+    payload: SupplySupplierUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplier:
+    try:
+        return update_supply_supplier(
+            db,
+            supplier_id,
+            payload,
+            tenant_id=current_admin.tenant_id,
+        )
+    except SupplySupplierNotFoundError as error:
+        raise _supplier_not_found() from error
+    except DuplicateActiveSupplySupplierInnError as error:
+        raise _supplier_inn_conflict() from error
+
+
+@router.post(
+    "/suppliers/{supplier_id}/archive",
+    response_model=SupplySupplierRead,
+)
+def archive_supplier(
+    supplier_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplier:
+    try:
+        return archive_supply_supplier(
+            db,
+            supplier_id,
+            tenant_id=current_admin.tenant_id,
+            archived_by_user_id=current_admin.id,
+        )
+    except SupplySupplierNotFoundError as error:
+        raise _supplier_not_found() from error
+
+
+@router.post(
+    "/suppliers/{supplier_id}/restore",
+    response_model=SupplySupplierRead,
+)
+def restore_supplier(
+    supplier_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplier:
+    try:
+        return restore_supply_supplier(
+            db,
+            supplier_id,
+            tenant_id=current_admin.tenant_id,
+        )
+    except SupplySupplierNotFoundError as error:
+        raise _supplier_not_found() from error
+    except DuplicateActiveSupplySupplierInnError as error:
+        raise _supplier_inn_conflict() from error
+
+
 @router.get("/products", response_model=SupplyProductPage)
 def read_supply_products(
     db: Annotated[Session, Depends(get_db)],
@@ -778,6 +954,175 @@ def restore_product(
     except SupplyProductRestoreConflictError as error:
         raise _reference_conflict(
             "Товар нельзя восстановить: связанный справочник неактивен"
+        ) from error
+
+
+@router.get(
+    "/products/{product_id}/suppliers",
+    response_model=list[SupplyProductSupplierRead],
+)
+def read_product_suppliers(
+    product_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    active: bool | None = True,
+) -> list[SupplyProductSupplier]:
+    try:
+        return list_supply_product_suppliers(
+            db, product_id, tenant_id=current_admin.tenant_id, active=active
+        )
+    except SupplyProductNotFoundError as error:
+        raise _product_not_found() from error
+
+
+@router.post(
+    "/products/{product_id}/suppliers",
+    response_model=SupplyProductSupplierRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_product_supplier(
+    product_id: UUID,
+    payload: SupplyProductSupplierCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSupplier:
+    try:
+        return create_supply_product_supplier(
+            db, product_id, payload, tenant_id=current_admin.tenant_id
+        )
+    except SupplyProductNotFoundError as error:
+        raise _product_not_found() from error
+    except SupplySupplierNotFoundError as error:
+        raise _supplier_not_found() from error
+    except (InactiveSupplyProductError, InactiveSupplySupplierError) as error:
+        raise _product_supplier_conflict(
+            "Архивный товар или поставщик не может получить новую связь"
+        ) from error
+    except (SupplyUnitNotFoundError, InactiveSupplyUnitError) as error:
+        raise _invalid_product_reference(
+            "Единица упаковки не найдена или неактивна"
+        ) from error
+    except DuplicateActiveSupplyProductSupplierError as error:
+        raise _product_supplier_conflict(
+            "Активная связь с этим поставщиком уже существует"
+        ) from error
+    except ActivePrimarySupplyProductSupplierExistsError as error:
+        raise _product_supplier_conflict(
+            "У товара уже есть основной поставщик"
+        ) from error
+
+
+@router.patch(
+    "/products/{product_id}/suppliers/{relation_id}",
+    response_model=SupplyProductSupplierRead,
+)
+def update_product_supplier(
+    product_id: UUID,
+    relation_id: UUID,
+    payload: SupplyProductSupplierUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSupplier:
+    try:
+        return update_supply_product_supplier(
+            db, product_id, relation_id, payload,
+            tenant_id=current_admin.tenant_id,
+        )
+    except SupplyProductSupplierNotFoundError as error:
+        raise _product_supplier_not_found() from error
+    except (SupplyUnitNotFoundError, InactiveSupplyUnitError) as error:
+        raise _invalid_product_reference(
+            "Единица упаковки не найдена или неактивна"
+        ) from error
+    except InvalidSupplyProductSupplierAvailabilityError as error:
+        raise _invalid_product_reference(
+            "Дата недоступности допустима только для недоступного товара"
+        ) from error
+    except DuplicateActiveSupplyProductSupplierError as error:
+        raise _product_supplier_conflict(
+            "Не удалось сохранить условия поставщика из-за конфликта"
+        ) from error
+
+
+@router.post(
+    "/products/{product_id}/suppliers/{relation_id}/archive",
+    response_model=SupplyProductSupplierRead,
+)
+def archive_product_supplier(
+    product_id: UUID,
+    relation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSupplier:
+    try:
+        return archive_supply_product_supplier(
+            db, product_id, relation_id,
+            tenant_id=current_admin.tenant_id,
+            archived_by_user_id=current_admin.id,
+        )
+    except SupplyProductSupplierNotFoundError as error:
+        raise _product_supplier_not_found() from error
+
+
+@router.post(
+    "/products/{product_id}/suppliers/{relation_id}/restore",
+    response_model=SupplyProductSupplierRead,
+)
+def restore_product_supplier(
+    product_id: UUID,
+    relation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSupplier:
+    try:
+        return restore_supply_product_supplier(
+            db, product_id, relation_id, tenant_id=current_admin.tenant_id
+        )
+    except SupplyProductSupplierNotFoundError as error:
+        raise _product_supplier_not_found() from error
+    except (SupplyProductNotFoundError, SupplySupplierNotFoundError) as error:
+        raise _product_supplier_conflict(
+            "Связанный товар или поставщик не найден"
+        ) from error
+    except (InactiveSupplyProductError, InactiveSupplySupplierError) as error:
+        raise _product_supplier_conflict(
+            "Связь нельзя восстановить: товар или поставщик архивирован"
+        ) from error
+    except (SupplyUnitNotFoundError, InactiveSupplyUnitError) as error:
+        raise _product_supplier_conflict(
+            "Связь нельзя восстановить: единица упаковки неактивна"
+        ) from error
+    except DuplicateActiveSupplyProductSupplierError as error:
+        raise _product_supplier_conflict(
+            "Активная связь с этим поставщиком уже существует"
+        ) from error
+    except ActivePrimarySupplyProductSupplierExistsError as error:
+        raise _product_supplier_conflict(
+            "Связь нельзя восстановить: у товара уже есть основной поставщик"
+        ) from error
+
+
+@router.post(
+    "/products/{product_id}/suppliers/{relation_id}/make-primary",
+    response_model=SupplyProductSupplierRead,
+)
+def make_product_supplier_primary(
+    product_id: UUID,
+    relation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyProductSupplier:
+    try:
+        return make_primary_supply_product_supplier(
+            db, product_id, relation_id, tenant_id=current_admin.tenant_id
+        )
+    except (SupplyProductSupplierNotFoundError, SupplyProductNotFoundError) as error:
+        raise _product_supplier_not_found() from error
+    except InactiveSupplyProductError as error:
+        raise _product_supplier_conflict("Товар архивирован") from error
+    except ActivePrimarySupplyProductSupplierExistsError as error:
+        raise _product_supplier_conflict(
+            "Не удалось атомарно сменить основного поставщика"
         ) from error
 
 
