@@ -1,6 +1,7 @@
 import os
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -20,6 +21,7 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductCategory,
     SupplyProductSupplier,
+    SupplyProductSupplierPriceHistory,
     SupplyRequestDirection,
     SupplyStorageZone,
     SupplySupplier,
@@ -47,6 +49,7 @@ class SupplyProductSuppliersApiTests(unittest.TestCase):
             SupplyProductCategory.__table__, SupplyStorageZone.__table__,
             SupplyProduct.__table__,
             SupplySupplier.__table__, SupplyProductSupplier.__table__,
+            SupplyProductSupplierPriceHistory.__table__,
         ):
             table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -208,6 +211,141 @@ class SupplyProductSuppliersApiTests(unittest.TestCase):
         self.client.post(f"/supply/products/{self.product.id}/suppliers/{second_id}/make-primary")
         restored = self.client.post(f"/supply/products/{self.product.id}/suppliers/{first_id}/restore")
         self.assertEqual(restored.status_code, 409, restored.text)
+
+    def test_price_history_tracks_only_changed_complete_price_context(self) -> None:
+        created = self.create(role="PRIMARY")
+        self.assertEqual(created.status_code, 201, created.text)
+        relation_id = created.json()["id"]
+
+        initial = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        )
+        self.assertEqual(initial.status_code, 200, initial.text)
+        self.assertEqual(len(initial.json()), 1)
+        self.assertEqual(initial.json()[0]["price_per_package"], "4956.00")
+        self.assertEqual(initial.json()[0]["package_quantity"], "12.000")
+        self.assertEqual(initial.json()[0]["base_unit_price_snapshot"], "413.000000")
+        self.assertEqual(initial.json()[0]["source"], "MANUAL")
+        self.assertEqual(initial.json()[0]["package_unit"]["id"], str(self.box.id))
+        self.assertEqual(initial.json()[0]["base_unit"]["id"], str(self.unit.id))
+
+        for payload in (
+            {"price_per_package": "5000.00"},
+            {"package_quantity": "10.000"},
+            {"package_unit_id": str(self.unit.id)},
+        ):
+            response = self.client.patch(
+                f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+                json=payload,
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        unchanged = self.client.patch(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+            json={"price_per_package": "5000.00"},
+        )
+        availability = self.client.patch(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+            json={"is_available": False},
+        )
+        renamed = self.client.patch(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+            json={"supplier_product_name": "Новое имя"},
+        )
+        self.assertEqual(unchanged.status_code, 200, unchanged.text)
+        self.assertEqual(availability.status_code, 200, availability.text)
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual(
+            self.client.post(
+                f"/supply/products/{self.product.id}/suppliers/{relation_id}/make-primary"
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/supply/products/{self.product.id}/suppliers/{relation_id}/archive"
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/supply/products/{self.product.id}/suppliers/{relation_id}/restore"
+            ).status_code,
+            200,
+        )
+
+        history = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        ).json()
+        self.assertEqual(len(history), 4)
+        self.assertEqual(history[0]["base_unit_price_snapshot"], "500.000000")
+        self.assertEqual(history[-1]["price_per_package"], "4956.00")
+
+    def test_price_history_decimal_precision_order_and_old_rows_are_immutable(self) -> None:
+        created = self.create(price_per_package="10.00", package_quantity="3.000")
+        relation_id = created.json()["id"]
+        initial = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        ).json()[0]
+        self.assertEqual(initial["base_unit_price_snapshot"], "3.333333")
+
+        updated = self.client.patch(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+            json={"price_per_package": "11.00"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        history = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        ).json()
+        self.assertEqual([row["price_per_package"] for row in history], ["11.00", "10.00"])
+        self.assertEqual(history[1], initial)
+        with self.sessions() as session:
+            rows = list(session.query(SupplyProductSupplierPriceHistory).all())
+            self.assertEqual(rows[0].base_unit_price_snapshot, Decimal("3.333333"))
+
+    def test_price_history_is_admin_only_tenant_safe_and_product_scoped(self) -> None:
+        created = self.create()
+        relation_id = created.json()["id"]
+        mismatch = self.client.get(
+            f"/supply/products/{self.product_two.id}/suppliers/{relation_id}/price-history"
+        )
+        self.assertEqual(mismatch.status_code, 404, mismatch.text)
+        self.current_user_id = 3
+        hidden = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        )
+        self.assertEqual(hidden.status_code, 404, hidden.text)
+        self.current_user_id = 1
+        forbidden = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        )
+        self.assertEqual(forbidden.status_code, 403, forbidden.text)
+
+    def test_price_update_rolls_back_when_history_insert_fails(self) -> None:
+        created = self.create()
+        relation_id = created.json()["id"]
+
+        def reject_history(*_args):
+            raise RuntimeError("forced history failure")
+
+        event.listen(SupplyProductSupplierPriceHistory, "before_insert", reject_history)
+        try:
+            with self.assertRaises(RuntimeError):
+                self.client.patch(
+                    f"/supply/products/{self.product.id}/suppliers/{relation_id}",
+                    json={"price_per_package": "6000.00"},
+                )
+        finally:
+            event.remove(SupplyProductSupplierPriceHistory, "before_insert", reject_history)
+
+        relation = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers"
+        ).json()[0]
+        self.assertEqual(relation["price_per_package"], "4956.00")
+        history = self.client.get(
+            f"/supply/products/{self.product.id}/suppliers/{relation_id}/price-history"
+        ).json()
+        self.assertEqual(len(history), 1)
 
 
 if __name__ == "__main__":

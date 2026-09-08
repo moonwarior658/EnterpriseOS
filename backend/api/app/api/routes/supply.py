@@ -28,6 +28,7 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyProductSupplier,
+    SupplyProductSupplierPriceHistory,
     SupplyRequest,
     SupplyRequestCycle,
     SupplyRequestDirection,
@@ -64,6 +65,7 @@ from app.schemas.supply import (
     SupplyProductRead,
     SupplyProductUpdate,
     SupplyProductSupplierCreate,
+    SupplyProductSupplierPriceHistoryRead,
     SupplyProductSupplierRead,
     SupplyProductSupplierUpdate,
     SupplyReferenceCreate,
@@ -198,6 +200,7 @@ from app.supply.service import (
     list_supply_storage_zones,
     list_supply_suppliers,
     list_supply_product_suppliers,
+    list_supply_product_supplier_price_history,
     list_supply_requests,
     list_supply_request_cycles,
     list_supply_units,
@@ -988,7 +991,8 @@ def create_product_supplier(
 ) -> SupplyProductSupplier:
     try:
         return create_supply_product_supplier(
-            db, product_id, payload, tenant_id=current_admin.tenant_id
+            db, product_id, payload, tenant_id=current_admin.tenant_id,
+            changed_by_user_id=current_admin.id,
         )
     except SupplyProductNotFoundError as error:
         raise _product_not_found() from error
@@ -1027,6 +1031,7 @@ def update_product_supplier(
         return update_supply_product_supplier(
             db, product_id, relation_id, payload,
             tenant_id=current_admin.tenant_id,
+            changed_by_user_id=current_admin.id,
         )
     except SupplyProductSupplierNotFoundError as error:
         raise _product_supplier_not_found() from error
@@ -1042,6 +1047,24 @@ def update_product_supplier(
         raise _product_supplier_conflict(
             "Не удалось сохранить условия поставщика из-за конфликта"
         ) from error
+
+
+@router.get(
+    "/products/{product_id}/suppliers/{relation_id}/price-history",
+    response_model=list[SupplyProductSupplierPriceHistoryRead],
+)
+def read_product_supplier_price_history(
+    product_id: UUID,
+    relation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> list[SupplyProductSupplierPriceHistory]:
+    try:
+        return list_supply_product_supplier_price_history(
+            db, product_id, relation_id, tenant_id=current_admin.tenant_id
+        )
+    except SupplyProductSupplierNotFoundError as error:
+        raise _product_supplier_not_found() from error
 
 
 @router.post(

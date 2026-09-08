@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
@@ -21,6 +21,8 @@ from app.models.supply import (
     SupplyProductAlias,
     SupplyProductCategory,
     SupplyProductSupplier,
+    SupplyProductSupplierPriceHistory,
+    SupplyProductSupplierPriceSource,
     SupplyLineAllocation,
     SupplyRequest,
     SupplyRequestCycle,
@@ -1052,6 +1054,75 @@ def _product_supplier_options():
     )
 
 
+BASE_UNIT_PRICE_QUANTUM = Decimal("0.000001")
+
+
+def _product_supplier_price_context(
+    relation: SupplyProductSupplier,
+) -> tuple[Decimal | None, Decimal, UUID, str]:
+    return (
+        relation.price_per_package,
+        relation.package_quantity,
+        relation.package_unit_id,
+        relation.currency,
+    )
+
+
+def _add_product_supplier_price_history(
+    session: Session,
+    relation: SupplyProductSupplier,
+    *,
+    changed_by_user_id: int,
+    effective_from: datetime | None = None,
+) -> None:
+    if relation.price_per_package is None:
+        return
+    session.add(SupplyProductSupplierPriceHistory(
+        tenant_id=relation.tenant_id,
+        product_supplier_id=relation.id,
+        price_per_package=relation.price_per_package,
+        package_quantity=relation.package_quantity,
+        package_unit_id=relation.package_unit_id,
+        currency=relation.currency,
+        base_unit_price_snapshot=(
+            relation.price_per_package / relation.package_quantity
+        ).quantize(BASE_UNIT_PRICE_QUANTUM, rounding=ROUND_HALF_UP),
+        source=SupplyProductSupplierPriceSource.MANUAL.value,
+        effective_from=effective_from or datetime.now(timezone.utc),
+        changed_by_user_id=changed_by_user_id,
+    ))
+
+
+def list_supply_product_supplier_price_history(
+    session: Session,
+    product_id: UUID,
+    relation_id: UUID,
+    *,
+    tenant_id: str,
+) -> list[SupplyProductSupplierPriceHistory]:
+    get_supply_product_supplier(
+        session, product_id, relation_id, tenant_id=tenant_id
+    )
+    return list(session.scalars(
+        select(SupplyProductSupplierPriceHistory)
+        .where(
+            SupplyProductSupplierPriceHistory.tenant_id == tenant_id,
+            SupplyProductSupplierPriceHistory.product_supplier_id == relation_id,
+        )
+        .options(
+            joinedload(SupplyProductSupplierPriceHistory.package_unit),
+            joinedload(SupplyProductSupplierPriceHistory.product_supplier)
+            .joinedload(SupplyProductSupplier.product)
+            .joinedload(SupplyProduct.default_unit),
+        )
+        .order_by(
+            SupplyProductSupplierPriceHistory.effective_from.desc(),
+            SupplyProductSupplierPriceHistory.created_at.desc(),
+            SupplyProductSupplierPriceHistory.id.desc(),
+        )
+    ).all())
+
+
 def _get_product_for_supplier_relation(
     session: Session,
     product_id: UUID,
@@ -1176,6 +1247,7 @@ def create_supply_product_supplier(
     payload: SupplyProductSupplierCreate,
     *,
     tenant_id: str,
+    changed_by_user_id: int,
 ) -> SupplyProductSupplier:
     product = _get_product_for_supplier_relation(
         session, product_id, tenant_id=tenant_id, require_active=True
@@ -1208,6 +1280,10 @@ def create_supply_product_supplier(
     try:
         session.add(relation)
         session.flush()
+        _add_product_supplier_price_history(
+            session, relation, changed_by_user_id=changed_by_user_id
+        )
+        session.flush()
         session.commit()
         relation_id = relation.id
     except IntegrityError as error:
@@ -1228,10 +1304,12 @@ def update_supply_product_supplier(
     payload: SupplyProductSupplierUpdate,
     *,
     tenant_id: str,
+    changed_by_user_id: int,
 ) -> SupplyProductSupplier:
     relation = get_supply_product_supplier(
         session, product_id, relation_id, tenant_id=tenant_id
     )
+    previous_price_context = _product_supplier_price_context(relation)
     changes = payload.model_dump(exclude_unset=True)
     if "package_unit_id" in changes:
         changes["package_unit_id"] = _get_supply_unit(
@@ -1246,6 +1324,11 @@ def update_supply_product_supplier(
         setattr(relation, field, value)
     try:
         session.flush()
+        if _product_supplier_price_context(relation) != previous_price_context:
+            _add_product_supplier_price_history(
+                session, relation, changed_by_user_id=changed_by_user_id
+            )
+            session.flush()
         session.commit()
         relation_id = relation.id
     except IntegrityError as error:

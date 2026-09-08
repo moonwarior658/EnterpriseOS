@@ -12,6 +12,7 @@ from app.models.iiko import (
 )
 from app.models.supply import (
     LegalContour,
+    SupplyProductSupplierPriceSource,
     SupplyProductSupplierRole,
     SupplyProductSourceRole,
     SupplyPrintJobStatus,
@@ -660,6 +661,21 @@ class SupplyProductSupplierRead(BaseModel):
     archived_by_user_id: int | None
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyProductSupplierPriceHistoryRead(BaseModel):
+    id: UUID
+    price_per_package: Decimal
+    package_quantity: Decimal
+    package_unit: SupplyUnitRead
+    base_unit: SupplyUnitRead
+    currency: str
+    base_unit_price_snapshot: Decimal
+    source: SupplyProductSupplierPriceSource
+    effective_from: datetime
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

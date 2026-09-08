@@ -13,7 +13,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -22,6 +22,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.supply import SupplyProductSupplierPriceHistory
 from app.models.user import User
 
 
@@ -65,12 +66,12 @@ class SupplyProductSuppliersPostgresTests(unittest.TestCase):
     def test_cycle_partial_indexes_tenant_fk_and_api_conflicts(self) -> None:
         command.upgrade(self.config, "20260907_0035")
         self.assertEqual(self.revision(), "20260907_0035")
-        command.upgrade(self.config, "20260907_0036")
+        command.upgrade(self.config, "20260907_0037")
+        self.assertEqual(self.revision(), "20260907_0037")
+        command.downgrade(self.config, "20260907_0036")
         self.assertEqual(self.revision(), "20260907_0036")
-        command.downgrade(self.config, "20260907_0035")
-        self.assertEqual(self.revision(), "20260907_0035")
-        command.upgrade(self.config, "20260907_0036")
-        self.assertEqual(self.revision(), "20260907_0036")
+        command.upgrade(self.config, "20260907_0037")
+        self.assertEqual(self.revision(), "20260907_0037")
 
         with self.engine.connect() as connection:
             definitions = dict(connection.execute(text(
@@ -106,6 +107,26 @@ class SupplyProductSuppliersPostgresTests(unittest.TestCase):
         payload = {"supplier_id": str(supplier_one), "role": "PRIMARY", "priority": 10, "package_quantity": "12", "package_unit_id": str(unit_id), "price_per_package": "4956", "currency": "RUB", "is_available": True}
         first = client.post(f"/supply/products/{product_id}/suppliers", json=payload)
         self.assertEqual(first.status_code, 201, first.text)
+        history_url = f"/supply/products/{product_id}/suppliers/{first.json()['id']}/price-history"
+        history = client.get(history_url)
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(history.json()[0]["base_unit_price_snapshot"], "413.000000")
+
+        def reject_history(*_args):
+            raise RuntimeError("forced history failure")
+
+        event.listen(SupplyProductSupplierPriceHistory, "before_insert", reject_history)
+        try:
+            with self.assertRaises(RuntimeError):
+                client.patch(
+                    f"/supply/products/{product_id}/suppliers/{first.json()['id']}",
+                    json={"price_per_package": "6000.00"},
+                )
+        finally:
+            event.remove(SupplyProductSupplierPriceHistory, "before_insert", reject_history)
+        current = client.get(f"/supply/products/{product_id}/suppliers").json()[0]
+        self.assertEqual(current["price_per_package"], "4956.00")
+        self.assertEqual(len(client.get(history_url).json()), 1)
         with patch("app.supply.service._active_product_supplier_exists", return_value=False):
             duplicate = client.post(f"/supply/products/{product_id}/suppliers", json={**payload, "role": "BACKUP"})
         self.assertEqual(duplicate.status_code, 409, duplicate.text)

@@ -73,6 +73,10 @@ class SupplyProductSupplierRole(StrEnum):
     BACKUP = "BACKUP"
 
 
+class SupplyProductSupplierPriceSource(StrEnum):
+    MANUAL = "MANUAL"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -746,6 +750,90 @@ class SupplyProductSupplier(Base):
     @property
     def base_unit(self) -> SupplyUnit:
         return self.product.default_unit
+
+
+class SupplyProductSupplierPriceHistory(Base):
+    __tablename__ = "supply_product_supplier_price_history"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "product_supplier_id"],
+            ["supply_product_suppliers.tenant_id", "supply_product_suppliers.id"],
+            name="fk_supply_product_supplier_price_history_relation_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "package_unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_product_supplier_price_history_unit_tenant",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_supply_product_supplier_price_history_timeline",
+            "tenant_id", "product_supplier_id", "effective_from", "created_at",
+        ),
+        CheckConstraint(
+            "price_per_package > 0",
+            name="ck_supply_product_supplier_price_history_price",
+        ),
+        CheckConstraint(
+            "package_quantity > 0",
+            name="ck_supply_product_supplier_price_history_quantity",
+        ),
+        CheckConstraint(
+            "base_unit_price_snapshot > 0",
+            name="ck_supply_product_supplier_price_history_base_price",
+        ),
+        CheckConstraint(
+            "currency = 'RUB'",
+            name="ck_supply_product_supplier_price_history_currency",
+        ),
+        CheckConstraint(
+            "source = 'MANUAL'",
+            name="ck_supply_product_supplier_price_history_source",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    product_supplier_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    price_per_package: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False
+    )
+    package_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 3), nullable=False
+    )
+    package_unit_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    base_unit_price_snapshot: Mapped[Decimal] = mapped_column(
+        Numeric(30, 6), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    changed_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    product_supplier: Mapped[SupplyProductSupplier] = relationship(
+        overlaps="package_unit"
+    )
+    package_unit: Mapped[SupplyUnit] = relationship(
+        overlaps="product_supplier"
+    )
+
+    @property
+    def base_unit(self) -> SupplyUnit:
+        return self.product_supplier.product.default_unit
 
 
 class SupplyProductAlias(Base):

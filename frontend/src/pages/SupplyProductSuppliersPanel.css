@@ -139,10 +139,53 @@
   flex-wrap: wrap;
 }
 
+.product-supplier-price-history {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid #e2e2dc;
+}
+
+.product-supplier-price-history > p {
+  margin-bottom: 0;
+  color: #777970;
+}
+
+.product-supplier-price-history ol {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-supplier-price-history li {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.8fr) minmax(12rem, 1.2fr) minmax(8rem, 1fr);
+  gap: 0.25rem 0.8rem;
+  align-items: baseline;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.65rem;
+  background: #f8f8f5;
+}
+
+.product-supplier-price-history time,
+.product-supplier-price-history small {
+  color: #777970;
+}
+
+.product-supplier-price-history small {
+  grid-column: 2 / -1;
+}
+
 @media (max-width: 720px) {
   .product-supplier-form,
-  .product-supplier-cards dl {
+  .product-supplier-cards dl,
+  .product-supplier-price-history li {
     grid-template-columns: 1fr;
+  }
+
+  .product-supplier-price-history small {
+    grid-column: auto;
   }
 
   .product-suppliers-overlay {

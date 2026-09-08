@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   archiveSupplyProductSupplier,
   createSupplyProductSupplier,
+  getSupplyProductSupplierPriceHistory,
   getSupplyProductSuppliers,
   makePrimarySupplyProductSupplier,
   restoreSupplyProductSupplier,
@@ -26,6 +27,9 @@ test('управление поставщиками встроено в карт
   assert.match(panel, /Восстановить/)
   assert.match(panel, /Цена упаковки/)
   assert.match(panel, /За базовую единицу/)
+  assert.match(panel, /История цен/)
+  assert.match(panel, /История цен пока отсутствует/)
+  assert.match(panel, /Вручную/)
   assert.match(panel, /getSupplySuppliers\(true/)
   assert.doesNotMatch(panel, />UUID</)
 })
@@ -54,6 +58,7 @@ test('API-клиент использует nested relation endpoints и ато�
       package_unit_id: 'box',
     })
     await updateSupplyProductSupplier('product', 'relation', { priority: 20 })
+    await getSupplyProductSupplierPriceHistory('product', 'relation')
     await archiveSupplyProductSupplier('product', 'relation')
     await restoreSupplyProductSupplier('product', 'relation')
     await makePrimarySupplyProductSupplier('product', 'relation')
@@ -63,8 +68,10 @@ test('API-клиент использует nested relation endpoints и ато�
   assert.equal(calls[0].url, '/api/supply/products/product/suppliers?active=true')
   assert.equal(calls[1].options.method, 'POST')
   assert.equal(calls[2].options.method, 'PATCH')
-  assert.match(calls[3].url, /\/archive$/)
-  assert.match(calls[4].url, /\/restore$/)
-  assert.match(calls[5].url, /\/make-primary$/)
-  assert.equal(calls[5].options.method, 'POST')
+  assert.match(calls[3].url, /\/price-history$/)
+  assert.equal(calls[3].options.method, undefined)
+  assert.match(calls[4].url, /\/archive$/)
+  assert.match(calls[5].url, /\/restore$/)
+  assert.match(calls[6].url, /\/make-primary$/)
+  assert.equal(calls[6].options.method, 'POST')
 })

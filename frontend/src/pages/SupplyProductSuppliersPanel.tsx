@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
   archiveSupplyProductSupplier,
   createSupplyProductSupplier,
+  getSupplyProductSupplierPriceHistory,
   getSupplyProductSuppliers,
   getSupplySuppliers,
   getSupplyUnits,
@@ -10,6 +11,7 @@ import {
   SupplyApiError,
   updateSupplyProductSupplier,
   type SupplyProductSupplier,
+  type SupplyProductSupplierPriceHistory,
   type SupplySupplier,
   type SupplyUnit,
 } from '../services/supplyAdmin'
@@ -63,6 +65,13 @@ function money(value: string | null): string {
   return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(Number(value))} ₽`
 }
 
+function historyDate(value: string): string {
+  return new Date(value).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
 export function SupplyProductSuppliersPanel({ productId, productName, onClose }: Props) {
   const [relations, setRelations] = useState<SupplyProductSupplier[]>([])
   const [suppliers, setSuppliers] = useState<SupplySupplier[]>([])
@@ -73,6 +82,10 @@ export function SupplyProductSuppliersPanel({ productId, productName, onClose }:
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [historyRelationId, setHistoryRelationId] = useState<string | null>(null)
+  const [history, setHistory] = useState<SupplyProductSupplierPriceHistory[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -165,6 +178,26 @@ export function SupplyProductSuppliersPanel({ productId, productName, onClose }:
     }
   }
 
+  async function toggleHistory(relation: SupplyProductSupplier) {
+    if (historyRelationId === relation.id) {
+      setHistoryRelationId(null)
+      setHistory([])
+      setHistoryError('')
+      return
+    }
+    setHistoryRelationId(relation.id)
+    setHistory([])
+    setHistoryError('')
+    setHistoryLoading(true)
+    try {
+      setHistory(await getSupplyProductSupplierPriceHistory(productId, relation.id))
+    } catch (loadError) {
+      setHistoryError(productSupplierErrorMessage(loadError))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   const linkedSupplierIds = new Set(relations.filter((item) => item.is_active).map((item) => item.supplier_id))
 
   return (
@@ -205,8 +238,28 @@ export function SupplyProductSuppliersPanel({ productId, productName, onClose }:
               {(relation.supplier_product_name || relation.supplier_sku) && <p>{relation.supplier_product_name || 'Название не указано'}{relation.supplier_sku ? ` · арт. ${relation.supplier_sku}` : ''}</p>}
               <dl><div><dt>Упаковка</dt><dd>{relation.package_unit.name_ru}: {relation.package_quantity} {relation.base_unit.short_name_ru}</dd></div><div><dt>Цена упаковки</dt><dd>{money(relation.price_per_package)}</dd></div><div><dt>За базовую единицу</dt><dd>{money(relation.price_per_base_unit)}{relation.price_per_base_unit ? ` / ${relation.base_unit.short_name_ru}` : ''}</dd></div><div><dt>Доступность</dt><dd>{relation.is_available ? 'Доступен' : `Недоступен${relation.unavailable_until ? ` до ${new Date(`${relation.unavailable_until}T00:00:00`).toLocaleDateString('ru-RU')}` : ''}`}</dd></div></dl>
               <div className="product-supplier-card-actions">
+                <button type="button" className="secondary-action" disabled={busy} onClick={() => void toggleHistory(relation)}>{historyRelationId === relation.id ? 'Скрыть историю' : 'История цен'}</button>
                 {relation.is_active ? <><button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(relation)}>Изменить</button>{relation.role !== 'PRIMARY' && <button type="button" className="secondary-action" disabled={busy} onClick={() => void act(relation, 'primary')}>Назначить основным</button>}<button type="button" className="danger-action" disabled={busy} onClick={() => void act(relation, 'archive')}>Архивировать</button></> : <button type="button" className="primary-action" disabled={busy} onClick={() => void act(relation, 'restore')}>Восстановить</button>}
               </div>
+              {historyRelationId === relation.id && (
+                <section className="product-supplier-price-history" aria-label={`История цен: ${relation.supplier.display_name}`}>
+                  {historyLoading && <p>Загружаем историю цен…</p>}
+                  {historyError && <p className="request-message request-message-error" role="alert">{historyError}</p>}
+                  {!historyLoading && !historyError && history.length === 0 && <p>История цен пока отсутствует</p>}
+                  {!historyLoading && !historyError && history.length > 0 && (
+                    <ol>
+                      {history.map((item) => (
+                        <li key={item.id}>
+                          <time dateTime={item.effective_from}>{historyDate(item.effective_from)}</time>
+                          <strong>{money(item.price_per_package)} / {item.package_quantity} {item.base_unit.short_name_ru}</strong>
+                          <span>{money(item.base_unit_price_snapshot)} / {item.base_unit.short_name_ru}</span>
+                          <small>{item.package_unit.name_ru} · {item.source === 'MANUAL' ? 'Вручную' : item.source}</small>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </section>
+              )}
             </article>
           ))}
         </div>

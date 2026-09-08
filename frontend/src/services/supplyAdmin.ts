@@ -108,6 +108,19 @@ export type SupplyProductSupplierInput = {
   unavailable_until?: string | null
 }
 
+export type SupplyProductSupplierPriceHistory = {
+  id: string
+  price_per_package: string
+  package_quantity: string
+  package_unit: SupplyUnit
+  base_unit: SupplyUnit
+  currency: 'RUB'
+  base_unit_price_snapshot: string
+  source: 'MANUAL'
+  effective_from: string
+  created_at: string
+}
+
 export type SupplyAllocation = {
   id: string
   action: 'TRANSFER' | 'PURCHASE' | 'CANCEL'
@@ -708,6 +721,15 @@ export function updateSupplyProductSupplier(
     method: 'PATCH',
     body: JSON.stringify(input),
   })
+}
+
+export function getSupplyProductSupplierPriceHistory(
+  productId: string,
+  relationId: string,
+): Promise<SupplyProductSupplierPriceHistory[]> {
+  return request(
+    `/supply/products/${productId}/suppliers/${relationId}/price-history`,
+  )
 }
 
 function productSupplierAction(
