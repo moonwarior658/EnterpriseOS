@@ -347,6 +347,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(self.client.post(endpoint, json={
             "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
         }).status_code, 409)
+
         with self.sessions.begin() as session:
             relation = session.get(SupplyProductSupplier, self.primary_relation.id)
             relation.package_unit_id = self.unit.id
@@ -413,6 +414,120 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(self.client.post(endpoint, json={
             "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
         }).status_code, 409)
+
+    def test_supplier_minimum_order_aggregates_all_lines_and_statuses(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(
+                SupplySupplier, self.supplier.id
+            ).minimum_order_amount = Decimal("32000.00")
+            second_product = SupplyProduct(
+                tenant_id="eclair", name="Мука", normalized_name="мука",
+                default_unit_id=self.unit.id, is_active=True,
+            )
+            session.add(second_product)
+            session.flush()
+            second_relation = SupplyProductSupplier(
+                tenant_id="eclair", product_id=second_product.id,
+                supplier_id=self.supplier.id, role="PRIMARY", priority=10,
+                package_quantity=Decimal("10.000"), package_unit_id=self.unit.id,
+                price_per_package=Decimal("1000.00"), currency="RUB",
+                is_available=True, is_active=True,
+            )
+            session.add(second_relation)
+            session.flush()
+            second_product_id = second_product.id
+            second_relation_id = second_relation.id
+
+        request_id = self.create_request()["id"]
+        first_line_id = self.add_line(
+            request_id, quantity="100.000"
+        ).json()["lines"][0]["id"]
+        second_line_response = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines",
+            json={
+                "product_id": str(second_product_id), "quantity": "20.000",
+                "unit_id": str(self.unit.id), "comment": None,
+            },
+        )
+        self.assertEqual(
+            second_line_response.status_code, 201, second_line_response.text
+        )
+        second_line_id = next(
+            line["id"] for line in second_line_response.json()["lines"]
+            if line["product_id"] == str(second_product_id)
+        )
+        self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+
+        first = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{first_line_id}/allocations",
+            json={
+                "product_supplier_id": str(self.primary_relation.id),
+                "packages_count": 6,
+            },
+        )
+        first_allocation_id = next(
+            line for line in first.json()["lines"]
+            if line["line_id"] == first_line_id
+        )["allocations"][0]["id"]
+        second = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{second_line_id}/allocations",
+            json={
+                "product_supplier_id": str(second_relation_id),
+                "packages_count": 2,
+            },
+        )
+        self.assertEqual(second.status_code, 201, second.text)
+        no_minimum = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{first_line_id}/allocations",
+            json={
+                "product_supplier_id": str(self.backup_relation.id),
+                "packages_count": 1,
+            },
+        )
+        self.assertEqual(no_minimum.status_code, 201, no_minimum.text)
+
+        subtotals = {
+            item["supplier_id"]: item
+            for item in no_minimum.json()["supplier_subtotals"]
+        }
+        primary = subtotals[str(self.supplier.id)]
+        self.assertEqual(primary["planned_total_amount"], "31736.000000")
+        self.assertEqual(primary["minimum_order_amount"], "32000.00")
+        self.assertEqual(primary["minimum_order_status"], "BELOW_MINIMUM")
+        self.assertEqual(primary["minimum_order_shortfall"], "264.000000")
+        self.assertEqual(primary["allocation_count"], 2)
+        backup = subtotals[str(self.backup_supplier.id)]
+        self.assertEqual(backup["minimum_order_status"], "NOT_CONFIGURED")
+        self.assertEqual(backup["minimum_order_shortfall"], "0")
+
+        confirmed = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{first_line_id}/allocations/"
+            f"{first_allocation_id}/confirm"
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        primary = next(
+            item for item in confirmed.json()["supplier_subtotals"]
+            if item["supplier_id"] == str(self.supplier.id)
+        )
+        self.assertEqual(primary["planned_total_amount"], "31736.000000")
+
+        for minimum, expected_status in (
+            ("31736.00", "MET"),
+            ("30000.00", "MET"),
+        ):
+            with self.sessions.begin() as session:
+                session.get(
+                    SupplySupplier, self.supplier.id
+                ).minimum_order_amount = Decimal(minimum)
+            workspace = self.client.get(
+                f"/supply/purchase-requests/{request_id}/allocations"
+            )
+            primary = next(
+                item for item in workspace.json()["supplier_subtotals"]
+                if item["supplier_id"] == str(self.supplier.id)
+            )
+            self.assertEqual(primary["minimum_order_status"], expected_status)
+            self.assertEqual(primary["minimum_order_shortfall"], "0")
 
     def test_collect_aggregates_is_idempotent_and_preserves_manual(self) -> None:
         request_id = self.create_request()["id"]

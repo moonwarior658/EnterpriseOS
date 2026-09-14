@@ -123,6 +123,7 @@ class SupplySuppliersApiTests(unittest.TestCase):
         created = self.create_supplier()
         self.assertEqual(created["display_name"], "Новопак")
         self.assertEqual(created["legal_name"], "ООО Новопак")
+        self.assertIsNone(created["minimum_order_amount"])
         self.assertTrue(created["is_active"])
 
         detail = self.client.get(f"/supply/suppliers/{created['id']}")
@@ -146,6 +147,32 @@ class SupplySuppliersApiTests(unittest.TestCase):
             json={"display_name": None},
         )
         self.assertEqual(invalid.status_code, 422, invalid.text)
+
+    def test_create_update_clear_and_validate_minimum_order_amount(self) -> None:
+        created = self.create_supplier(
+            inn="6671000002", minimum_order_amount="10000.25"
+        )
+        self.assertEqual(created["minimum_order_amount"], "10000.25")
+
+        updated = self.client.patch(
+            f"/supply/suppliers/{created['id']}",
+            json={"minimum_order_amount": "12500.50"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["minimum_order_amount"], "12500.50")
+
+        cleared = self.client.patch(
+            f"/supply/suppliers/{created['id']}",
+            json={"minimum_order_amount": None},
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertIsNone(cleared.json()["minimum_order_amount"])
+
+        negative = self.client.patch(
+            f"/supply/suppliers/{created['id']}",
+            json={"minimum_order_amount": "-0.01"},
+        )
+        self.assertEqual(negative.status_code, 422, negative.text)
 
     def test_archive_restore_and_active_only_list(self) -> None:
         created = self.create_supplier()

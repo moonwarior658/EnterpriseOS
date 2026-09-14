@@ -361,6 +361,9 @@ class SupplySupplierCreate(BaseModel):
     order_email: str | None = None
     phone: str | None = None
     comment: str | None = None
+    minimum_order_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -434,6 +437,7 @@ class SupplySupplierRead(BaseModel):
     order_email: str | None
     phone: str | None
     comment: str | None
+    minimum_order_amount: Decimal | None
     is_active: bool
     archived_at: datetime | None
     archived_by_user_id: int | None

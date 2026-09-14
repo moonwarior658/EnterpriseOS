@@ -37,6 +37,7 @@ export type SupplySupplier = {
   order_email: string | null
   phone: string | null
   comment: string | null
+  minimum_order_amount: string | null
   is_active: boolean
   archived_at: string | null
   archived_by_user_id: number | null
@@ -59,6 +60,7 @@ export type SupplySupplierInput = {
   order_email?: string | null
   phone?: string | null
   comment?: string | null
+  minimum_order_amount?: string | null
 }
 
 export type SupplySupplierPage = {
@@ -242,11 +244,17 @@ export type SupplyPurchaseAllocationWorkspace = {
   request_status: 'READY'
   lines: SupplyPurchaseAllocationLine[]
   planned_total_amount: string
-  supplier_subtotals: Array<{
-    supplier_id: string
-    supplier_display_name: string
-    planned_amount: string
-  }>
+  supplier_subtotals: SupplyPurchaseAllocationSupplierSubtotal[]
+}
+
+export type SupplyPurchaseAllocationSupplierSubtotal = {
+  supplier_id: string
+  supplier_display_name: string
+  planned_total_amount: string
+  minimum_order_amount: string | null
+  minimum_order_status: 'NOT_CONFIGURED' | 'MET' | 'BELOW_MINIMUM'
+  minimum_order_shortfall: string
+  allocation_count: number
 }
 
 export type SupplyAllocation = {

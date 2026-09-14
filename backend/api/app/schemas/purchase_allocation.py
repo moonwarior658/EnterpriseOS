@@ -13,6 +13,12 @@ class SupplyPurchaseAllocationStatus(StrEnum):
     CONFIRMED = "CONFIRMED"
 
 
+class SupplyMinimumOrderStatus(StrEnum):
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    MET = "MET"
+    BELOW_MINIMUM = "BELOW_MINIMUM"
+
+
 class SupplyPurchaseAllocationCreate(BaseModel):
     product_supplier_id: UUID
     packages_count: int = Field(gt=0)
@@ -82,7 +88,11 @@ class SupplyPurchaseAllocationLineRead(BaseModel):
 class SupplyPurchaseAllocationSupplierSubtotalRead(BaseModel):
     supplier_id: UUID
     supplier_display_name: str
-    planned_amount: Decimal
+    planned_total_amount: Decimal
+    minimum_order_amount: Decimal | None
+    minimum_order_status: SupplyMinimumOrderStatus
+    minimum_order_shortfall: Decimal
+    allocation_count: int = Field(ge=1)
 
 
 class SupplyPurchaseAllocationWorkspaceRead(BaseModel):

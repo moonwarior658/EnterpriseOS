@@ -8,7 +8,11 @@ import {
   getSupplyPurchaseAllocations,
   updateSupplyPurchaseAllocation,
 } from '../src/services/supplyAdmin.ts'
-import { coverageLabel, suggestedPackages } from '../src/pages/supplyPurchaseAllocationLogic.ts'
+import {
+  coverageLabel,
+  minimumOrderLabel,
+  suggestedPackages,
+} from '../src/pages/supplyPurchaseAllocationLogic.ts'
 
 
 test('показывает allocation action только для READY и рабочее место без UUID', () => {
@@ -20,7 +24,42 @@ test('показывает allocation action только для READY и раб
   assert.match(workspace, /Резервный/)
   assert.match(workspace, /Подтвердить/)
   assert.match(workspace, /current_terms_changed/)
+  assert.match(workspace, /minimumOrderLabel/)
+  assert.match(workspace, /minimum_order_status === 'BELOW_MINIMUM'/)
+  assert.match(workspace, /planned_total_amount/)
   assert.doesNotMatch(workspace, />UUID</)
+})
+
+test('показывает все minimum order состояния и точный недобор', () => {
+  const base = {
+    supplier_id: 'supplier',
+    supplier_display_name: 'Поставщик',
+    planned_total_amount: '8400.00',
+    minimum_order_amount: '10000.00',
+    minimum_order_status: 'BELOW_MINIMUM' as const,
+    minimum_order_shortfall: '1600.00',
+    allocation_count: 3,
+  }
+  const format = (value: string) => `${value} ₽`
+  assert.equal(
+    minimumOrderLabel(base, format),
+    'Минимальный заказ: 10000.00 ₽ · не хватает 1600.00 ₽',
+  )
+  assert.equal(
+    minimumOrderLabel({
+      ...base, minimum_order_status: 'MET', minimum_order_shortfall: '0',
+    }, format),
+    'Минимальный заказ: 10000.00 ₽ · минимум выполнен',
+  )
+  assert.equal(
+    minimumOrderLabel({
+      ...base,
+      minimum_order_amount: null,
+      minimum_order_status: 'NOT_CONFIGURED',
+      minimum_order_shortfall: '0',
+    }, format),
+    'Минимальная сумма не задана',
+  )
 })
 
 

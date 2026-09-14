@@ -19,10 +19,12 @@ export type SupplySupplierFormValues = {
   orderEmail: string
   phone: string
   comment: string
+  minimumOrderAmount: string
 }
 
 export type SupplySupplierFormErrors = {
   displayName?: string
+  minimumOrderAmount?: string
 }
 
 export const EMPTY_SUPPLIER_FORM: SupplySupplierFormValues = {
@@ -40,6 +42,7 @@ export const EMPTY_SUPPLIER_FORM: SupplySupplierFormValues = {
   orderEmail: '',
   phone: '',
   comment: '',
+  minimumOrderAmount: '',
 }
 
 function optionalValue(value: string): string | null {
@@ -64,6 +67,7 @@ export function supplierToFormValues(
     orderEmail: supplier.order_email ?? '',
     phone: supplier.phone ?? '',
     comment: supplier.comment ?? '',
+    minimumOrderAmount: supplier.minimum_order_amount ?? '',
   }
 }
 
@@ -88,6 +92,24 @@ export function buildSupplierPayload(
     }
   }
 
+  const minimumOrderAmount = values.minimumOrderAmount
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/₽$/, '')
+    .replace(',', '.')
+  if (
+    minimumOrderAmount
+    && (!/^\d{1,16}(?:\.\d{1,2})?$/.test(minimumOrderAmount)
+      || Number(minimumOrderAmount) < 0)
+  ) {
+    return {
+      status: 'validation',
+      errors: {
+        minimumOrderAmount: 'Укажите неотрицательную сумму с точностью до копеек',
+      },
+    }
+  }
+
   return {
     status: 'success',
     payload: {
@@ -105,6 +127,7 @@ export function buildSupplierPayload(
       order_email: optionalValue(values.orderEmail),
       phone: optionalValue(values.phone),
       comment: optionalValue(values.comment),
+      minimum_order_amount: minimumOrderAmount || null,
     },
   }
 }

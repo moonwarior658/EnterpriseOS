@@ -20,6 +20,9 @@
 .allocation-summary { display: flex; gap: .75rem; flex-wrap: wrap; }
 .allocation-summary > div { display: grid; gap: .2rem; min-width: 12rem; padding: .8rem 1rem; border-radius: .8rem; background: #f0f1ed; }
 .allocation-summary span { color: #62666d; font-size: .78rem; }
+.allocation-summary small { color: #62666d; font-size: .76rem; }
+.allocation-summary > .allocation-summary-warning { background: #fff2e7; color: #9a4a12; }
+.allocation-summary > .allocation-summary-warning small { color: #9a4a12; }
 .allocation-line { padding: 1rem; border: 1px solid #deded8; border-radius: 1rem; }
 .allocation-line > header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
 .allocation-line h3, .allocation-line p { margin: 0; }

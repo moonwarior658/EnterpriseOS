@@ -34,6 +34,7 @@ const SUPPLIER: SupplySupplier = {
   order_email: 'orders@example.test',
   phone: '+7 900 000-00-00',
   comment: 'Упаковка',
+  minimum_order_amount: '10000.00',
   is_active: true,
   archived_at: null,
   archived_by_user_id: null,
@@ -51,6 +52,10 @@ test('подключает admin-only route и пункт навигации п�
     new URL('../src/pages/SupplySuppliersPage.tsx', import.meta.url),
     'utf8',
   )
+  const form = readFileSync(
+    new URL('../src/pages/SupplySupplierForm.tsx', import.meta.url),
+    'utf8',
+  )
 
   assert.match(app, /path="\/supply\/suppliers"/)
   assert.match(app, /ProtectedRoute adminOnly/)
@@ -62,6 +67,8 @@ test('подключает admin-only route и пункт навигации п�
   assert.match(page, /Восстановить/)
   assert.doesNotMatch(page, />ID</)
   assert.doesNotMatch(page, /archived_by_user_id/)
+  assert.match(form, /Минимальная сумма заказа/)
+  assert.match(form, /minimumOrderAmountError/)
 })
 
 test('форма нормализует строки и отправляет все backend-поля', () => {
@@ -88,6 +95,7 @@ test('форма нормализует строки и отправляет в�
     order_email: 'orders@example.test',
     phone: '+7 900 000-00-00',
     comment: 'Упаковка',
+    minimum_order_amount: '10000.00',
   })
 
   const invalid = buildSupplierPayload(EMPTY_SUPPLIER_FORM)
@@ -95,6 +103,50 @@ test('форма нормализует строки и отправляет в�
   assert.equal(
     invalid.status === 'validation' ? invalid.errors.displayName : '',
     'Укажите отображаемое название',
+  )
+})
+
+test('минимальную сумму можно изменить, очистить и нельзя сделать отрицательной', () => {
+  const values = supplierToFormValues(SUPPLIER)
+  assert.equal(values.minimumOrderAmount, '10000.00')
+
+  const updated = buildSupplierPayload({
+    ...values,
+    minimumOrderAmount: '12 500 ₽',
+  })
+  assert.equal(updated.status, 'success')
+  assert.equal(
+    updated.status === 'success' ? updated.payload.minimum_order_amount : null,
+    '12500',
+  )
+
+  const decimal = buildSupplierPayload({
+    ...values,
+    minimumOrderAmount: '12500,50',
+  })
+  assert.equal(decimal.status, 'success')
+  assert.equal(
+    decimal.status === 'success' ? decimal.payload.minimum_order_amount : null,
+    '12500.50',
+  )
+
+  const cleared = buildSupplierPayload({ ...values, minimumOrderAmount: '' })
+  assert.equal(cleared.status, 'success')
+  assert.equal(
+    cleared.status === 'success' ? cleared.payload.minimum_order_amount : 'x',
+    null,
+  )
+
+  const negative = buildSupplierPayload({
+    ...values,
+    minimumOrderAmount: '-1',
+  })
+  assert.equal(negative.status, 'validation')
+  assert.equal(
+    negative.status === 'validation'
+      ? negative.errors.minimumOrderAmount
+      : '',
+    'Укажите неотрицательную сумму с точностью до копеек',
   )
 })
 

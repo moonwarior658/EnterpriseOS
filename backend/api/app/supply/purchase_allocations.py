@@ -19,6 +19,7 @@ from app.schemas.purchase_allocation import (
     SupplyPurchaseAllocationRead,
     SupplyPurchaseAllocationSupplierSubtotalRead,
     SupplyPurchaseAllocationWorkspaceRead,
+    SupplyMinimumOrderStatus,
 )
 
 
@@ -297,7 +298,7 @@ def get_purchase_allocation_workspace(
         by_product.setdefault(relation.product_id, []).append(relation)
 
     total = Decimal("0")
-    subtotals: dict[UUID, tuple[str, Decimal]] = {}
+    subtotals: dict[UUID, tuple[str, Decimal | None, Decimal, int]] = {}
     line_reads = []
     for line in request.lines:
         allocations = []
@@ -308,8 +309,21 @@ def get_purchase_allocation_workspace(
             amount = Decimal(allocation.planned_amount)
             allocated += Decimal(allocation.quantity_base)
             line_amount += amount
-            name, subtotal = subtotals.get(relation.supplier_id, (relation.supplier.display_name, Decimal("0")))
-            subtotals[relation.supplier_id] = (name, subtotal + amount)
+            name, minimum, subtotal, count = subtotals.get(
+                relation.supplier_id,
+                (
+                    relation.supplier.display_name,
+                    relation.supplier.minimum_order_amount,
+                    Decimal("0"),
+                    0,
+                ),
+            )
+            subtotals[relation.supplier_id] = (
+                name,
+                minimum,
+                subtotal + amount,
+                count + 1,
+            )
             allocations.append(SupplyPurchaseAllocationRead(
                 id=allocation.id, product_supplier_id=relation.id,
                 supplier_id=relation.supplier_id,
@@ -353,6 +367,23 @@ def get_purchase_allocation_workspace(
         request_id=request.id, request_number=request.number, request_status=request.status,
         lines=line_reads, planned_total_amount=total,
         supplier_subtotals=[SupplyPurchaseAllocationSupplierSubtotalRead(
-            supplier_id=supplier_id, supplier_display_name=name, planned_amount=amount,
-        ) for supplier_id, (name, amount) in sorted(subtotals.items(), key=lambda item: item[1][0].lower())],
+            supplier_id=supplier_id,
+            supplier_display_name=name,
+            planned_total_amount=amount,
+            minimum_order_amount=minimum,
+            minimum_order_status=(
+                SupplyMinimumOrderStatus.NOT_CONFIGURED
+                if minimum is None
+                else SupplyMinimumOrderStatus.MET
+                if amount >= minimum
+                else SupplyMinimumOrderStatus.BELOW_MINIMUM
+            ),
+            minimum_order_shortfall=(
+                Decimal("0") if minimum is None or amount >= minimum
+                else minimum - amount
+            ),
+            allocation_count=count,
+        ) for supplier_id, (name, minimum, amount, count) in sorted(
+            subtotals.items(), key=lambda item: item[1][0].lower()
+        )],
     )

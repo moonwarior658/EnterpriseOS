@@ -591,6 +591,10 @@ class SupplySupplier(Base):
             "archived_by_user_id IS NOT NULL)",
             name="ck_supply_suppliers_archive_state",
         ),
+        CheckConstraint(
+            "minimum_order_amount IS NULL OR minimum_order_amount >= 0",
+            name="ck_supply_suppliers_minimum_order_amount",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -617,6 +621,9 @@ class SupplySupplier(Base):
     order_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    minimum_order_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 2), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

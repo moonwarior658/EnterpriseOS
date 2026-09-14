@@ -18,7 +18,10 @@ type SupplySupplierFormProps = {
   onSaved: (supplier: SupplySupplier, created: boolean) => void
 }
 
-type TextField = Exclude<keyof SupplySupplierFormValues, 'comment'>
+type TextField = Exclude<
+  keyof SupplySupplierFormValues,
+  'comment' | 'minimumOrderAmount'
+>
 
 type FieldDefinition = {
   key: TextField
@@ -90,6 +93,7 @@ function SupplySupplierForm({
   )
   const [values, setValues] = useState(initialValues)
   const [displayNameError, setDisplayNameError] = useState('')
+  const [minimumOrderAmountError, setMinimumOrderAmountError] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitGuard = useRef(false)
@@ -98,6 +102,7 @@ function SupplySupplierForm({
   function updateValue(key: keyof SupplySupplierFormValues, value: string) {
     setValues((current) => ({ ...current, [key]: value }))
     if (key === 'displayName') setDisplayNameError('')
+    if (key === 'minimumOrderAmount') setMinimumOrderAmountError('')
     setSubmitError('')
   }
 
@@ -116,6 +121,7 @@ function SupplySupplierForm({
     const result = buildSupplierPayload(values)
     if (result.status === 'validation') {
       setDisplayNameError(result.errors.displayName ?? '')
+      setMinimumOrderAmountError(result.errors.minimumOrderAmount ?? '')
       return
     }
 
@@ -184,6 +190,28 @@ function SupplySupplierForm({
           </div>
         </fieldset>
       ))}
+
+      <fieldset className="supplier-form-section">
+        <legend>Коммерческие условия</legend>
+        <div className="supplier-form-grid">
+          <label>
+            <span>Минимальная сумма заказа</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="10 000 ₽"
+              value={values.minimumOrderAmount}
+              aria-invalid={Boolean(minimumOrderAmountError)}
+              onChange={(event) => updateValue(
+                'minimumOrderAmount', event.target.value,
+              )}
+            />
+            {minimumOrderAmountError && (
+              <small>{minimumOrderAmountError}</small>
+            )}
+          </label>
+        </div>
+      </fieldset>
 
       <fieldset className="supplier-form-section">
         <legend>Комментарий</legend>

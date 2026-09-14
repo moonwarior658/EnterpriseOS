@@ -8,7 +8,11 @@ import {
   type SupplyPurchaseAllocationWorkspace as Workspace,
   SupplyApiError,
 } from '../services/supplyAdmin'
-import { coverageLabel, suggestedPackages } from './supplyPurchaseAllocationLogic'
+import {
+  coverageLabel,
+  minimumOrderLabel,
+  suggestedPackages,
+} from './supplyPurchaseAllocationLogic'
 
 
 const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' })
@@ -39,7 +43,17 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
   return <div className="allocation-workspace">
     <div className="allocation-summary">
       <div><span>Плановая стоимость</span><strong>{money.format(Number(workspace.planned_total_amount))}</strong></div>
-      {workspace.supplier_subtotals.map((subtotal) => <div key={subtotal.supplier_id}><span>{subtotal.supplier_display_name}</span><strong>{money.format(Number(subtotal.planned_amount))}</strong></div>)}
+      {workspace.supplier_subtotals.map((subtotal) => <div
+        className={subtotal.minimum_order_status === 'BELOW_MINIMUM' ? 'allocation-summary-warning' : ''}
+        key={subtotal.supplier_id}
+      >
+        <span>{subtotal.supplier_display_name} · {subtotal.allocation_count} поз.</span>
+        <strong>Итого: {money.format(Number(subtotal.planned_total_amount))}</strong>
+        <small>{minimumOrderLabel(
+          subtotal,
+          (value) => money.format(Number(value)),
+        )}</small>
+      </div>)}
     </div>
     {message && <p className="request-message">{message}</p>}
     {workspace.lines.map((line) => <article className="allocation-line" key={line.line_id}>
