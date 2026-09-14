@@ -183,6 +183,72 @@ export type SupplyPurchaseRequestPage = {
   offset: number
 }
 
+export type SupplyPurchaseAllocation = {
+  id: string
+  product_supplier_id: string
+  supplier_id: string
+  supplier_display_name: string
+  role: SupplyProductSupplierRole
+  priority: number
+  packages_count: number
+  quantity_base: string
+  package_quantity_snapshot: string
+  package_unit_id_snapshot: string
+  package_unit_snapshot: SupplyUnit
+  price_per_package_snapshot: string
+  base_unit_price_snapshot: string
+  currency: 'RUB'
+  planned_amount: string
+  status: 'DRAFT' | 'CONFIRMED'
+  current_terms_changed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type SupplyEligibleSupplier = {
+  product_supplier_id: string
+  supplier_id: string
+  supplier_display_name: string
+  role: SupplyProductSupplierRole
+  priority: number
+  package_quantity: string
+  package_unit_id: string
+  package_unit: SupplyUnit
+  price_per_package: string
+  base_unit_price: string
+  currency: 'RUB'
+  is_available: boolean
+  unavailable_until: string | null
+}
+
+export type SupplyPurchaseAllocationLine = {
+  line_id: string
+  product_id: string
+  product_name: string
+  required_quantity: string
+  unit_id: string
+  unit: SupplyUnit
+  allocations: SupplyPurchaseAllocation[]
+  eligible_suppliers: SupplyEligibleSupplier[]
+  allocated_quantity: string
+  remaining_quantity: string
+  overallocated_quantity: string
+  planned_amount: string
+}
+
+export type SupplyPurchaseAllocationWorkspace = {
+  request_id: string
+  request_number: string
+  request_status: 'READY'
+  lines: SupplyPurchaseAllocationLine[]
+  planned_total_amount: string
+  supplier_subtotals: Array<{
+    supplier_id: string
+    supplier_display_name: string
+    planned_amount: string
+  }>
+}
+
 export type SupplyAllocation = {
   id: string
   action: 'TRANSFER' | 'PURCHASE' | 'CANCEL'
@@ -894,6 +960,45 @@ export function cancelSupplyPurchaseRequest(
   requestId: string,
 ): Promise<SupplyPurchaseRequest> {
   return request(`/supply/purchase-requests/${requestId}/cancel`, { method: 'POST' })
+}
+
+export function getSupplyPurchaseAllocations(
+  requestId: string, signal?: AbortSignal,
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/allocations`, { signal })
+}
+
+export function createSupplyPurchaseAllocation(
+  requestId: string, lineId: string, productSupplierId: string, packagesCount: number,
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations`, {
+    method: 'POST',
+    body: JSON.stringify({ product_supplier_id: productSupplierId, packages_count: packagesCount }),
+  })
+}
+
+export function updateSupplyPurchaseAllocation(
+  requestId: string, lineId: string, allocationId: string, packagesCount: number,
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}`, {
+    method: 'PATCH', body: JSON.stringify({ packages_count: packagesCount }),
+  })
+}
+
+export function deleteSupplyPurchaseAllocation(
+  requestId: string, lineId: string, allocationId: string,
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function confirmSupplyPurchaseAllocation(
+  requestId: string, lineId: string, allocationId: string,
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}/confirm`, {
+    method: 'POST',
+  })
 }
 
 export function disableSupplyAlias(

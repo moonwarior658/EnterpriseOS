@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
+from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -14,8 +15,9 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -85,6 +87,12 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
         self.assertEqual(self.revision(), "20260914_0039")
         command.upgrade(self.config, "20260914_0040")
         self.assertEqual(self.revision(), "20260914_0040")
+        command.upgrade(self.config, "20260914_0041")
+        self.assertEqual(self.revision(), "20260914_0041")
+        command.downgrade(self.config, "20260914_0040")
+        self.assertEqual(self.revision(), "20260914_0040")
+        command.upgrade(self.config, "20260914_0041")
+        self.assertEqual(self.revision(), "20260914_0041")
         command.downgrade(self.config, "20260914_0039")
         self.assertEqual(self.revision(), "20260914_0039")
         command.upgrade(self.config, "20260914_0040")
@@ -96,7 +104,7 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
         command.downgrade(self.config, "20260907_0037")
         self.assertNotIn("supply_purchase_requests", inspect(self.engine).get_table_names())
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20260914_0040")
+        self.assertEqual(self.revision(), "20260914_0041")
 
         inspector = inspect(self.engine)
         request_uniques = {
@@ -182,6 +190,94 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
             "uq_supply_procurement_needs_open_debt",
             "ix_supply_procurement_needs_tenant_status_date_product_unit",
         }.issubset(need_indexes))
+        allocation_uniques = {
+            tuple(item["column_names"])
+            for item in inspector.get_unique_constraints("supply_purchase_allocations")
+        }
+        self.assertIn(
+            ("tenant_id", "purchase_request_line_id", "product_supplier_id"),
+            allocation_uniques,
+        )
+        allocation_fks = {
+            item["name"] for item in inspector.get_foreign_keys(
+                "supply_purchase_allocations"
+            )
+        }
+        self.assertTrue({
+            "fk_supply_purchase_allocations_line_tenant",
+            "fk_supply_purchase_allocations_relation_tenant",
+            "fk_supply_purchase_allocations_unit_tenant",
+        }.issubset(allocation_fks))
+        allocation_checks = {
+            item["name"] for item in inspector.get_check_constraints(
+                "supply_purchase_allocations"
+            )
+        }
+        self.assertTrue({
+            "ck_supply_purchase_allocations_packages",
+            "ck_supply_purchase_allocations_amount",
+            "ck_supply_purchase_allocations_status",
+        }.issubset(allocation_checks))
+
+        unit_id, product_id, supplier_id = uuid4(), uuid4(), uuid4()
+        relation_id, request_id, line_id, allocation_id = (
+            uuid4(), uuid4(), uuid4(), uuid4()
+        )
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users (id, username, display_name, hashed_password, tenant_id, is_active, is_admin) "
+                "VALUES (93001, 'allocation-admin', 'Admin', 'x', 'allocation-test', true, true)"
+            ))
+            connection.execute(text(
+                "INSERT INTO supply_units (id, tenant_id, code, name_ru, short_name_ru, allows_fraction, is_active) "
+                "VALUES (:id, 'allocation-test', 'ALLOC_L', 'Литр', 'л', true, true)"
+            ), {"id": unit_id})
+            connection.execute(text(
+                "INSERT INTO supply_products (id, tenant_id, name, normalized_name, default_unit_id, is_active) "
+                "VALUES (:id, 'allocation-test', 'Сливки allocation', 'сливки allocation', :unit, true)"
+            ), {"id": product_id, "unit": unit_id})
+            connection.execute(text(
+                "INSERT INTO supply_suppliers (id, tenant_id, display_name, is_active) "
+                "VALUES (:id, 'allocation-test', 'Allocation Supplier', true)"
+            ), {"id": supplier_id})
+            connection.execute(text(
+                "INSERT INTO supply_product_suppliers "
+                "(id, tenant_id, product_id, supplier_id, role, priority, package_quantity, package_unit_id, price_per_package, currency, is_available, is_active) "
+                "VALUES (:id, 'allocation-test', :product, :supplier, 'PRIMARY', 10, 12, :unit, 4956, 'RUB', true, true)"
+            ), {"id": relation_id, "product": product_id, "supplier": supplier_id, "unit": unit_id})
+            connection.execute(text(
+                "INSERT INTO supply_purchase_requests "
+                "(id, tenant_id, number, need_date, status, created_by_user_id) "
+                "VALUES (:id, 'allocation-test', 'ZR-ALLOC-PG', CURRENT_DATE, 'READY', 93001)"
+            ), {"id": request_id})
+            connection.execute(text(
+                "INSERT INTO supply_purchase_request_lines "
+                "(id, tenant_id, purchase_request_id, product_id, quantity, unit_id, manual_future_quantity) "
+                "VALUES (:id, 'allocation-test', :request, :product, 25, :unit, 25)"
+            ), {"id": line_id, "request": request_id, "product": product_id, "unit": unit_id})
+            connection.execute(text(
+                "INSERT INTO supply_purchase_allocations "
+                "(id, tenant_id, purchase_request_line_id, product_supplier_id, quantity_base, package_quantity_snapshot, package_unit_id_snapshot, packages_count, price_per_package_snapshot, base_unit_price_snapshot, currency, planned_amount, status) "
+                "VALUES (:id, 'allocation-test', :line, :relation, 36, 12, :unit, 3, 4956, 413, 'RUB', 14868, 'DRAFT')"
+            ), {"id": allocation_id, "line": line_id, "relation": relation_id, "unit": unit_id})
+
+        with self.assertRaises(IntegrityError), self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO supply_purchase_allocations "
+                "(id, tenant_id, purchase_request_line_id, product_supplier_id, quantity_base, package_quantity_snapshot, package_unit_id_snapshot, packages_count, price_per_package_snapshot, base_unit_price_snapshot, currency, planned_amount, status) "
+                "VALUES (:id, 'allocation-test', :line, :relation, 12, 12, :unit, 1, 4956, 413, 'RUB', 4956, 'DRAFT')"
+            ), {"id": uuid4(), "line": line_id, "relation": relation_id, "unit": unit_id})
+        with self.assertRaises(IntegrityError), self.engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE supply_purchase_allocations SET packages_count = 0 "
+                "WHERE id = :id"
+            ), {"id": allocation_id})
+        with self.assertRaises(IntegrityError), self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO supply_purchase_allocations "
+                "(id, tenant_id, purchase_request_line_id, product_supplier_id, quantity_base, package_quantity_snapshot, package_unit_id_snapshot, packages_count, price_per_package_snapshot, base_unit_price_snapshot, currency, planned_amount, status) "
+                "VALUES (:id, 'other', :line, :relation, 12, 12, :unit, 1, 4956, 413, 'RUB', 4956, 'DRAFT')"
+            ), {"id": uuid4(), "line": line_id, "relation": relation_id, "unit": unit_id})
 
     def test_z_concurrent_collect_reserves_need_only_once(self) -> None:
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)

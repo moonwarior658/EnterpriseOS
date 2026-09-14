@@ -16,6 +16,22 @@ from app.schemas.purchase_request import (
     SupplyPurchaseRequestRead,
     SupplyPurchaseRequestUpdate,
 )
+from app.schemas.purchase_allocation import (
+    SupplyPurchaseAllocationCreate,
+    SupplyPurchaseAllocationUpdate,
+    SupplyPurchaseAllocationWorkspaceRead,
+)
+from app.supply.purchase_allocations import (
+    DuplicatePurchaseAllocationError,
+    PurchaseAllocationEligibilityError,
+    PurchaseAllocationNotFoundError,
+    PurchaseAllocationStateError,
+    confirm_purchase_allocation,
+    create_purchase_allocation,
+    delete_purchase_allocation,
+    get_purchase_allocation_workspace,
+    update_purchase_allocation,
+)
 from app.supply.purchase_requests import (
     DuplicatePurchaseRequestLineError,
     PurchaseRequestEmptyError,
@@ -247,3 +263,121 @@ def delete_line(
             status_code=status.HTTP_409_CONFLICT,
             detail="Автоматическую потребность нельзя удалить вручную",
         ) from error
+
+
+def _allocation_error(error: Exception) -> HTTPException:
+    if isinstance(error, PurchaseAllocationNotFoundError):
+        return _not_found("Строка или распределение не найдено")
+    if isinstance(error, DuplicatePurchaseAllocationError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Этот поставщик уже добавлен к строке",
+        )
+    if isinstance(error, PurchaseAllocationEligibilityError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Поставщик недоступен для этой строки: проверьте товар, единицу, "
+                "активность, доступность и цену"
+            ),
+        )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Распределение доступно только для зафиксированного запроса; подтверждённую строку менять нельзя",
+    )
+
+
+@router.get(
+    "/{request_id}/allocations",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+)
+def read_allocations(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return get_purchase_allocation_workspace(db, request_id, tenant_id=admin.tenant_id)
+    except (PurchaseAllocationNotFoundError, PurchaseAllocationStateError) as error:
+        raise _allocation_error(error) from error
+
+
+@router.post(
+    "/{request_id}/lines/{line_id}/allocations",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_allocation(
+    request_id: UUID, line_id: UUID, payload: SupplyPurchaseAllocationCreate,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return create_purchase_allocation(
+            db, request_id, line_id, payload.product_supplier_id,
+            payload.packages_count, tenant_id=admin.tenant_id,
+        )
+    except (
+        PurchaseAllocationNotFoundError, PurchaseAllocationStateError,
+        PurchaseAllocationEligibilityError, DuplicatePurchaseAllocationError,
+    ) as error:
+        raise _allocation_error(error) from error
+
+
+@router.patch(
+    "/{request_id}/lines/{line_id}/allocations/{allocation_id}",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+)
+def update_allocation(
+    request_id: UUID, line_id: UUID, allocation_id: UUID,
+    payload: SupplyPurchaseAllocationUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return update_purchase_allocation(
+            db, request_id, line_id, allocation_id, payload.packages_count,
+            tenant_id=admin.tenant_id,
+        )
+    except (
+        PurchaseAllocationNotFoundError, PurchaseAllocationStateError,
+        PurchaseAllocationEligibilityError,
+    ) as error:
+        raise _allocation_error(error) from error
+
+
+@router.delete(
+    "/{request_id}/lines/{line_id}/allocations/{allocation_id}",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+)
+def delete_allocation(
+    request_id: UUID, line_id: UUID, allocation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return delete_purchase_allocation(
+            db, request_id, line_id, allocation_id, tenant_id=admin.tenant_id
+        )
+    except (PurchaseAllocationNotFoundError, PurchaseAllocationStateError) as error:
+        raise _allocation_error(error) from error
+
+
+@router.post(
+    "/{request_id}/lines/{line_id}/allocations/{allocation_id}/confirm",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+)
+def confirm_allocation(
+    request_id: UUID, line_id: UUID, allocation_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return confirm_purchase_allocation(
+            db, request_id, line_id, allocation_id, tenant_id=admin.tenant_id
+        )
+    except (
+        PurchaseAllocationNotFoundError, PurchaseAllocationStateError,
+        PurchaseAllocationEligibilityError,
+    ) as error:
+        raise _allocation_error(error) from error

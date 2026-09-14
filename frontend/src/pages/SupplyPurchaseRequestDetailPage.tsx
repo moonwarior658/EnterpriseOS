@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EosDateField, EosSelect } from '../components/EosFormControls'
 import { EosProductCombobox } from '../components/EosProductCombobox'
+import SupplyPurchaseAllocationWorkspace from './SupplyPurchaseAllocationWorkspace'
 import {
   addSupplyPurchaseRequestLine,
   cancelSupplyPurchaseRequest,
@@ -42,6 +43,7 @@ export default function SupplyPurchaseRequestDetailPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [collected, setCollected] = useState(false)
+  const [showAllocations, setShowAllocations] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -127,6 +129,9 @@ export default function SupplyPurchaseRequestDetailPage() {
         </div>
         {message && <p className="request-message">{message}</p>}
         {isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="secondary-action" disabled={busy} onClick={collectNeeds}>Собрать потребность</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
+        {request.status === 'READY' && <div className="purchase-actions"><button type="button" className="primary-action" onClick={() => setShowAllocations((value) => !value)}>{showAllocations ? 'Скрыть распределение' : 'Распределить по поставщикам'}</button></div>}
+
+        {request.status === 'READY' && showAllocations && <SupplyPurchaseAllocationWorkspace requestId={requestId} />}
 
         {isDraft && (
           <form className="purchase-line-form" onSubmit={saveLine}>

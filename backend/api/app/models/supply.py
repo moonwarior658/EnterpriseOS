@@ -88,6 +88,11 @@ class SupplyPurchaseRequestSourceType(StrEnum):
     MANUAL_FUTURE = "MANUAL_FUTURE"
 
 
+class SupplyPurchaseAllocationStatus(StrEnum):
+    DRAFT = "DRAFT"
+    CONFIRMED = "CONFIRMED"
+
+
 class SupplyProcurementNeedSourceType(StrEnum):
     REQUEST_LINE = "REQUEST_LINE"
     DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
@@ -965,6 +970,98 @@ class SupplyPurchaseRequestLine(Base):
     sources: Mapped[list["SupplyPurchaseRequestLineSource"]] = relationship(
         back_populates="line", cascade="all, delete-orphan",
         passive_deletes=True, order_by="SupplyPurchaseRequestLineSource.created_at",
+    )
+    purchase_allocations: Mapped[list["SupplyPurchaseAllocation"]] = relationship(
+        back_populates="purchase_request_line", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplyPurchaseAllocation.created_at",
+    )
+
+
+class SupplyPurchaseAllocation(Base):
+    __tablename__ = "supply_purchase_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_purchase_allocations_tenant_id"
+        ),
+        UniqueConstraint(
+            "tenant_id", "purchase_request_line_id", "product_supplier_id",
+            name="uq_supply_purchase_allocations_line_relation",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "purchase_request_line_id"],
+            ["supply_purchase_request_lines.tenant_id", "supply_purchase_request_lines.id"],
+            name="fk_supply_purchase_allocations_line_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_supplier_id"],
+            ["supply_product_suppliers.tenant_id", "supply_product_suppliers.id"],
+            name="fk_supply_purchase_allocations_relation_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "package_unit_id_snapshot"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_purchase_allocations_unit_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("packages_count > 0", name="ck_supply_purchase_allocations_packages"),
+        CheckConstraint("quantity_base > 0", name="ck_supply_purchase_allocations_quantity"),
+        CheckConstraint(
+            "package_quantity_snapshot > 0",
+            name="ck_supply_purchase_allocations_package_quantity",
+        ),
+        CheckConstraint(
+            "price_per_package_snapshot > 0",
+            name="ck_supply_purchase_allocations_package_price",
+        ),
+        CheckConstraint(
+            "base_unit_price_snapshot > 0",
+            name="ck_supply_purchase_allocations_base_price",
+        ),
+        CheckConstraint("planned_amount > 0", name="ck_supply_purchase_allocations_amount"),
+        CheckConstraint("currency = 'RUB'", name="ck_supply_purchase_allocations_currency"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'CONFIRMED')",
+            name="ck_supply_purchase_allocations_status",
+        ),
+        Index(
+            "ix_supply_purchase_allocations_request_line",
+            "tenant_id", "purchase_request_line_id", "status",
+        ),
+        Index(
+            "ix_supply_purchase_allocations_relation",
+            "tenant_id", "product_supplier_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    purchase_request_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    product_supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    quantity_base: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    package_quantity_snapshot: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    package_unit_id_snapshot: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    packages_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_per_package_snapshot: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    base_unit_price_snapshot: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    planned_amount: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="DRAFT", server_default="DRAFT", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    purchase_request_line: Mapped[SupplyPurchaseRequestLine] = relationship(
+        back_populates="purchase_allocations", overlaps="product_supplier,package_unit_snapshot"
+    )
+    product_supplier: Mapped[SupplyProductSupplier] = relationship(
+        overlaps="purchase_allocations,purchase_request_line,package_unit_snapshot"
+    )
+    package_unit_snapshot: Mapped[SupplyUnit] = relationship(
+        overlaps="purchase_allocations,purchase_request_line,product_supplier"
     )
 
 

@@ -20,6 +20,8 @@ from app.main import app
 from app.models.supply import (
     Department,
     SupplyProduct,
+    SupplyProductSupplier,
+    SupplyPurchaseAllocation,
     SupplyProductCategory,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
@@ -34,6 +36,7 @@ from app.models.supply import (
     SupplyStockCalculation,
     SupplyStockCalculationLine,
     SupplyStorageZone,
+    SupplySupplier,
 )
 from app.models.user import User
 from app.models.iiko import IikoWarehouseMapping
@@ -57,12 +60,14 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             Department.__table__, IikoWarehouseMapping.__table__, SupplyRequestCycle.__table__,
             SupplyProductCategory.__table__, SupplyStorageZone.__table__,
             SupplyProduct.__table__,
+            SupplySupplier.__table__, SupplyProductSupplier.__table__,
             SupplyRequest.__table__, SupplyRequestLine.__table__,
             SupplyStockCalculation.__table__, SupplyStockCalculationLine.__table__,
             SupplyDepartmentDebt.__table__,
             SupplyPurchaseRequest.__table__, SupplyPurchaseRequestLine.__table__,
             SupplyProcurementNeed.__table__,
             SupplyPurchaseRequestLineSource.__table__,
+            SupplyPurchaseAllocation.__table__,
         ):
             table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -81,6 +86,39 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             self.other_product = SupplyProduct(tenant_id="other", name="Сахар", normalized_name="сахар", default_unit_id=self.other_unit.id, is_active=True)
             session.add_all([self.product, self.other_product])
             session.flush()
+            self.supplier = SupplySupplier(
+                tenant_id="eclair", display_name="Основной поставщик", is_active=True
+            )
+            self.backup_supplier = SupplySupplier(
+                tenant_id="eclair", display_name="Резервный поставщик", is_active=True
+            )
+            self.other_supplier = SupplySupplier(
+                tenant_id="other", display_name="Чужой поставщик", is_active=True
+            )
+            session.add_all([self.supplier, self.backup_supplier, self.other_supplier])
+            session.flush()
+            self.primary_relation = SupplyProductSupplier(
+                tenant_id="eclair", product_id=self.product.id,
+                supplier_id=self.supplier.id, role="PRIMARY", priority=10,
+                package_quantity=Decimal("12.000"), package_unit_id=self.unit.id,
+                price_per_package=Decimal("4956.00"), currency="RUB",
+                is_available=True, is_active=True,
+            )
+            self.backup_relation = SupplyProductSupplier(
+                tenant_id="eclair", product_id=self.product.id,
+                supplier_id=self.backup_supplier.id, role="BACKUP", priority=20,
+                package_quantity=Decimal("12.000"), package_unit_id=self.unit.id,
+                price_per_package=Decimal("5280.00"), currency="RUB",
+                is_available=True, is_active=True,
+            )
+            self.other_relation = SupplyProductSupplier(
+                tenant_id="other", product_id=self.other_product.id,
+                supplier_id=self.other_supplier.id, role="PRIMARY", priority=10,
+                package_quantity=Decimal("10.000"), package_unit_id=self.other_unit.id,
+                price_per_package=Decimal("100.00"), currency="RUB",
+                is_available=True, is_active=True,
+            )
+            session.add_all([self.primary_relation, self.backup_relation, self.other_relation])
             self.department = Department(tenant_id="eclair", code="M15", name="М15", is_active=True, display_order=1)
             self.direction = SupplyRequestDirection(tenant_id="eclair", code="FOOD", name="Продукты", is_active=True, display_order=1)
             session.add_all([self.department, self.direction])
@@ -228,6 +266,153 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(cancelled.status_code, 409, cancelled.text)
         self.assertEqual(self.client.patch(f"/supply/purchase-requests/{request_id}", json={"comment": "x"}).status_code, 409)
         self.assertEqual(self.client.post(f"/supply/purchase-requests/{request_id}/cancel").status_code, 409)
+
+    def test_allocation_workspace_split_coverage_snapshot_and_confirmation(self) -> None:
+        request_id = self.create_request()["id"]
+        added = self.add_line(request_id, quantity="120.000")
+        line_id = added.json()["lines"][0]["id"]
+        self.assertEqual(self.client.get(f"/supply/purchase-requests/{request_id}/allocations").status_code, 409)
+        self.assertEqual(self.client.post(f"/supply/purchase-requests/{request_id}/ready").status_code, 200)
+
+        first = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 6},
+        )
+        self.assertEqual(first.status_code, 201, first.text)
+        line = first.json()["lines"][0]
+        self.assertEqual(line["allocated_quantity"], "72.000000")
+        self.assertEqual(line["remaining_quantity"], "48.000000")
+        self.assertEqual(line["planned_amount"], "29736.000000")
+        self.assertEqual([item["role"] for item in line["eligible_suppliers"]], ["PRIMARY", "BACKUP"])
+
+        duplicate = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 1},
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        second = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations",
+            json={"product_supplier_id": str(self.backup_relation.id), "packages_count": 5},
+        )
+        self.assertEqual(second.status_code, 201, second.text)
+        line = second.json()["lines"][0]
+        self.assertEqual(line["allocated_quantity"], "132.000000")
+        self.assertEqual(line["remaining_quantity"], "0")
+        self.assertEqual(line["overallocated_quantity"], "12.000000")
+        self.assertEqual(second.json()["planned_total_amount"], "56136.000000")
+        self.assertEqual(len(second.json()["supplier_subtotals"]), 2)
+
+        allocation = line["allocations"][0]
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.price_per_package = Decimal("6000.00")
+            relation.package_quantity = Decimal("15.000")
+        workspace = self.client.get(f"/supply/purchase-requests/{request_id}/allocations")
+        saved = workspace.json()["lines"][0]["allocations"][0]
+        self.assertEqual(saved["price_per_package_snapshot"], "4956.00")
+        self.assertEqual(saved["package_quantity_snapshot"], "12.000")
+        self.assertTrue(saved["current_terms_changed"])
+
+        updated_snapshot = self.client.patch(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation['id']}",
+            json={"packages_count": 7},
+        )
+        saved = updated_snapshot.json()["lines"][0]["allocations"][0]
+        self.assertEqual(saved["quantity_base"], "84.000000")
+        self.assertEqual(saved["planned_amount"], "34692.000000")
+        self.assertEqual(saved["price_per_package_snapshot"], "4956.00")
+
+        confirmed = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation['id']}/confirm"
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["lines"][0]["allocations"][0]["status"], "CONFIRMED")
+        self.assertEqual(self.client.patch(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation['id']}",
+            json={"packages_count": 8},
+        ).status_code, 409)
+
+    def test_allocation_rejects_ineligible_unit_availability_and_cross_tenant(self) -> None:
+        request_id = self.create_request()["id"]
+        added = self.add_line(request_id, quantity="25.000")
+        line_id = added.json()["lines"][0]["id"]
+        self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+        endpoint = f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations"
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.other_relation.id), "packages_count": 1,
+        }).status_code, 409)
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.package_unit_id = self.unit_two.id
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
+        }).status_code, 409)
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.package_unit_id = self.unit.id
+            relation.is_available = True
+            relation.price_per_package = None
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
+        }).status_code, 409)
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.price_per_package = Decimal("4956.00")
+            relation.is_active = False
+            relation.archived_at = datetime.now(timezone.utc)
+            relation.archived_by_user_id = 2
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
+        }).status_code, 409)
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.is_active = True
+            relation.archived_at = None
+            relation.archived_by_user_id = None
+            supplier = session.get(SupplySupplier, self.supplier.id)
+            supplier.is_active = False
+            supplier.archived_at = datetime.now(timezone.utc)
+            supplier.archived_by_user_id = 2
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
+        }).status_code, 409)
+        with self.sessions.begin() as session:
+            supplier = session.get(SupplySupplier, self.supplier.id)
+            supplier.is_active = True
+            supplier.archived_at = None
+            supplier.archived_by_user_id = None
+            second_product = SupplyProduct(
+                tenant_id="eclair", name="Мука", normalized_name="мука",
+                default_unit_id=self.unit.id, is_active=True,
+            )
+            session.add(second_product); session.flush()
+            wrong_product_relation = SupplyProductSupplier(
+                tenant_id="eclair", product_id=second_product.id,
+                supplier_id=self.supplier.id, role="PRIMARY", priority=10,
+                package_quantity=Decimal("10.000"), package_unit_id=self.unit.id,
+                price_per_package=Decimal("1000.00"), currency="RUB",
+                is_available=True, is_active=True,
+            )
+            session.add(wrong_product_relation); session.flush()
+            wrong_product_relation_id = wrong_product_relation.id
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(wrong_product_relation_id), "packages_count": 1,
+        }).status_code, 409)
+
+        cancelled_id = self.create_request()["id"]
+        cancelled_line = self.add_line(cancelled_id).json()["lines"][0]["id"]
+        self.assertEqual(self.client.post(f"/supply/purchase-requests/{cancelled_id}/cancel").status_code, 200)
+        self.assertEqual(self.client.post(
+            f"/supply/purchase-requests/{cancelled_id}/lines/{cancelled_line}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 1},
+        ).status_code, 409)
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.primary_relation.id)
+            relation.package_unit_id = self.unit.id
+            relation.is_available = False
+        self.assertEqual(self.client.post(endpoint, json={
+            "product_supplier_id": str(self.primary_relation.id), "packages_count": 1,
+        }).status_code, 409)
 
     def test_collect_aggregates_is_idempotent_and_preserves_manual(self) -> None:
         request_id = self.create_request()["id"]
