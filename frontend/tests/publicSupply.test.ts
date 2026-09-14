@@ -104,6 +104,7 @@ test('валидирует первый экран и строки формы', 
   assert.equal(
     publicSupplyFormError({
       departmentId: '',
+      needDate: '',
       multilineText: '',
     }),
     'Выберите подразделение',
@@ -111,6 +112,15 @@ test('валидирует первый экран и строки формы', 
   assert.equal(
     publicSupplyFormError({
       departmentId: 'department-id',
+      needDate: '',
+      multilineText: 'Картофель 10 кг',
+    }),
+    'Укажите дату потребности',
+  )
+  assert.equal(
+    publicSupplyFormError({
+      departmentId: 'department-id',
+      needDate: '2026-09-15',
       multilineText: 'Картофель 10 кг',
     }),
     '',

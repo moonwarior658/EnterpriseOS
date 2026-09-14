@@ -908,6 +908,10 @@ class SupplyExpectedVersion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SupplyRequestNeedDateUpdate(SupplyExpectedVersion):
+    need_date: date
+
+
 class SupplyRequestPlan(SupplyExpectedVersion):
     simple_mode: bool = False
 
@@ -1095,6 +1099,7 @@ class SupplyRequestCreate(BaseModel):
     department_id: UUID
     direction_id: UUID
     cycle_id: UUID
+    need_date: date | None = None
     raw_input: str
     lines: list[SupplyRequestLineCreate]
 
@@ -1133,6 +1138,7 @@ class SupplyRequestRead(BaseModel):
     direction: SupplyRequestDirectionRead
     cycle_id: UUID | None
     cycle: SupplyRequestCycleRead | None
+    need_date: date | None
     status: SupplyRequestStatus
     source_type: SupplyRequestSourceType
     source_work_request_id: int | None
@@ -1488,6 +1494,7 @@ class PublicSupplyScheduleRead(BaseModel):
 class PublicSupplyRequestCreate(BaseModel):
     department_id: UUID
     cycle_id: UUID | None = None
+    need_date: date | None = None
     author_name: str | None = None
     author_phone: str | None = None
     multiline_text: str
@@ -1545,6 +1552,7 @@ class PublicSupplySubmit(PublicSupplyExpectedVersion):
 
 class PublicSupplyLinesUpdate(PublicSupplyExpectedVersion):
     multiline_text: str
+    need_date: date | None = None
 
     @field_validator("multiline_text")
     @classmethod
@@ -1587,6 +1595,7 @@ class PublicSupplyRequestRead(BaseModel):
     department: PublicSupplyDepartmentRead
     direction: PublicSupplyDirectionRead
     cycle: PublicSupplyCycleRead
+    need_date: date | None
     status: SupplyRequestStatus
     version: int
     author_name: str | None
@@ -1606,6 +1615,7 @@ class SupplyRequestListItem(BaseModel):
     direction: SupplyRequestDirectionRead
     cycle_id: UUID | None
     cycle: SupplyRequestCycleRead | None
+    need_date: date | None
     status: SupplyRequestStatus
     source_type: SupplyRequestSourceType
     version: int

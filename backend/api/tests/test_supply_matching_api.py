@@ -27,6 +27,7 @@ from app.models.supply import (
     SupplyDepartmentProductMapping,
     SupplyDepartmentProductMappingAuditEvent,
     SupplyProductCategory,
+    SupplyProcurementNeed,
     SupplyDepartmentDebt,
     SupplyDepartmentDebtEvent,
     SupplyLineAllocation,
@@ -91,6 +92,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         SupplyDepartmentDebtEvent.__table__.create(self.engine)
         SupplyRequestLineDebtLink.__table__.create(self.engine)
         IikoDocumentWrite.__table__.create(self.engine)
+        SupplyProcurementNeed.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
             expire_on_commit=False,

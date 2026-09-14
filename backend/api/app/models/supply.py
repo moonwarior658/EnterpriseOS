@@ -89,6 +89,24 @@ class SupplyPurchaseRequestSourceType(StrEnum):
     MANUAL_FUTURE = "MANUAL_FUTURE"
 
 
+class SupplyProcurementNeedSourceType(StrEnum):
+    REQUEST_LINE = "REQUEST_LINE"
+    DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
+
+
+class SupplyProcurementNeedStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PURCHASE_REQUEST = "IN_PURCHASE_REQUEST"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplyProcurementNeedReason(StrEnum):
+    INTERNAL_STOCK_DEFICIT = "INTERNAL_STOCK_DEFICIT"
+    DEBT_CARRY_FORWARD = "DEBT_CARRY_FORWARD"
+    ACTUAL_SHORTFALL = "ACTUAL_SHORTFALL"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -995,6 +1013,182 @@ class SupplyPurchaseRequestLineSource(Base):
     unit: Mapped[SupplyUnit] = relationship(overlaps="line,sources")
 
 
+class SupplyProcurementNeed(Base):
+    __tablename__ = "supply_procurement_needs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_procurement_needs_tenant_id"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supply_request_line_id"],
+            ["supply_request_lines.tenant_id", "supply_request_lines.id"],
+            name="fk_supply_procurement_needs_request_line_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "department_debt_id"],
+            ["supply_department_debts.tenant_id", "supply_department_debts.id"],
+            name="fk_supply_procurement_needs_debt_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "basis_stock_calculation_line_id"],
+            [
+                "supply_stock_calculation_lines.tenant_id",
+                "supply_stock_calculation_lines.id",
+            ],
+            name="fk_supply_procurement_needs_basis_line_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_procurement_needs_product_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_procurement_needs_unit_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "reserved_purchase_request_id"],
+            ["supply_purchase_requests.tenant_id", "supply_purchase_requests.id"],
+            name="fk_supply_procurement_needs_reserved_request_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "(source_type = 'REQUEST_LINE' "
+            "AND supply_request_line_id IS NOT NULL "
+            "AND department_debt_id IS NULL "
+            "AND basis_stock_calculation_line_id IS NOT NULL "
+            "AND reason = 'INTERNAL_STOCK_DEFICIT') OR "
+            "(source_type = 'DEPARTMENT_DEBT' "
+            "AND department_debt_id IS NOT NULL "
+            "AND supply_request_line_id IS NULL "
+            "AND basis_stock_calculation_line_id IS NULL "
+            "AND reason = 'DEBT_CARRY_FORWARD')",
+            name="ck_supply_procurement_needs_source",
+        ),
+        CheckConstraint("quantity > 0", name="ck_supply_procurement_needs_quantity"),
+        CheckConstraint("version > 0", name="ck_supply_procurement_needs_version"),
+        CheckConstraint(
+            "(status IN ('CLOSED', 'CANCELLED') AND closed_at IS NOT NULL) OR "
+            "(status IN ('OPEN', 'IN_PURCHASE_REQUEST') AND closed_at IS NULL)",
+            name="ck_supply_procurement_needs_closed_state",
+        ),
+        Index(
+            "uq_supply_procurement_needs_open_request_line",
+            "tenant_id", "supply_request_line_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'OPEN' AND source_type = 'REQUEST_LINE'"
+            ),
+            sqlite_where=text(
+                "status = 'OPEN' AND source_type = 'REQUEST_LINE'"
+            ),
+        ),
+        Index(
+            "uq_supply_procurement_needs_open_debt",
+            "tenant_id", "department_debt_id",
+            unique=True,
+            postgresql_where=text(
+                "status = 'OPEN' AND source_type = 'DEPARTMENT_DEBT'"
+            ),
+            sqlite_where=text(
+                "status = 'OPEN' AND source_type = 'DEPARTMENT_DEBT'"
+            ),
+        ),
+        Index(
+            "ix_supply_procurement_needs_tenant_status_date_product_unit",
+            "tenant_id", "status", "need_date", "product_id", "unit_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[SupplyProcurementNeedSourceType] = mapped_column(
+        SqlEnum(
+            SupplyProcurementNeedSourceType,
+            name="supply_procurement_need_source_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=24,
+        ),
+        nullable=False,
+    )
+    supply_request_line_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    department_debt_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    basis_stock_calculation_line_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    need_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[SupplyProcurementNeedStatus] = mapped_column(
+        SqlEnum(
+            SupplyProcurementNeedStatus,
+            name="supply_procurement_need_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=24,
+        ),
+        default=SupplyProcurementNeedStatus.OPEN,
+        server_default="OPEN",
+        nullable=False,
+    )
+    reason: Mapped[SupplyProcurementNeedReason] = mapped_column(
+        SqlEnum(
+            SupplyProcurementNeedReason,
+            name="supply_procurement_need_reason",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=32,
+        ),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    reserved_purchase_request_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    request_line: Mapped["SupplyRequestLine | None"] = relationship(
+        foreign_keys=[supply_request_line_id]
+    )
+    department_debt: Mapped["SupplyDepartmentDebt | None"] = relationship(
+        foreign_keys=[department_debt_id]
+    )
+    basis_stock_calculation_line: Mapped["SupplyStockCalculationLine | None"] = relationship(
+        foreign_keys=[basis_stock_calculation_line_id]
+    )
+    product: Mapped[SupplyProduct] = relationship(foreign_keys=[product_id])
+    unit: Mapped[SupplyUnit] = relationship(foreign_keys=[unit_id])
+    reserved_purchase_request: Mapped[SupplyPurchaseRequest | None] = relationship(
+        foreign_keys=[reserved_purchase_request_id]
+    )
+
+
 class SupplyProductAlias(Base):
     __tablename__ = "supply_product_aliases"
     __table_args__ = (
@@ -1427,6 +1621,10 @@ class SupplyStockCalculationLine(Base):
             "tenant_id", "calculation_id", "id",
             name="uq_supply_stock_calculation_line_tenant_calculation_id",
         ),
+        UniqueConstraint(
+            "tenant_id", "id",
+            name="uq_supply_stock_calculation_lines_tenant_id",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "calculation_id", "request_id"],
             [
@@ -1795,6 +1993,7 @@ class SupplyRequest(Base):
         ForeignKey("supply_request_cycles.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    need_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     iiko_source_warehouse_mapping_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         nullable=True,
@@ -2304,6 +2503,9 @@ class SupplyLineAllocation(Base):
 class SupplyDepartmentDebt(Base):
     __tablename__ = "supply_department_debts"
     __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_department_debts_tenant_id"
+        ),
         CheckConstraint(
             "status IN ('ACTIVE', 'CLOSED', 'CANCELLED')",
             name="ck_supply_department_debts_status",

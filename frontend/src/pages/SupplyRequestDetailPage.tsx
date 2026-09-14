@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { EosSelect } from '../components/EosFormControls'
+import { EosDateField, EosSelect } from '../components/EosFormControls'
 import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplyRequest,
@@ -28,6 +28,7 @@ import {
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
   submitSupplyRequest,
+  updateSupplyRequestNeedDate,
   updateSupplyStockTransferable,
   SupplyApiError,
   type SupplyLine,
@@ -480,6 +481,12 @@ function SupplyRequestReadOnlyCard({
           <div><dt>Автор</dt><dd>{request.public_author_name ?? 'Не указано'}</dd></div>
           <div><dt>Создана</dt><dd>{formatDate(request.created_at)}</dd></div>
           <div><dt>Отправлена</dt><dd>{formatDate(request.submitted_at)}</dd></div>
+          <div>
+            <dt>Дата потребности</dt>
+            <dd>{request.need_date
+              ? new Date(`${request.need_date}T00:00:00`).toLocaleDateString('ru-RU')
+              : 'Не указана'}</dd>
+          </div>
           <div><dt>Статус</dt><dd>{statusLabel(request.status)}</dd></div>
         </dl>
 
@@ -543,6 +550,14 @@ function SupplyRequestDetailPage() {
     'loading' | 'ready' | 'error'
   >('loading')
   const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({})
+  const [needDateEdit, setNeedDateEdit] = useState<{
+    requestId: string
+    value: string
+  } | null>(null)
+  const needDateDraft = needDateEdit !== null
+    && needDateEdit.requestId === request?.id
+    ? needDateEdit.value
+    : request?.need_date ?? ''
 
   const editable = request
     ? ['SUBMITTED', 'IN_REVIEW'].includes(request.status)
@@ -608,6 +623,7 @@ function SupplyRequestDetailPage() {
   async function reload(): Promise<SupplyRequest> {
     const item = await getSupplyRequest(requestId)
     setRequest(item)
+    setNeedDateEdit(null)
     setFulfillment({})
     setState('ready')
     return item
@@ -1410,6 +1426,35 @@ function SupplyRequestDetailPage() {
     }
   }
 
+  async function saveNeedDate() {
+    if (
+      !request
+      || busy
+      || !needDateDraft
+      || !['DRAFT', 'SUBMITTED', 'IN_REVIEW'].includes(request.status)
+    ) return
+    setBusy(true)
+    setMessage('')
+    try {
+      const updated = await updateSupplyRequestNeedDate(
+        request.id,
+        request.version,
+        needDateDraft,
+      )
+      setRequest(updated)
+      setNeedDateEdit(null)
+      setMessage('Дата потребности сохранена')
+    } catch (error) {
+      const conflict = error instanceof SupplyApiError
+        && error.code === 'SUPPLY_REQUEST_VERSION_CONFLICT'
+      setMessage(conflict
+        ? 'Заявка изменилась. Обновите карточку и повторите.'
+        : 'Не удалось сохранить дату потребности.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (state === 'loading') {
     return <p className="page-state">Загружаем заявку…</p>
   }
@@ -1444,6 +1489,30 @@ function SupplyRequestDetailPage() {
         <div className="supply-request-meta">
           <span>{request.public_author_name ?? 'Не указано'}</span>
           <span>{formatDate(request.submitted_at ?? request.created_at)}</span>
+          <EosDateField
+            label="Дата потребности"
+            value={needDateDraft}
+            disabled={
+              busy
+              || !['DRAFT', 'SUBMITTED', 'IN_REVIEW'].includes(request.status)
+            }
+            onChange={(event) => setNeedDateEdit({
+              requestId: request.id,
+              value: event.target.value,
+            })}
+          />
+          {['DRAFT', 'SUBMITTED', 'IN_REVIEW'].includes(request.status) && (
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={
+                busy || !needDateDraft || needDateDraft === request.need_date
+              }
+              onClick={() => void saveNeedDate()}
+            >
+              Сохранить дату
+            </button>
+          )}
           <details>
             <summary>Действия с заявкой</summary>
             <button

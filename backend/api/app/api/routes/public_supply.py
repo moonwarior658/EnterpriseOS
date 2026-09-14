@@ -210,6 +210,7 @@ def _request_payload(
         "department": supply_request.department,
         "direction": supply_request.direction,
         "cycle": _cycle_payload(supply_request.cycle, now=now),
+        "need_date": supply_request.need_date,
         "status": supply_request.status,
         "version": supply_request.version,
         "author_name": supply_request.public_author_name,

@@ -80,6 +80,7 @@ from app.schemas.supply import (
     SupplyRecognitionSummary,
     SupplyRecognitionRequest,
     SupplyRequestCreate,
+    SupplyRequestNeedDateUpdate,
     SupplyRequestPlan,
     SupplyRequestCycleCreate,
     SupplyRequestCyclePage,
@@ -212,6 +213,7 @@ from app.supply.service import (
     delete_context_mapping,
     replace_context_mapping,
     update_supply_line_working_values,
+    update_supply_request_need_date,
     detect_supply_request_duplicates,
     recognize_supply_request,
     reparse_supply_request_line,
@@ -1369,6 +1371,35 @@ def read_request(
         raise _not_found() from error
 
 
+@router.patch(
+    "/requests/{request_id}/need-date",
+    response_model=SupplyRequestRead,
+)
+def update_request_need_date(
+    request_id: UUID,
+    payload: SupplyRequestNeedDateUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyRequest:
+    try:
+        return update_supply_request_need_date(
+            db,
+            request_id=request_id,
+            expected_version=payload.expected_version,
+            need_date=payload.need_date,
+            tenant_id=current_admin.tenant_id,
+        )
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"},
+        ) from error
+
+
 @router.get(
     "/requests/{request_id}/iiko-documents",
     response_model=list[SupplyIikoDocumentRead],
@@ -1830,7 +1861,7 @@ def confirm_request_stock_calculation(
     try:
         return confirm_stock_calculation(
             db,
-            tenant_id=settings.default_tenant_id,
+            tenant_id=user.tenant_id,
             request_id=request_id,
             calculation_id=payload.calculation_id,
             expected_revision=payload.expected_revision,
@@ -2291,6 +2322,7 @@ def update_line_working_values(
             line_id=line_id,
             payload=payload,
             actor_user_id=current_admin.id,
+            tenant_id=current_admin.tenant_id,
         )
         return SupplyLineWorkingValuesRead(
             request_version=request_version,

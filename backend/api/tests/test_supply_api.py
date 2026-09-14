@@ -190,6 +190,7 @@ class SupplyApiTests(unittest.TestCase):
             "department_id": department_id,
             "direction_id": direction_id,
             "cycle_id": cycle_id,
+            "need_date": "2026-09-16",
             "raw_input": "Молоко 10 л\nСахар 5 кг",
             "lines": [
                 {"raw_text": "Молоко 10 л"},
@@ -301,6 +302,7 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(body["status"], "DRAFT")
         self.assertEqual(body["source_type"], "INTERNAL")
         self.assertEqual(body["version"], 1)
+        self.assertEqual(body["need_date"], "2026-09-16")
         self.assertEqual(body["raw_input"], "Молоко 10 л\nСахар 5 кг")
         self.assertEqual(
             [(line["position"], line["raw_text"]) for line in body["lines"]],

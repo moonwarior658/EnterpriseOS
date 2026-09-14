@@ -371,6 +371,7 @@ def create_public_request(
             department_id=department.id,
             direction_id=cycle.direction_id,
             cycle_id=cycle.id,
+            need_date=payload.need_date,
             status="DRAFT",
             source_type="PUBLIC_FORM",
             raw_input=payload.multiline_text,
@@ -518,6 +519,8 @@ def replace_public_request_lines(
         supply_request.lines.clear()
         session.flush()
         supply_request.raw_input = payload.multiline_text
+        if "need_date" in payload.model_fields_set:
+            supply_request.need_date = payload.need_date
         supply_request.lines = [
             SupplyRequestLine(
                 tenant_id=supply_request.tenant_id,

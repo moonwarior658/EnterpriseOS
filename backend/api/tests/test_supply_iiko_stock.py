@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -37,12 +39,27 @@ from app.models.iiko import (
 from app.models.supply import (
     Department,
     LegalContour,
+    SupplyDepartmentProductCorrection,
+    SupplyDepartmentProductMapping,
+    SupplyDepartmentProductMappingAuditEvent,
     SupplyProduct,
+    SupplyProductAlias,
+    SupplyProductCategory,
     SupplyProductSourceMapping,
     SupplyProductSourceRole,
+    SupplyProcurementNeed,
+    SupplyProcurementNeedReason,
+    SupplyProcurementNeedSourceType,
+    SupplyProcurementNeedStatus,
     SupplyRequest,
+    SupplyRequestCycle,
     SupplyRequestDirection,
     SupplyRequestLine,
+    SupplyRequestLineDebtLink,
+    SupplyLineAllocation,
+    SupplyStorageZone,
+    SupplyDepartmentDebt,
+    SupplyDepartmentDebtEvent,
     SupplyUnit,
     SupplyStockCalculation,
     SupplyStockCalculationAuditEvent,
@@ -54,6 +71,7 @@ from app.supply.iiko_stock import (
     get_stock_check,
     list_allowed_sources,
 )
+from app.supply.procurement_needs import reconcile_department_debt_need
 
 
 class SupplyIikoStockTests(unittest.TestCase):
@@ -71,7 +89,13 @@ class SupplyIikoStockTests(unittest.TestCase):
             SupplyUnit.__table__,
             Department.__table__,
             SupplyRequestDirection.__table__,
+            SupplyRequestCycle.__table__,
+            SupplyProductCategory.__table__,
+            SupplyStorageZone.__table__,
             SupplyProduct.__table__,
+            SupplyProductAlias.__table__,
+            SupplyDepartmentProductMapping.__table__,
+            SupplyDepartmentProductMappingAuditEvent.__table__,
             IikoSyncRun.__table__,
             IikoRawEntity.__table__,
             IikoProductMapping.__table__,
@@ -82,8 +106,14 @@ class SupplyIikoStockTests(unittest.TestCase):
             SupplyProductSourceMapping.__table__,
             SupplyRequest.__table__,
             SupplyRequestLine.__table__,
+            SupplyDepartmentProductCorrection.__table__,
+            SupplyLineAllocation.__table__,
+            SupplyDepartmentDebt.__table__,
+            SupplyDepartmentDebtEvent.__table__,
+            SupplyRequestLineDebtLink.__table__,
             SupplyStockCalculation.__table__,
             SupplyStockCalculationLine.__table__,
+            SupplyProcurementNeed.__table__,
             SupplyStockCalculationAuditEvent.__table__,
         ):
             table.create(self.engine)
@@ -157,6 +187,7 @@ class SupplyIikoStockTests(unittest.TestCase):
                 status="IN_REVIEW",
                 source_type="INTERNAL",
                 raw_input="Молоко 5 кг",
+                need_date=datetime(2026, 8, 10, tzinfo=timezone.utc).date(),
             )
             line = SupplyRequestLine(
                 tenant_id="tenant-a",
@@ -283,6 +314,22 @@ class SupplyIikoStockTests(unittest.TestCase):
                 quantity=Decimal(amount),
                 snapshot_at=finished_at,
             ))
+
+    def _create_open_need(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
 
     def tearDown(self) -> None:
         self.client.close()
@@ -545,6 +592,375 @@ class SupplyIikoStockTests(unittest.TestCase):
         self.assertEqual(Decimal(line["available_quantity"]), Decimal("8"))
         self.assertEqual(Decimal(line["transferable_quantity"]), Decimal("5"))
         self.assertEqual(Decimal(line["deficit_quantity"]), Decimal("0"))
+
+    def test_preliminary_does_not_create_procurement_need(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            self.assertIsNone(session.scalar(select(SupplyProcurementNeed)))
+
+    def test_confirmed_deficit_creates_and_revisions_update_open_need(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        first = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        confirmed = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": first["id"],
+                "expected_revision": first["revision"],
+                "expected_version": first["version"],
+            },
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            first_need_id = need.id
+            self.assertEqual(need.source_type.value, "REQUEST_LINE")
+            self.assertEqual(need.supply_request_line_id, self.line_id)
+            self.assertEqual(need.quantity, Decimal("2.000"))
+            self.assertEqual(need.product_id, self.product_id)
+            self.assertEqual(need.unit_id, self.unit_id)
+            self.assertEqual(need.need_date.isoformat(), "2026-08-10")
+            self.assertEqual(need.version, 1)
+
+        self._add_stock_sync(
+            "6.000", self.initial_sync_at + timedelta(hours=1)
+        )
+        second = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        reconfirmed = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": second["id"],
+                "expected_revision": second["revision"],
+                "expected_version": second["version"],
+            },
+        )
+        self.assertEqual(reconfirmed.status_code, 200, reconfirmed.text)
+        with self.sessions() as session:
+            needs = session.scalars(select(SupplyProcurementNeed)).all()
+            self.assertEqual(len(needs), 1)
+            self.assertEqual(needs[0].id, first_need_id)
+            self.assertEqual(needs[0].quantity, Decimal("4.000"))
+            self.assertEqual(needs[0].version, 2)
+            self.assertEqual(
+                needs[0].basis_stock_calculation_line_id,
+                UUID(second["groups"][0]["lines"][0]["id"]),
+            )
+
+    def test_repeated_confirmation_does_not_duplicate_open_need(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        payload = {
+            "calculation_id": calculated["id"],
+            "expected_revision": calculated["revision"],
+            "expected_version": calculated["version"],
+        }
+        first = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json=payload,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        payload["expected_version"] = first.json()["version"]
+        repeated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json=payload,
+        )
+        self.assertEqual(repeated.status_code, 409, repeated.text)
+        with self.sessions() as session:
+            needs = session.scalars(select(SupplyProcurementNeed)).all()
+            self.assertEqual(len(needs), 1)
+            self.assertEqual(needs[0].status.value, "OPEN")
+
+    def test_confirmation_is_tenant_isolated(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        other_admin = User(
+            id=2,
+            username="other-admin",
+            display_name="Другой администратор",
+            hashed_password="unused",
+            is_active=True,
+            is_admin=True,
+            tenant_id="tenant-b",
+        )
+        app.dependency_overrides[get_current_admin] = lambda: other_admin
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+            },
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+        with self.sessions() as session:
+            calculation = session.get(
+                SupplyStockCalculation, UUID(calculated["id"])
+            )
+            self.assertEqual(calculation.status.value, "PRELIMINARY")
+            self.assertIsNone(session.scalar(select(SupplyProcurementNeed)))
+
+    def test_zero_deficit_closes_open_need_and_later_deficit_creates_history(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        for amount in ("8.000", "12.000", "7.000"):
+            if amount != "8.000":
+                offset = 1 if amount == "12.000" else 2
+                self._add_stock_sync(
+                    amount, self.initial_sync_at + timedelta(hours=offset)
+                )
+            calculated = self.client.post(
+                f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+            ).json()
+            response = self.client.post(
+                f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+                json={
+                    "calculation_id": calculated["id"],
+                    "expected_revision": calculated["revision"],
+                    "expected_version": calculated["version"],
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            needs = session.scalars(
+                select(SupplyProcurementNeed).order_by(SupplyProcurementNeed.created_at)
+            ).all()
+            self.assertEqual(len(needs), 2)
+            self.assertEqual(needs[0].status.value, "CLOSED")
+            self.assertIsNotNone(needs[0].closed_at)
+            self.assertEqual(needs[1].status.value, "OPEN")
+            self.assertEqual(needs[1].quantity, Decimal("3.000"))
+
+    def test_request_without_need_date_does_not_create_procurement_need(self) -> None:
+        with self.sessions.begin() as session:
+            request = session.get(SupplyRequest, self.request_id)
+            request.need_date = None
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+            json={
+                "calculation_id": calculated["id"],
+                "expected_revision": calculated["revision"],
+                "expected_version": calculated["version"],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            self.assertIsNone(session.scalar(select(SupplyProcurementNeed)))
+
+    def test_quantity_mutation_closes_open_procurement_need(self) -> None:
+        self._create_open_need()
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/lines/{self.line_id}/working-values",
+            json={
+                "request_version": 1,
+                "working_name": "Молоко",
+                "requested_quantity": "11.000",
+                "send_quantity": "0",
+                "requested_unit_id": str(self.unit_id),
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            self.assertEqual(need.status.value, "CLOSED")
+
+    def test_product_mutation_closes_open_procurement_need(self) -> None:
+        self._create_open_need()
+        with self.sessions.begin() as session:
+            replacement = SupplyProduct(
+                tenant_id="tenant-a",
+                name="Сливки",
+                normalized_name="сливки",
+                default_unit_id=self.unit_id,
+                is_active=True,
+            )
+            session.add(replacement)
+            session.flush()
+            replacement_id = replacement.id
+        response = self.client.post(
+            f"/supply/requests/{self.request_id}/lines/{self.line_id}/match",
+            json={
+                "expected_version": 1,
+                "action": "MATCH",
+                "product_id": str(replacement_id),
+                "unit_id": str(self.unit_id),
+                "quantity": "10.000",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            self.assertEqual(need.status.value, "CLOSED")
+
+    def test_unit_mutation_closes_open_procurement_need(self) -> None:
+        self._create_open_need()
+        with self.sessions.begin() as session:
+            liters = SupplyUnit(
+                tenant_id="tenant-a",
+                code="L",
+                name_ru="Литр",
+                short_name_ru="л",
+                allows_fraction=True,
+            )
+            session.add(liters)
+            session.flush()
+            liters_id = liters.id
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/lines/{self.line_id}/working-values",
+            json={
+                "request_version": 1,
+                "working_name": "Молоко",
+                "requested_quantity": "10.000",
+                "send_quantity": "0",
+                "requested_unit_id": str(liters_id),
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            self.assertEqual(need.status.value, "CLOSED")
+
+    def test_need_date_mutation_closes_open_procurement_need(self) -> None:
+        self._create_open_need()
+        response = self.client.patch(
+            f"/supply/requests/{self.request_id}/need-date",
+            json={"expected_version": 1, "need_date": "2026-08-11"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["need_date"], "2026-08-11")
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            self.assertEqual(need.status.value, "CLOSED")
+
+    def test_reconciliation_failure_rolls_back_confirmation(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplyRequestLine, self.line_id).quantity = Decimal("10")
+        calculated = self.client.post(
+            f"/supply/requests/{self.request_id}/stock-calculation/calculate"
+        ).json()
+        with patch(
+            "app.supply.stock_calculation.reconcile_confirmed_stock_calculation_needs",
+            side_effect=RuntimeError("reconcile failed"),
+        ), self.assertRaises(RuntimeError):
+            self.client.post(
+                f"/supply/requests/{self.request_id}/stock-calculation/confirm",
+                json={
+                    "calculation_id": calculated["id"],
+                    "expected_revision": calculated["revision"],
+                    "expected_version": calculated["version"],
+                },
+            )
+        with self.sessions() as session:
+            calculation = session.get(
+                SupplyStockCalculation, UUID(calculated["id"])
+            )
+            self.assertEqual(calculation.status.value, "PRELIMINARY")
+            self.assertIsNone(session.scalar(select(SupplyProcurementNeed)))
+
+    def test_procurement_need_source_check_and_open_uniqueness(self) -> None:
+        with self.sessions() as session:
+            session.add(SupplyProcurementNeed(
+                tenant_id="tenant-a",
+                source_type=SupplyProcurementNeedSourceType.REQUEST_LINE,
+                supply_request_line_id=self.line_id,
+                basis_stock_calculation_line_id=None,
+                product_id=self.product_id,
+                unit_id=self.unit_id,
+                quantity=Decimal("1"),
+                need_date=datetime(2026, 8, 10).date(),
+                status=SupplyProcurementNeedStatus.OPEN,
+                reason=SupplyProcurementNeedReason.INTERNAL_STOCK_DEFICIT,
+            ))
+            with self.assertRaises(IntegrityError):
+                session.commit()
+            session.rollback()
+
+        self._create_open_need()
+        with self.sessions() as session:
+            current = session.scalar(select(SupplyProcurementNeed))
+            session.add(SupplyProcurementNeed(
+                tenant_id="tenant-a",
+                source_type=SupplyProcurementNeedSourceType.REQUEST_LINE,
+                supply_request_line_id=self.line_id,
+                basis_stock_calculation_line_id=(
+                    current.basis_stock_calculation_line_id
+                ),
+                product_id=self.product_id,
+                unit_id=self.unit_id,
+                quantity=Decimal("1"),
+                need_date=datetime(2026, 8, 10).date(),
+                status=SupplyProcurementNeedStatus.OPEN,
+                reason=SupplyProcurementNeedReason.INTERNAL_STOCK_DEFICIT,
+            ))
+            with self.assertRaises(IntegrityError):
+                session.commit()
+
+    def test_debt_need_requires_trusted_date_and_included_debt_is_closed(self) -> None:
+        with self.sessions.begin() as session:
+            debt = SupplyDepartmentDebt(
+                tenant_id="tenant-a",
+                department_id=self.department_id,
+                product_id=self.product_id,
+                working_name="Молоко",
+                unit_id=self.unit_id,
+                outstanding_quantity=Decimal("2"),
+                original_quantity=Decimal("2"),
+                status="ACTIVE",
+                first_request_id=self.request_id,
+                latest_request_id=self.request_id,
+                first_request_line_id=self.line_id,
+                latest_request_line_id=self.line_id,
+                opened_at=datetime.now(timezone.utc),
+            )
+            session.add(debt)
+            session.flush()
+            debt_id = debt.id
+            self.assertIsNone(reconcile_department_debt_need(
+                session, debt=debt, need_date=None
+            ))
+            need = reconcile_department_debt_need(
+                session,
+                debt=debt,
+                need_date=datetime(2026, 8, 12).date(),
+            )
+            self.assertIsNotNone(need)
+        with self.sessions.begin() as session:
+            debt = session.get(SupplyDepartmentDebt, debt_id)
+            session.add(SupplyRequestLineDebtLink(
+                request_line_id=self.line_id,
+                tenant_id="tenant-a",
+                included_debt_id=debt.id,
+                included_quantity=Decimal("2"),
+                inclusion_confirmed=True,
+            ))
+        with self.sessions.begin() as session:
+            debt = session.get(SupplyDepartmentDebt, debt_id)
+            self.assertIsNone(reconcile_department_debt_need(
+                session,
+                debt=debt,
+                need_date=datetime(2026, 8, 12).date(),
+            ))
+        with self.sessions() as session:
+            need = session.scalar(select(SupplyProcurementNeed))
+            self.assertEqual(need.status.value, "CLOSED")
 
     def test_send_quantity_does_not_change_or_invalidate_stock_plan(self) -> None:
         with self.sessions.begin() as session:

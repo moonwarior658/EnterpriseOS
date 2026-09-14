@@ -26,6 +26,7 @@ from app.models.supply import (
     SupplyDepartmentProductCorrection,
     SupplyDepartmentProductMappingAuditEvent,
     SupplyProductCategory,
+    SupplyProcurementNeed,
     SupplyDepartmentDebt,
     SupplyDepartmentDebtEvent,
     SupplyLineAllocation,
@@ -80,6 +81,7 @@ class SupplyCyclesAndDuplicatesApiTests(unittest.TestCase):
             SupplyDepartmentDebt.__table__,
             SupplyDepartmentDebtEvent.__table__,
             SupplyRequestLineDebtLink.__table__,
+            SupplyProcurementNeed.__table__,
         ):
             table.create(self.engine)
         self.session_factory = sessionmaker(

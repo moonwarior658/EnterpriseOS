@@ -200,6 +200,7 @@ class PublicSupplyApiTests(unittest.TestCase):
         return {
             "department_id": str(self.department.id),
             "cycle_id": str(self.open_cycle.id),
+            "need_date": "2026-09-16",
             "author_name": " Анна ",
             "author_phone": None,
             "multiline_text": multiline_text,
@@ -250,6 +251,7 @@ class PublicSupplyApiTests(unittest.TestCase):
         self.assertEqual(created["status"], "DRAFT")
         self.assertEqual(created["version"], 1)
         self.assertEqual(created["author_name"], "Анна")
+        self.assertEqual(created["need_date"], "2026-09-16")
         self.assertEqual(created["lines"][0]["match_status"], "MATCHED")
         self.assertEqual(created["lines"][1]["match_status"], "NEEDS_REVIEW")
         token = created["public_token"]
@@ -420,10 +422,12 @@ class PublicSupplyApiTests(unittest.TestCase):
             json={
                 "expected_version": created["version"],
                 "multiline_text": "Картофель 1 кг\nКартофель 2 кг",
+                "need_date": "2026-09-17",
             },
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["version"], 2)
+        self.assertEqual(updated.json()["need_date"], "2026-09-17")
         self.assertTrue(
             all(
                 line["duplicate_status"] == "SUSPECTED"

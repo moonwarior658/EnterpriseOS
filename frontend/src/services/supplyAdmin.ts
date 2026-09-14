@@ -229,6 +229,7 @@ export type SupplyRequestSummary = {
   direction: { id: string; code: string; name: string }
   cycle_id: string | null
   cycle: { id: string; cycle_date: string } | null
+  need_date: string | null
   status: SupplyStatus
   version: number
   submitted_at: string | null
@@ -970,6 +971,20 @@ export function submitSupplyRequest(
   return request(`/supply/requests/${id}/submit`, {
     method: 'POST',
     body: JSON.stringify({ expected_version: version }),
+  })
+}
+
+export function updateSupplyRequestNeedDate(
+  id: string,
+  expectedVersion: number,
+  needDate: string,
+): Promise<SupplyRequest> {
+  return request(`/supply/requests/${id}/need-date`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      expected_version: expectedVersion,
+      need_date: needDate,
+    }),
   })
 }
 

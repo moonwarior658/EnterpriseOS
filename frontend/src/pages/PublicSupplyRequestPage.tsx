@@ -22,6 +22,7 @@ import {
 } from '../services/publicSupply'
 import {
   EosCheckbox,
+  EosDateField,
   EosSelect,
 } from '../components/EosFormControls'
 import {
@@ -53,6 +54,7 @@ function PublicSupplyRequestPage() {
   const [schedule, setSchedule] = useState<PublicSupplySchedule[]>([])
   const [departmentId, setDepartmentId] = useState('')
   const [authorName, setAuthorName] = useState('')
+  const [needDate, setNeedDate] = useState('')
   const [multilineText, setMultilineText] = useState('')
   const [request, setRequest] = useState<PublicSupplyRequest | null>(null)
   const [publicToken, setPublicToken] = useState('')
@@ -187,6 +189,7 @@ function PublicSupplyRequestPage() {
     }
     const validationError = publicSupplyFormError({
       departmentId,
+      needDate,
       multilineText,
     })
     if (validationError) {
@@ -200,11 +203,13 @@ function PublicSupplyRequestPage() {
         const updated = await updatePublicSupplyLines(publicToken, {
           expected_version: request.version,
           multiline_text: multilineText,
+          need_date: needDate,
         })
         applyRequest(updated)
       } else {
         const created = await createPublicSupplyRequest({
           department_id: departmentId,
+          need_date: needDate,
           author_name: authorName.trim() || null,
           multiline_text: multilineText,
         })
@@ -229,6 +234,7 @@ function PublicSupplyRequestPage() {
     setDepartmentId(request.department.id)
     setIsCyclesLoading(false)
     setAuthorName(request.author_name ?? '')
+    setNeedDate(request.need_date ?? '')
     setMultilineText(requestLinesAsText(request))
     setIsEditing(true)
     setError('')
@@ -356,6 +362,16 @@ function PublicSupplyRequestPage() {
                 />
               </label>
 
+              <EosDateField
+                label="Дата потребности"
+                value={needDate}
+                disabled={isBusy}
+                onChange={(event) => {
+                  setNeedDate(event.target.value)
+                  setError('')
+                }}
+              />
+
               <label className="request-field request-field-wide">
                 <span>Позиции заявки</span>
                 <textarea
@@ -433,7 +449,9 @@ function PublicSupplyRequestPage() {
                 <span>{request.department.name}</span>
                 <span>{request.direction.name}</span>
                 <span>
-                  {new Date(request.cycle.cycle_date).toLocaleDateString('ru-RU')}
+                  Дата потребности: {request.need_date
+                    ? new Date(`${request.need_date}T00:00:00`).toLocaleDateString('ru-RU')
+                    : 'не указана'}
                 </span>
               </div>
 

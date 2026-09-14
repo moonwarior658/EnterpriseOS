@@ -60,6 +60,7 @@ from app.schemas.supply import (
 )
 from app.supply.normalization import normalize_product_text
 from app.supply.parser import parse_supply_line, supply_line_product_name
+from app.supply.procurement_needs import invalidate_open_request_need
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
@@ -2275,6 +2276,7 @@ def create_supply_request(
                 department_id=department.id,
                 direction_id=direction.id,
                 cycle_id=cycle.id,
+                need_date=payload.need_date,
                 status="DRAFT",
                 source_type="INTERNAL",
                 source_work_request_id=source_work_request_id,
@@ -2397,6 +2399,40 @@ def _get_request_line_for_update(
     if line is None:
         raise SupplyRequestLineNotFoundError
     return supply_request, line
+
+
+def update_supply_request_need_date(
+    session: Session,
+    *,
+    request_id: UUID,
+    expected_version: int,
+    need_date: date,
+    tenant_id: str,
+) -> SupplyRequest:
+    supply_request = _get_supply_request_for_update(
+        session,
+        request_id,
+        expected_version=expected_version,
+        tenant_id=tenant_id,
+    )
+    if supply_request.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+    if supply_request.need_date != need_date:
+        for line in supply_request.lines:
+            invalidate_open_request_need(
+                session,
+                tenant_id=tenant_id,
+                request_line_id=line.id,
+            )
+        supply_request.need_date = need_date
+        supply_request.version += 1
+    try:
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id, tenant_id=tenant_id)
 
 
 def _duplicate_key(line: SupplyRequestLine) -> str | None:
@@ -2599,6 +2635,23 @@ def _clear_confirmed_match(line: SupplyRequestLine) -> None:
     line.match_notes = None
 
 
+def _procurement_basis(line: SupplyRequestLine) -> tuple[UUID | None, UUID | None, Decimal | None]:
+    return line.product_id, line.requested_unit_id, line.quantity
+
+
+def _invalidate_need_if_basis_changed(
+    session: Session,
+    line: SupplyRequestLine,
+    previous: tuple[UUID | None, UUID | None, Decimal | None],
+) -> None:
+    if _procurement_basis(line) != previous:
+        invalidate_open_request_need(
+            session,
+            tenant_id=line.tenant_id,
+            request_line_id=line.id,
+        )
+
+
 def _find_exact_product(
     session: Session,
     normalized_name: str,
@@ -2745,6 +2798,7 @@ def recognize_supply_request(
     results: list[SupplyRecognitionResult] = []
     changed = False
     for line in lines:
+        previous_basis = _procurement_basis(line)
         skipped = line.match_method == "MANUAL"
         if not skipped:
             _recognize_line(
@@ -2755,6 +2809,7 @@ def recognize_supply_request(
                 now=now,
             )
             changed = True
+            _invalidate_need_if_basis_changed(session, line, previous_basis)
         results.append(
             SupplyRecognitionResult(
                 line_id=line.id,
@@ -2815,6 +2870,7 @@ def reparse_supply_request_line(
         raise SupplyRequestStateError
 
     raw_text = line.raw_text
+    previous_basis = _procurement_basis(line)
     previous_product_id = line.product_id
     previous_match = (
         line.match_status,
@@ -2856,6 +2912,7 @@ def reparse_supply_request_line(
         line.match_notes,
     ) = previous_match
     supply_request.version += 1
+    _invalidate_need_if_basis_changed(session, line, previous_basis)
     changed_at = datetime.now(timezone.utc)
     try:
         session.flush()
@@ -2910,6 +2967,7 @@ def manually_match_supply_request_line(
     if late_match and payload.action != SupplyLineMatchAction.MATCH:
         raise SupplyRequestStateError
     now = datetime.now(timezone.utc)
+    previous_basis = _procurement_basis(line)
     previous_manual_values = {
         "product_id": str(line.product_id) if line.product_id else None,
         "quantity": str(line.quantity) if line.quantity is not None else None,
@@ -3081,6 +3139,7 @@ def manually_match_supply_request_line(
     if supply_request.status == "SUBMITTED":
         supply_request.status = "IN_REVIEW"
     supply_request.version += 1
+    _invalidate_need_if_basis_changed(session, line, previous_basis)
     try:
         session.flush()
         session.commit()
@@ -3524,19 +3583,25 @@ def update_supply_line_working_values(
     line_id: UUID,
     payload: SupplyLineWorkingValuesUpdate,
     actor_user_id: int,
+    tenant_id: str,
 ) -> tuple[int, SupplyRequestLine]:
     supply_request, line = _get_request_line_for_update(
         session,
         request_id=request_id,
         line_id=line_id,
         expected_version=payload.request_version,
+        tenant_id=tenant_id,
     )
     if supply_request.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
         raise SupplyRequestStateError
     if line.debt_link and line.debt_link.inclusion_confirmed:
         raise SupplyRequestStateError
 
-    unit = _get_supply_unit(session, payload.requested_unit_id)
+    previous_basis = _procurement_basis(line)
+
+    unit = _get_supply_unit(
+        session, payload.requested_unit_id, tenant_id=tenant_id
+    )
     original_requested_quantity = line.quantity
     requested_quantity = original_requested_quantity
     if requested_quantity is None:
@@ -3589,6 +3654,7 @@ def update_supply_line_working_values(
         line.matched_by_user_id = None
         line.match_notes = None
     supply_request.version += 1
+    _invalidate_need_if_basis_changed(session, line, previous_basis)
 
     try:
         session.flush()
@@ -3612,7 +3678,9 @@ def update_supply_line_working_values(
         },
     )
 
-    refreshed_request = get_supply_request(session, request_id)
+    refreshed_request = get_supply_request(
+        session, request_id, tenant_id=tenant_id
+    )
     refreshed_line = next(
         request_line
         for request_line in refreshed_request.lines

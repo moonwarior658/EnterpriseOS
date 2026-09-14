@@ -31,6 +31,9 @@ from app.schemas.supply import (
     SupplyStockCalculationRead,
 )
 from app.supply.iiko_stock import _latest_balances, _load_request
+from app.supply.procurement_needs import (
+    reconcile_confirmed_stock_calculation_needs,
+)
 from app.supply.source_mapping import product_source_role
 
 
@@ -195,7 +198,6 @@ def get_stock_calculation(
     )
     if (
         calculation is not None
-        and calculation.status == SupplyStockCalculationStatus.PRELIMINARY
         and not _calculation_matches_request(calculation, request)
     ):
         return None
@@ -592,5 +594,16 @@ def confirm_stock_calculation(
         action=SupplyStockCalculationAuditAction.CONFIRMED,
         actor_user_id=actor_user_id,
     ))
-    session.commit()
+    try:
+        reconcile_confirmed_stock_calculation_needs(
+            session,
+            request=request,
+            calculation=calculation,
+            now=calculation.confirmed_at,
+        )
+        session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return _read(calculation)

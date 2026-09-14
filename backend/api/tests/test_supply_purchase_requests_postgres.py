@@ -67,10 +67,16 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
         command.upgrade(self.config, "20260907_0037")
         command.upgrade(self.config, "20260914_0038")
         self.assertEqual(self.revision(), "20260914_0038")
+        command.upgrade(self.config, "20260914_0039")
+        self.assertEqual(self.revision(), "20260914_0039")
+        self.assertIn("supply_procurement_needs", inspect(self.engine).get_table_names())
+        command.downgrade(self.config, "20260914_0038")
+        self.assertEqual(self.revision(), "20260914_0038")
+        self.assertNotIn("supply_procurement_needs", inspect(self.engine).get_table_names())
         command.downgrade(self.config, "20260907_0037")
         self.assertNotIn("supply_purchase_requests", inspect(self.engine).get_table_names())
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20260914_0038")
+        self.assertEqual(self.revision(), "20260914_0039")
 
         inspector = inspect(self.engine)
         request_uniques = {
@@ -98,6 +104,43 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
             "ck_supply_purchase_request_line_sources_quantity",
             "ck_supply_purchase_request_line_sources_reference",
         }.issubset(source_checks))
+        need_checks = {
+            item["name"] for item in inspector.get_check_constraints(
+                "supply_procurement_needs"
+            )
+        }
+        self.assertTrue({
+            "ck_supply_procurement_needs_source_type",
+            "ck_supply_procurement_needs_status",
+            "ck_supply_procurement_needs_reason",
+            "ck_supply_procurement_needs_source",
+            "ck_supply_procurement_needs_quantity",
+            "ck_supply_procurement_needs_version",
+            "ck_supply_procurement_needs_closed_state",
+        }.issubset(need_checks))
+        need_fks = {
+            item["name"] for item in inspector.get_foreign_keys(
+                "supply_procurement_needs"
+            )
+        }
+        self.assertTrue({
+            "fk_supply_procurement_needs_request_line_tenant",
+            "fk_supply_procurement_needs_debt_tenant",
+            "fk_supply_procurement_needs_basis_line_tenant",
+            "fk_supply_procurement_needs_product_tenant",
+            "fk_supply_procurement_needs_unit_tenant",
+            "fk_supply_procurement_needs_reserved_request_tenant",
+        }.issubset(need_fks))
+        need_indexes = {
+            item["name"] for item in inspector.get_indexes(
+                "supply_procurement_needs"
+            )
+        }
+        self.assertTrue({
+            "uq_supply_procurement_needs_open_request_line",
+            "uq_supply_procurement_needs_open_debt",
+            "ix_supply_procurement_needs_tenant_status_date_product_unit",
+        }.issubset(need_indexes))
 
 
 if __name__ == "__main__":

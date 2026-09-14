@@ -50,6 +50,7 @@ export type PublicSupplyRequest = {
   department: PublicSupplyDepartment
   direction: PublicSupplyDirection
   cycle: PublicSupplyCycle
+  need_date: string | null
   status:
     | 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'PLANNED'
     | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED'
@@ -131,6 +132,7 @@ export function getPublicSupplySchedule(): Promise<PublicSupplySchedule[]> {
 export function createPublicSupplyRequest(input: {
   department_id: string
   cycle_id?: string
+  need_date: string
   author_name: string | null
   multiline_text: string
 }): Promise<PublicSupplyRequestCreated> {
@@ -148,7 +150,11 @@ export function getPublicSupplyRequest(
 
 export function updatePublicSupplyLines(
   token: string,
-  input: { expected_version: number; multiline_text: string },
+  input: {
+    expected_version: number
+    multiline_text: string
+    need_date: string
+  },
 ): Promise<PublicSupplyRequest> {
   return publicSupplyRequest(
     `/requests/${encodeURIComponent(token)}/lines`,
