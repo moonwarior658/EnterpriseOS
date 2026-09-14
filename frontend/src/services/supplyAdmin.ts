@@ -125,10 +125,27 @@ export type SupplyPurchaseRequestStatus = 'DRAFT' | 'READY' | 'CANCELLED'
 
 export type SupplyPurchaseRequestSource = {
   id: string
-  source_type: 'SUPPLY_REQUEST' | 'DEPARTMENT_DEBT' | 'MANUAL_FUTURE'
-  source_id: string | null
+  source_type: 'PROCUREMENT_NEED' | 'MANUAL_FUTURE'
+  procurement_need_id: string | null
   quantity: string
   unit: SupplyUnit
+  procurement_need: null | {
+    status: 'OPEN' | 'IN_PURCHASE_REQUEST' | 'CLOSED' | 'CANCELLED'
+    version: number
+    need_date: string | null
+    reason: string
+    origin_type: 'REQUEST_LINE' | 'DEPARTMENT_DEBT'
+    department: string | null
+    request_number: string | null
+    debt_info: null | { working_name: string; outstanding_quantity: string; status: string; version: number }
+    basis_stock_calculation_info: null | {
+      version: number
+      requested_quantity: string | null
+      available_quantity: string | null
+      transferable_quantity: string | null
+      deficit_quantity: string | null
+    }
+  }
   created_at: string
 }
 
@@ -488,7 +505,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ? detail as { code?: string; current_version?: number }
       : null
     throw new SupplyApiError(
-      'Не удалось выполнить действие',
+      typeof detail === 'string' ? detail : 'Не удалось выполнить действие',
       payload?.code ?? null,
       payload?.current_version ?? null,
       response.status,
@@ -846,7 +863,7 @@ export function addSupplyPurchaseRequestLine(
 
 export function updateSupplyPurchaseRequestLine(
   requestId: string, lineId: string,
-  input: { quantity?: string; unit_id?: string; comment?: string | null },
+  input: { manual_future_quantity?: string; unit_id?: string; comment?: string | null },
 ): Promise<SupplyPurchaseRequest> {
   return request(`/supply/purchase-requests/${requestId}/lines/${lineId}`, {
     method: 'PATCH', body: JSON.stringify(input),
@@ -865,6 +882,12 @@ export function readySupplyPurchaseRequest(
   requestId: string,
 ): Promise<SupplyPurchaseRequest> {
   return request(`/supply/purchase-requests/${requestId}/ready`, { method: 'POST' })
+}
+
+export function collectSupplyPurchaseRequestNeeds(
+  requestId: string,
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/collect-needs`, { method: 'POST' })
 }
 
 export function cancelSupplyPurchaseRequest(

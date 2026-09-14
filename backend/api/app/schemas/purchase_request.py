@@ -15,8 +15,7 @@ class SupplyPurchaseRequestStatus(StrEnum):
 
 
 class SupplyPurchaseRequestSourceType(StrEnum):
-    SUPPLY_REQUEST = "SUPPLY_REQUEST"
-    DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
+    PROCUREMENT_NEED = "PROCUREMENT_NEED"
     MANUAL_FUTURE = "MANUAL_FUTURE"
 
 
@@ -91,6 +90,16 @@ class SupplyPurchaseRequestLineUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="after")
+    def quantities_must_match_when_both_are_sent(self):
+        if (
+            self.quantity is not None
+            and self.manual_future_quantity is not None
+            and self.quantity != self.manual_future_quantity
+        ):
+            raise ValueError("Изменять можно только будущую потребность")
+        return self
+
     @field_validator("quantity", "unit_id")
     @classmethod
     def reject_null_required_fields(cls, value):
@@ -101,12 +110,50 @@ class SupplyPurchaseRequestLineUpdate(BaseModel):
     _validate_comment = field_validator("comment")(_clean_comment)
 
 
+class SupplyPurchaseRequestDebtTraceRead(BaseModel):
+    working_name: str
+    outstanding_quantity: Decimal
+    status: str
+    version: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyPurchaseRequestBasisTraceRead(BaseModel):
+    version: int
+    requested_quantity: Decimal | None
+    available_quantity: Decimal | None
+    transferable_quantity: Decimal | None
+    deficit_quantity: Decimal | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SupplyPurchaseRequestNeedTraceRead(BaseModel):
+    status: str
+    version: int
+    need_date: date | None
+    reason: str
+    origin_type: str = Field(validation_alias="source_type")
+    department: str | None = None
+    request_number: str | None = None
+    debt_info: SupplyPurchaseRequestDebtTraceRead | None = Field(
+        default=None, validation_alias="department_debt"
+    )
+    basis_stock_calculation_info: SupplyPurchaseRequestBasisTraceRead | None = Field(
+        default=None, validation_alias="basis_stock_calculation_line"
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SupplyPurchaseRequestLineSourceRead(BaseModel):
     id: UUID
     source_type: SupplyPurchaseRequestSourceType
-    source_id: UUID | None
+    procurement_need_id: UUID | None
     quantity: Decimal
     unit: SupplyUnitRead
+    procurement_need: SupplyPurchaseRequestNeedTraceRead | None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

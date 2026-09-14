@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   addSupplyPurchaseRequestLine,
   cancelSupplyPurchaseRequest,
+  collectSupplyPurchaseRequestNeeds,
   createSupplyPurchaseRequest,
   deleteSupplyPurchaseRequestLine,
   getSupplyPurchaseRequest,
@@ -48,8 +49,9 @@ test('API-клиент покрывает CRUD, строки, ready и cancel', 
     await getSupplyPurchaseRequest('request')
     await updateSupplyPurchaseRequest('request', { comment: 'x' })
     await addSupplyPurchaseRequestLine('request', { product_id: 'product', quantity: '10', unit_id: 'unit' })
-    await updateSupplyPurchaseRequestLine('request', 'line', { quantity: '12' })
+    await updateSupplyPurchaseRequestLine('request', 'line', { manual_future_quantity: '12' })
     await deleteSupplyPurchaseRequestLine('request', 'line')
+    await collectSupplyPurchaseRequestNeeds('request')
     await readySupplyPurchaseRequest('request')
     await cancelSupplyPurchaseRequest('request')
   } finally { globalThis.fetch = originalFetch }
@@ -61,6 +63,7 @@ test('API-клиент покрывает CRUD, строки, ready и cancel', 
   assert.equal(calls[4].options.method, 'POST')
   assert.equal(calls[5].options.method, 'PATCH')
   assert.equal(calls[6].options.method, 'DELETE')
-  assert.match(calls[7].url, /\/ready$/)
-  assert.match(calls[8].url, /\/cancel$/)
+  assert.match(calls[7].url, /\/collect-needs$/)
+  assert.match(calls[8].url, /\/ready$/)
+  assert.match(calls[9].url, /\/cancel$/)
 })

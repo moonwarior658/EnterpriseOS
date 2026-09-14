@@ -6,10 +6,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.supply import (
+    SupplyDepartmentDebt,
     SupplyProduct,
+    SupplyProcurementNeed,
+    SupplyProcurementNeedStatus,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
     SupplyPurchaseRequestLineSource,
+    SupplyRequest,
+    SupplyRequestLine,
     SupplyUnit,
 )
 from app.schemas.purchase_request import (
@@ -48,6 +53,10 @@ class PurchaseRequestUnitNotFoundError(LookupError):
     pass
 
 
+class PurchaseRequestSourceConflictError(ValueError):
+    pass
+
+
 def _options():
     return (
         selectinload(SupplyPurchaseRequest.lines).joinedload(
@@ -59,6 +68,25 @@ def _options():
         selectinload(SupplyPurchaseRequest.lines).selectinload(
             SupplyPurchaseRequestLine.sources
         ).joinedload(SupplyPurchaseRequestLineSource.unit),
+        selectinload(SupplyPurchaseRequest.lines).selectinload(
+            SupplyPurchaseRequestLine.sources
+        ).joinedload(
+            SupplyPurchaseRequestLineSource.procurement_need
+        ).joinedload(SupplyProcurementNeed.request_line).joinedload(
+            SupplyRequestLine.request
+        ).joinedload(SupplyRequest.department),
+        selectinload(SupplyPurchaseRequest.lines).selectinload(
+            SupplyPurchaseRequestLine.sources
+        ).joinedload(
+            SupplyPurchaseRequestLineSource.procurement_need
+        ).joinedload(SupplyProcurementNeed.department_debt).joinedload(
+            SupplyDepartmentDebt.department
+        ),
+        selectinload(SupplyPurchaseRequest.lines).selectinload(
+            SupplyPurchaseRequestLine.sources
+        ).joinedload(
+            SupplyPurchaseRequestLineSource.procurement_need
+        ).joinedload(SupplyProcurementNeed.basis_stock_calculation_line),
     )
 
 
@@ -140,11 +168,28 @@ def _require_draft(item: SupplyPurchaseRequest) -> None:
         raise PurchaseRequestStateError
 
 
+def _lock_draft_request(
+    session: Session, item: SupplyPurchaseRequest
+) -> SupplyPurchaseRequest:
+    locked = session.scalar(
+        select(SupplyPurchaseRequest).where(
+            SupplyPurchaseRequest.id == item.id,
+            SupplyPurchaseRequest.tenant_id == item.tenant_id,
+        ).options(*_options()).execution_options(
+            populate_existing=True
+        ).with_for_update()
+    )
+    if locked is None:
+        raise PurchaseRequestNotFoundError
+    _require_draft(locked)
+    return locked
+
+
 def update_purchase_request(
     session: Session, item: SupplyPurchaseRequest,
     payload: SupplyPurchaseRequestUpdate,
 ) -> SupplyPurchaseRequest:
-    _require_draft(item)
+    item = _lock_draft_request(session, item)
     for field in payload.model_fields_set:
         setattr(item, field, getattr(payload, field))
     session.commit()
@@ -154,9 +199,50 @@ def update_purchase_request(
 def mark_purchase_request_ready(
     session: Session, item: SupplyPurchaseRequest
 ) -> SupplyPurchaseRequest:
-    _require_draft(item)
+    item = _lock_draft_request(session, item)
     if not item.lines:
         raise PurchaseRequestEmptyError
+    locked = list(session.scalars(
+        select(SupplyProcurementNeed)
+        .join(
+            SupplyPurchaseRequestLineSource,
+            SupplyPurchaseRequestLineSource.procurement_need_id
+            == SupplyProcurementNeed.id,
+        )
+        .join(
+            SupplyPurchaseRequestLine,
+            SupplyPurchaseRequestLine.id
+            == SupplyPurchaseRequestLineSource.purchase_request_line_id,
+        )
+        .where(
+            SupplyPurchaseRequestLine.purchase_request_id == item.id,
+            SupplyPurchaseRequestLine.tenant_id == item.tenant_id,
+            SupplyPurchaseRequestLineSource.source_type == "PROCUREMENT_NEED",
+        )
+        .with_for_update(of=SupplyProcurementNeed)
+    ).all())
+    needs_by_id = {need.id: need for need in locked}
+    for line in item.lines:
+        for source in line.sources:
+            if source.source_type != "PROCUREMENT_NEED":
+                continue
+            need = needs_by_id.get(source.procurement_need_id)
+            if (
+                need is None
+                or need.tenant_id != item.tenant_id
+                or need.status != SupplyProcurementNeedStatus.OPEN
+                or need.reserved_purchase_request_id != item.id
+                or need.need_date is None
+                or need.need_date > item.need_date
+                or need.product_id != line.product_id
+                or need.unit_id != line.unit_id
+                or need.unit_id != source.unit_id
+                or need.quantity != source.quantity
+            ):
+                session.rollback()
+                raise PurchaseRequestSourceConflictError
+    for need in locked:
+        need.status = SupplyProcurementNeedStatus.IN_PURCHASE_REQUEST
     item.status = "READY"
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
@@ -165,8 +251,15 @@ def mark_purchase_request_ready(
 def cancel_purchase_request(
     session: Session, item: SupplyPurchaseRequest
 ) -> SupplyPurchaseRequest:
-    if item.status == "CANCELLED":
-        raise PurchaseRequestStateError
+    item = _lock_draft_request(session, item)
+    needs = list(session.scalars(
+        select(SupplyProcurementNeed).where(
+            SupplyProcurementNeed.tenant_id == item.tenant_id,
+            SupplyProcurementNeed.reserved_purchase_request_id == item.id,
+        ).with_for_update(of=SupplyProcurementNeed)
+    ).all())
+    for need in needs:
+        need.reserved_purchase_request_id = None
     item.status = "CANCELLED"
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
@@ -211,11 +304,32 @@ def add_purchase_request_line(
     session: Session, item: SupplyPurchaseRequest,
     payload: SupplyPurchaseRequestLineCreate,
 ) -> SupplyPurchaseRequest:
-    _require_draft(item)
+    item = _lock_draft_request(session, item)
     product = _get_product(session, payload.product_id, item.tenant_id)
     unit = _get_unit(session, payload.unit_id, item.tenant_id)
     quantity = Decimal(payload.quantity)
     manual_quantity = Decimal(payload.manual_future_quantity or quantity)
+    existing_line = session.scalar(select(SupplyPurchaseRequestLine).where(
+        SupplyPurchaseRequestLine.tenant_id == item.tenant_id,
+        SupplyPurchaseRequestLine.purchase_request_id == item.id,
+        SupplyPurchaseRequestLine.product_id == product.id,
+        SupplyPurchaseRequestLine.unit_id == unit.id,
+    ).options(selectinload(SupplyPurchaseRequestLine.sources)))
+    if existing_line is not None:
+        if any(
+            source.source_type == "MANUAL_FUTURE"
+            for source in existing_line.sources
+        ):
+            raise DuplicatePurchaseRequestLineError
+        existing_line.sources.append(SupplyPurchaseRequestLineSource(
+            tenant_id=item.tenant_id, source_type="MANUAL_FUTURE",
+            procurement_need_id=None, quantity=manual_quantity, unit_id=unit.id,
+        ))
+        existing_line.manual_future_quantity = manual_quantity
+        existing_line.quantity += manual_quantity
+        existing_line.comment = payload.comment
+        session.commit()
+        return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
     line = SupplyPurchaseRequestLine(
         tenant_id=item.tenant_id, purchase_request_id=item.id,
         product_id=product.id, quantity=quantity, unit_id=unit.id,
@@ -223,7 +337,7 @@ def add_purchase_request_line(
     )
     line.sources.append(SupplyPurchaseRequestLineSource(
         tenant_id=item.tenant_id, source_type="MANUAL_FUTURE",
-        source_id=None, quantity=manual_quantity, unit_id=unit.id,
+        procurement_need_id=None, quantity=manual_quantity, unit_id=unit.id,
     ))
     try:
         session.add(line)
@@ -241,26 +355,37 @@ def update_purchase_request_line(
     session: Session, item: SupplyPurchaseRequest, line_id: UUID,
     payload: SupplyPurchaseRequestLineUpdate,
 ) -> SupplyPurchaseRequest:
-    _require_draft(item)
+    item = _lock_draft_request(session, item)
     line = _get_line(session, item, line_id)
     fields = payload.model_fields_set
-    quantity = Decimal(payload.quantity) if "quantity" in fields else line.quantity
-    manual_quantity = (
-        Decimal(payload.manual_future_quantity)
+    manual_sources = [
+        source for source in line.sources if source.source_type == "MANUAL_FUTURE"
+    ]
+    if not manual_sources:
+        raise PurchaseRequestSourceConflictError
+    manual_quantity = Decimal(
+        payload.manual_future_quantity
         if "manual_future_quantity" in fields
-        else quantity
+        else payload.quantity if "quantity" in fields
+        else manual_sources[0].quantity
     )
-    if manual_quantity != quantity:
-        raise ValueError("Manual source quantity must equal line quantity")
+    if "quantity" in fields and "manual_future_quantity" in fields and (
+        Decimal(payload.quantity) != manual_quantity
+    ):
+        raise PurchaseRequestSourceConflictError
     if "unit_id" in fields:
-        line.unit_id = _get_unit(session, payload.unit_id, item.tenant_id).id
-    line.quantity = quantity
+        unit_id = _get_unit(session, payload.unit_id, item.tenant_id).id
+        if any(source.source_type == "PROCUREMENT_NEED" for source in line.sources):
+            if unit_id != line.unit_id:
+                raise PurchaseRequestSourceConflictError
+        line.unit_id = unit_id
     line.manual_future_quantity = manual_quantity
     if "comment" in fields:
         line.comment = payload.comment
-    source = line.sources[0]
+    source = manual_sources[0]
     source.quantity = manual_quantity
     source.unit_id = line.unit_id
+    line.quantity = sum((source.quantity for source in line.sources), Decimal("0"))
     try:
         session.commit()
     except IntegrityError as error:
@@ -272,7 +397,112 @@ def update_purchase_request_line(
 def delete_purchase_request_line(
     session: Session, item: SupplyPurchaseRequest, line_id: UUID
 ) -> SupplyPurchaseRequest:
-    _require_draft(item)
-    session.delete(_get_line(session, item, line_id))
+    item = _lock_draft_request(session, item)
+    line = _get_line(session, item, line_id)
+    auto_sources = [
+        source for source in line.sources if source.source_type == "PROCUREMENT_NEED"
+    ]
+    if auto_sources:
+        manual_sources = [
+            source for source in line.sources if source.source_type == "MANUAL_FUTURE"
+        ]
+        if not manual_sources:
+            raise PurchaseRequestSourceConflictError
+        for source in manual_sources:
+            session.delete(source)
+        line.manual_future_quantity = Decimal("0")
+        line.quantity = sum((source.quantity for source in auto_sources), Decimal("0"))
+    else:
+        session.delete(line)
     session.commit()
+    return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
+
+
+def collect_purchase_request_needs(
+    session: Session, item: SupplyPurchaseRequest
+) -> SupplyPurchaseRequest:
+    item = _lock_draft_request(session, item)
+
+    eligible = list(session.scalars(
+        select(SupplyProcurementNeed).where(
+            SupplyProcurementNeed.tenant_id == item.tenant_id,
+            SupplyProcurementNeed.status == SupplyProcurementNeedStatus.OPEN,
+            SupplyProcurementNeed.need_date.is_not(None),
+            SupplyProcurementNeed.need_date <= item.need_date,
+            (
+                SupplyProcurementNeed.reserved_purchase_request_id.is_(None)
+                | (SupplyProcurementNeed.reserved_purchase_request_id == item.id)
+            ),
+        ).order_by(SupplyProcurementNeed.created_at, SupplyProcurementNeed.id)
+        .with_for_update(of=SupplyProcurementNeed)
+    ).all())
+    eligible_by_id = {need.id: need for need in eligible}
+
+    lines = list(session.scalars(
+        select(SupplyPurchaseRequestLine).where(
+            SupplyPurchaseRequestLine.tenant_id == item.tenant_id,
+            SupplyPurchaseRequestLine.purchase_request_id == item.id,
+        ).options(selectinload(SupplyPurchaseRequestLine.sources))
+    ).all())
+    by_group = {(line.product_id, line.unit_id): line for line in lines}
+    existing = {
+        source.procurement_need_id: (line, source)
+        for line in lines for source in line.sources
+        if source.source_type == "PROCUREMENT_NEED"
+    }
+
+    for need_id, (line, source) in list(existing.items()):
+        need = eligible_by_id.get(need_id)
+        if need is None:
+            loaded_need = session.get(SupplyProcurementNeed, need_id)
+            if loaded_need is not None and loaded_need.reserved_purchase_request_id == item.id:
+                loaded_need.reserved_purchase_request_id = None
+            session.delete(source)
+            line.sources.remove(source)
+            continue
+        if need.product_id != line.product_id or need.unit_id != line.unit_id:
+            session.rollback()
+            raise PurchaseRequestSourceConflictError
+        source.quantity = need.quantity
+        source.unit_id = need.unit_id
+
+    for need in eligible:
+        need.reserved_purchase_request_id = item.id
+        if need.id in existing:
+            continue
+        key = (need.product_id, need.unit_id)
+        line = by_group.get(key)
+        if line is None:
+            line = SupplyPurchaseRequestLine(
+                tenant_id=item.tenant_id, purchase_request_id=item.id,
+                product_id=need.product_id, unit_id=need.unit_id,
+                quantity=need.quantity, manual_future_quantity=Decimal("0"),
+            )
+            session.add(line)
+            lines.append(line)
+            by_group[key] = line
+        line.sources.append(SupplyPurchaseRequestLineSource(
+            tenant_id=item.tenant_id, source_type="PROCUREMENT_NEED",
+            procurement_need_id=need.id, quantity=need.quantity,
+            unit_id=need.unit_id,
+        ))
+
+    for line in list(lines):
+        active_sources = [source for source in line.sources if source not in session.deleted]
+        if not active_sources:
+            session.delete(line)
+            continue
+        line.manual_future_quantity = sum(
+            (source.quantity for source in active_sources
+             if source.source_type == "MANUAL_FUTURE"), Decimal("0")
+        )
+        line.quantity = sum((source.quantity for source in active_sources), Decimal("0"))
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise PurchaseRequestSourceConflictError from error
+    except Exception:
+        session.rollback()
+        raise
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)

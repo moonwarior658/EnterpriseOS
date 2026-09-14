@@ -5,6 +5,7 @@ import { EosProductCombobox } from '../components/EosProductCombobox'
 import {
   addSupplyPurchaseRequestLine,
   cancelSupplyPurchaseRequest,
+  collectSupplyPurchaseRequestNeeds,
   deleteSupplyPurchaseRequestLine,
   getSupplyPurchaseRequest,
   getSupplyUnits,
@@ -15,12 +16,17 @@ import {
   type SupplyPurchaseRequest,
   type SupplyPurchaseRequestLine,
   type SupplyUnit,
+  SupplyApiError,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
 
 
 const STATUS_LABELS = { DRAFT: 'Черновик', READY: 'Зафиксирован', CANCELLED: 'Отменён' } as const
-const SOURCE_LABELS = { SUPPLY_REQUEST: 'Заявки', DEPARTMENT_DEBT: 'Долги', MANUAL_FUTURE: 'Будущая потребность' } as const
+const REASON_LABELS: Record<string, string> = {
+  INTERNAL_STOCK_DEFICIT: 'Дефицит после расчёта остатков',
+  DEBT_CARRY_FORWARD: 'Перенос долга подразделения',
+  ACTUAL_SHORTFALL: 'Недопоставка',
+}
 
 type LineDraft = { product: SupplyProduct | null; quantity: string; unitId: string; comment: string }
 const emptyDraft: LineDraft = { product: null, quantity: '', unitId: '', comment: '' }
@@ -35,6 +41,7 @@ export default function SupplyPurchaseRequestDetailPage() {
   const [editing, setEditing] = useState<SupplyPurchaseRequestLine | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [collected, setCollected] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -52,7 +59,7 @@ export default function SupplyPurchaseRequestDetailPage() {
 
   function beginEdit(line: SupplyPurchaseRequestLine) {
     setEditing(line)
-    setDraft({ product: null, quantity: line.quantity, unitId: line.unit_id, comment: line.comment ?? '' })
+    setDraft({ product: null, quantity: line.manual_future_quantity, unitId: line.unit_id, comment: line.comment ?? '' })
   }
 
   async function saveHeader() {
@@ -69,7 +76,7 @@ export default function SupplyPurchaseRequestDetailPage() {
     setBusy(true); setMessage('')
     try {
       const updated = editing
-        ? await updateSupplyPurchaseRequestLine(requestId, editing.id, { quantity: draft.quantity, unit_id: draft.unitId, comment: draft.comment || null })
+        ? await updateSupplyPurchaseRequestLine(requestId, editing.id, { manual_future_quantity: draft.quantity, unit_id: draft.unitId, comment: draft.comment || null })
         : await addSupplyPurchaseRequestLine(requestId, { product_id: draft.product!.id, quantity: draft.quantity, unit_id: draft.unitId, comment: draft.comment || null })
       setRequest(updated); setDraft(emptyDraft); setEditing(null)
     } catch { setMessage('Не удалось сохранить строку. Проверьте количество и отсутствие дубля.') } finally { setBusy(false) }
@@ -88,8 +95,20 @@ export default function SupplyPurchaseRequestDetailPage() {
     try {
       setRequest(action === 'ready' ? await readySupplyPurchaseRequest(requestId) : await cancelSupplyPurchaseRequest(requestId))
       setEditing(null); setDraft(emptyDraft)
-    } catch { setMessage(action === 'ready' ? 'Добавьте строку перед фиксацией потребности' : 'Не удалось отменить запрос') }
+    } catch (error) { setMessage(error instanceof SupplyApiError ? error.message : action === 'ready' ? 'Добавьте строку перед фиксацией потребности' : 'Не удалось отменить запрос') }
     finally { setBusy(false) }
+  }
+
+  async function collectNeeds() {
+    setBusy(true); setMessage('')
+    try {
+      const updated = await collectSupplyPurchaseRequestNeeds(requestId)
+      setRequest(updated); setCollected(true)
+      const automaticCount = updated.lines?.flatMap((line) => line.sources).filter((source) => source.source_type === 'PROCUREMENT_NEED').length ?? 0
+      setMessage(automaticCount ? 'Потребность собрана' : 'Открытых потребностей на выбранную дату нет')
+    } catch (error) {
+      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось собрать потребность')
+    } finally { setBusy(false) }
   }
 
   if (!request) return <section className="request-page"><div className="request-panel"><p className="page-state">{message || 'Загружаем запрос…'}</p></div></section>
@@ -107,8 +126,7 @@ export default function SupplyPurchaseRequestDetailPage() {
           <div><span className="field-label">Статус</span><span className={`purchase-status purchase-status-${request.status.toLowerCase()}`}>{STATUS_LABELS[request.status]}</span></div>
         </div>
         {message && <p className="request-message">{message}</p>}
-        {isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
-        {request.status === 'READY' && <div className="purchase-actions"><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
+        {isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="secondary-action" disabled={busy} onClick={collectNeeds}>Собрать потребность</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
 
         {isDraft && (
           <form className="purchase-line-form" onSubmit={saveLine}>
@@ -120,8 +138,12 @@ export default function SupplyPurchaseRequestDetailPage() {
           </form>
         )}
 
-        {!request.lines?.length ? <p className="page-state">Строк пока нет</p> : (
-          <div className="supplier-table-wrap"><table className="supplier-table purchase-lines-table"><thead><tr><th>Товар</th><th>Количество</th><th>Источник / разбивка</th><th>Комментарий</th>{isDraft && <th>Действия</th>}</tr></thead><tbody>{request.lines.map((line) => <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{line.sources.map((source) => <div key={source.id}>{SOURCE_LABELS[source.source_type]}: {source.quantity} {source.unit.short_name_ru}</div>)}</td><td>{line.comment || '—'}</td>{isDraft && <td><div className="supplier-row-actions"><button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить</button><button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить</button></div></td>}</tr>)}</tbody></table></div>
+        {!request.lines?.length ? <p className="page-state">{collected ? 'Открытых потребностей на выбранную дату нет' : 'Строк пока нет'}</p> : (
+          <div className="supplier-table-wrap"><table className="supplier-table purchase-lines-table"><thead><tr><th>Товар</th><th>Количество</th><th>Источник / разбивка</th><th>Комментарий</th>{isDraft && <th>Действия</th>}</tr></thead><tbody>{request.lines.map((line) => {
+            const automatic = line.sources.filter((source) => source.source_type === 'PROCUREMENT_NEED')
+            const hasManual = line.sources.some((source) => source.source_type === 'MANUAL_FUTURE')
+            return <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{automatic.length > 0 && <div className="purchase-source-group"><strong>Автоматическая потребность {automatic.reduce((sum, source) => sum + Number(source.quantity), 0)} {line.unit.short_name_ru}</strong>{automatic.map((source) => <div className="purchase-source-trace" key={source.id}><span>{source.procurement_need?.department ?? 'Подразделение не указано'} · {source.quantity} {source.unit.short_name_ru}</span><small>{source.procurement_need?.request_number ? `Заявка ${source.procurement_need.request_number}` : 'Долг подразделения'} · {REASON_LABELS[source.procurement_need?.reason ?? ''] ?? source.procurement_need?.reason}</small></div>)}</div>}{hasManual && <div className="purchase-source-group"><strong>Будущая потребность {line.manual_future_quantity} {line.unit.short_name_ru}</strong></div>}</td><td>{line.comment || '—'}</td>{isDraft && <td><div className="supplier-row-actions">{hasManual && <button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить будущую</button>}{hasManual && <button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить будущую</button>}</div></td>}</tr>
+          })}</tbody></table></div>
         )}
       </div>
     </section>

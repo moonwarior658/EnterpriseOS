@@ -1,7 +1,8 @@
 import os
 import unittest
-from datetime import date, timedelta
-from uuid import uuid4
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -9,7 +10,7 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,16 +18,26 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.models.supply import (
+    Department,
     SupplyProduct,
     SupplyProductCategory,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
     SupplyPurchaseRequestLineSource,
+    SupplyProcurementNeed,
+    SupplyDepartmentDebt,
     SupplyUnit,
     SupplyRequestDirection,
+    SupplyRequest,
+    SupplyRequestCycle,
+    SupplyRequestLine,
+    SupplyStockCalculation,
+    SupplyStockCalculationLine,
     SupplyStorageZone,
 )
 from app.models.user import User
+from app.models.iiko import IikoWarehouseMapping
+from app.models.work_request import WorkRequest
 
 
 class SupplyPurchaseRequestsApiTests(unittest.TestCase):
@@ -42,10 +53,15 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"),
         )
         for table in (
-            User.__table__, SupplyUnit.__table__, SupplyRequestDirection.__table__,
+            User.__table__, WorkRequest.__table__, SupplyUnit.__table__, SupplyRequestDirection.__table__,
+            Department.__table__, IikoWarehouseMapping.__table__, SupplyRequestCycle.__table__,
             SupplyProductCategory.__table__, SupplyStorageZone.__table__,
             SupplyProduct.__table__,
+            SupplyRequest.__table__, SupplyRequestLine.__table__,
+            SupplyStockCalculation.__table__, SupplyStockCalculationLine.__table__,
+            SupplyDepartmentDebt.__table__,
             SupplyPurchaseRequest.__table__, SupplyPurchaseRequestLine.__table__,
+            SupplyProcurementNeed.__table__,
             SupplyPurchaseRequestLineSource.__table__,
         ):
             table.create(self.engine)
@@ -64,6 +80,10 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             self.product = SupplyProduct(tenant_id="eclair", name="Сахар", normalized_name="сахар", default_unit_id=self.unit.id, is_active=True)
             self.other_product = SupplyProduct(tenant_id="other", name="Сахар", normalized_name="сахар", default_unit_id=self.other_unit.id, is_active=True)
             session.add_all([self.product, self.other_product])
+            session.flush()
+            self.department = Department(tenant_id="eclair", code="M15", name="М15", is_active=True, display_order=1)
+            self.direction = SupplyRequestDirection(tenant_id="eclair", code="FOOD", name="Продукты", is_active=True, display_order=1)
+            session.add_all([self.department, self.direction])
         self.current_user_id = 2
 
         def override_db():
@@ -100,6 +120,52 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         return self.client.post(
             f"/supply/purchase-requests/{request_id}/lines", json=payload
         )
+
+    def add_need(self, quantity="10.000", *, unit=None, need_date=None, status="OPEN", null_date=False):
+        unit = unit or self.unit
+        suffix = uuid4().hex[:8]
+        with self.sessions.begin() as session:
+            request = SupplyRequest(
+                tenant_id="eclair", public_number=f"REQ-{suffix}",
+                department_id=self.department.id, direction_id=self.direction.id,
+                need_date=None if null_date else need_date if need_date is not None else date.today(),
+                status="PLANNED", source_type="INTERNAL", raw_input="Сахар",
+            )
+            session.add(request); session.flush()
+            line = SupplyRequestLine(
+                tenant_id="eclair", request_id=request.id, position=1,
+                raw_text="Сахар", product_id=self.product.id,
+                requested_unit_id=unit.id, quantity=Decimal(quantity),
+                match_status="MATCHED",
+            )
+            session.add(line); session.flush()
+            calculation = SupplyStockCalculation(
+                tenant_id="eclair", request_id=request.id, revision=1,
+                version=1, status="PRELIMINARY",
+                calculated_at=datetime.now(timezone.utc),
+            )
+            session.add(calculation); session.flush()
+            calculation_line = SupplyStockCalculationLine(
+                tenant_id="eclair", calculation_id=calculation.id,
+                request_id=request.id, request_line_id=line.id, version=1,
+                position=1, product_id=self.product.id, product_name="Сахар",
+                requested_unit_id=unit.id, requested_quantity=Decimal(quantity),
+                available_quantity=Decimal("0"), transferable_quantity=Decimal("0"),
+                deficit_quantity=Decimal(quantity),
+            )
+            session.add(calculation_line); session.flush()
+            need = SupplyProcurementNeed(
+                tenant_id="eclair", source_type="REQUEST_LINE",
+                supply_request_line_id=line.id,
+                basis_stock_calculation_line_id=calculation_line.id,
+                product_id=self.product.id, unit_id=unit.id,
+                quantity=Decimal(quantity),
+                need_date=None if null_date else need_date if need_date is not None else date.today(),
+                status=status, reason="INTERNAL_STOCK_DEFICIT", version=1,
+                closed_at=datetime.now(timezone.utc) if status in {"CLOSED", "CANCELLED"} else None,
+            )
+            session.add(need); session.flush()
+            return need.id
 
     def test_create_list_get_update_and_number(self) -> None:
         created = self.create_request()
@@ -159,10 +225,114 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(self.client.patch(f"/supply/purchase-requests/{request_id}/lines/{line_id}", json={"quantity": "1"}).status_code, 409)
         self.assertEqual(self.client.delete(f"/supply/purchase-requests/{request_id}/lines/{line_id}").status_code, 409)
         cancelled = self.client.post(f"/supply/purchase-requests/{request_id}/cancel")
-        self.assertEqual(cancelled.status_code, 200, cancelled.text)
-        self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        self.assertEqual(cancelled.status_code, 409, cancelled.text)
         self.assertEqual(self.client.patch(f"/supply/purchase-requests/{request_id}", json={"comment": "x"}).status_code, 409)
         self.assertEqual(self.client.post(f"/supply/purchase-requests/{request_id}/cancel").status_code, 409)
+
+    def test_collect_aggregates_is_idempotent_and_preserves_manual(self) -> None:
+        request_id = self.create_request()["id"]
+        self.assertEqual(self.add_line(request_id, quantity="20.000").status_code, 201)
+        first_need = self.add_need("30.000")
+        second_need = self.add_need("40.000")
+        response = self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        self.assertEqual(response.status_code, 200, response.text)
+        line = response.json()["lines"][0]
+        self.assertEqual(line["quantity"], "90.000")
+        self.assertEqual(line["manual_future_quantity"], "20.000")
+        self.assertEqual(len(line["sources"]), 3)
+        auto = [source for source in line["sources"] if source["source_type"] == "PROCUREMENT_NEED"]
+        self.assertEqual({source["procurement_need_id"] for source in auto}, {str(first_need), str(second_need)})
+        self.assertEqual(auto[0]["procurement_need"]["department"], "М15")
+        repeated = self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        self.assertEqual(repeated.json()["lines"][0]["quantity"], "90.000")
+        self.assertEqual(len(repeated.json()["lines"][0]["sources"]), 3)
+        edited = self.client.patch(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}",
+            json={"manual_future_quantity": "25.000"},
+        )
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["lines"][0]["quantity"], "95.000")
+        deleted = self.client.delete(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}"
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json()["lines"][0]["quantity"], "70.000")
+        self.assertEqual(deleted.json()["lines"][0]["manual_future_quantity"], "0.000")
+
+    def test_collect_filters_and_keeps_units_separate(self) -> None:
+        request_id = self.create_request()["id"]
+        self.add_need("5.000", need_date=date.today() + timedelta(days=10))
+        self.add_need("6.000", null_date=True)
+        self.add_need("7.000", status="CLOSED")
+        eligible = self.add_need("8.000", unit=self.unit_two)
+        response = self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()["lines"]), 1)
+        self.assertEqual(response.json()["lines"][0]["unit_id"], str(self.unit_two.id))
+        with self.sessions() as session:
+            self.assertEqual(str(session.get(SupplyProcurementNeed, eligible).reserved_purchase_request_id), request_id)
+
+    def test_reconcile_updates_removes_and_releases_reservation(self) -> None:
+        request_id = self.create_request()["id"]
+        need_id = self.add_need("10.000")
+        self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        with self.sessions.begin() as session:
+            need = session.get(SupplyProcurementNeed, need_id)
+            need.quantity = Decimal("12")
+            need.version += 1
+        refreshed = self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        self.assertEqual(refreshed.json()["lines"][0]["quantity"], "12.000")
+        with self.sessions.begin() as session:
+            need = session.get(SupplyProcurementNeed, need_id)
+            need.status = "CLOSED"; need.closed_at = datetime.now(timezone.utc)
+        empty = self.client.post(f"/supply/purchase-requests/{request_id}/collect-needs")
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json()["lines"], [])
+        with self.sessions() as session:
+            self.assertIsNone(session.get(SupplyProcurementNeed, need_id).reserved_purchase_request_id)
+
+    def test_ready_validates_snapshot_and_cancel_releases_draft(self) -> None:
+        stale_request = self.create_request()["id"]
+        stale_need = self.add_need("10.000")
+        self.client.post(f"/supply/purchase-requests/{stale_request}/collect-needs")
+        with self.sessions.begin() as session:
+            session.get(SupplyProcurementNeed, stale_need).quantity = Decimal("11")
+        self.assertEqual(self.client.post(f"/supply/purchase-requests/{stale_request}/ready").status_code, 409)
+        with self.sessions() as session:
+            self.assertEqual(session.get(SupplyPurchaseRequest, UUID(stale_request)).status, "DRAFT")
+            self.assertEqual(session.get(SupplyProcurementNeed, stale_need).status.value, "OPEN")
+
+        valid_request = self.create_request()["id"]
+        valid_need = self.add_need("9.000")
+        self.client.post(f"/supply/purchase-requests/{valid_request}/collect-needs")
+        ready = self.client.post(f"/supply/purchase-requests/{valid_request}/ready")
+        self.assertEqual(ready.status_code, 200, ready.text)
+        with self.sessions() as session:
+            self.assertEqual(session.get(SupplyProcurementNeed, valid_need).status.value, "IN_PURCHASE_REQUEST")
+
+        draft_request = self.create_request()["id"]
+        draft_need = self.add_need("4.000")
+        self.client.post(f"/supply/purchase-requests/{draft_request}/collect-needs")
+        self.assertEqual(self.client.post(f"/supply/purchase-requests/{draft_request}/cancel").status_code, 200)
+        with self.sessions() as session:
+            need = session.get(SupplyProcurementNeed, draft_need)
+            self.assertEqual(need.status.value, "OPEN")
+            self.assertIsNone(need.reserved_purchase_request_id)
+
+    def test_need_reserved_by_another_request_is_not_double_collected(self) -> None:
+        first_request = self.create_request()["id"]
+        second_request = self.create_request()["id"]
+        need_id = self.add_need("13.000")
+        first = self.client.post(f"/supply/purchase-requests/{first_request}/collect-needs")
+        second = self.client.post(f"/supply/purchase-requests/{second_request}/collect-needs")
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["lines"], [])
+        with self.sessions() as session:
+            self.assertEqual(
+                str(session.get(SupplyProcurementNeed, need_id).reserved_purchase_request_id),
+                first_request,
+            )
 
     def test_validation_and_tenant_isolation(self) -> None:
         request_id = self.create_request()["id"]

@@ -22,10 +22,12 @@ from app.supply.purchase_requests import (
     PurchaseRequestLineNotFoundError,
     PurchaseRequestNotFoundError,
     PurchaseRequestProductNotFoundError,
+    PurchaseRequestSourceConflictError,
     PurchaseRequestStateError,
     PurchaseRequestUnitNotFoundError,
     add_purchase_request_line,
     cancel_purchase_request,
+    collect_purchase_request_needs,
     create_purchase_request,
     delete_purchase_request_line,
     get_purchase_request,
@@ -123,8 +125,30 @@ def ready_request(
             status_code=status.HTTP_409_CONFLICT,
             detail="Добавьте хотя бы одну строку",
         ) from error
+    except PurchaseRequestSourceConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Потребность изменилась. Повторно соберите потребность перед фиксацией",
+        ) from error
     except PurchaseRequestStateError as error:
         raise _state_error() from error
+
+
+@router.post("/{request_id}/collect-needs", response_model=SupplyPurchaseRequestRead)
+def collect_needs(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseRequest:
+    try:
+        return collect_purchase_request_needs(db, _get(db, request_id, admin))
+    except PurchaseRequestStateError as error:
+        raise _state_error() from error
+    except PurchaseRequestSourceConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Не удалось безопасно собрать потребность. Обновите запрос и повторите",
+        ) from error
 
 
 @router.post("/{request_id}/cancel", response_model=SupplyPurchaseRequestRead)
@@ -189,6 +213,11 @@ def update_line(
             status_code=status.HTTP_409_CONFLICT,
             detail="Этот товар в выбранной единице уже добавлен",
         ) from error
+    except PurchaseRequestSourceConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Изменять можно только будущую потребность",
+        ) from error
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -213,3 +242,8 @@ def delete_line(
         raise _state_error() from error
     except PurchaseRequestLineNotFoundError as error:
         raise _not_found("Строка закупочного запроса не найдена") from error
+    except PurchaseRequestSourceConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Автоматическую потребность нельзя удалить вручную",
+        ) from error

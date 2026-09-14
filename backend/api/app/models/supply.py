@@ -84,8 +84,7 @@ class SupplyPurchaseRequestStatus(StrEnum):
 
 
 class SupplyPurchaseRequestSourceType(StrEnum):
-    SUPPLY_REQUEST = "SUPPLY_REQUEST"
-    DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
+    PROCUREMENT_NEED = "PROCUREMENT_NEED"
     MANUAL_FUTURE = "MANUAL_FUTURE"
 
 
@@ -935,7 +934,7 @@ class SupplyPurchaseRequestLine(Base):
         ),
         CheckConstraint("quantity > 0", name="ck_supply_purchase_request_lines_quantity"),
         CheckConstraint(
-            "manual_future_quantity > 0",
+            "manual_future_quantity >= 0",
             name="ck_supply_purchase_request_lines_manual_future_quantity",
         ),
     )
@@ -982,19 +981,31 @@ class SupplyPurchaseRequestLineSource(Base):
             ["supply_units.tenant_id", "supply_units.id"],
             name="fk_supply_purchase_request_line_sources_unit_tenant", ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "procurement_need_id"],
+            ["supply_procurement_needs.tenant_id", "supply_procurement_needs.id"],
+            name="fk_supply_purchase_request_line_sources_need_tenant",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
-            "source_type IN ('SUPPLY_REQUEST', 'DEPARTMENT_DEBT', 'MANUAL_FUTURE')",
+            "source_type IN ('PROCUREMENT_NEED', 'MANUAL_FUTURE')",
             name="ck_supply_purchase_request_line_sources_type",
         ),
         CheckConstraint("quantity > 0", name="ck_supply_purchase_request_line_sources_quantity"),
         CheckConstraint(
-            "(source_type = 'MANUAL_FUTURE' AND source_id IS NULL) OR "
-            "(source_type <> 'MANUAL_FUTURE' AND source_id IS NOT NULL)",
+            "(source_type = 'MANUAL_FUTURE' AND procurement_need_id IS NULL) OR "
+            "(source_type = 'PROCUREMENT_NEED' AND procurement_need_id IS NOT NULL)",
             name="ck_supply_purchase_request_line_sources_reference",
         ),
         Index(
             "ix_supply_purchase_request_line_sources_line",
             "tenant_id", "purchase_request_line_id", "created_at",
+        ),
+        Index(
+            "uq_supply_purchase_request_line_sources_need",
+            "tenant_id", "procurement_need_id", unique=True,
+            postgresql_where=text("procurement_need_id IS NOT NULL"),
+            sqlite_where=text("procurement_need_id IS NOT NULL"),
         ),
     )
 
@@ -1002,7 +1013,9 @@ class SupplyPurchaseRequestLineSource(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     purchase_request_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    source_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    procurement_need_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
     unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -1011,6 +1024,9 @@ class SupplyPurchaseRequestLineSource(Base):
 
     line: Mapped[SupplyPurchaseRequestLine] = relationship(back_populates="sources")
     unit: Mapped[SupplyUnit] = relationship(overlaps="line,sources")
+    procurement_need: Mapped["SupplyProcurementNeed | None"] = relationship(
+        foreign_keys=[procurement_need_id]
+    )
 
 
 class SupplyProcurementNeed(Base):
@@ -1187,6 +1203,20 @@ class SupplyProcurementNeed(Base):
     reserved_purchase_request: Mapped[SupplyPurchaseRequest | None] = relationship(
         foreign_keys=[reserved_purchase_request_id]
     )
+
+    @property
+    def department(self) -> str | None:
+        if self.request_line is not None:
+            return self.request_line.request.department.name
+        if self.department_debt is not None:
+            return self.department_debt.department.name
+        return None
+
+    @property
+    def request_number(self) -> str | None:
+        if self.request_line is None:
+            return None
+        return self.request_line.request.public_number
 
 
 class SupplyProductAlias(Base):
