@@ -277,19 +277,6 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             requests.append(request)
             if request.url.path.endswith("/api/auth"):
                 return response(request, text="token")
-            if request.url.path.endswith("/services/update"):
-                return response(request, text=(
-                    "<result><success>true</success>"
-                    "<resultStatus>SUCCESS</resultStatus>"
-                    '<returnValue cls="EntitiesUpdate">'
-                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
-                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
-                    "<items /></returnValue>"
-                    "<entitiesUpdate>"
-                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
-                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
-                    "</entitiesUpdate></result>"
-                ))
             if request.url.path.endswith("/services/document"):
                 return response(request, text=(
                     "<result><success>true</success><resultStatus>SUCCESS</resultStatus>"
@@ -330,23 +317,17 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(
             [item.url.path for item in rpc_requests],
-            ["/resto/services/update", "/resto/services/document"],
+            ["/resto/services/document"],
         )
-        update_request, read_request = rpc_requests
-        self.assertEqual(
-            update_request.url.params["methodName"], "getEntitiesUpdate"
-        )
-        update_xml = xml_payload(update_request)
-        self.assertEqual(child_text(update_xml, "entities-version"), "100")
-        self.assertEqual(child_text(update_xml, "fromRevision"), "100")
-        self.assertEqual(child_text(update_xml, "timeoutMillis"), "0")
-        self.assertEqual(child_text(update_xml, "useRawEntities"), "true")
+        read_request = rpc_requests[0]
         self.assertEqual(
             read_request.url.params["methodName"], "getAbstractDocument"
         )
         read_xml = xml_payload(read_request)
         self.assertEqual(child_text(read_xml, "id"), str(DOCUMENT_ID))
-        self.assertEqual(child_text(read_xml, "entities-version"), "101")
+        self.assertEqual(
+            child_text(read_xml, "entities-version"), "2147483647"
+        )
         self.assertEqual(document.external_id, str(DOCUMENT_ID))
         self.assertEqual(document.document_number, "2753")
         self.assertEqual(document.status, "NEW")
@@ -356,12 +337,12 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document.items[0].amount, Decimal("10.000"))
         self.assertIn(b"preservedField", document.raw_document_xml)
         rendered = "\n".join(logs.output)
-        self.assertIn("stage=getEntitiesUpdate", rendered)
+        self.assertNotIn("stage=getEntitiesUpdate", rendered)
         self.assertIn("stage=getAbstractDocument", rendered)
         self.assertIn("http_status=200", rendered)
         self.assertIn("entities_revision=103", rendered)
 
-    async def test_entity_revision_bootstrap_fails_closed(self):
+    async def test_document_entity_revision_fails_closed(self):
         cases = (
             (
                 "4d8f99fe-70d6-a84e-019f-de3fa1ba0001",
@@ -370,14 +351,14 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                 "IIKO_RPC_FULL_SYNC_REQUIRED",
             ),
             (
-                "00000000-0000-4000-8000-000000000099",
+                "not-a-uuid",
                 "101",
                 "false",
-                "IIKO_RPC_SERVER_INSTANCE_MISMATCH",
+                "IIKO_OUTGOING_INVOICE_RPC_READ_INVALID",
             ),
             (
                 "4d8f99fe-70d6-a84e-019f-de3fa1ba0001",
-                "99",
+                "2147483648",
                 "false",
                 "IIKO_RPC_ENTITY_REVISION_INVALID",
             ),
@@ -390,15 +371,22 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                     requests.append(request)
                     if request.url.path.endswith("/api/auth"):
                         return response(request, text="token")
-                    if request.url.path.endswith("/services/update"):
+                    if request.url.path.endswith("/services/document"):
                         return response(request, text=(
                             "<result><success>true</success>"
                             "<resultStatus>SUCCESS</resultStatus>"
-                            '<returnValue cls="EntitiesUpdate">'
+                            '<returnValue cls="OutgoingInvoice" '
+                            f'eid="{DOCUMENT_ID}">'
+                            "<documentNumber>2753</documentNumber>"
+                            "<status>NEW</status><revision>42</revision>"
+                            '<items><i cls="OutgoingInvoiceItem"><product>'
+                            f"{PRODUCT_ID}</product><amount>10</amount>"
+                            "<price>0</price></i></items></returnValue>"
+                            "<entitiesUpdate>"
                             f"<serverInstanceId>{instance_id}</serverInstanceId>"
                             f"<revision>{revision}</revision>"
                             f"<fullUpdate>{full_update}</fullUpdate>"
-                            "<items /></returnValue></result>"
+                            "</entitiesUpdate></result>"
                         ))
                     if request.url.path.endswith("/api/logout"):
                         return response(request, text="ok")
@@ -411,9 +399,53 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                         await client.get_outgoing_invoice_for_update(DOCUMENT_ID)
 
                 self.assertFalse(any(
-                    item.url.path.endswith("/services/document")
+                    item.url.path.endswith("/services/update")
                     for item in requests
                 ))
+
+    async def test_document_reads_reject_server_instance_change(self):
+        read_count = 0
+        other_instance_id = "00000000-0000-4000-8000-000000000099"
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal read_count
+            if request.url.path.endswith("/api/auth"):
+                return response(request, text="token")
+            if request.url.path.endswith("/services/document"):
+                read_count += 1
+                instance_id = (
+                    str(SERVER_INSTANCE_ID)
+                    if read_count == 1
+                    else other_instance_id
+                )
+                return response(request, text=(
+                    "<result><success>true</success>"
+                    "<resultStatus>SUCCESS</resultStatus>"
+                    '<returnValue cls="OutgoingInvoice" '
+                    f'eid="{DOCUMENT_ID}">'
+                    "<documentNumber>2753</documentNumber>"
+                    "<status>NEW</status><revision>42</revision>"
+                    '<items><i cls="OutgoingInvoiceItem"><product>'
+                    f"{PRODUCT_ID}</product><amount>10</amount>"
+                    "<price>0</price></i></items></returnValue>"
+                    "<entitiesUpdate>"
+                    f"<serverInstanceId>{instance_id}</serverInstanceId>"
+                    "<revision>103</revision><fullUpdate>false</fullUpdate>"
+                    "</entitiesUpdate></result>"
+                ))
+            if request.url.path.endswith("/api/logout"):
+                return response(request, text="ok")
+            raise AssertionError(request.url.path)
+
+        async with IikoServerClient(
+            make_settings(), transport=httpx.MockTransport(handler)
+        ) as client:
+            await client.get_outgoing_invoice_for_update(DOCUMENT_ID)
+            with self.assertRaisesRegex(
+                IikoContractError,
+                "IIKO_RPC_SERVER_INSTANCE_MISMATCH",
+            ):
+                await client.get_outgoing_invoice_for_update(DOCUMENT_ID)
 
     async def test_updates_fresh_existing_invoice_through_legacy_rpc(self):
         requests: list[httpx.Request] = []
@@ -613,15 +645,6 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/api/auth"):
                 return response(request, text="secret-token")
-            if request.url.path.endswith("/services/update"):
-                return response(request, text=(
-                    "<result><success>true</success>"
-                    "<resultStatus>SUCCESS</resultStatus>"
-                    '<returnValue cls="EntitiesUpdate">'
-                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
-                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
-                    "<items /></returnValue></result>"
-                ))
             if request.url.path.endswith("/services/documentGroupOperation"):
                 return response(request, text=(
                     "<result><success>true</success>"
@@ -649,7 +672,9 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
                     "IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID",
                 ):
                     await client.process_outgoing_invoices(
-                        (DOCUMENT_ID,), enable_warnings=True
+                        (DOCUMENT_ID,),
+                        enable_warnings=True,
+                        entities_version=101,
                     )
 
         rendered = "\n".join(logs.output)
@@ -668,15 +693,6 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             requests.append(request)
             if request.url.path.endswith("/api/auth"):
                 return response(request, text="token")
-            if request.url.path.endswith("/services/update"):
-                return response(request, text=(
-                    "<result><success>true</success>"
-                    "<resultStatus>SUCCESS</resultStatus>"
-                    '<returnValue cls="EntitiesUpdate">'
-                    f"<serverInstanceId>{SERVER_INSTANCE_ID}</serverInstanceId>"
-                    "<revision>101</revision><fullUpdate>false</fullUpdate>"
-                    "<items /></returnValue></result>"
-                ))
             if request.url.path.endswith("/services/documentGroupOperation"):
                 process_count += 1
                 request_xml = xml_payload(request)
@@ -702,10 +718,14 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
             make_settings(), transport=httpx.MockTransport(handler)
         ) as client:
             first = await client.process_outgoing_invoices(
-                (DOCUMENT_ID,), enable_warnings=True
+                (DOCUMENT_ID,),
+                enable_warnings=True,
+                entities_version=101,
             )
             second = await client.process_outgoing_invoices(
-                (DOCUMENT_ID,), enable_warnings=False
+                (DOCUMENT_ID,),
+                enable_warnings=False,
+                entities_version=101,
             )
 
         process_requests = [item for item in requests if item.url.path.endswith(

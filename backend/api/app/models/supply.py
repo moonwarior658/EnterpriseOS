@@ -77,6 +77,18 @@ class SupplyProductSupplierPriceSource(StrEnum):
     MANUAL = "MANUAL"
 
 
+class SupplyPurchaseRequestStatus(StrEnum):
+    DRAFT = "DRAFT"
+    READY = "READY"
+    CANCELLED = "CANCELLED"
+
+
+class SupplyPurchaseRequestSourceType(StrEnum):
+    SUPPLY_REQUEST = "SUPPLY_REQUEST"
+    DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
+    MANUAL_FUTURE = "MANUAL_FUTURE"
+
+
 class SupplyContextMappingAuditAction(StrEnum):
     CREATED = "CREATED"
     REPLACED = "REPLACED"
@@ -834,6 +846,153 @@ class SupplyProductSupplierPriceHistory(Base):
     @property
     def base_unit(self) -> SupplyUnit:
         return self.product_supplier.product.default_unit
+
+
+class SupplyPurchaseRequest(Base):
+    __tablename__ = "supply_purchase_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_purchase_requests_tenant_id"),
+        UniqueConstraint("tenant_id", "number", name="uq_supply_purchase_requests_tenant_number"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'READY', 'CANCELLED')",
+            name="ck_supply_purchase_requests_status",
+        ),
+        Index(
+            "ix_supply_purchase_requests_tenant_need_date",
+            "tenant_id", "need_date", "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    number: Mapped[str] = mapped_column(String(32), nullable=False)
+    need_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="DRAFT", server_default="DRAFT", nullable=False
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    lines: Mapped[list["SupplyPurchaseRequestLine"]] = relationship(
+        back_populates="purchase_request", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplyPurchaseRequestLine.created_at",
+    )
+
+    @property
+    def line_count(self) -> int:
+        return len(self.lines)
+
+
+class SupplyPurchaseRequestLine(Base):
+    __tablename__ = "supply_purchase_request_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_purchase_request_lines_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "purchase_request_id", "product_id", "unit_id",
+            name="uq_supply_purchase_request_lines_product_unit",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "purchase_request_id"],
+            ["supply_purchase_requests.tenant_id", "supply_purchase_requests.id"],
+            name="fk_supply_purchase_request_lines_request_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_purchase_request_lines_product_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_purchase_request_lines_unit_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("quantity > 0", name="ck_supply_purchase_request_lines_quantity"),
+        CheckConstraint(
+            "manual_future_quantity > 0",
+            name="ck_supply_purchase_request_lines_manual_future_quantity",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    purchase_request_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    manual_future_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    purchase_request: Mapped[SupplyPurchaseRequest] = relationship(back_populates="lines")
+    product: Mapped[SupplyProduct] = relationship(
+        overlaps="lines,purchase_request"
+    )
+    unit: Mapped[SupplyUnit] = relationship(
+        overlaps="lines,product,purchase_request"
+    )
+    sources: Mapped[list["SupplyPurchaseRequestLineSource"]] = relationship(
+        back_populates="line", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplyPurchaseRequestLineSource.created_at",
+    )
+
+
+class SupplyPurchaseRequestLineSource(Base):
+    __tablename__ = "supply_purchase_request_line_sources"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "purchase_request_line_id"],
+            ["supply_purchase_request_lines.tenant_id", "supply_purchase_request_lines.id"],
+            name="fk_supply_purchase_request_line_sources_line_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_purchase_request_line_sources_unit_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "source_type IN ('SUPPLY_REQUEST', 'DEPARTMENT_DEBT', 'MANUAL_FUTURE')",
+            name="ck_supply_purchase_request_line_sources_type",
+        ),
+        CheckConstraint("quantity > 0", name="ck_supply_purchase_request_line_sources_quantity"),
+        CheckConstraint(
+            "(source_type = 'MANUAL_FUTURE' AND source_id IS NULL) OR "
+            "(source_type <> 'MANUAL_FUTURE' AND source_id IS NOT NULL)",
+            name="ck_supply_purchase_request_line_sources_reference",
+        ),
+        Index(
+            "ix_supply_purchase_request_line_sources_line",
+            "tenant_id", "purchase_request_line_id", "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    purchase_request_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    line: Mapped[SupplyPurchaseRequestLine] = relationship(back_populates="sources")
+    unit: Mapped[SupplyUnit] = relationship(overlaps="line,sources")
 
 
 class SupplyProductAlias(Base):

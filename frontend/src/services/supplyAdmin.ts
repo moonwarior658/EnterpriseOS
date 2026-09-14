@@ -121,6 +121,51 @@ export type SupplyProductSupplierPriceHistory = {
   created_at: string
 }
 
+export type SupplyPurchaseRequestStatus = 'DRAFT' | 'READY' | 'CANCELLED'
+
+export type SupplyPurchaseRequestSource = {
+  id: string
+  source_type: 'SUPPLY_REQUEST' | 'DEPARTMENT_DEBT' | 'MANUAL_FUTURE'
+  source_id: string | null
+  quantity: string
+  unit: SupplyUnit
+  created_at: string
+}
+
+export type SupplyPurchaseRequestLine = {
+  id: string
+  product_id: string
+  product: { id: string; name: string }
+  quantity: string
+  unit_id: string
+  unit: SupplyUnit
+  manual_future_quantity: string
+  comment: string | null
+  sources: SupplyPurchaseRequestSource[]
+  created_at: string
+  updated_at: string
+}
+
+export type SupplyPurchaseRequest = {
+  id: string
+  number: string
+  need_date: string
+  status: SupplyPurchaseRequestStatus
+  comment: string | null
+  line_count: number
+  created_by_user_id?: number
+  lines?: SupplyPurchaseRequestLine[]
+  created_at: string
+  updated_at: string
+}
+
+export type SupplyPurchaseRequestPage = {
+  items: SupplyPurchaseRequest[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export type SupplyAllocation = {
   id: string
   action: 'TRANSFER' | 'PURCHASE' | 'CANCEL'
@@ -757,6 +802,74 @@ export const makePrimarySupplyProductSupplier = (productId: string, relationId: 
 
 export function getSupplyUnits(signal?: AbortSignal): Promise<SupplyUnit[]> {
   return request('/supply/units', { signal })
+}
+
+export function getSupplyPurchaseRequests(
+  signal?: AbortSignal,
+): Promise<SupplyPurchaseRequestPage> {
+  return request('/supply/purchase-requests?limit=100&offset=0', { signal })
+}
+
+export function getSupplyPurchaseRequest(
+  requestId: string, signal?: AbortSignal,
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}`, { signal })
+}
+
+export function createSupplyPurchaseRequest(input: {
+  need_date: string
+  comment?: string | null
+}): Promise<SupplyPurchaseRequest> {
+  return request('/supply/purchase-requests', {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function updateSupplyPurchaseRequest(
+  requestId: string,
+  input: { need_date?: string; comment?: string | null },
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}`, {
+    method: 'PATCH', body: JSON.stringify(input),
+  })
+}
+
+export function addSupplyPurchaseRequestLine(
+  requestId: string,
+  input: { product_id: string; quantity: string; unit_id: string; comment?: string | null },
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/lines`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function updateSupplyPurchaseRequestLine(
+  requestId: string, lineId: string,
+  input: { quantity?: string; unit_id?: string; comment?: string | null },
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}`, {
+    method: 'PATCH', body: JSON.stringify(input),
+  })
+}
+
+export function deleteSupplyPurchaseRequestLine(
+  requestId: string, lineId: string,
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function readySupplyPurchaseRequest(
+  requestId: string,
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/ready`, { method: 'POST' })
+}
+
+export function cancelSupplyPurchaseRequest(
+  requestId: string,
+): Promise<SupplyPurchaseRequest> {
+  return request(`/supply/purchase-requests/${requestId}/cancel`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

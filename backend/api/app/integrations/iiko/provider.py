@@ -154,6 +154,7 @@ class IikoProvider(ABC):
         document_ids: Sequence[UUID],
         *,
         enable_warnings: bool,
+        entities_version: int,
     ) -> tuple[IikoDocumentValidationResultDto, ...]:
         """Process existing invoices through the confirmed BackOffice RPC."""
         raise NotImplementedError

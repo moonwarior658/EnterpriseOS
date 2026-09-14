@@ -714,7 +714,7 @@ async def finalize_supply_request_with_iiko_documents(
 
     if documents:
         try:
-            to_process: list[_FinalizationDocument] = []
+            to_process: list[tuple[_FinalizationDocument, int]] = []
             for document in documents:
                 if document.document_type == IikoDocumentType.INTERNAL_TRANSFER:
                     authoritative_transfer = (
@@ -837,32 +837,76 @@ async def finalize_supply_request_with_iiko_documents(
                     supply_request_id=request_id,
                 )
                 _verify_actual_invoice(updated, document, required_status="NEW")
-                to_process.append(document)
+                try:
+                    with iiko_finalization_log_context(
+                        supply_request_id=request_id,
+                        document_number=document.document_number,
+                        document_id=document.iiko_document_id,
+                    ):
+                        process_source = (
+                            await provider.get_outgoing_invoice_for_update(
+                                document.iiko_document_id
+                            )
+                        )
+                    process_source_id = UUID(process_source.external_id)
+                except (IikoError, ValueError) as error:
+                    raise SupplyIikoDocumentFinalizationError(
+                        "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE"
+                    ) from error
+                if (
+                    process_source_id != document.iiko_document_id
+                    or process_source.document_number != document.document_number
+                    or process_source.status != "NEW"
+                ):
+                    raise SupplyIikoDocumentFinalizationError(
+                        "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE"
+                    )
+                if tuple(
+                    (item.product_id, item.amount)
+                    for item in process_source.items
+                ) != tuple(zip(
+                    document.product_ids,
+                    document.actual_quantities,
+                    strict=True,
+                )):
+                    raise SupplyIikoDocumentFinalizationError(
+                        "SUPPLY_IIKO_DOCUMENT_QUANTITIES_MISMATCH"
+                    )
+                to_process.append((document, process_source.entities_version))
 
             if to_process:
+                process_documents = [document for document, _ in to_process]
+                process_entities_version = max(
+                    entities_version for _, entities_version in to_process
+                )
                 with iiko_finalization_log_context(
                     supply_request_id=request_id,
                     document_number=",".join(
-                        document.document_number for document in to_process
+                        document.document_number for document in process_documents
                     ),
                     document_id=",".join(
-                        str(document.iiko_document_id) for document in to_process
+                        str(document.iiko_document_id)
+                        for document in process_documents
                     ),
                 ):
                     first_results = await provider.process_outgoing_invoices(
-                        [document.iiko_document_id for document in to_process],
+                        [
+                            document.iiko_document_id
+                            for document in process_documents
+                        ],
                         enable_warnings=True,
+                        entities_version=process_entities_version,
                     )
                 result_by_number = {
                     result.document_number: result for result in first_results
                     if result.document_number is not None
                 }
-                if len(result_by_number) != len(to_process):
+                if len(result_by_number) != len(process_documents):
                     raise SupplyIikoDocumentFinalizationError(
                         "SUPPLY_IIKO_DOCUMENT_PROCESS_RESPONSE_INVALID"
                     )
                 warning_documents: list[_FinalizationDocument] = []
-                for document in to_process:
+                for document in process_documents:
                     result = result_by_number.get(document.document_number)
                     if result is None:
                         raise SupplyIikoDocumentFinalizationError(
@@ -907,6 +951,7 @@ async def finalize_supply_request_with_iiko_documents(
                                 for document in warning_documents
                             ],
                             enable_warnings=False,
+                            entities_version=process_entities_version,
                         )
                     ack_by_number = {
                         result.document_number: result for result in ack_results

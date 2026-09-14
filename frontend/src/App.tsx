@@ -12,6 +12,8 @@ import SupplyRequestDetailPage from './pages/SupplyRequestDetailPage'
 import SupplyRequestListPage from './pages/SupplyRequestListPage'
 import SupplyDebtListPage from './pages/SupplyDebtListPage'
 import SupplySuppliersPage from './pages/SupplySuppliersPage'
+import SupplyPurchaseRequestsPage from './pages/SupplyPurchaseRequestsPage'
+import SupplyPurchaseRequestDetailPage from './pages/SupplyPurchaseRequestDetailPage'
 import UsersPage from './pages/UsersPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
@@ -87,6 +89,16 @@ function App() {
         <Route
           path="/supply/suppliers"
           element={<ProtectedRoute adminOnly><SupplySuppliersPage /></ProtectedRoute>}
+        />
+
+        <Route
+          path="/supply/purchase-requests"
+          element={<ProtectedRoute adminOnly><SupplyPurchaseRequestsPage /></ProtectedRoute>}
+        />
+
+        <Route
+          path="/supply/purchase-requests/:requestId"
+          element={<ProtectedRoute adminOnly><SupplyPurchaseRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route

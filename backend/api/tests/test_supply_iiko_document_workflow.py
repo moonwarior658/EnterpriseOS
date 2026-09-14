@@ -21,7 +21,11 @@ from app.integrations.iiko.document_routing import (
     resolve_internal_transfer_route,
     resolve_outgoing_invoice_route,
 )
-from app.integrations.iiko.exceptions import IikoConnectionError, IikoResponseError
+from app.integrations.iiko.exceptions import (
+    IikoConnectionError,
+    IikoContractError,
+    IikoResponseError,
+)
 from app.integrations.iiko.schemas import (
     IikoDocumentValidationResultDto,
     IikoOutgoingInvoiceCreateResultDto,
@@ -218,7 +222,7 @@ class FinalizationProvider:
             document_number=invoice.document_number,
             status=invoice.status,
             revision=7,
-            entities_version=101,
+            entities_version=100 + len(self.rpc_read_calls),
             items=invoice.items,
             raw_document_xml=(
                 "<document><id>{}</id><documentNumber>{}</documentNumber>"
@@ -253,9 +257,11 @@ class FinalizationProvider:
         )
 
     async def process_outgoing_invoices(
-        self, document_ids, *, enable_warnings
+        self, document_ids, *, enable_warnings, entities_version
     ):
-        self.process_calls.append((tuple(document_ids), enable_warnings))
+        self.process_calls.append(
+            (tuple(document_ids), enable_warnings, entities_version)
+        )
         if self.process_results:
             results = self.process_results.pop(0)
         else:
@@ -650,11 +656,14 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(provider.invoices[0].revision)
         self.assertEqual(
             provider.rpc_read_calls,
-            [UUID(provider.invoices[0].external_id)],
+            [
+                UUID(provider.invoices[0].external_id),
+                UUID(provider.invoices[0].external_id),
+            ],
         )
         self.assertEqual(provider.update_calls[0][0].revision, 7)
         self.assertEqual(provider.update_calls[0][1], (Decimal("8"),))
-        self.assertEqual(provider.process_calls[0][1], True)
+        self.assertEqual(provider.process_calls[0][1:], (True, 102))
         with self.sessions() as session:
             debt = session.scalar(select(SupplyDepartmentDebt))
             self.assertIsNotNone(debt)
@@ -701,7 +710,10 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(completed.status, "FULFILLED")
         self.assertEqual(
-            [enable_warnings for _, enable_warnings in provider.process_calls],
+            [
+                enable_warnings
+                for _, enable_warnings, _ in provider.process_calls
+            ],
             [True, False],
         )
 
@@ -775,6 +787,36 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
             )
 
+    async def test_missing_document_revision_keeps_eos_state_unchanged(self):
+        request_id = self._create_request((SupplyProductSourceRole.MAIN,))
+        planned = await self._plan(request_id, RecordingProvider(self.sessions))
+        provider = self._finalization_provider(request_id)
+        provider.get_outgoing_invoice_for_update = AsyncMock(
+            side_effect=IikoContractError("IIKO_OUTGOING_INVOICE_RPC_READ_INVALID")
+        )
+
+        with self.assertRaisesRegex(
+            SupplyIikoDocumentFinalizationError,
+            "SUPPLY_IIKO_DOCUMENT_REVISION_NOT_AVAILABLE",
+        ):
+            await self._finalize(
+                request_id, provider, "0.5", version=planned.version
+            )
+
+        self.assertEqual(provider.update_calls, [])
+        self.assertEqual(provider.process_calls, [])
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            line = session.scalar(select(SupplyRequestLine).where(
+                SupplyRequestLine.request_id == request_id
+            ))
+            self.assertEqual(request.status, "PLANNED")
+            self.assertIsNone(request.fulfilled_at)
+            self.assertEqual(line.send_quantity, Decimal("1"))
+            self.assertEqual(
+                session.scalar(select(func.count(SupplyDepartmentDebt.id))), 0
+            )
+
     async def test_warning_ack_failure_keeps_eos_state_unchanged(self):
         request_id = self._create_request((SupplyProductSourceRole.MAIN,))
         planned = await self._plan(request_id, RecordingProvider(self.sessions))
@@ -802,7 +844,10 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(
-            [enable_warnings for _, enable_warnings in provider.process_calls],
+            [
+                enable_warnings
+                for _, enable_warnings, _ in provider.process_calls
+            ],
             [True, False],
         )
         with self.sessions() as session:
