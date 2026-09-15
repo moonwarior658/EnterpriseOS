@@ -10,6 +10,8 @@ from app.models.user import User
 from app.schemas.supplier_order import (
     SupplySupplierOrderCreationResult,
     SupplySupplierOrderPage,
+    SupplySupplierOrderMessagePrepare,
+    SupplySupplierOrderMessagePreview,
     SupplySupplierOrderRead,
     SupplySupplierOrderStatus,
     SupplySupplierOrderUpdate,
@@ -17,12 +19,16 @@ from app.schemas.supplier_order import (
 from app.supply.supplier_orders import (
     SupplierOrderConflictError,
     SupplierOrderEmptyError,
+    SupplierOrderEmailError,
+    SupplierOrderMessageStateError,
     SupplierOrderNotFoundError,
+    SupplierOrderResponsiblePhoneError,
     SupplierOrderStateError,
     SupplierOrderSupplierInactiveError,
     cancel_supplier_order,
     list_supplier_orders,
     mark_supplier_order_ready,
+    prepare_supplier_order_message,
     read_supplier_order,
     update_supplier_order,
 )
@@ -40,6 +46,12 @@ def _error(error: Exception) -> HTTPException:
         return HTTPException(status_code=409, detail="Нельзя зафиксировать заказ без строк и положительной суммы")
     if isinstance(error, SupplierOrderConflictError):
         return HTTPException(status_code=409, detail="Исходные распределения заказа изменились или уже используются")
+    if isinstance(error, SupplierOrderEmailError):
+        return HTTPException(status_code=409, detail="У поставщика не указан корректный email для заказов")
+    if isinstance(error, SupplierOrderResponsiblePhoneError):
+        return HTTPException(status_code=409, detail="Укажите телефон ответственного")
+    if isinstance(error, SupplierOrderMessageStateError):
+        return HTTPException(status_code=409, detail="Подготовить сообщение можно только для готового заказа")
     return HTTPException(status_code=409, detail="Действие доступно только для черновика заказа")
 
 
@@ -69,6 +81,26 @@ def read_order(
     try:
         return read_supplier_order(db, order_id, tenant_id=admin.tenant_id)
     except SupplierOrderNotFoundError as error:
+        raise _error(error) from error
+
+
+@router.post("/{order_id}/prepare-message", response_model=SupplySupplierOrderMessagePreview)
+def prepare_order_message(
+    order_id: UUID, payload: SupplySupplierOrderMessagePrepare,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplierOrderMessagePreview:
+    try:
+        return prepare_supplier_order_message(
+            db, order_id, tenant_id=admin.tenant_id,
+            responsible_name=admin.display_name,
+            responsible_phone=payload.responsible_phone,
+        )
+    except (
+        SupplierOrderNotFoundError, SupplierOrderMessageStateError,
+        SupplierOrderEmptyError, SupplierOrderEmailError,
+        SupplierOrderResponsiblePhoneError,
+    ) as error:
         raise _error(error) from error
 
 

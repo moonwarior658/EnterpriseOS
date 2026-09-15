@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+import re
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -38,6 +39,7 @@ MAX_SUPPLIER_ACCOUNT_LENGTH = 64
 MAX_SUPPLIER_EMAIL_LENGTH = 320
 MAX_SUPPLIER_PHONE_LENGTH = 40
 MAX_SUPPLIER_SKU_LENGTH = 120
+SUPPLIER_EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 class SupplyRequestStatus(StrEnum):
@@ -404,7 +406,10 @@ class SupplySupplierCreate(BaseModel):
     @field_validator("order_email")
     @classmethod
     def validate_order_email(cls, value: str | None) -> str | None:
-        return _strip_optional(value, max_length=MAX_SUPPLIER_EMAIL_LENGTH)
+        normalized = _strip_optional(value, max_length=MAX_SUPPLIER_EMAIL_LENGTH)
+        if normalized is not None and not SUPPLIER_EMAIL_PATTERN.fullmatch(normalized):
+            raise ValueError("Email для заказов имеет неверный формат")
+        return normalized
 
     @field_validator("phone")
     @classmethod

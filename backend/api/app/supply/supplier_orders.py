@@ -16,12 +16,18 @@ from app.models.supply import (
     SupplySupplierOrderLine,
 )
 from app.schemas.supplier_order import (
+    SupplySupplierOrderMessageLine,
+    SupplySupplierOrderMessageOrder,
+    SupplySupplierOrderMessagePreview,
+    SupplySupplierOrderMessageRecipient,
+    SupplySupplierOrderMessageResponsible,
     SupplySupplierOrderLineRead,
     SupplySupplierOrderListItem,
     SupplySupplierOrderMinimumStatus,
     SupplySupplierOrderRead,
     SupplySupplierOrderUpdate,
 )
+from app.schemas.supply import SUPPLIER_EMAIL_PATTERN
 
 
 class SupplierOrderNotFoundError(LookupError):
@@ -41,6 +47,18 @@ class SupplierOrderSupplierInactiveError(ValueError):
 
 
 class SupplierOrderConflictError(ValueError):
+    pass
+
+
+class SupplierOrderEmailError(ValueError):
+    pass
+
+
+class SupplierOrderResponsiblePhoneError(ValueError):
+    pass
+
+
+class SupplierOrderMessageStateError(ValueError):
     pass
 
 
@@ -91,6 +109,115 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         ) for line in order.lines],
         created_at=order.created_at, updated_at=order.updated_at,
         confirmed_at=order.confirmed_at, cancelled_at=order.cancelled_at,
+        recipient_email_snapshot=order.recipient_email_snapshot,
+        recipient_name_snapshot=order.recipient_name_snapshot,
+        responsible_name_snapshot=order.responsible_name_snapshot,
+        responsible_phone_snapshot=order.responsible_phone_snapshot,
+    )
+
+
+def _format_quantity(value: Decimal) -> str:
+    return format(Decimal(value).normalize(), "f")
+
+
+def _format_money(value: Decimal) -> str:
+    return f"{Decimal(value):,.2f}".replace(",", " ").replace(".", ",")
+
+
+def _message_subject(order: SupplySupplierOrder) -> str:
+    if order.planned_delivery_date is None:
+        return f"Заказ {order.number}"
+    return f"Заказ {order.number} на {order.planned_delivery_date:%d.%m.%Y}"
+
+
+def _message_body(order: SupplySupplierOrder) -> str:
+    lines = [
+        "Здравствуйте.",
+        "",
+        f"Просим подтвердить заказ №{order.number}:",
+        "",
+    ]
+    for position, line in enumerate(order.lines, start=1):
+        unit = line.package_unit_snapshot.short_name_ru
+        lines.append(
+            f"{position}. {line.product_name_snapshot} — упаковка "
+            f"{_format_quantity(line.package_quantity_snapshot)} {unit}; "
+            f"{line.packages_count} уп.; всего {_format_quantity(line.quantity_base)} {unit}; "
+            f"{_format_money(line.price_per_package_snapshot)} ₽/уп.; "
+            f"сумма {_format_money(line.planned_amount)} ₽."
+        )
+    lines.extend(["", f"Итого: {_format_money(order.total_amount)} ₽."])
+    if order.planned_delivery_date is not None:
+        lines.append(f"Плановая дата поставки: {order.planned_delivery_date:%d.%m.%Y}.")
+    lines.extend([
+        "",
+        "Ответственный:",
+        order.responsible_name_snapshot or "",
+        f"Телефон: {order.responsible_phone_snapshot or ''}",
+        "",
+        "Просим подтвердить наличие, количество, цену и дату поставки.",
+        "",
+        "Заказ сформирован автоматически в EnterpriseOS.",
+    ])
+    return "\n".join(lines)
+
+
+def prepare_supplier_order_message(
+    session: Session, order_id: UUID, *, tenant_id: str,
+    responsible_name: str, responsible_phone: str | None,
+) -> SupplySupplierOrderMessagePreview:
+    order = session.scalar(select(SupplySupplierOrder).where(
+        SupplySupplierOrder.id == order_id,
+        SupplySupplierOrder.tenant_id == tenant_id,
+    ).with_for_update())
+    if order is None:
+        raise SupplierOrderNotFoundError
+    if order.status != "READY":
+        raise SupplierOrderMessageStateError
+    if not order.lines or order.total_amount <= 0:
+        raise SupplierOrderEmptyError
+
+    if order.recipient_email_snapshot is None:
+        email = (order.supplier.order_email or "").strip()
+        if not email or not SUPPLIER_EMAIL_PATTERN.fullmatch(email):
+            raise SupplierOrderEmailError
+        if responsible_phone is None:
+            raise SupplierOrderResponsiblePhoneError
+        order.recipient_email_snapshot = email
+        order.recipient_name_snapshot = order.supplier.display_name
+        order.responsible_name_snapshot = responsible_name.strip()
+        order.responsible_phone_snapshot = responsible_phone
+        session.commit()
+
+    message_lines = [SupplySupplierOrderMessageLine(
+        product_name=line.product_name_snapshot,
+        packages_count=line.packages_count,
+        package_quantity=line.package_quantity_snapshot,
+        package_unit=line.package_unit_snapshot.short_name_ru,
+        total_quantity=line.quantity_base,
+        price_per_package=line.price_per_package_snapshot,
+        planned_amount=line.planned_amount,
+        currency=line.currency,
+    ) for line in order.lines]
+    warnings = [] if order.planned_delivery_date is not None else ["Дата поставки не указана"]
+    return SupplySupplierOrderMessagePreview(
+        recipient=SupplySupplierOrderMessageRecipient(
+            email=order.recipient_email_snapshot,
+            supplier_display_name=order.recipient_name_snapshot,
+        ),
+        subject=_message_subject(order),
+        body_text=_message_body(order),
+        order=SupplySupplierOrderMessageOrder(
+            id=order.id, number=order.number,
+            planned_delivery_date=order.planned_delivery_date,
+            total_amount=order.total_amount, currency=order.currency,
+        ),
+        lines=message_lines,
+        responsible=SupplySupplierOrderMessageResponsible(
+            name=order.responsible_name_snapshot,
+            phone=order.responsible_phone_snapshot,
+        ),
+        warnings=warnings,
     )
 
 

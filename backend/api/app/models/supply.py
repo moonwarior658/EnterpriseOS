@@ -1109,6 +1109,13 @@ class SupplySupplierOrder(Base):
             "(status = 'DRAFT' AND confirmed_at IS NULL AND cancelled_at IS NULL)",
             name="ck_supply_supplier_orders_timestamps",
         ),
+        CheckConstraint(
+            "(recipient_email_snapshot IS NULL AND recipient_name_snapshot IS NULL "
+            "AND responsible_name_snapshot IS NULL AND responsible_phone_snapshot IS NULL) OR "
+            "(recipient_email_snapshot IS NOT NULL AND recipient_name_snapshot IS NOT NULL "
+            "AND responsible_name_snapshot IS NOT NULL AND responsible_phone_snapshot IS NOT NULL)",
+            name="ck_supply_supplier_orders_communication_snapshot",
+        ),
         Index("ix_supply_supplier_orders_list", "tenant_id", "status", "updated_at"),
         Index("ix_supply_supplier_orders_supplier", "tenant_id", "supplier_id"),
         Index("ix_supply_supplier_orders_request", "tenant_id", "purchase_request_id"),
@@ -1125,6 +1132,10 @@ class SupplySupplierOrder(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="RUB", server_default="RUB", nullable=False)
     created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    recipient_email_snapshot: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    recipient_name_snapshot: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    responsible_name_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    responsible_phone_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

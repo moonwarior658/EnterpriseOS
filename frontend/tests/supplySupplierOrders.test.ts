@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   cancelSupplySupplierOrder, createSupplySupplierOrders, getSupplySupplierOrder,
-  getSupplySupplierOrders, readySupplySupplierOrder, updateSupplySupplierOrder,
+  getSupplySupplierOrders, prepareSupplySupplierOrderMessage,
+  readySupplySupplierOrder, updateSupplySupplierOrder,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -22,6 +23,12 @@ test('подключает admin-only список, карточку и форм
   assert.match(detail, /Плановая дата поставки/)
   assert.match(detail, /Зафиксировать заказ/)
   assert.match(detail, /minimum_order_status/)
+  assert.match(detail, /order\.status === 'READY'/)
+  assert.match(detail, /Подготовить заказ/)
+  assert.match(detail, /preview\.recipient\.email/)
+  assert.match(detail, /Дата поставки не указана/)
+  assert.match(detail, /Скопировать полный заказ/)
+  assert.doesNotMatch(detail, />Отправить</)
   assert.doesNotMatch(detail, />UUID</)
 })
 
@@ -46,6 +53,7 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await updateSupplySupplierOrder('order', { planned_delivery_date: '2026-09-16', comment: 'После 14:00' })
     await readySupplySupplierOrder('order')
     await cancelSupplySupplierOrder('order')
+    await prepareSupplySupplierOrderMessage('order', '+7 900 000-00-00')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -56,4 +64,7 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.equal(calls[3].options.method, 'PATCH')
   assert.match(calls[4].url, /\/ready$/)
   assert.match(calls[5].url, /\/cancel$/)
+  assert.match(calls[6].url, /\/prepare-message$/)
+  assert.equal(calls[6].options.method, 'POST')
+  assert.equal(calls[6].options.body, JSON.stringify({ responsible_phone: '+7 900 000-00-00' }))
 })

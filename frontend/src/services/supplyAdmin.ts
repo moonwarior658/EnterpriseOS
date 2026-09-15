@@ -294,6 +294,36 @@ export type SupplySupplierOrder = {
   updated_at: string
   confirmed_at?: string | null
   cancelled_at?: string | null
+  recipient_email_snapshot?: string | null
+  recipient_name_snapshot?: string | null
+  responsible_name_snapshot?: string | null
+  responsible_phone_snapshot?: string | null
+}
+
+export type SupplySupplierOrderMessagePreview = {
+  recipient: { email: string; supplier_display_name: string }
+  subject: string
+  body_text: string
+  order: {
+    id: string
+    number: string
+    planned_delivery_date: string | null
+    comment: null
+    total_amount: string
+    currency: 'RUB'
+  }
+  lines: Array<{
+    product_name: string
+    packages_count: number
+    package_quantity: string
+    package_unit: string
+    total_quantity: string
+    price_per_package: string
+    planned_amount: string
+    currency: 'RUB'
+  }>
+  responsible: { name: string; phone: string }
+  warnings: string[]
 }
 
 export type SupplySupplierOrderPage = {
@@ -1083,6 +1113,14 @@ export function readySupplySupplierOrder(orderId: string): Promise<SupplySupplie
 
 export function cancelSupplySupplierOrder(orderId: string): Promise<SupplySupplierOrder> {
   return request(`/supply/supplier-orders/${orderId}/cancel`, { method: 'POST' })
+}
+
+export function prepareSupplySupplierOrderMessage(
+  orderId: string, responsiblePhone?: string,
+): Promise<SupplySupplierOrderMessagePreview> {
+  return request(`/supply/supplier-orders/${orderId}/prepare-message`, {
+    method: 'POST', body: JSON.stringify({ responsible_phone: responsiblePhone || null }),
+  })
 }
 
 export function disableSupplyAlias(

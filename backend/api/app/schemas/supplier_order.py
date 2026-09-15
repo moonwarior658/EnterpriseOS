@@ -34,6 +34,19 @@ class SupplySupplierOrderUpdate(BaseModel):
         return value.strip() or None
 
 
+class SupplySupplierOrderMessagePrepare(BaseModel):
+    responsible_phone: str | None = Field(default=None, max_length=40)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("responsible_phone")
+    @classmethod
+    def normalize_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
 class SupplySupplierOrderLineRead(BaseModel):
     id: UUID
     product_name: str
@@ -72,6 +85,50 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     created_at: datetime
     confirmed_at: datetime | None
     cancelled_at: datetime | None
+    recipient_email_snapshot: str | None
+    recipient_name_snapshot: str | None
+    responsible_name_snapshot: str | None
+    responsible_phone_snapshot: str | None
+
+
+class SupplySupplierOrderMessageRecipient(BaseModel):
+    email: str
+    supplier_display_name: str
+
+
+class SupplySupplierOrderMessageResponsible(BaseModel):
+    name: str
+    phone: str
+
+
+class SupplySupplierOrderMessageOrder(BaseModel):
+    id: UUID
+    number: str
+    planned_delivery_date: date | None
+    comment: None = None
+    total_amount: Decimal
+    currency: str
+
+
+class SupplySupplierOrderMessageLine(BaseModel):
+    product_name: str
+    packages_count: int
+    package_quantity: Decimal
+    package_unit: str
+    total_quantity: Decimal
+    price_per_package: Decimal
+    planned_amount: Decimal
+    currency: str
+
+
+class SupplySupplierOrderMessagePreview(BaseModel):
+    recipient: SupplySupplierOrderMessageRecipient
+    subject: str
+    body_text: str
+    order: SupplySupplierOrderMessageOrder
+    lines: list[SupplySupplierOrderMessageLine]
+    responsible: SupplySupplierOrderMessageResponsible
+    warnings: list[str]
 
 
 class SupplySupplierOrderPage(BaseModel):
@@ -83,4 +140,3 @@ class SupplySupplierOrderPage(BaseModel):
 
 class SupplySupplierOrderCreationResult(BaseModel):
     orders: list[SupplySupplierOrderRead]
-

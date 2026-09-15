@@ -147,6 +147,11 @@ class SupplySuppliersApiTests(unittest.TestCase):
             json={"display_name": None},
         )
         self.assertEqual(invalid.status_code, 422, invalid.text)
+        invalid_email = self.client.patch(
+            f"/supply/suppliers/{created['id']}",
+            json={"order_email": "not-an-email"},
+        )
+        self.assertEqual(invalid_email.status_code, 422, invalid_email.text)
 
     def test_create_update_clear_and_validate_minimum_order_amount(self) -> None:
         created = self.create_supplier(

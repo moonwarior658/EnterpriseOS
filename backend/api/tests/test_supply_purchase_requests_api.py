@@ -90,10 +90,12 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             session.add_all([self.product, self.other_product])
             session.flush()
             self.supplier = SupplySupplier(
-                tenant_id="eclair", display_name="Основной поставщик", is_active=True
+                tenant_id="eclair", display_name="Основной поставщик",
+                order_email="orders@example.test", is_active=True
             )
             self.backup_supplier = SupplySupplier(
-                tenant_id="eclair", display_name="Резервный поставщик", is_active=True
+                tenant_id="eclair", display_name="Резервный поставщик",
+                order_email="backup@example.test", is_active=True
             )
             self.other_supplier = SupplySupplier(
                 tenant_id="other", display_name="Чужой поставщик", is_active=True
@@ -161,6 +163,32 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         return self.client.post(
             f"/supply/purchase-requests/{request_id}/lines", json=payload
         )
+
+    def create_supplier_order(self, *, delivery_date=None, comment=None, status="READY"):
+        request_id = self.create_request()["id"]
+        line_id = self.add_line(request_id, quantity="24.000").json()["lines"][0]["id"]
+        self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+        workspace = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 2},
+        ).json()
+        allocation_id = workspace["lines"][0]["allocations"][0]["id"]
+        self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation_id}/confirm"
+        )
+        order = self.client.post(
+            f"/supply/purchase-requests/{request_id}/supplier-orders"
+        ).json()["orders"][0]
+        if delivery_date is not None or comment is not None:
+            order = self.client.patch(
+                f"/supply/supplier-orders/{order['id']}",
+                json={"planned_delivery_date": delivery_date, "comment": comment},
+            ).json()
+        if status == "READY":
+            order = self.client.post(f"/supply/supplier-orders/{order['id']}/ready").json()
+        elif status == "CANCELLED":
+            order = self.client.post(f"/supply/supplier-orders/{order['id']}/cancel").json()
+        return order
 
     def add_need(self, quantity="10.000", *, unit=None, need_date=None, status="OPEN", null_date=False):
         unit = unit or self.unit
@@ -605,6 +633,84 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(listed.json()["total"], 1)
         self.current_user_id = 3
         self.assertEqual(self.client.get(f"/supply/supplier-orders/{order_id}").status_code, 404)
+
+    def test_prepare_supplier_order_message_snapshots_and_is_idempotent(self) -> None:
+        order = self.create_supplier_order(
+            delivery_date="2026-09-20", comment="Внутренняя скидка требует проверки"
+        )
+        endpoint = f"/supply/supplier-orders/{order['id']}/prepare-message"
+        missing_phone = self.client.post(endpoint, json={})
+        self.assertEqual(missing_phone.status_code, 409)
+        self.assertEqual(missing_phone.json()["detail"], "Укажите телефон ответственного")
+        prepared = self.client.post(endpoint, json={"responsible_phone": " +7 900 000-00-00 "})
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        preview = prepared.json()
+        self.assertEqual(preview["recipient"], {
+            "email": "orders@example.test",
+            "supplier_display_name": "Основной поставщик",
+        })
+        self.assertEqual(preview["subject"], f"Заказ {order['number']} на 20.09.2026")
+        self.assertEqual(preview["order"]["comment"], None)
+        self.assertNotIn("Внутренняя скидка", preview["body_text"])
+        self.assertIn("Заказ сформирован автоматически в EnterpriseOS", preview["body_text"])
+        self.assertEqual(preview["responsible"], {
+            "name": "Admin", "phone": "+7 900 000-00-00",
+        })
+        self.assertEqual(preview["lines"][0]["product_name"], "Сахар")
+        self.assertEqual(preview["lines"][0]["packages_count"], 2)
+        self.assertEqual(preview["lines"][0]["package_quantity"], "12.000")
+        self.assertEqual(preview["lines"][0]["price_per_package"], "4956.00")
+        self.assertEqual(preview["lines"][0]["planned_amount"], "9912.000000")
+        self.assertEqual(preview["warnings"], [])
+
+        with self.sessions.begin() as session:
+            session.get(SupplySupplier, self.supplier.id).order_email = "new@example.test"
+            session.get(SupplyProductSupplier, self.primary_relation.id).price_per_package = Decimal("9999.00")
+            session.get(User, 2).display_name = "Новый администратор"
+        repeated = self.client.post(endpoint, json={})
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(repeated.json(), preview)
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["recipient_email_snapshot"], "orders@example.test")
+        self.assertEqual(detail["responsible_name_snapshot"], "Admin")
+
+    def test_prepare_message_allows_missing_date_with_warning(self) -> None:
+        order = self.create_supplier_order()
+        prepared = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/prepare-message",
+            json={"responsible_phone": "+7 900 000-00-01"},
+        )
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        self.assertEqual(prepared.json()["subject"], f"Заказ {order['number']}")
+        self.assertEqual(prepared.json()["warnings"], ["Дата поставки не указана"])
+
+    def test_prepare_message_rejects_wrong_state_missing_email_and_cross_tenant(self) -> None:
+        draft = self.create_supplier_order(status="DRAFT")
+        draft_endpoint = f"/supply/supplier-orders/{draft['id']}/prepare-message"
+        self.assertEqual(self.client.post(draft_endpoint, json={"responsible_phone": "1"}).status_code, 409)
+        cancelled = self.create_supplier_order(status="CANCELLED")
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-orders/{cancelled['id']}/prepare-message",
+            json={"responsible_phone": "1"},
+        ).status_code, 409)
+
+        ready = self.create_supplier_order()
+        with self.sessions.begin() as session:
+            session.get(SupplySupplier, self.supplier.id).order_email = None
+        missing_email = self.client.post(
+            f"/supply/supplier-orders/{ready['id']}/prepare-message",
+            json={"responsible_phone": "1"},
+        )
+        self.assertEqual(missing_email.status_code, 409)
+        self.assertEqual(missing_email.json()["detail"], "У поставщика не указан корректный email для заказов")
+
+        with self.sessions.begin() as session:
+            session.get(SupplySupplier, self.supplier.id).order_email = "orders@example.test"
+        self.current_user_id = 3
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-orders/{ready['id']}/prepare-message",
+            json={"responsible_phone": "1"},
+        ).status_code, 404)
 
     def test_collect_aggregates_is_idempotent_and_preserves_manual(self) -> None:
         request_id = self.create_request()["id"]
