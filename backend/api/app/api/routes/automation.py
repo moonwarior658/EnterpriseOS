@@ -1,4 +1,5 @@
 from secrets import compare_digest
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -65,6 +66,10 @@ from app.schemas.automation import (
     AutomationScheduleUpdate,
     AutomationDiagnosticsSnapshot,
     AutomationTypeRead,
+)
+from app.supply.supplier_order_delivery import (
+    SUPPLIER_ORDER_EMAIL_SEND,
+    finalize_supplier_order_email,
 )
 
 
@@ -479,10 +484,19 @@ def callback_matches_execution(
     execution: AutomationExecution,
     callback: AutomationCallbackResult,
 ) -> bool:
+    def same_timestamp(left: datetime | None, right: datetime | None) -> bool:
+        if left is None or right is None:
+            return left is right
+        if left.tzinfo is None:
+            left = left.replace(tzinfo=timezone.utc)
+        if right.tzinfo is None:
+            right = right.replace(tzinfo=timezone.utc)
+        return left.astimezone(timezone.utc) == right.astimezone(timezone.utc)
+
     return (
         execution.status == ExecutionStatus(callback.status.value)
-        and execution.started_at == callback.started_at
-        and execution.finished_at == callback.finished_at
+        and same_timestamp(execution.started_at, callback.started_at)
+        and same_timestamp(execution.finished_at, callback.finished_at)
         and execution.result == callback.result
         and execution.error_code == callback.error_code
         and execution.error_message == callback.error_message
@@ -516,6 +530,30 @@ def receive_automation_callback(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Automation execution is already finalized",
+        )
+
+    if (
+        execution.automation_type == SUPPLIER_ORDER_EMAIL_SEND
+        and callback.status in {
+            AutomationCallbackStatus.SUCCEEDED,
+            AutomationCallbackStatus.FAILED,
+            AutomationCallbackStatus.TIMED_OUT,
+            AutomationCallbackStatus.CANCELLED,
+        }
+    ):
+        provider_message_id = (
+            callback.result.get("provider_message_id")
+            if callback.result is not None else None
+        )
+        finalize_supplier_order_email(
+            db,
+            execution.execution_id,
+            succeeded=callback.status == AutomationCallbackStatus.SUCCEEDED,
+            completed_at=callback.finished_at or datetime.now(timezone.utc),
+            started_at=callback.started_at,
+            provider_message_id=provider_message_id,
+            error_code=callback.error_code,
+            error_message=callback.error_message,
         )
 
     execution.status = ExecutionStatus(callback.status.value)

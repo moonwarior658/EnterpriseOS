@@ -96,7 +96,15 @@ class SupplyPurchaseAllocationStatus(StrEnum):
 class SupplySupplierOrderStatus(StrEnum):
     DRAFT = "DRAFT"
     READY = "READY"
+    SENT = "SENT"
     CANCELLED = "CANCELLED"
+
+
+class SupplySupplierOrderDeliveryStatus(StrEnum):
+    PENDING = "PENDING"
+    DISPATCHED = "DISPATCHED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
 
 
 class SupplyProcurementNeedSourceType(StrEnum):
@@ -1098,15 +1106,16 @@ class SupplySupplierOrder(Base):
             name="fk_supply_supplier_orders_request_tenant", ondelete="RESTRICT",
         ),
         CheckConstraint(
-            "status IN ('DRAFT', 'READY', 'CANCELLED')",
+            "status IN ('DRAFT', 'READY', 'SENT', 'CANCELLED')",
             name="ck_supply_supplier_orders_status",
         ),
         CheckConstraint("total_amount > 0", name="ck_supply_supplier_orders_total"),
         CheckConstraint("currency = 'RUB'", name="ck_supply_supplier_orders_currency"),
         CheckConstraint(
-            "(status = 'READY' AND confirmed_at IS NOT NULL AND cancelled_at IS NULL) OR "
-            "(status = 'CANCELLED' AND confirmed_at IS NULL AND cancelled_at IS NOT NULL) OR "
-            "(status = 'DRAFT' AND confirmed_at IS NULL AND cancelled_at IS NULL)",
+            "(status = 'READY' AND confirmed_at IS NOT NULL AND cancelled_at IS NULL AND sent_at IS NULL) OR "
+            "(status = 'SENT' AND confirmed_at IS NOT NULL AND cancelled_at IS NULL AND sent_at IS NOT NULL) OR "
+            "(status = 'CANCELLED' AND confirmed_at IS NULL AND cancelled_at IS NOT NULL AND sent_at IS NULL) OR "
+            "(status = 'DRAFT' AND confirmed_at IS NULL AND cancelled_at IS NULL AND sent_at IS NULL)",
             name="ck_supply_supplier_orders_timestamps",
         ),
         CheckConstraint(
@@ -1138,8 +1147,10 @@ class SupplySupplierOrder(Base):
     responsible_phone_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     supplier: Mapped[SupplySupplier] = relationship(overlaps="purchase_request,supplier_orders")
     purchase_request: Mapped[SupplyPurchaseRequest] = relationship(
@@ -1148,6 +1159,10 @@ class SupplySupplierOrder(Base):
     lines: Mapped[list["SupplySupplierOrderLine"]] = relationship(
         back_populates="supplier_order", cascade="all, delete-orphan",
         passive_deletes=True, order_by="SupplySupplierOrderLine.created_at",
+    )
+    delivery_attempts: Mapped[list["SupplySupplierOrderDeliveryAttempt"]] = relationship(
+        back_populates="supplier_order", passive_deletes=True,
+        order_by="SupplySupplierOrderDeliveryAttempt.attempt_number",
     )
 
     @property
@@ -1217,6 +1232,68 @@ class SupplySupplierOrderLine(Base):
     source_allocation: Mapped[SupplyPurchaseAllocation] = relationship(overlaps="supplier_order,lines")
     product: Mapped[SupplyProduct] = relationship(overlaps="source_allocation,supplier_order,lines")
     package_unit_snapshot: Mapped[SupplyUnit] = relationship(overlaps="product,source_allocation,supplier_order,lines")
+
+
+class SupplySupplierOrderDeliveryAttempt(Base):
+    __tablename__ = "supply_supplier_order_delivery_attempts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_order_delivery_attempts_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "supplier_order_id", "attempt_number",
+            name="uq_supply_supplier_order_delivery_attempts_number",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_supply_supplier_order_delivery_attempts_idempotency"),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_id"],
+            ["supply_supplier_orders.tenant_id", "supply_supplier_orders.id"],
+            name="fk_supply_supplier_order_delivery_attempts_order_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("attempt_number > 0", name="ck_supply_supplier_order_delivery_attempts_number"),
+        CheckConstraint(
+            "status IN ('PENDING', 'DISPATCHED', 'SUCCEEDED', 'FAILED')",
+            name="ck_supply_supplier_order_delivery_attempts_status",
+        ),
+        CheckConstraint(
+            "(status = 'PENDING' AND dispatched_at IS NULL AND completed_at IS NULL) OR "
+            "(status = 'DISPATCHED' AND dispatched_at IS NOT NULL AND completed_at IS NULL) OR "
+            "(status = 'SUCCEEDED' AND dispatched_at IS NOT NULL AND completed_at IS NOT NULL) OR "
+            "(status = 'FAILED' AND completed_at IS NOT NULL)",
+            name="ck_supply_supplier_order_delivery_attempts_timestamps",
+        ),
+        Index(
+            "uq_supply_supplier_order_delivery_attempts_active",
+            "tenant_id", "supplier_order_id", unique=True,
+            postgresql_where=text("status IN ('PENDING', 'DISPATCHED', 'SUCCEEDED')"),
+            sqlite_where=text("status IN ('PENDING', 'DISPATCHED', 'SUCCEEDED')"),
+        ),
+        Index(
+            "ix_supply_supplier_order_delivery_attempts_history",
+            "tenant_id", "supplier_order_id", "attempt_number",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", server_default="PENDING", nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    automation_execution_id: Mapped[UUID] = mapped_column(
+        ForeignKey("automation_executions.execution_id", ondelete="RESTRICT"),
+        nullable=False, unique=True,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    supplier_order: Mapped[SupplySupplierOrder] = relationship(back_populates="delivery_attempts")
 
 
 class SupplyPurchaseRequestLineSource(Base):

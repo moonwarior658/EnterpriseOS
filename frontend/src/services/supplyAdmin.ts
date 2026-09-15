@@ -257,7 +257,20 @@ export type SupplyPurchaseAllocationSupplierSubtotal = {
   allocation_count: number
 }
 
-export type SupplySupplierOrderStatus = 'DRAFT' | 'READY' | 'CANCELLED'
+export type SupplySupplierOrderStatus = 'DRAFT' | 'READY' | 'SENT' | 'CANCELLED'
+
+export type SupplySupplierOrderDeliveryAttempt = {
+  id: string
+  attempt_number: number
+  status: 'PENDING' | 'DISPATCHED' | 'SUCCEEDED' | 'FAILED'
+  recipient_email: string
+  provider_message_id: string | null
+  error_code: string | null
+  error_message: string | null
+  created_at: string
+  dispatched_at: string | null
+  completed_at: string | null
+}
 
 export type SupplySupplierOrderLine = {
   id: string
@@ -294,10 +307,13 @@ export type SupplySupplierOrder = {
   updated_at: string
   confirmed_at?: string | null
   cancelled_at?: string | null
+  sent_at?: string | null
   recipient_email_snapshot?: string | null
   recipient_name_snapshot?: string | null
   responsible_name_snapshot?: string | null
   responsible_phone_snapshot?: string | null
+  latest_delivery_attempt?: SupplySupplierOrderDeliveryAttempt | null
+  delivery_history?: SupplySupplierOrderDeliveryAttempt[]
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1121,6 +1137,14 @@ export function prepareSupplySupplierOrderMessage(
   return request(`/supply/supplier-orders/${orderId}/prepare-message`, {
     method: 'POST', body: JSON.stringify({ responsible_phone: responsiblePhone || null }),
   })
+}
+
+export function sendSupplySupplierOrder(orderId: string): Promise<SupplySupplierOrderDeliveryAttempt> {
+  return request(`/supply/supplier-orders/${orderId}/send`, { method: 'POST' })
+}
+
+export function retrySupplySupplierOrderSend(orderId: string): Promise<SupplySupplierOrderDeliveryAttempt> {
+  return request(`/supply/supplier-orders/${orderId}/retry-send`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

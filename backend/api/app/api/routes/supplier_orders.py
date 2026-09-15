@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_order import (
     SupplySupplierOrderCreationResult,
+    SupplySupplierOrderDeliveryAttemptRead,
     SupplySupplierOrderPage,
     SupplySupplierOrderMessagePrepare,
     SupplySupplierOrderMessagePreview,
@@ -32,6 +33,12 @@ from app.supply.supplier_orders import (
     read_supplier_order,
     update_supplier_order,
 )
+from app.supply.supplier_order_delivery import (
+    SupplierOrderDeliveryPreparationError,
+    SupplierOrderDeliveryRetryError,
+    SupplierOrderDeliveryStateError,
+    queue_supplier_order_email,
+)
 
 
 router = APIRouter(prefix="/supply/supplier-orders", tags=["supply"])
@@ -52,6 +59,12 @@ def _error(error: Exception) -> HTTPException:
         return HTTPException(status_code=409, detail="Укажите телефон ответственного")
     if isinstance(error, SupplierOrderMessageStateError):
         return HTTPException(status_code=409, detail="Подготовить сообщение можно только для готового заказа")
+    if isinstance(error, SupplierOrderDeliveryPreparationError):
+        return HTTPException(status_code=409, detail="Сначала подготовьте сообщение с корректным получателем")
+    if isinstance(error, SupplierOrderDeliveryRetryError):
+        return HTTPException(status_code=409, detail="Повторная отправка доступна только после неудачной попытки")
+    if isinstance(error, SupplierOrderDeliveryStateError):
+        return HTTPException(status_code=409, detail="Отправить можно только готовый заказ")
     return HTTPException(status_code=409, detail="Действие доступно только для черновика заказа")
 
 
@@ -100,6 +113,39 @@ def prepare_order_message(
         SupplierOrderNotFoundError, SupplierOrderMessageStateError,
         SupplierOrderEmptyError, SupplierOrderEmailError,
         SupplierOrderResponsiblePhoneError,
+    ) as error:
+        raise _error(error) from error
+
+
+@router.post("/{order_id}/send", response_model=SupplySupplierOrderDeliveryAttemptRead)
+def send_order(
+    order_id: UUID, db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplierOrderDeliveryAttemptRead:
+    try:
+        return queue_supplier_order_email(
+            db, order_id, tenant_id=admin.tenant_id, user_id=admin.id,
+        )
+    except (
+        SupplierOrderNotFoundError, SupplierOrderDeliveryStateError,
+        SupplierOrderDeliveryPreparationError, SupplierOrderDeliveryRetryError,
+    ) as error:
+        raise _error(error) from error
+
+
+@router.post("/{order_id}/retry-send", response_model=SupplySupplierOrderDeliveryAttemptRead)
+def retry_send_order(
+    order_id: UUID, db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplierOrderDeliveryAttemptRead:
+    try:
+        return queue_supplier_order_email(
+            db, order_id, tenant_id=admin.tenant_id, user_id=admin.id,
+            retry=True,
+        )
+    except (
+        SupplierOrderNotFoundError, SupplierOrderDeliveryStateError,
+        SupplierOrderDeliveryPreparationError, SupplierOrderDeliveryRetryError,
     ) as error:
         raise _error(error) from error
 

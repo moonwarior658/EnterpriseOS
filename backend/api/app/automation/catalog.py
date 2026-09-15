@@ -38,6 +38,15 @@ AUTOMATION_TYPES = (
         supports_manual_run=True,
     ),
     AutomationTypeDefinition(
+        key="supply.supplier_order_email_send",
+        display_name="Отправить заказ поставщику",
+        description="Передаёт подготовленное письмо заказа настроенному почтовому transport.",
+        category="supply",
+        is_system=True,
+        is_available=True,
+        supports_manual_run=False,
+    ),
+    AutomationTypeDefinition(
         key="smoke_test",
         display_name="Проверка Automation Core",
         description=(

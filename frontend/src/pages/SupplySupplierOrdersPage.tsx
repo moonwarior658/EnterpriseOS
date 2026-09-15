@@ -4,7 +4,7 @@ import { EosSelect } from '../components/EosFormControls'
 import { getSupplySupplierOrders, getSupplySuppliers, type SupplySupplier, type SupplySupplierOrder, type SupplySupplierOrderStatus } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
 
-const labels = { DRAFT: 'Черновик', READY: 'Готов', CANCELLED: 'Отменён' } as const
+const labels = { DRAFT: 'Черновик', READY: 'Готов', SENT: 'Отправлен', CANCELLED: 'Отменён' } as const
 const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' })
 
 export default function SupplySupplierOrdersPage() {
@@ -34,7 +34,7 @@ export default function SupplySupplierOrdersPage() {
     <div className="request-heading"><div><p className="eyebrow">СНАБЖЕНИЕ</p><h1>Заказы поставщикам</h1></div></div>
     <div className="purchase-request-header">
       <label className="eos-field"><span>Поиск по номеру</span><input value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-      <label className="eos-field"><span>Статус</span><EosSelect value={status} onChange={(event) => setStatus(event.target.value as SupplySupplierOrderStatus | '')}><option value="">Все</option><option value="DRAFT">Черновик</option><option value="READY">Готов</option><option value="CANCELLED">Отменён</option></EosSelect></label>
+      <label className="eos-field"><span>Статус</span><EosSelect value={status} onChange={(event) => setStatus(event.target.value as SupplySupplierOrderStatus | '')}><option value="">Все</option><option value="DRAFT">Черновик</option><option value="READY">Готов</option><option value="SENT">Отправлен</option><option value="CANCELLED">Отменён</option></EosSelect></label>
       <label className="eos-field"><span>Поставщик</span><EosSelect value={supplierId} onChange={(event) => setSupplierId(event.target.value)}><option value="">Все</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.display_name}</option>)}</EosSelect></label>
     </div>
     {message ? <p className="page-state">{message}</p> : <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Заказ</th><th>Поставщик</th><th>Закупочный запрос</th><th>Статус</th><th>Поставка</th><th>Позиций</th><th>Итого</th></tr></thead><tbody>{items.map((order) => <tr key={order.id}>

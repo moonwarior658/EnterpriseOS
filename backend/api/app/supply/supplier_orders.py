@@ -69,6 +69,7 @@ def _options():
         selectinload(SupplySupplierOrder.lines).joinedload(
             SupplySupplierOrderLine.package_unit_snapshot
         ),
+        selectinload(SupplySupplierOrder.delivery_attempts),
     )
 
 
@@ -85,7 +86,10 @@ def _minimum(order: SupplySupplierOrder):
 
 
 def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
+    from app.supply.supplier_order_delivery import delivery_attempt_read
+
     minimum_status, shortfall = _minimum(order)
+    history = [delivery_attempt_read(item) for item in order.delivery_attempts]
     return SupplySupplierOrderRead(
         id=order.id, number=order.number, supplier_id=order.supplier_id,
         supplier_display_name=order.supplier.display_name,
@@ -109,10 +113,13 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         ) for line in order.lines],
         created_at=order.created_at, updated_at=order.updated_at,
         confirmed_at=order.confirmed_at, cancelled_at=order.cancelled_at,
+        sent_at=order.sent_at,
         recipient_email_snapshot=order.recipient_email_snapshot,
         recipient_name_snapshot=order.recipient_name_snapshot,
         responsible_name_snapshot=order.responsible_name_snapshot,
         responsible_phone_snapshot=order.responsible_phone_snapshot,
+        latest_delivery_attempt=history[-1] if history else None,
+        delivery_history=history,
     )
 
 

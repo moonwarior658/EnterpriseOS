@@ -4,12 +4,13 @@ import { EosDateField } from '../components/EosFormControls'
 import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplySupplierOrder, getSupplySupplierOrder, readySupplySupplierOrder,
-  prepareSupplySupplierOrderMessage, updateSupplySupplierOrder,
+  prepareSupplySupplierOrderMessage, retrySupplySupplierOrderSend,
+  sendSupplySupplierOrder, updateSupplySupplierOrder,
   type SupplySupplierOrder, type SupplySupplierOrderMessagePreview, SupplyApiError,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
 
-const labels = { DRAFT: 'Черновик', READY: 'Готов', CANCELLED: 'Отменён' } as const
+const labels = { DRAFT: 'Черновик', READY: 'Готов', SENT: 'Отправлен', CANCELLED: 'Отменён' } as const
 const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' })
 
 export default function SupplySupplierOrderDetailPage() {
@@ -30,6 +31,14 @@ export default function SupplySupplierOrderDetailPage() {
     }).catch(() => { if (!controller.signal.aborted) setMessage('Не удалось загрузить заказ') })
     return () => controller.abort()
   }, [orderId])
+  useEffect(() => {
+    const status = order?.latest_delivery_attempt?.status
+    if (status !== 'PENDING' && status !== 'DISPATCHED') return
+    const timer = window.setInterval(() => {
+      getSupplySupplierOrder(orderId).then(setOrder).catch(() => undefined)
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [orderId, order?.latest_delivery_attempt?.status])
   async function save() {
     setBusy(true); setMessage('')
     try { setOrder(await updateSupplySupplierOrder(orderId, { planned_delivery_date: deliveryDate || null, comment: comment || null })); setMessage('Изменения сохранены') }
@@ -61,6 +70,25 @@ export default function SupplySupplierOrderDetailPage() {
     try { await navigator.clipboard.writeText(value); setMessage(successMessage) }
     catch { setMessage('Не удалось скопировать текст') }
   }
+  async function send(retry = false) {
+    if (!order) return
+    const question = `Кому: ${order.recipient_email_snapshot}\nЗаказ: ${order.number}\nСумма: ${money.format(Number(order.total_amount))}\n\nОтправить?`
+    if (!window.confirm(question)) return
+    setBusy(true); setMessage('')
+    try {
+      const attempt = retry
+        ? await retrySupplySupplierOrderSend(orderId)
+        : await sendSupplySupplierOrder(orderId)
+      setOrder((current) => current ? {
+        ...current,
+        latest_delivery_attempt: attempt,
+        delivery_history: [...(current.delivery_history ?? []), attempt],
+      } : current)
+      setMessage('Заказ поставлен в очередь на отправку')
+    } catch (error) {
+      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось поставить заказ в очередь')
+    } finally { setBusy(false) }
+  }
   if (!order) return <section className="request-page"><div className="request-panel"><p className="page-state">{message || 'Загружаем заказ…'}</p></div></section>
   const draft = order.status === 'DRAFT'
   return <section className="request-page supply-admin-page purchase-request-page"><div className="request-panel">
@@ -85,6 +113,13 @@ export default function SupplySupplierOrderDetailPage() {
         <div><span className="field-label">Ответственный</span><strong>{preview.responsible.name}</strong><small>{preview.responsible.phone}</small></div>
         <div className="purchase-actions"><button type="button" className="secondary-action" onClick={() => copy(preview.subject, 'Тема скопирована')}>Скопировать тему</button><button type="button" className="secondary-action" onClick={() => copy(preview.body_text, 'Текст скопирован')}>Скопировать текст</button><button type="button" className="secondary-action" onClick={() => copy(`${preview.subject}\n\n${preview.body_text}`, 'Заказ скопирован')}>Скопировать полный заказ</button></div>
       </div>}
+      {order.recipient_email_snapshot && !order.latest_delivery_attempt && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={() => send(false)}>Отправить поставщику</button></div>}
+    </section>}
+    {order.latest_delivery_attempt && <section className="supplier-message-panel">
+      <div className="supplier-message-heading"><div><span className="field-label">ДОСТАВКА</span><h2>{order.latest_delivery_attempt.status === 'PENDING' ? 'Заказ поставлен в очередь на отправку' : order.latest_delivery_attempt.status === 'DISPATCHED' ? 'Заказ отправляется' : order.latest_delivery_attempt.status === 'FAILED' ? 'Не удалось отправить' : 'Заказ отправлен'}</h2></div><span>{order.latest_delivery_attempt.recipient_email}</span></div>
+      {order.latest_delivery_attempt.status === 'FAILED' && <><p className="request-message">{order.latest_delivery_attempt.error_message ?? 'Почтовый transport не смог отправить письмо'}</p><button type="button" className="primary-action" disabled={busy} onClick={() => send(true)}>Повторить</button></>}
+      {order.latest_delivery_attempt.status === 'SUCCEEDED' && <p>Отправлено: {new Date(order.sent_at ?? order.latest_delivery_attempt.completed_at ?? '').toLocaleString('ru-RU')}</p>}
+      {(order.delivery_history?.length ?? 0) > 1 && <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Попытка</th><th>Получатель</th><th>Статус</th><th>Создана</th><th>Завершена</th></tr></thead><tbody>{order.delivery_history?.map((attempt) => <tr key={attempt.id}><td>№{attempt.attempt_number}</td><td>{attempt.recipient_email}</td><td>{attempt.status}</td><td>{new Date(attempt.created_at).toLocaleString('ru-RU')}</td><td>{attempt.completed_at ? new Date(attempt.completed_at).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div>}
     </section>}
   </div></section>
 }

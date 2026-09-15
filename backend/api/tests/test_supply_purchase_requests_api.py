@@ -3,6 +3,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
+from unittest.mock import patch
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from pydantic import SecretStr
 
 from app.api.dependencies import get_current_user
 from app.db.session import get_db
@@ -23,6 +25,7 @@ from app.models.supply import (
     SupplyProductSupplier,
     SupplyPurchaseAllocation,
     SupplySupplierOrder,
+    SupplySupplierOrderDeliveryAttempt,
     SupplySupplierOrderLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
@@ -40,6 +43,12 @@ from app.models.supply import (
     SupplyStorageZone,
     SupplySupplier,
 )
+from app.models.automation import AutomationExecution, OutboxEvent
+from app.automation.outbox import SqlAlchemyOutboxStore
+from app.automation.providers.base import CommandAcceptance
+from app.supply.supplier_order_delivery import finalize_supplier_order_email
+from app.supply.supplier_order_delivery import queue_supplier_order_email
+from app.core.config import settings
 from app.models.user import User
 from app.models.iiko import IikoWarehouseMapping
 from app.models.work_request import WorkRequest
@@ -73,6 +82,37 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
         ):
             table.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("""
+                CREATE TABLE automation_executions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, execution_id CHAR(32) UNIQUE NOT NULL,
+                    schedule_id INTEGER, contract_version VARCHAR(20) NOT NULL,
+                    automation_type VARCHAR(100) NOT NULL, tenant_id VARCHAR(64) NOT NULL,
+                    scope_type VARCHAR(32) NOT NULL, scope_id VARCHAR(64), recipients JSON NOT NULL,
+                    provider VARCHAR(64), status VARCHAR(32) NOT NULL, requested_at DATETIME NOT NULL,
+                    started_at DATETIME, finished_at DATETIME, payload JSON NOT NULL, result JSON,
+                    error_code VARCHAR(100), error_message TEXT, attempt_count INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 3, next_retry_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            connection.exec_driver_sql("""
+                CREATE TABLE outbox_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, event_id CHAR(32) UNIQUE NOT NULL,
+                    execution_id CHAR(32) NOT NULL, event_type VARCHAR(100) NOT NULL,
+                    contract_version VARCHAR(20) NOT NULL, payload JSON NOT NULL,
+                    status VARCHAR(32) NOT NULL, attempt_count INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 10,
+                    available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    next_attempt_at DATETIME, locked_at DATETIME, locked_by VARCHAR(128),
+                    published_at DATETIME, last_error TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(execution_id) REFERENCES automation_executions(execution_id)
+                )
+            """)
+        SupplySupplierOrderDeliveryAttempt.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:
             session.add_all([
@@ -836,6 +876,165 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             ("get", f"/supply/purchase-requests/{uuid4()}", None),
         ):
             self.assertEqual(self.client.request(method, url, json=body).status_code, 403)
+
+    def test_supplier_order_email_queue_is_atomic_idempotent_and_dispatched(self) -> None:
+        order = self.create_supplier_order()
+        prepare = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/prepare-message",
+            json={"responsible_phone": "+7 900 000-00-00"},
+        )
+        self.assertEqual(prepare.status_code, 200, prepare.text)
+
+        endpoint = f"/supply/supplier-orders/{order['id']}/send"
+        first = self.client.post(endpoint)
+        second = self.client.post(endpoint)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(first.json()["status"], "PENDING")
+
+        with self.sessions() as session:
+            attempts = session.scalars(select(SupplySupplierOrderDeliveryAttempt)).all()
+            executions = session.scalars(select(AutomationExecution)).all()
+            outbox = session.scalars(select(OutboxEvent)).all()
+            self.assertEqual((len(attempts), len(executions), len(outbox)), (1, 1, 1))
+            self.assertEqual(set(executions[0].payload), {
+                "delivery_attempt_id", "recipient", "subject", "body_text",
+            })
+            self.assertEqual(executions[0].payload["recipient"], "orders@example.test")
+            self.assertEqual(attempts[0].recipient_email, "orders@example.test")
+
+        store = SqlAlchemyOutboxStore(self.sessions)
+        claimed = store.claim_next(
+            worker_id="email-test", claimed_at=datetime.now(timezone.utc),
+        )
+        self.assertIsNotNone(claimed)
+        store.mark_published(
+            claimed,
+            acceptance=CommandAcceptance(provider="n8n", accepted=True, status_code=202),
+            published_at=datetime.now(timezone.utc),
+        )
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["status"], "READY")
+        self.assertEqual(detail["latest_delivery_attempt"]["status"], "DISPATCHED")
+
+    def test_supplier_order_email_success_failure_retry_and_snapshot(self) -> None:
+        order = self.create_supplier_order()
+        self.client.post(
+            f"/supply/supplier-orders/{order['id']}/prepare-message",
+            json={"responsible_phone": "+7 900 000-00-00"},
+        )
+        first = self.client.post(f"/supply/supplier-orders/{order['id']}/send").json()
+        with self.sessions.begin() as session:
+            attempt = session.get(SupplySupplierOrderDeliveryAttempt, UUID(first["id"]))
+            finalize_supplier_order_email(
+                session, attempt.automation_execution_id, succeeded=False,
+                completed_at=datetime.now(timezone.utc), error_code="SMTP_REJECTED",
+                error_message="Mailbox rejected message",
+            )
+            session.get(SupplySupplier, self.supplier.id).order_email = "changed@example.test"
+
+        retry = self.client.post(f"/supply/supplier-orders/{order['id']}/retry-send")
+        self.assertEqual(retry.status_code, 200, retry.text)
+        self.assertEqual(retry.json()["attempt_number"], 2)
+        self.assertEqual(retry.json()["recipient_email"], "orders@example.test")
+        with self.sessions.begin() as session:
+            attempt = session.get(SupplySupplierOrderDeliveryAttempt, UUID(retry.json()["id"]))
+            finalize_supplier_order_email(
+                session, attempt.automation_execution_id, succeeded=True,
+                completed_at=datetime.now(timezone.utc),
+                provider_message_id="message-42",
+            )
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["status"], "SENT")
+        self.assertIsNotNone(detail["sent_at"])
+        self.assertEqual(detail["latest_delivery_attempt"]["status"], "SUCCEEDED")
+        self.assertEqual(detail["latest_delivery_attempt"]["provider_message_id"], "message-42")
+        self.assertEqual(len(detail["delivery_history"]), 2)
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{order['id']}/send").status_code, 409)
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{order['id']}/cancel").status_code, 409)
+
+    def test_supplier_order_email_send_invariants_and_tenant(self) -> None:
+        draft = self.create_supplier_order(status="DRAFT")
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{draft['id']}/send").status_code, 409)
+        cancelled = self.create_supplier_order(status="CANCELLED")
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{cancelled['id']}/send").status_code, 409)
+        ready = self.create_supplier_order()
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{ready['id']}/send").status_code, 409)
+        self.current_user_id = 3
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{ready['id']}/send").status_code, 404)
+
+    def test_supplier_order_email_callback_is_idempotent_and_fail_closed(self) -> None:
+        order = self.create_supplier_order()
+        self.client.post(
+            f"/supply/supplier-orders/{order['id']}/prepare-message",
+            json={"responsible_phone": "+7 900 000-00-00"},
+        )
+        queued = self.client.post(f"/supply/supplier-orders/{order['id']}/send").json()
+        store = SqlAlchemyOutboxStore(self.sessions)
+        claimed = store.claim_next(worker_id="callback-test", claimed_at=datetime.now(timezone.utc))
+        store.mark_published(
+            claimed,
+            acceptance=CommandAcceptance(provider="n8n", accepted=True, status_code=202),
+            published_at=datetime.now(timezone.utc),
+        )
+        with self.sessions() as session:
+            execution_id = str(session.get(
+                SupplySupplierOrderDeliveryAttempt, UUID(queued["id"])
+            ).automation_execution_id)
+        previous_token = settings.automation_callback_token
+        settings.automation_callback_token = SecretStr("callback-test-token")
+        callback = {
+            "contract_version": "1.0", "execution_id": execution_id,
+            "status": "succeeded",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "result": {"provider_message_id": "provider-99"},
+            "error_code": None, "error_message": None,
+        }
+        try:
+            first = self.client.post(
+                "/automation/callback", json=callback,
+                headers={"Authorization": "Bearer callback-test-token"},
+            )
+            duplicate = self.client.post(
+                "/automation/callback", json=callback,
+                headers={"Authorization": "Bearer callback-test-token"},
+            )
+            stale_failure = self.client.post(
+                "/automation/callback", json={
+                    **callback, "status": "failed", "result": None,
+                    "error_code": "LATE_FAILURE", "error_message": "late",
+                },
+                headers={"Authorization": "Bearer callback-test-token"},
+            )
+        finally:
+            settings.automation_callback_token = previous_token
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(duplicate.status_code, 200, duplicate.text)
+        self.assertEqual(stale_failure.status_code, 409, stale_failure.text)
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["status"], "SENT")
+        self.assertEqual(detail["latest_delivery_attempt"]["provider_message_id"], "provider-99")
+
+    def test_supplier_order_email_queue_rollback_leaves_no_attempt_or_command(self) -> None:
+        order = self.create_supplier_order()
+        self.client.post(
+            f"/supply/supplier-orders/{order['id']}/prepare-message",
+            json={"responsible_phone": "+7 900 000-00-00"},
+        )
+        with self.sessions() as session, patch(
+            "app.supply.supplier_order_delivery.create_automation_execution",
+            side_effect=RuntimeError("synthetic failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                queue_supplier_order_email(
+                    session, UUID(order["id"]), tenant_id="eclair", user_id=2,
+                )
+        with self.sessions() as session:
+            self.assertEqual(len(session.scalars(select(SupplySupplierOrderDeliveryAttempt)).all()), 0)
+            self.assertEqual(len(session.scalars(select(AutomationExecution)).all()), 0)
+            self.assertEqual(len(session.scalars(select(OutboxEvent)).all()), 0)
 
 
 if __name__ == "__main__":

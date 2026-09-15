@@ -11,7 +11,15 @@ from app.schemas.supply import SupplyUnitRead
 class SupplySupplierOrderStatus(StrEnum):
     DRAFT = "DRAFT"
     READY = "READY"
+    SENT = "SENT"
     CANCELLED = "CANCELLED"
+
+
+class SupplySupplierOrderDeliveryStatus(StrEnum):
+    PENDING = "PENDING"
+    DISPATCHED = "DISPATCHED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
 
 
 class SupplySupplierOrderMinimumStatus(StrEnum):
@@ -85,10 +93,26 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     created_at: datetime
     confirmed_at: datetime | None
     cancelled_at: datetime | None
+    sent_at: datetime | None
     recipient_email_snapshot: str | None
     recipient_name_snapshot: str | None
     responsible_name_snapshot: str | None
     responsible_phone_snapshot: str | None
+    latest_delivery_attempt: "SupplySupplierOrderDeliveryAttemptRead | None"
+    delivery_history: list["SupplySupplierOrderDeliveryAttemptRead"]
+
+
+class SupplySupplierOrderDeliveryAttemptRead(BaseModel):
+    id: UUID
+    attempt_number: int
+    status: SupplySupplierOrderDeliveryStatus
+    recipient_email: str
+    provider_message_id: str | None
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    dispatched_at: datetime | None
+    completed_at: datetime | None
 
 
 class SupplySupplierOrderMessageRecipient(BaseModel):

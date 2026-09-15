@@ -26,6 +26,11 @@ from app.models.automation import (
     OutboxStatus,
 )
 from app.schemas.automation import AutomationCommand
+from app.supply.supplier_order_delivery import (
+    SUPPLIER_ORDER_EMAIL_SEND,
+    finalize_supplier_order_email,
+    mark_supplier_order_email_dispatched,
+)
 
 
 class OutboxClaimLostError(RuntimeError):
@@ -217,6 +222,15 @@ class SqlAlchemyOutboxStore:
                         execution.error_code = "OutboxClaimExpired"
                         execution.error_message = EXPIRED_CLAIM_ERROR
                         execution.next_retry_at = None
+                        if execution.automation_type == SUPPLIER_ORDER_EMAIL_SEND:
+                            finalize_supplier_order_email(
+                                session,
+                                execution.execution_id,
+                                succeeded=False,
+                                completed_at=claimed_at,
+                                error_code="OutboxClaimExpired",
+                                error_message=EXPIRED_CLAIM_ERROR,
+                            )
                         session.flush()
                         continue
 
@@ -278,6 +292,11 @@ class SqlAlchemyOutboxStore:
                 execution.error_code = None
                 execution.error_message = None
                 execution.next_retry_at = None
+                if execution.automation_type == SUPPLIER_ORDER_EMAIL_SEND:
+                    mark_supplier_order_email_dispatched(
+                        session, execution.execution_id,
+                        dispatched_at=published_at,
+                    )
 
     def mark_failed(
         self,
@@ -323,6 +342,18 @@ class SqlAlchemyOutboxStore:
                 execution.error_code = error_code
                 execution.error_message = error_message
                 execution.next_retry_at = next_attempt_at
+                if (
+                    execution.automation_type == SUPPLIER_ORDER_EMAIL_SEND
+                    and not retry_scheduled
+                ):
+                    finalize_supplier_order_email(
+                        session,
+                        execution.execution_id,
+                        succeeded=False,
+                        completed_at=failed_at,
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
 
     @staticmethod
     def _get_owned_event(

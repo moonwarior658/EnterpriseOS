@@ -9,6 +9,10 @@ from app.models.automation import (
     AutomationExecution,
     ExecutionStatus,
 )
+from app.supply.supplier_order_delivery import (
+    SUPPLIER_ORDER_EMAIL_SEND,
+    finalize_supplier_order_email,
+)
 
 
 EXECUTION_TIMEOUT_CODE = "AutomationExecutionTimeout"
@@ -80,6 +84,15 @@ def expire_stale_executions(
                 execution.error_code = EXECUTION_TIMEOUT_CODE
                 execution.error_message = EXECUTION_TIMEOUT_MESSAGE
                 execution.next_retry_at = None
+                if execution.automation_type == SUPPLIER_ORDER_EMAIL_SEND:
+                    finalize_supplier_order_email(
+                        session,
+                        execution.execution_id,
+                        succeeded=False,
+                        completed_at=now,
+                        error_code=EXECUTION_TIMEOUT_CODE,
+                        error_message="Подтверждение отправки не получено вовремя",
+                    )
 
             execution_ids = [
                 execution.execution_id for execution in executions

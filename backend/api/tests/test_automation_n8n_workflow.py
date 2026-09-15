@@ -67,6 +67,26 @@ class AutomationN8nWorkflowTests(unittest.TestCase):
         self.assertNotIn("service_token", serialized)
         self.assertIn("supply_print_failed", serialized)
 
+    def test_supplier_order_email_branch_uses_immutable_payload_and_safe_callbacks(self) -> None:
+        workflows = json.loads(WORKFLOW_EXPORT.read_text(encoding="utf-8"))
+        workflow = workflows[0]
+        nodes = {node["name"]: node for node in workflow["nodes"]}
+        condition = nodes["Require supplier order email"]["parameters"]["conditions"]["conditions"][0]
+        self.assertEqual(condition["rightValue"], "supply.supplier_order_email_send")
+        email = nodes["Send supplier order email"]
+        serialized_email = json.dumps(email, ensure_ascii=False)
+        for field in ("payload.recipient", "payload.subject", "payload.body_text"):
+            self.assertIn(field, serialized_email)
+        self.assertEqual(email["parameters"]["emailFormat"], "text")
+        self.assertNotIn("credentials", email)
+        success = nodes["Supplier email success callback"]["parameters"]["jsonBody"]
+        failure = nodes["Supplier email failure callback"]["parameters"]["jsonBody"]
+        self.assertIn("provider_message_id", success)
+        self.assertIn('"status": "succeeded"', success)
+        self.assertIn('"status": "failed"', failure)
+        self.assertNotIn("$json.error", failure)
+        self.assertIn("SUPPLIER_ORDER_FROM_EMAIL", serialized_email)
+
 
 if __name__ == "__main__":
     unittest.main()

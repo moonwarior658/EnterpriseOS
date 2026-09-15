@@ -4,7 +4,8 @@ import test from 'node:test'
 import {
   cancelSupplySupplierOrder, createSupplySupplierOrders, getSupplySupplierOrder,
   getSupplySupplierOrders, prepareSupplySupplierOrderMessage,
-  readySupplySupplierOrder, updateSupplySupplierOrder,
+  readySupplySupplierOrder, retrySupplySupplierOrderSend,
+  sendSupplySupplierOrder, updateSupplySupplierOrder,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -28,7 +29,13 @@ test('подключает admin-only список, карточку и форм
   assert.match(detail, /preview\.recipient\.email/)
   assert.match(detail, /Дата поставки не указана/)
   assert.match(detail, /Скопировать полный заказ/)
-  assert.doesNotMatch(detail, />Отправить</)
+  assert.match(detail, /Отправить поставщику/)
+  assert.match(detail, /window\.confirm\(question\)/)
+  assert.match(detail, /setInterval/)
+  assert.match(detail, /Заказ поставлен в очередь на отправку/)
+  assert.match(detail, /Не удалось отправить/)
+  assert.match(detail, /Повторить/)
+  assert.match(detail, /Заказ отправлен/)
   assert.doesNotMatch(detail, />UUID</)
 })
 
@@ -54,6 +61,8 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await readySupplySupplierOrder('order')
     await cancelSupplySupplierOrder('order')
     await prepareSupplySupplierOrderMessage('order', '+7 900 000-00-00')
+    await sendSupplySupplierOrder('order')
+    await retrySupplySupplierOrderSend('order')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -67,4 +76,8 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.match(calls[6].url, /\/prepare-message$/)
   assert.equal(calls[6].options.method, 'POST')
   assert.equal(calls[6].options.body, JSON.stringify({ responsible_phone: '+7 900 000-00-00' }))
+  assert.match(calls[7].url, /\/send$/)
+  assert.match(calls[8].url, /\/retry-send$/)
+  assert.equal(calls[7].options.method, 'POST')
+  assert.equal(calls[8].options.method, 'POST')
 })

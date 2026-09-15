@@ -109,6 +109,7 @@
       TZ: Asia/Yekaterinburg
       EOS_API_BASE_URL: ${EOS_API_BASE_URL}
       PRINT_AGENT_URL: ${PRINT_AGENT_URL}
+      SUPPLIER_ORDER_FROM_EMAIL: ${SUPPLIER_ORDER_FROM_EMAIL}
     healthcheck:
       test:
         - CMD

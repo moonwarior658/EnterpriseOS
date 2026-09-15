@@ -351,6 +351,7 @@ class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
             [
                 "supply.close_expired_request_cycles",
                 "supply.ensure_request_cycle",
+                "supply.supplier_order_email_send",
                 "smoke_test",
             ],
         )
