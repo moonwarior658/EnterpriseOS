@@ -52,9 +52,38 @@ from app.supply.purchase_requests import (
     update_purchase_request,
     update_purchase_request_line,
 )
+from app.schemas.supplier_order import SupplySupplierOrderCreationResult
+from app.supply.supplier_orders import (
+    SupplierOrderConflictError,
+    SupplierOrderNotFoundError,
+    SupplierOrderStateError,
+    create_supplier_orders,
+)
 
 
 router = APIRouter(prefix="/supply/purchase-requests", tags=["supply"])
+
+
+@router.post(
+    "/{request_id}/supplier-orders",
+    response_model=SupplySupplierOrderCreationResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_orders_from_allocations(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplierOrderCreationResult:
+    try:
+        return SupplySupplierOrderCreationResult(orders=create_supplier_orders(
+            db, request_id, tenant_id=admin.tenant_id, user_id=admin.id,
+        ))
+    except SupplierOrderNotFoundError as error:
+        raise _not_found() from error
+    except SupplierOrderStateError as error:
+        raise HTTPException(status_code=409, detail="Формировать заказы можно только из зафиксированного закупочного запроса") from error
+    except SupplierOrderConflictError as error:
+        raise HTTPException(status_code=409, detail="Заказы уже формируются или распределения уже используются") from error
 
 
 def _not_found(detail: str = "Закупочный запрос не найден") -> HTTPException:

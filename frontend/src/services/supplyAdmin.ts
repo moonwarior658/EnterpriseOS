@@ -257,6 +257,52 @@ export type SupplyPurchaseAllocationSupplierSubtotal = {
   allocation_count: number
 }
 
+export type SupplySupplierOrderStatus = 'DRAFT' | 'READY' | 'CANCELLED'
+
+export type SupplySupplierOrderLine = {
+  id: string
+  product_name: string
+  packages_count: number
+  package_quantity_snapshot: string
+  package_unit: SupplyUnit
+  quantity_base: string
+  price_per_package_snapshot: string
+  base_unit_price_snapshot: string
+  planned_amount: string
+  currency: 'RUB'
+  created_at: string
+}
+
+export type SupplySupplierOrder = {
+  id: string
+  number: string
+  supplier_id: string
+  supplier_display_name: string
+  purchase_request_id: string
+  purchase_request_number: string
+  status: SupplySupplierOrderStatus
+  planned_delivery_date: string | null
+  comment?: string | null
+  line_count: number
+  total_amount: string
+  currency: 'RUB'
+  minimum_order_amount?: string | null
+  minimum_order_status?: 'NOT_CONFIGURED' | 'MET' | 'BELOW_MINIMUM'
+  minimum_order_shortfall?: string
+  lines?: SupplySupplierOrderLine[]
+  created_at?: string
+  updated_at: string
+  confirmed_at?: string | null
+  cancelled_at?: string | null
+}
+
+export type SupplySupplierOrderPage = {
+  items: SupplySupplierOrder[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export type SupplyAllocation = {
   id: string
   action: 'TRANSFER' | 'PURCHASE' | 'CANCEL'
@@ -1007,6 +1053,36 @@ export function confirmSupplyPurchaseAllocation(
   return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}/confirm`, {
     method: 'POST',
   })
+}
+
+export function createSupplySupplierOrders(requestId: string): Promise<{ orders: SupplySupplierOrder[] }> {
+  return request(`/supply/purchase-requests/${requestId}/supplier-orders`, { method: 'POST' })
+}
+
+export function getSupplySupplierOrders(
+  filters: { status?: string; supplier_id?: string; search?: string } = {}, signal?: AbortSignal,
+): Promise<SupplySupplierOrderPage> {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value) })
+  return request(`/supply/supplier-orders${params.size ? `?${params}` : ''}`, { signal })
+}
+
+export function getSupplySupplierOrder(orderId: string, signal?: AbortSignal): Promise<SupplySupplierOrder> {
+  return request(`/supply/supplier-orders/${orderId}`, { signal })
+}
+
+export function updateSupplySupplierOrder(
+  orderId: string, input: { planned_delivery_date?: string | null; comment?: string | null },
+): Promise<SupplySupplierOrder> {
+  return request(`/supply/supplier-orders/${orderId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function readySupplySupplierOrder(orderId: string): Promise<SupplySupplierOrder> {
+  return request(`/supply/supplier-orders/${orderId}/ready`, { method: 'POST' })
+}
+
+export function cancelSupplySupplierOrder(orderId: string): Promise<SupplySupplierOrder> {
+  return request(`/supply/supplier-orders/${orderId}/cancel`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

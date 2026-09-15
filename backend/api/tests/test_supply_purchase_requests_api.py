@@ -22,6 +22,8 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductSupplier,
     SupplyPurchaseAllocation,
+    SupplySupplierOrder,
+    SupplySupplierOrderLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
@@ -68,6 +70,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplyProcurementNeed.__table__,
             SupplyPurchaseRequestLineSource.__table__,
             SupplyPurchaseAllocation.__table__,
+            SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
         ):
             table.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -528,6 +531,80 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             )
             self.assertEqual(primary["minimum_order_status"], expected_status)
             self.assertEqual(primary["minimum_order_shortfall"], "0")
+
+    def test_supplier_orders_group_snapshot_idempotency_ready_cancel_and_release(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(SupplySupplier, self.supplier.id).minimum_order_amount = Decimal("40000.00")
+        request_id = self.create_request()["id"]
+        line_id = self.add_line(request_id, quantity="120.000").json()["lines"][0]["id"]
+        self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+        allocation_ids = []
+        for relation, count in ((self.primary_relation, 6), (self.backup_relation, 5)):
+            workspace = self.client.post(
+                f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations",
+                json={"product_supplier_id": str(relation.id), "packages_count": count},
+            ).json()
+            allocation = next(item for item in workspace["lines"][0]["allocations"] if item["product_supplier_id"] == str(relation.id))
+            allocation_ids.append(allocation["id"])
+            if len(allocation_ids) == 1:
+                ignored = self.client.post(
+                    f"/supply/purchase-requests/{request_id}/supplier-orders"
+                )
+                self.assertEqual(ignored.status_code, 201, ignored.text)
+                self.assertEqual(ignored.json()["orders"], [])
+            response = self.client.post(
+                f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation['id']}/confirm"
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        created = self.client.post(f"/supply/purchase-requests/{request_id}/supplier-orders")
+        self.assertEqual(created.status_code, 201, created.text)
+        orders = created.json()["orders"]
+        self.assertEqual(len(orders), 2)
+        self.assertEqual({order["supplier_display_name"] for order in orders}, {"Основной поставщик", "Резервный поставщик"})
+        primary = next(order for order in orders if order["supplier_id"] == str(self.supplier.id))
+        self.assertEqual(primary["status"], "DRAFT")
+        self.assertEqual(primary["total_amount"], "29736.000000")
+        self.assertEqual(primary["minimum_order_status"], "BELOW_MINIMUM")
+        self.assertEqual(primary["minimum_order_shortfall"], "10264.000000")
+        self.assertEqual(primary["lines"][0]["product_name"], "Сахар")
+        self.assertEqual(primary["lines"][0]["package_quantity_snapshot"], "12.000")
+        self.assertEqual(primary["lines"][0]["price_per_package_snapshot"], "4956.00")
+
+        repeated = self.client.post(f"/supply/purchase-requests/{request_id}/supplier-orders")
+        self.assertEqual({item["id"] for item in repeated.json()["orders"]}, {item["id"] for item in orders})
+        order_id = primary["id"]
+        patched = self.client.patch(f"/supply/supplier-orders/{order_id}", json={
+            "planned_delivery_date": (date.today() + timedelta(days=2)).isoformat(),
+            "comment": " После 14:00 ",
+        })
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertEqual(patched.json()["comment"], "После 14:00")
+        ready = self.client.post(f"/supply/supplier-orders/{order_id}/ready")
+        self.assertEqual(ready.status_code, 200, ready.text)
+        self.assertEqual(ready.json()["status"], "READY")
+        self.assertEqual(self.client.patch(f"/supply/supplier-orders/{order_id}", json={"comment": "x"}).status_code, 409)
+        self.assertEqual(self.client.post(f"/supply/supplier-orders/{order_id}/cancel").status_code, 409)
+
+        draft = next(order for order in orders if order["id"] != order_id)
+        cancelled = self.client.post(f"/supply/supplier-orders/{draft['id']}/cancel")
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        recreated = self.client.post(f"/supply/purchase-requests/{request_id}/supplier-orders")
+        self.assertEqual(len(recreated.json()["orders"]), 1)
+        self.assertNotEqual(recreated.json()["orders"][0]["id"], draft["id"])
+
+        with self.sessions.begin() as session:
+            relation = session.get(SupplyProductSupplier, self.backup_relation.id)
+            relation.price_per_package = Decimal("9999.00")
+        detail = self.client.get(f"/supply/supplier-orders/{recreated.json()['orders'][0]['id']}")
+        self.assertEqual(detail.json()["lines"][0]["price_per_package_snapshot"], "5280.00")
+
+        listed = self.client.get("/supply/supplier-orders", params={"status": "READY", "search": primary["number"]})
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["total"], 1)
+        self.current_user_id = 3
+        self.assertEqual(self.client.get(f"/supply/supplier-orders/{order_id}").status_code, 404)
 
     def test_collect_aggregates_is_idempotent_and_preserves_manual(self) -> None:
         request_id = self.create_request()["id"]

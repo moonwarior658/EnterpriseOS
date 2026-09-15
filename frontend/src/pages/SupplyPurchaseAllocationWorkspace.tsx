@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   confirmSupplyPurchaseAllocation,
   createSupplyPurchaseAllocation,
   deleteSupplyPurchaseAllocation,
   getSupplyPurchaseAllocations,
   updateSupplyPurchaseAllocation,
+  createSupplySupplierOrders,
+  type SupplySupplierOrder,
   type SupplyPurchaseAllocationWorkspace as Workspace,
   SupplyApiError,
 } from '../services/supplyAdmin'
@@ -22,6 +25,7 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [busyKey, setBusyKey] = useState('')
   const [message, setMessage] = useState('')
+  const [orders, setOrders] = useState<SupplySupplierOrder[]>([])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -36,6 +40,17 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
     try { setWorkspace(await action()) }
     catch (error) { setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось сохранить распределение') }
     finally { setBusyKey('') }
+  }
+
+  async function createOrders() {
+    setBusyKey('orders'); setMessage('')
+    try {
+      const result = await createSupplySupplierOrders(requestId)
+      setOrders(result.orders)
+      setMessage(result.orders.length ? 'Заказы сформированы' : 'Нет подтверждённых распределений для формирования')
+    } catch (error) {
+      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось сформировать заказы')
+    } finally { setBusyKey('') }
   }
 
   if (!workspace) return <p className="page-state">{message || 'Загружаем поставщиков…'}</p>
@@ -55,6 +70,8 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
         )}</small>
       </div>)}
     </div>
+    {workspace.lines.some((line) => line.allocations.some((allocation) => allocation.status === 'CONFIRMED')) && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busyKey !== ''} onClick={createOrders}>Сформировать заказы</button></div>}
+    {orders.length > 0 && <div className="allocation-summary">{orders.map((order) => <div key={order.id}><span>{order.supplier_display_name}</span><strong><Link to={`/supply/supplier-orders/${order.id}`}>{order.number}</Link></strong><small>{money.format(Number(order.total_amount))} · {order.status === 'DRAFT' ? 'Черновик' : order.status === 'READY' ? 'Готов' : 'Отменён'}</small></div>)}</div>}
     {message && <p className="request-message">{message}</p>}
     {workspace.lines.map((line) => <article className="allocation-line" key={line.line_id}>
       <header>

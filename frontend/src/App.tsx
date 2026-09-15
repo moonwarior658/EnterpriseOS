@@ -14,6 +14,8 @@ import SupplyDebtListPage from './pages/SupplyDebtListPage'
 import SupplySuppliersPage from './pages/SupplySuppliersPage'
 import SupplyPurchaseRequestsPage from './pages/SupplyPurchaseRequestsPage'
 import SupplyPurchaseRequestDetailPage from './pages/SupplyPurchaseRequestDetailPage'
+import SupplySupplierOrdersPage from './pages/SupplySupplierOrdersPage'
+import SupplySupplierOrderDetailPage from './pages/SupplySupplierOrderDetailPage'
 import UsersPage from './pages/UsersPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
@@ -100,6 +102,9 @@ function App() {
           path="/supply/purchase-requests/:requestId"
           element={<ProtectedRoute adminOnly><SupplyPurchaseRequestDetailPage /></ProtectedRoute>}
         />
+
+        <Route path="/supply/supplier-orders" element={<ProtectedRoute adminOnly><SupplySupplierOrdersPage /></ProtectedRoute>} />
+        <Route path="/supply/supplier-orders/:orderId" element={<ProtectedRoute adminOnly><SupplySupplierOrderDetailPage /></ProtectedRoute>} />
 
         <Route
           path="/integrations/iiko/mappings"
