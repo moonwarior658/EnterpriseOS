@@ -176,7 +176,7 @@ def prepare_supplier_order_message(
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id,
         SupplySupplierOrder.tenant_id == tenant_id,
-    ).with_for_update())
+    ).with_for_update(of=SupplySupplierOrder))
     if order is None:
         raise SupplierOrderNotFoundError
     if order.status != "READY":
@@ -365,7 +365,7 @@ def update_supplier_order(
 ) -> SupplySupplierOrderRead:
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id, SupplySupplierOrder.tenant_id == tenant_id,
-    ).with_for_update())
+    ).with_for_update(of=SupplySupplierOrder))
     if order is None:
         raise SupplierOrderNotFoundError
     if order.status != "DRAFT":
@@ -387,7 +387,7 @@ def mark_supplier_order_ready(session: Session, order_id: UUID, *, tenant_id: st
         .joinedload(SupplySupplierOrderLine.source_allocation)
         .joinedload(SupplyPurchaseAllocation.product_supplier),
         joinedload(SupplySupplierOrder.supplier),
-    ).with_for_update())
+    ).with_for_update(of=SupplySupplierOrder))
     if order is None:
         raise SupplierOrderNotFoundError
     if order.status != "DRAFT":
@@ -421,7 +421,7 @@ def mark_supplier_order_ready(session: Session, order_id: UUID, *, tenant_id: st
 def cancel_supplier_order(session: Session, order_id: UUID, *, tenant_id: str) -> SupplySupplierOrderRead:
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id, SupplySupplierOrder.tenant_id == tenant_id,
-    ).options(selectinload(SupplySupplierOrder.lines)).with_for_update())
+    ).options(selectinload(SupplySupplierOrder.lines)).with_for_update(of=SupplySupplierOrder))
     if order is None:
         raise SupplierOrderNotFoundError
     if order.status != "DRAFT":

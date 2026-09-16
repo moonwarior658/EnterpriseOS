@@ -76,7 +76,7 @@ def queue_supplier_order_email(
             SupplySupplierOrder.id == order_id,
             SupplySupplierOrder.tenant_id == tenant_id,
         )
-        .with_for_update()
+        .with_for_update(of=SupplySupplierOrder)
     )
     if order is None:
         from app.supply.supplier_orders import SupplierOrderNotFoundError
@@ -229,7 +229,7 @@ def finalize_supplier_order_email(
             SupplySupplierOrder.id == attempt.supplier_order_id,
             SupplySupplierOrder.tenant_id == attempt.tenant_id,
         )
-        .with_for_update()
+        .with_for_update(of=SupplySupplierOrder)
     )
     if order is None:
         return

@@ -13,13 +13,17 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.supply.supplier_orders import cancel_supplier_order, create_supplier_orders
+from app.supply.supplier_orders import (
+    cancel_supplier_order,
+    create_supplier_orders,
+    mark_supplier_order_ready,
+)
 
 
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
@@ -65,6 +69,7 @@ class SupplySupplierOrdersPostgresTests(unittest.TestCase):
         command.downgrade(self.config, "20260914_0042")
         self.assertEqual(self.revision(), "20260914_0042")
         command.upgrade(self.config, "20260915_0043")
+        command.upgrade(self.config, "head")
 
         inspector = inspect(self.engine)
         self.assertIn("supply_supplier_orders", inspector.get_table_names())
@@ -106,6 +111,32 @@ class SupplySupplierOrdersPostgresTests(unittest.TestCase):
             recreated = create_supplier_orders(session, request_id, tenant_id="order-test", user_id=94001)
             self.assertEqual(len(recreated), 1)
             self.assertNotEqual(str(recreated[0].id), str(order_id))
+
+        statements: list[str] = []
+
+        def capture_sql(_connection, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(self.engine, "before_cursor_execute", capture_sql)
+        try:
+            with sessions() as session:
+                ready = mark_supplier_order_ready(
+                    session, recreated[0].id, tenant_id="order-test"
+                )
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture_sql)
+
+        self.assertEqual(ready.status, "READY")
+        locking_statements = [
+            statement for statement in statements
+            if "FOR UPDATE" in statement.upper()
+            and "supply_supplier_orders" in statement
+        ]
+        self.assertEqual(len(locking_statements), 1)
+        self.assertIn(
+            "FOR UPDATE OF supply_supplier_orders",
+            locking_statements[0],
+        )
 
 
 if __name__ == "__main__":
