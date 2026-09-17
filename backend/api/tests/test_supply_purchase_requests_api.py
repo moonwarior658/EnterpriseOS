@@ -27,6 +27,8 @@ from app.models.supply import (
     SupplySupplierOrder,
     SupplySupplierOrderDeliveryAttempt,
     SupplySupplierOrderLine,
+    SupplySupplierConfirmation,
+    SupplySupplierConfirmationLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
@@ -80,6 +82,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplyPurchaseRequestLineSource.__table__,
             SupplyPurchaseAllocation.__table__,
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
+            SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:
@@ -1035,6 +1038,91 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             self.assertEqual(len(session.scalars(select(SupplySupplierOrderDeliveryAttempt)).all()), 0)
             self.assertEqual(len(session.scalars(select(AutomationExecution)).all()), 0)
             self.assertEqual(len(session.scalars(select(OutboxEvent)).all()), 0)
+
+    def _sent_order(self):
+        order = self.create_supplier_order(delivery_date="2026-09-20")
+        with self.sessions.begin() as session:
+            stored = session.get(SupplySupplierOrder, UUID(order["id"]))
+            stored.status = "SENT"
+            stored.sent_at = datetime.now(timezone.utc)
+        return self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+
+    def test_supplier_confirmation_revision_defaults_record_history_and_immutability(self) -> None:
+        order = self._sent_order()
+        created = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
+        self.assertEqual(created.status_code, 200, created.text)
+        draft = created.json()
+        self.assertEqual(draft["revision_number"], 1)
+        self.assertEqual(draft["status"], "DRAFT")
+        self.assertEqual(draft["confirmed_delivery_date"], "2026-09-20")
+        self.assertEqual(draft["lines"][0]["confirmed_packages_count"], 2)
+        self.assertEqual(draft["lines"][0]["confirmed_price_per_package"], "4956.00")
+        repeated = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
+        self.assertEqual(repeated.json()["id"], draft["id"])
+
+        patched = self.client.patch(f"/supply/supplier-confirmations/{draft['id']}", json={
+            "supplier_reference": " SUP-42 ", "confirmed_delivery_date": "2026-09-21",
+            "responded_at": "2026-09-17T10:00:00+05:00",
+        })
+        self.assertEqual(patched.status_code, 200, patched.text)
+        line = patched.json()["lines"][0]
+        changed = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={"response_status": "CHANGED", "confirmed_packages_count": 1,
+                  "confirmed_price_per_package": "5100.00"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()["confirmed_total_amount"], "5100.000000")
+        self.assertEqual(changed.json()["lines"][0]["confirmed_quantity_base"], "12.000000")
+        recorded = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        self.assertEqual(recorded.json()["status"], "RECORDED")
+        self.assertEqual(recorded.json()["response_type"], "PARTIALLY_CONFIRMED")
+        self.assertEqual(self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}", json={"supplier_reference": "X"}
+        ).status_code, 409)
+
+        second = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        self.assertEqual(second["revision_number"], 2)
+        self.assertEqual(second["supplier_reference"], "SUP-42")
+        self.assertEqual(second["lines"][0]["confirmed_packages_count"], 1)
+        second_line = second["lines"][0]
+        rejected = self.client.patch(
+            f"/supply/supplier-confirmations/{second['id']}/lines/{second_line['id']}",
+            json={"response_status": "REJECTED", "supplier_line_comment": "Нет в наличии"},
+        )
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertIsNone(rejected.json()["lines"][0]["confirmed_price_per_package"])
+        recorded_two = self.client.post(f"/supply/supplier-confirmations/{second['id']}/record")
+        self.assertEqual(recorded_two.json()["response_type"], "REJECTED")
+        history = self.client.get(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        self.assertEqual([item["status"] for item in history], ["RECORDED", "SUPERSEDED"])
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["status"], "SENT")
+        self.assertEqual(detail["supplier_confirmation_state"], "REJECTED")
+        self.assertEqual(detail["confirmation_history_count"], 2)
+
+    def test_supplier_confirmation_state_cancel_and_tenant_guards(self) -> None:
+        ready = self.create_supplier_order()
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-orders/{ready['id']}/confirmations"
+        ).status_code, 409)
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        cancelled = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/cancel")
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        replacement = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
+        self.assertEqual(replacement.json()["revision_number"], 2)
+        foreign_unit = self.client.patch(
+            f"/supply/supplier-confirmations/{replacement.json()['id']}/lines/{replacement.json()['lines'][0]['id']}",
+            json={"confirmed_package_unit_id": str(self.other_unit.id)},
+        )
+        self.assertEqual(foreign_unit.status_code, 409)
+        self.current_user_id = 3
+        self.assertEqual(self.client.get(
+            f"/supply/supplier-confirmations/{replacement.json()['id']}"
+        ).status_code, 404)
 
 
 if __name__ == "__main__":

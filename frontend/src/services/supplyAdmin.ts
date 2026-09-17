@@ -286,6 +286,61 @@ export type SupplySupplierOrderLine = {
   created_at: string
 }
 
+export type SupplySupplierConfirmationStatus = 'DRAFT' | 'RECORDED' | 'SUPERSEDED' | 'CANCELLED'
+export type SupplySupplierConfirmationResponseType = 'CONFIRMED' | 'PARTIALLY_CONFIRMED' | 'REJECTED'
+export type SupplySupplierConfirmationLineStatus = 'CONFIRMED' | 'CHANGED' | 'REJECTED'
+
+export type SupplySupplierConfirmationLine = {
+  id: string
+  supplier_order_line_id: string
+  response_status: SupplySupplierConfirmationLineStatus
+  product_name_snapshot: string
+  ordered_packages_count: number
+  ordered_package_quantity: string
+  ordered_package_unit_id: string
+  ordered_package_unit: string
+  ordered_quantity_base: string
+  ordered_price_per_package: string
+  ordered_planned_amount: string
+  confirmed_packages_count: number | null
+  confirmed_package_quantity: string | null
+  confirmed_package_unit_id: string | null
+  confirmed_package_unit: string | null
+  confirmed_quantity_base: string | null
+  confirmed_price_per_package: string | null
+  confirmed_planned_amount: string | null
+  currency: 'RUB'
+  supplier_line_comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupplySupplierConfirmationSummary = {
+  id: string
+  revision_number: number
+  status: SupplySupplierConfirmationStatus
+  response_type: SupplySupplierConfirmationResponseType | null
+  confirmed_delivery_date: string | null
+  responded_at: string | null
+  recorded_at: string | null
+  confirmed_total_amount: string
+}
+
+export type SupplySupplierConfirmation = SupplySupplierConfirmationSummary & {
+  supplier_order_id: string
+  supplier_id: string
+  supplier_display_name: string
+  order_number: string
+  supplier_reference: string | null
+  supplier_comment: string | null
+  planned_delivery_date: string | null
+  created_at: string
+  updated_at: string
+  ordered_total_amount: string
+  currency: 'RUB'
+  lines: SupplySupplierConfirmationLine[]
+}
+
 export type SupplySupplierOrder = {
   id: string
   number: string
@@ -314,6 +369,10 @@ export type SupplySupplierOrder = {
   responsible_phone_snapshot?: string | null
   latest_delivery_attempt?: SupplySupplierOrderDeliveryAttempt | null
   delivery_history?: SupplySupplierOrderDeliveryAttempt[]
+  supplier_confirmation_state?: 'NONE' | SupplySupplierConfirmationResponseType
+  latest_confirmation?: SupplySupplierConfirmationSummary | null
+  draft_confirmation?: SupplySupplierConfirmationSummary | null
+  confirmation_history_count?: number
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1145,6 +1204,36 @@ export function sendSupplySupplierOrder(orderId: string): Promise<SupplySupplier
 
 export function retrySupplySupplierOrderSend(orderId: string): Promise<SupplySupplierOrderDeliveryAttempt> {
   return request(`/supply/supplier-orders/${orderId}/retry-send`, { method: 'POST' })
+}
+
+export function createSupplySupplierConfirmation(orderId: string): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-orders/${orderId}/confirmations`, { method: 'POST' })
+}
+
+export function getSupplySupplierConfirmations(orderId: string): Promise<SupplySupplierConfirmation[]> {
+  return request(`/supply/supplier-orders/${orderId}/confirmations`)
+}
+
+export function updateSupplySupplierConfirmation(
+  confirmationId: string,
+  input: { supplier_reference?: string | null; supplier_comment?: string | null; confirmed_delivery_date?: string | null; responded_at?: string | null },
+): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-confirmations/${confirmationId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function updateSupplySupplierConfirmationLine(
+  confirmationId: string, lineId: string,
+  input: Partial<Pick<SupplySupplierConfirmationLine, 'response_status' | 'confirmed_packages_count' | 'confirmed_package_quantity' | 'confirmed_package_unit_id' | 'confirmed_quantity_base' | 'confirmed_price_per_package' | 'supplier_line_comment'>>,
+): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-confirmations/${confirmationId}/lines/${lineId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function recordSupplySupplierConfirmation(confirmationId: string): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-confirmations/${confirmationId}/record`, { method: 'POST' })
+}
+
+export function cancelSupplySupplierConfirmation(confirmationId: string): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-confirmations/${confirmationId}/cancel`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

@@ -107,6 +107,25 @@ class SupplySupplierOrderDeliveryStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class SupplySupplierConfirmationStatus(StrEnum):
+    DRAFT = "DRAFT"
+    RECORDED = "RECORDED"
+    SUPERSEDED = "SUPERSEDED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplySupplierConfirmationResponseType(StrEnum):
+    CONFIRMED = "CONFIRMED"
+    PARTIALLY_CONFIRMED = "PARTIALLY_CONFIRMED"
+    REJECTED = "REJECTED"
+
+
+class SupplySupplierConfirmationLineStatus(StrEnum):
+    CONFIRMED = "CONFIRMED"
+    CHANGED = "CHANGED"
+    REJECTED = "REJECTED"
+
+
 class SupplyProcurementNeedSourceType(StrEnum):
     REQUEST_LINE = "REQUEST_LINE"
     DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
@@ -1164,6 +1183,10 @@ class SupplySupplierOrder(Base):
         back_populates="supplier_order", passive_deletes=True,
         order_by="SupplySupplierOrderDeliveryAttempt.attempt_number",
     )
+    confirmations: Mapped[list["SupplySupplierConfirmation"]] = relationship(
+        back_populates="supplier_order", passive_deletes=True,
+        order_by="SupplySupplierConfirmation.revision_number",
+    )
 
     @property
     def line_count(self) -> int:
@@ -1294,6 +1317,133 @@ class SupplySupplierOrderDeliveryAttempt(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     supplier_order: Mapped[SupplySupplierOrder] = relationship(back_populates="delivery_attempts")
+
+
+class SupplySupplierConfirmation(Base):
+    __tablename__ = "supply_supplier_confirmations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_confirmations_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "supplier_order_id", "revision_number",
+            name="uq_supply_supplier_confirmations_revision",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_id"],
+            ["supply_supplier_orders.tenant_id", "supply_supplier_orders.id"],
+            name="fk_supply_supplier_confirmations_order_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("revision_number > 0", name="ck_supply_supplier_confirmations_revision"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'RECORDED', 'SUPERSEDED', 'CANCELLED')",
+            name="ck_supply_supplier_confirmations_status",
+        ),
+        CheckConstraint(
+            "response_type IS NULL OR response_type IN ('CONFIRMED', 'PARTIALLY_CONFIRMED', 'REJECTED')",
+            name="ck_supply_supplier_confirmations_response_type",
+        ),
+        CheckConstraint(
+            "(status = 'RECORDED' AND response_type IS NOT NULL AND recorded_at IS NOT NULL) OR "
+            "(status <> 'RECORDED')",
+            name="ck_supply_supplier_confirmations_recorded",
+        ),
+        Index(
+            "uq_supply_supplier_confirmations_draft", "tenant_id", "supplier_order_id",
+            unique=True, postgresql_where=text("status = 'DRAFT'"),
+            sqlite_where=text("status = 'DRAFT'"),
+        ),
+        Index(
+            "uq_supply_supplier_confirmations_current", "tenant_id", "supplier_order_id",
+            unique=True, postgresql_where=text("status = 'RECORDED'"),
+            sqlite_where=text("status = 'RECORDED'"),
+        ),
+        Index(
+            "ix_supply_supplier_confirmations_history", "tenant_id", "supplier_order_id", "revision_number",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
+    response_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    supplier_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    supplier_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    supplier_order: Mapped[SupplySupplierOrder] = relationship(back_populates="confirmations")
+    lines: Mapped[list["SupplySupplierConfirmationLine"]] = relationship(
+        back_populates="confirmation", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="SupplySupplierConfirmationLine.created_at",
+    )
+
+
+class SupplySupplierConfirmationLine(Base):
+    __tablename__ = "supply_supplier_confirmation_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_confirmation_lines_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "confirmation_id", "supplier_order_line_id",
+            name="uq_supply_supplier_confirmation_lines_order_line",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "confirmation_id"],
+            ["supply_supplier_confirmations.tenant_id", "supply_supplier_confirmations.id"],
+            name="fk_supply_supplier_confirmation_lines_confirmation_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_line_id"],
+            ["supply_supplier_order_lines.tenant_id", "supply_supplier_order_lines.id"],
+            name="fk_supply_supplier_confirmation_lines_order_line_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "confirmed_package_unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_supplier_confirmation_lines_unit_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "response_status IN ('CONFIRMED', 'CHANGED', 'REJECTED')",
+            name="ck_supply_supplier_confirmation_lines_status",
+        ),
+        CheckConstraint("confirmed_packages_count IS NULL OR confirmed_packages_count > 0", name="ck_supply_supplier_confirmation_lines_packages"),
+        CheckConstraint("confirmed_package_quantity IS NULL OR confirmed_package_quantity > 0", name="ck_supply_supplier_confirmation_lines_package_quantity"),
+        CheckConstraint("confirmed_quantity_base IS NULL OR confirmed_quantity_base > 0", name="ck_supply_supplier_confirmation_lines_quantity"),
+        CheckConstraint("confirmed_price_per_package IS NULL OR confirmed_price_per_package > 0", name="ck_supply_supplier_confirmation_lines_price"),
+        CheckConstraint("confirmed_planned_amount IS NULL OR confirmed_planned_amount > 0", name="ck_supply_supplier_confirmation_lines_amount"),
+        CheckConstraint("currency = 'RUB'", name="ck_supply_supplier_confirmation_lines_currency"),
+        Index("ix_supply_supplier_confirmation_lines_confirmation", "tenant_id", "confirmation_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_order_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    response_status: Mapped[str] = mapped_column(String(16), default="CONFIRMED", server_default="CONFIRMED", nullable=False)
+    product_name_snapshot: Mapped[str] = mapped_column(String(240), nullable=False)
+    confirmed_packages_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confirmed_package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 3), nullable=True)
+    confirmed_package_unit_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    confirmed_quantity_base: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    confirmed_price_per_package: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    confirmed_planned_amount: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="RUB", server_default="RUB", nullable=False)
+    supplier_line_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    confirmation: Mapped[SupplySupplierConfirmation] = relationship(back_populates="lines")
+    supplier_order_line: Mapped[SupplySupplierOrderLine] = relationship(
+        overlaps="confirmation,lines"
+    )
+    confirmed_package_unit: Mapped[SupplyUnit | None] = relationship(
+        overlaps="confirmation,lines,supplier_order_line"
+    )
 
 
 class SupplyPurchaseRequestLineSource(Base):

@@ -10,6 +10,10 @@ from app.api.routes.public_requests import router as public_requests_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.purchase_requests import router as purchase_requests_router
 from app.api.routes.supplier_orders import router as supplier_orders_router
+from app.api.routes.supplier_confirmations import (
+    confirmation_router as supplier_confirmations_router,
+    order_router as supplier_order_confirmations_router,
+)
 from app.api.routes.requests import router as requests_router
 from app.api.routes.supply import router as supply_router
 from app.api.routes.users import router as users_router
@@ -29,6 +33,8 @@ app.include_router(requests_router)
 app.include_router(supply_router)
 app.include_router(purchase_requests_router)
 app.include_router(supplier_orders_router)
+app.include_router(supplier_order_confirmations_router)
+app.include_router(supplier_confirmations_router)
 app.include_router(automation_router)
 app.include_router(iiko_router)
 app.include_router(iiko_mapping_router)

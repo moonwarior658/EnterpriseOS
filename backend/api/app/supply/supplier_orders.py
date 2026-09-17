@@ -14,6 +14,7 @@ from app.models.supply import (
     SupplyPurchaseRequestLine,
     SupplySupplierOrder,
     SupplySupplierOrderLine,
+    SupplySupplierConfirmation,
 )
 from app.schemas.supplier_order import (
     SupplySupplierOrderMessageLine,
@@ -70,6 +71,9 @@ def _options():
             SupplySupplierOrderLine.package_unit_snapshot
         ),
         selectinload(SupplySupplierOrder.delivery_attempts),
+        selectinload(SupplySupplierOrder.confirmations).selectinload(
+            SupplySupplierConfirmation.lines
+        ),
     )
 
 
@@ -87,9 +91,13 @@ def _minimum(order: SupplySupplierOrder):
 
 def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     from app.supply.supplier_order_delivery import delivery_attempt_read
+    from app.supply.supplier_confirmations import confirmation_summary
 
     minimum_status, shortfall = _minimum(order)
     history = [delivery_attempt_read(item) for item in order.delivery_attempts]
+    recorded = [item for item in order.confirmations if item.status == "RECORDED"]
+    draft = next((item for item in order.confirmations if item.status == "DRAFT"), None)
+    latest = max(recorded, key=lambda item: item.revision_number) if recorded else None
     return SupplySupplierOrderRead(
         id=order.id, number=order.number, supplier_id=order.supplier_id,
         supplier_display_name=order.supplier.display_name,
@@ -120,6 +128,10 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         responsible_phone_snapshot=order.responsible_phone_snapshot,
         latest_delivery_attempt=history[-1] if history else None,
         delivery_history=history,
+        supplier_confirmation_state=latest.response_type if latest else "NONE",
+        latest_confirmation=confirmation_summary(latest) if latest else None,
+        draft_confirmation=confirmation_summary(draft) if draft else None,
+        confirmation_history_count=len(order.confirmations),
     )
 
 

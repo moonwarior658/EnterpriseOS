@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EosDateField } from '../components/EosFormControls'
+import SupplierConfirmationPanel from '../components/SupplierConfirmationPanel'
 import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplySupplierOrder, getSupplySupplierOrder, readySupplySupplierOrder,
@@ -23,6 +24,7 @@ export default function SupplySupplierOrderDetailPage() {
   const [message, setMessage] = useState('')
   const [responsiblePhone, setResponsiblePhone] = useState('')
   const [preview, setPreview] = useState<SupplySupplierOrderMessagePreview | null>(null)
+  function refreshOrder() { getSupplySupplierOrder(orderId).then(setOrder).catch(() => undefined) }
   useEffect(() => {
     const controller = new AbortController()
     getSupplySupplierOrder(orderId, controller.signal).then((loaded) => {
@@ -121,5 +123,6 @@ export default function SupplySupplierOrderDetailPage() {
       {order.latest_delivery_attempt.status === 'SUCCEEDED' && <p>Отправлено: {new Date(order.sent_at ?? order.latest_delivery_attempt.completed_at ?? '').toLocaleString('ru-RU')}</p>}
       {(order.delivery_history?.length ?? 0) > 1 && <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Попытка</th><th>Получатель</th><th>Статус</th><th>Создана</th><th>Завершена</th></tr></thead><tbody>{order.delivery_history?.map((attempt) => <tr key={attempt.id}><td>№{attempt.attempt_number}</td><td>{attempt.recipient_email}</td><td>{attempt.status}</td><td>{new Date(attempt.created_at).toLocaleString('ru-RU')}</td><td>{attempt.completed_at ? new Date(attempt.completed_at).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div>}
     </section>}
+    {order.status === 'SENT' && <SupplierConfirmationPanel order={order} onOrderRefresh={refreshOrder} />}
   </div></section>
 }

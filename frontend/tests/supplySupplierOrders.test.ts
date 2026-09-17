@@ -6,6 +6,9 @@ import {
   getSupplySupplierOrders, prepareSupplySupplierOrderMessage,
   readySupplySupplierOrder, retrySupplySupplierOrderSend,
   sendSupplySupplierOrder, updateSupplySupplierOrder,
+  cancelSupplySupplierConfirmation, createSupplySupplierConfirmation,
+  getSupplySupplierConfirmations, recordSupplySupplierConfirmation,
+  updateSupplySupplierConfirmation, updateSupplySupplierConfirmationLine,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -15,6 +18,7 @@ test('подключает admin-only список, карточку и форм
   const workspace = readFileSync(new URL('../src/pages/SupplyPurchaseAllocationWorkspace.tsx', import.meta.url), 'utf8')
   const list = readFileSync(new URL('../src/pages/SupplySupplierOrdersPage.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/SupplySupplierOrderDetailPage.tsx', import.meta.url), 'utf8')
+  const confirmation = readFileSync(new URL('../src/components/SupplierConfirmationPanel.tsx', import.meta.url), 'utf8')
   assert.match(app, /path="\/supply\/supplier-orders"/)
   assert.match(app, /path="\/supply\/supplier-orders\/:orderId"/)
   assert.match(layout, /Заказы поставщикам/)
@@ -37,6 +41,15 @@ test('подключает admin-only список, карточку и форм
   assert.match(detail, /Повторить/)
   assert.match(detail, /Заказ отправлен/)
   assert.doesNotMatch(detail, />UUID</)
+  assert.match(detail, /order\.status === 'SENT'/)
+  assert.match(confirmation, /Зафиксировать ответ поставщика/)
+  assert.match(confirmation, /Подтверждённая дата поставки/)
+  assert.match(confirmation, /CONFIRMED/)
+  assert.match(confirmation, /CHANGED/)
+  assert.match(confirmation, /REJECTED/)
+  assert.match(confirmation, /История ответов/)
+  assert.match(confirmation, /Отменить черновик/)
+  assert.match(confirmation, /ordered_packages_count !== line\.confirmed_packages_count/)
 })
 
 
@@ -63,6 +76,12 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await prepareSupplySupplierOrderMessage('order', '+7 900 000-00-00')
     await sendSupplySupplierOrder('order')
     await retrySupplySupplierOrderSend('order')
+    await createSupplySupplierConfirmation('order')
+    await getSupplySupplierConfirmations('order')
+    await updateSupplySupplierConfirmation('confirmation', { supplier_reference: 'SUP-42' })
+    await updateSupplySupplierConfirmationLine('confirmation', 'line', { response_status: 'REJECTED' })
+    await recordSupplySupplierConfirmation('confirmation')
+    await cancelSupplySupplierConfirmation('confirmation')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -80,4 +99,12 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.match(calls[8].url, /\/retry-send$/)
   assert.equal(calls[7].options.method, 'POST')
   assert.equal(calls[8].options.method, 'POST')
+  assert.match(calls[9].url, /supplier-orders\/order\/confirmations$/)
+  assert.equal(calls[9].options.method, 'POST')
+  assert.match(calls[10].url, /supplier-orders\/order\/confirmations$/)
+  assert.match(calls[11].url, /supplier-confirmations\/confirmation$/)
+  assert.equal(calls[11].options.method, 'PATCH')
+  assert.match(calls[12].url, /supplier-confirmations\/confirmation\/lines\/line$/)
+  assert.match(calls[13].url, /supplier-confirmations\/confirmation\/record$/)
+  assert.match(calls[14].url, /supplier-confirmations\/confirmation\/cancel$/)
 })

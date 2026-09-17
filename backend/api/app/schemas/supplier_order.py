@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.supply import SupplyUnitRead
+from app.schemas.supplier_confirmation import SupplySupplierConfirmationSummary
 
 
 class SupplySupplierOrderStatus(StrEnum):
@@ -100,6 +101,10 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     responsible_phone_snapshot: str | None
     latest_delivery_attempt: "SupplySupplierOrderDeliveryAttemptRead | None"
     delivery_history: list["SupplySupplierOrderDeliveryAttemptRead"]
+    supplier_confirmation_state: str
+    latest_confirmation: SupplySupplierConfirmationSummary | None
+    draft_confirmation: SupplySupplierConfirmationSummary | None
+    confirmation_history_count: int
 
 
 class SupplySupplierOrderDeliveryAttemptRead(BaseModel):
