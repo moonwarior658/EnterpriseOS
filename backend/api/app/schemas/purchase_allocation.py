@@ -32,6 +32,31 @@ class SupplyPurchaseAllocationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SupplyPurchaseAllocationSourceWrite(BaseModel):
+    purchase_request_line_source_id: UUID
+    allocated_quantity: Decimal = Field(gt=0, max_digits=30, decimal_places=6)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyPurchaseAllocationSourcesUpdate(BaseModel):
+    sources: list[SupplyPurchaseAllocationSourceWrite]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplyPurchaseAllocationSourceRead(BaseModel):
+    purchase_request_line_source_id: UUID
+    source_type: str
+    procurement_need_id: UUID | None
+    source_label: str
+    need_date: date | None
+    required_quantity: Decimal
+    already_allocated_quantity: Decimal
+    remaining_quantity: Decimal
+    allocated_quantity: Decimal
+
+
 class SupplyPurchaseAllocationRead(BaseModel):
     id: UUID
     product_supplier_id: UUID
@@ -49,6 +74,10 @@ class SupplyPurchaseAllocationRead(BaseModel):
     currency: str
     planned_amount: Decimal
     status: SupplyPurchaseAllocationStatus
+    traceability_status: str
+    source_covered_quantity: Decimal
+    procurement_surplus_quantity: Decimal
+    sources: list[SupplyPurchaseAllocationSourceRead]
     current_terms_changed: bool
     created_at: datetime
     updated_at: datetime

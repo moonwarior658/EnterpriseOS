@@ -354,16 +354,16 @@ class IikoServerClientTests(unittest.IsolatedAsyncioTestCase):
             "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
         )
         self.assertEqual(
-            invoices[0].linked_incoming_invoice_id,
+            UUID(invoices[0].linked_incoming_invoice_id),
             incoming[0].external_id,
         )
         self.assertEqual(
             incoming[0].default_store_id,
-            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
         )
         self.assertEqual(
             incoming[0].supplier_id,
-            "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
         )
         account_request = next(
             item for item in requests

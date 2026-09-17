@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.iiko.exceptions import IikoContractError, IikoError
 from app.integrations.iiko.provider import IikoProvider
-from app.integrations.iiko.schemas import IikoRecord
+from app.integrations.iiko.schemas import IikoRecord, IikoSupplierDto
 from app.models.iiko import (
     IikoMappingStatus,
     IikoRawEntity,
@@ -526,6 +526,31 @@ async def sync_reference_snapshot(
         source_api_type=source_api_type,
         source_organization_id=source_organization_id,
     )
+    async def supplier_records() -> list[IikoRecord[IikoSupplierDto]]:
+        suppliers = await provider.get_suppliers()
+        records: list[IikoRecord[IikoSupplierDto]] = []
+        for supplier in suppliers:
+            try:
+                external_id = str(UUID(supplier.external_id))
+            except (TypeError, ValueError) as error:
+                raise IikoContractError("Invalid iiko supplier GUID") from error
+            records.append(IikoRecord(
+                entity_type="supplier",
+                external_id=external_id,
+                is_active=supplier.is_supplier and not supplier.is_deleted,
+                dto=supplier,
+                raw_payload={
+                    "id": external_id,
+                    "name": supplier.name,
+                    "code": supplier.code,
+                    "supplier": supplier.is_supplier,
+                    "employee": supplier.is_employee,
+                    "representsStore": supplier.represents_store,
+                    "deleted": supplier.is_deleted,
+                },
+            ))
+        return records
+
     readers: list[
         tuple[str, Callable[[], Awaitable[list[IikoRecord[Any]]]]]
     ] = [
@@ -536,6 +561,7 @@ async def sync_reference_snapshot(
         ("products", provider.get_products),
         ("units", provider.get_units),
         ("packages", provider.get_packages),
+        ("suppliers", supplier_records),
     ]
     errors: list[tuple[str, Exception]] = []
     try:

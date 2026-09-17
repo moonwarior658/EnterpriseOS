@@ -24,9 +24,11 @@ from app.models.supply import (
     SupplyProduct,
     SupplyProductSupplier,
     SupplyPurchaseAllocation,
+    SupplyPurchaseAllocationSource,
     SupplySupplierOrder,
     SupplySupplierOrderDeliveryAttempt,
     SupplySupplierOrderLine,
+    SupplySupplierOrderLineSource,
     SupplySupplierConfirmation,
     SupplySupplierConfirmationDeviation,
     SupplySupplierDocument,
@@ -37,6 +39,7 @@ from app.models.supply import (
     SupplySupplierSettlementAdjustment,
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
+    SupplySupplierAcceptanceLineSource,
     SupplyAcceptanceResolution,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
@@ -92,7 +95,9 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplyProcurementNeed.__table__,
             SupplyPurchaseRequestLineSource.__table__,
             SupplyPurchaseAllocation.__table__,
+            SupplyPurchaseAllocationSource.__table__,
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
+            SupplySupplierOrderLineSource.__table__,
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
             SupplySupplierConfirmationDeviation.__table__,
             SupplySupplierObligation.__table__,
@@ -101,6 +106,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierPaymentAllocation.__table__,
             SupplySupplierSettlementAdjustment.__table__,
             SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
+            SupplySupplierAcceptanceLineSource.__table__,
             SupplyAcceptanceResolution.__table__,
         ):
             table.create(self.engine)
@@ -433,6 +439,100 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             f"/supply/purchase-requests/{request_id}/lines/{line_id}/allocations/{allocation['id']}",
             json={"packages_count": 8},
         ).status_code, 409)
+
+    def test_quantity_traceability_explicit_distribution_snapshot_acceptance_and_coverage(self) -> None:
+        need_a = self.add_need("30.000", need_date=date.today() - timedelta(days=1))
+        need_b = self.add_need("40.000", need_date=date.today() - timedelta(days=1))
+        request_id = self.create_request()["id"]
+        collected = self.client.post(
+            f"/supply/purchase-requests/{request_id}/collect-needs"
+        )
+        self.assertEqual(collected.status_code, 200, collected.text)
+        line = collected.json()["lines"][0]
+        self.assertEqual(len(line["sources"]), 2)
+        self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+
+        created = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 6},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        allocation = created.json()["lines"][0]["allocations"][0]
+        self.assertEqual(allocation["traceability_status"], "INCOMPLETE")
+        blocked = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}/allocations/{allocation['id']}/confirm"
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+
+        quantities = {str(need_a): "30.000", str(need_b): "40.000"}
+        distributed = self.client.put(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}/allocations/{allocation['id']}/sources",
+            json={"sources": [
+                {
+                    "purchase_request_line_source_id": source["purchase_request_line_source_id"],
+                    "allocated_quantity": quantities[source["procurement_need_id"]],
+                }
+                for source in allocation["sources"]
+            ]},
+        )
+        self.assertEqual(distributed.status_code, 200, distributed.text)
+        allocation = distributed.json()["lines"][0]["allocations"][0]
+        self.assertEqual(allocation["source_covered_quantity"], "70.000000")
+        self.assertEqual(allocation["procurement_surplus_quantity"], "2.000000")
+        confirmed = self.client.post(
+            f"/supply/purchase-requests/{request_id}/lines/{line['id']}/allocations/{allocation['id']}/confirm"
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+
+        order = self.client.post(
+            f"/supply/purchase-requests/{request_id}/supplier-orders"
+        ).json()["orders"][0]
+        self.assertEqual(len(order["lines"][0]["sources"]), 2)
+        self.client.post(f"/supply/supplier-orders/{order['id']}/ready")
+        with self.sessions.begin() as session:
+            stored = session.get(SupplySupplierOrder, UUID(order["id"]))
+            stored.status = "SENT"
+            stored.sent_at = datetime.now(timezone.utc)
+
+        acceptance = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"destination_mapping_id": str(self.destination_mapping.id)},
+        )
+        self.assertEqual(acceptance.status_code, 201, acceptance.text)
+        acceptance_line = acceptance.json()["lines"][0]
+        updated = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance.json()['id']}/lines/{acceptance_line['id']}",
+            json={"received_quantity": "40", "accepted_quantity": "40", "rejected_quantity": "0"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        acceptance_line = updated.json()["lines"][0]
+        self.assertEqual(acceptance_line["traceability_status"], "INCOMPLETE")
+        accepted_by_need = {str(need_a): "30", str(need_b): "10"}
+        accepted = self.client.put(
+            f"/supply/supplier-acceptances/{acceptance.json()['id']}/lines/{acceptance_line['id']}/sources",
+            json={"sources": [
+                {
+                    "supplier_order_line_source_id": source["supplier_order_line_source_id"],
+                    "accepted_quantity": accepted_by_need[source["procurement_need_id"]],
+                }
+                for source in acceptance_line["sources"]
+            ]},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        recorded = self.client.post(
+            f"/supply/supplier-acceptances/{acceptance.json()['id']}/record"
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+
+        coverage = self.client.get(
+            f"/supply/purchase-requests/{request_id}/coverage"
+        )
+        self.assertEqual(coverage.status_code, 200, coverage.text)
+        by_need = {item["procurement_need_id"]: item for item in coverage.json()["needs"]}
+        self.assertEqual(by_need[str(need_a)]["coverage_status"], "FULLY_COVERED")
+        self.assertTrue(by_need[str(need_a)]["has_delay"])
+        self.assertEqual(by_need[str(need_b)]["coverage_status"], "PARTIALLY_COVERED")
+        self.assertEqual(by_need[str(need_b)]["covered_quantity"], "10.000000")
 
     def test_allocation_rejects_ineligible_unit_availability_and_cross_tenant(self) -> None:
         request_id = self.create_request()["id"]
@@ -1676,6 +1776,15 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             f"/supply/supplier-documents/{document['id']}/record"
         )
         self.assertEqual(recorded_document.status_code, 200, recorded_document.text)
+        with self.sessions() as session:
+            document_total = session.get(
+                SupplySupplierDocument, UUID(document["id"])
+            ).total_amount
+            financial_counts = (
+                session.query(SupplySupplierPayment).count(),
+                session.query(SupplySupplierPaymentAllocation).count(),
+                session.query(SupplySupplierSettlementAdjustment).count(),
+            )
 
         created = self.client.post(
             f"/supply/supplier-orders/{order['id']}/acceptances",
@@ -1694,6 +1803,10 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(acceptance["destination"]["iiko_store_name"], "Основной склад М15")
         self.assertEqual(len(acceptance["lines"]), 1)
         self.assertEqual(acceptance["lines"][0]["documented_quantity"], "24.000000")
+        self.assertIsNone(acceptance["lines"][0]["ordered_vs_confirmed"])
+        self.assertIsNone(acceptance["lines"][0]["confirmed_vs_documented"])
+        self.assertEqual(acceptance["lines"][0]["documented_vs_received"], "0.000000")
+        self.assertEqual(acceptance["lines"][0]["received_vs_accepted"], "0.000000")
 
         line = acceptance["lines"][0]
         invalid = self.client.patch(
@@ -1710,6 +1823,9 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         fixed = self.client.post(f"/supply/supplier-acceptances/{acceptance['id']}/record")
         self.assertEqual(fixed.status_code, 200, fixed.text)
         self.assertEqual(fixed.json()["result"], "PARTIALLY_ACCEPTED")
+        self.assertEqual(fixed.json()["open_issues_count"], 2)
+        self.assertEqual(fixed.json()["lines"][0]["downstream_accepted_quantity"], "16.000000")
+        self.assertEqual(fixed.json()["lines"][0]["receipt_eligible_quantity"], "16.000000")
         self.assertEqual(self.client.patch(
             f"/supply/supplier-acceptances/{acceptance['id']}", json={"comment": "late"},
         ).status_code, 409)
@@ -1727,9 +1843,34 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         )
         self.assertEqual(second.status_code, 201, second.text)
         self.assertEqual(second.json()["lines"][0]["documented_quantity"], "6.000000")
+        second_recorded = self.client.post(
+            f"/supply/supplier-acceptances/{second.json()['id']}/record"
+        )
+        self.assertEqual(second_recorded.status_code, 200, second_recorded.text)
         detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
-        self.assertEqual(detail["acceptance_summary"]["recorded_count"], 1)
+        self.assertEqual(detail["acceptance_summary"]["recorded_count"], 2)
         self.assertTrue(detail["acceptance_summary"]["has_shortage"])
+        cumulative = detail["acceptance_summary"]["cumulative_lines"]
+        self.assertEqual(len(cumulative), 1)
+        self.assertEqual(cumulative[0]["source_quantity"], "24.000000")
+        self.assertEqual(cumulative[0]["total_received"], "24.000000")
+        self.assertEqual(cumulative[0]["total_accepted"], "22.000000")
+        self.assertEqual(cumulative[0]["total_rejected"], "2.000000")
+        self.assertEqual(cumulative[0]["remaining_quantity"], "0.000000")
+        unit_totals = next(iter(
+            detail["acceptance_summary"]["quantities_by_unit"].values()
+        ))
+        self.assertEqual(unit_totals["documented"], "24.000000")
+        with self.sessions() as session:
+            self.assertEqual(
+                session.get(SupplySupplierDocument, UUID(document["id"])).total_amount,
+                document_total,
+            )
+            self.assertEqual(financial_counts, (
+                session.query(SupplySupplierPayment).count(),
+                session.query(SupplySupplierPaymentAllocation).count(),
+                session.query(SupplySupplierSettlementAdjustment).count(),
+            ))
 
     def test_supplier_acceptance_fallback_chain_and_sent_guard(self) -> None:
         ready = self.create_supplier_order()
@@ -1745,6 +1886,8 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(from_order.status_code, 201, from_order.text)
         self.assertEqual(from_order.json()["source"], "ORDER")
         self.assertEqual(from_order.json()["lines"][0]["ordered_quantity"], "24.000000")
+        self.assertIsNone(from_order.json()["lines"][0]["confirmed_quantity"])
+        self.assertIsNone(from_order.json()["lines"][0]["documented_quantity"])
         self.client.post(f"/supply/supplier-acceptances/{from_order.json()['id']}/cancel")
 
         confirmation = self.client.post(
@@ -1760,6 +1903,11 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(from_confirmation.status_code, 201, from_confirmation.text)
         self.assertEqual(from_confirmation.json()["source"], "CONFIRMATION")
         self.assertEqual(from_confirmation.json()["lines"][0]["confirmed_quantity"], "24.000000")
+        self.assertIsNone(from_confirmation.json()["lines"][0]["documented_quantity"])
+        self.assertEqual(
+            from_confirmation.json()["lines"][0]["ordered_vs_confirmed"],
+            "0.000000",
+        )
 
     def test_supplier_acceptance_requires_valid_destination_before_record(self) -> None:
         order = self._sent_order()
@@ -1800,6 +1948,8 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             [(item["issue_type"], item["quantity"]) for item in fully_accepted["resolutions"]],
             [("EXCESS", "2.000000")],
         )
+        self.assertEqual(fully_accepted["lines"][0]["accepted_excess_quantity"], "2.000000")
+        self.assertIsNone(fully_accepted["lines"][0]["receipt_eligible_quantity"])
 
         rejected_excess = self._record_acceptance_case(
             received="12", accepted="10", rejected="2"
@@ -1825,6 +1975,11 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 200, rejected.text)
         self.assertEqual(rejected.json()["downstream_accepted_quantity"], "10.000000")
+        refreshed = self.client.get(
+            f"/supply/supplier-acceptances/{fully_accepted['id']}"
+        ).json()
+        self.assertEqual(refreshed["lines"][0]["downstream_accepted_quantity"], "10.000000")
+        self.assertEqual(refreshed["lines"][0]["receipt_eligible_quantity"], "10.000000")
         with self.sessions() as session:
             line = session.get(
                 SupplySupplierAcceptanceLine,

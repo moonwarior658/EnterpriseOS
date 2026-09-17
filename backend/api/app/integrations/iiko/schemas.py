@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
@@ -227,12 +228,104 @@ class IikoOutgoingInvoiceCreateDto(IikoDto):
         return ET.tostring(document, encoding="utf-8")
 
 
+class IikoIncomingInvoicePreviewItemDto(IikoDto):
+    num: int = Field(ge=1)
+    product_id: UUID
+    store_id: UUID
+    amount: Decimal = Field(gt=0, allow_inf_nan=False)
+    amount_unit_id: UUID
+    price: Decimal = Field(gt=0, allow_inf_nan=False)
+    sum_amount: Decimal = Field(ge=0, allow_inf_nan=False)
+
+
+class IikoIncomingInvoicePreviewDto(IikoDto):
+    document_number: str = Field(min_length=1)
+    date_incoming: datetime
+    incoming_date: date
+    supplier_id: UUID
+    default_store_id: UUID
+    status: Literal["NEW"] = "NEW"
+    items: tuple[IikoIncomingInvoicePreviewItemDto, ...] = Field(min_length=1)
+
+    def to_iiko_xml(self) -> bytes:
+        """Build the import DTO only; sending it is a separate operation."""
+        document = ET.Element("document")
+
+        def add_text(parent: ET.Element, name: str, value: str) -> None:
+            ET.SubElement(parent, name).text = value
+
+        add_text(document, "documentNumber", self.document_number)
+        add_text(
+            document,
+            "dateIncoming",
+            self.date_incoming.isoformat(timespec="seconds"),
+        )
+        add_text(document, "incomingDate", self.incoming_date.isoformat())
+        add_text(document, "supplierId", str(self.supplier_id))
+        add_text(document, "defaultStoreId", str(self.default_store_id))
+        add_text(document, "status", self.status)
+        items = ET.SubElement(document, "items")
+        for item in self.items:
+            item_element = ET.SubElement(items, "item")
+            add_text(item_element, "num", str(item.num))
+            add_text(item_element, "productId", str(item.product_id))
+            add_text(item_element, "storeId", str(item.store_id))
+            add_text(item_element, "amount", format(item.amount, "f"))
+            add_text(item_element, "amountUnit", str(item.amount_unit_id))
+            add_text(item_element, "price", format(item.price, "f"))
+            add_text(item_element, "sum", format(item.sum_amount, "f"))
+        return ET.tostring(document, encoding="utf-8")
+
+
+class IikoIncomingInvoiceStatus(StrEnum):
+    NEW = "NEW"
+    PROCESSED = "PROCESSED"
+    DELETED = "DELETED"
+    UNKNOWN = "UNKNOWN"
+
+
+class IikoIncomingInvoiceItemDto(IikoDto):
+    external_id: UUID | None = None
+    line_no: int | None = Field(default=None, ge=0)
+    code: str | None = None
+    product_id: UUID
+    product_article: str | None = None
+    supplier_product_id: UUID | None = None
+    supplier_product_article: str | None = None
+    store_id: UUID | None = None
+    amount: Decimal = Field(allow_inf_nan=False)
+    actual_amount: Decimal | None = Field(default=None, allow_inf_nan=False)
+    amount_unit: UUID | None = None
+    container_id: UUID | None = None
+    price: Decimal | None = Field(default=None, allow_inf_nan=False)
+    price_without_vat: Decimal | None = Field(
+        default=None, allow_inf_nan=False
+    )
+    price_unit: Decimal | None = Field(default=None, allow_inf_nan=False)
+    sum_amount: Decimal | None = Field(default=None, allow_inf_nan=False)
+    discount_sum: Decimal | None = Field(default=None, allow_inf_nan=False)
+    vat_percent: Decimal | None = Field(default=None, allow_inf_nan=False)
+    vat_sum: Decimal | None = Field(default=None, allow_inf_nan=False)
+    is_additional_expense: bool | None = None
+
+
 class IikoIncomingInvoiceDto(IikoDto):
-    external_id: str
+    external_id: UUID
     document_number: str
-    status: str
-    default_store_id: str
-    supplier_id: str | None = None
+    status: IikoIncomingInvoiceStatus
+    raw_status: str | None = None
+    supplier_id: UUID | None = None
+    supplier_name: str | None = None
+    supplier_code: str | None = None
+    default_store_id: UUID | None = None
+    date_incoming: datetime | None = None
+    incoming_date: date | datetime | None = None
+    due_date: date | datetime | None = None
+    invoice: str | None = None
+    incoming_document_number: str | None = None
+    comment: str | None = None
+    revision: int | None = Field(default=None, ge=0)
+    items: tuple[IikoIncomingInvoiceItemDto, ...] = ()
 
 
 class IikoProductGroupDto(IikoDto):

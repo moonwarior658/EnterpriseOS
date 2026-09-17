@@ -104,6 +104,9 @@ class FakeProvider(IikoProvider):
     async def get_packages(self):
         return await self._read("packages", [])
 
+    async def get_suppliers(self):
+        return await self._read("suppliers", [])
+
     async def get_stock_balances(self, **kwargs):
         return [
             map_stock_balance(

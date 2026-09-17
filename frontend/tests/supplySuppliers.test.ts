@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   archiveSupplySupplier,
+  confirmSupplySupplierIikoMapping,
   createSupplySupplier,
+  getIikoSupplierReferences,
   getSupplySupplier,
+  getSupplySupplierIikoMapping,
   getSupplySuppliers,
   restoreSupplySupplier,
   SupplyApiError,
@@ -69,6 +72,59 @@ test('подключает admin-only route и пункт навигации п�
   assert.doesNotMatch(page, /archived_by_user_id/)
   assert.match(form, /Минимальная сумма заказа/)
   assert.match(form, /minimumOrderAmountError/)
+})
+
+test('карточка поставщика покрывает empty, search, confirm, remap, deleted warning и readiness', () => {
+  const form = readFileSync(
+    new URL('../src/pages/SupplySupplierForm.tsx', import.meta.url), 'utf8',
+  )
+  const panel = readFileSync(
+    new URL('../src/components/SupplierIikoMappingPanel.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(form, /SupplierIikoMappingPanel/)
+  assert.match(panel, /Поставщик ещё не сопоставлен/)
+  assert.match(panel, /getIikoSupplierReferences/)
+  assert.match(panel, /setSelected\(item\)/)
+  assert.match(panel, /confirmSupplySupplierIikoMapping/)
+  assert.match(panel, /Изменить сопоставление/)
+  assert.match(panel, /window\.confirm/)
+  assert.match(panel, /item\.is_deleted \|\| !item\.is_active/)
+  assert.match(panel, /Удалён в iiko/)
+  assert.match(panel, /iiko_receipt_ready_supplier_mapping/)
+  assert.doesNotMatch(panel, />GUID</)
+})
+
+test('API-клиент использует supplier mapping read, search и explicit confirm endpoints', async () => {
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: () => 'token', setItem: () => undefined, removeItem: () => undefined },
+  })
+  globalThis.fetch = async (input, options = {}) => {
+    calls.push({ url: String(input), options })
+    return new Response(JSON.stringify({
+      items: [], total: 0, mapping: null, history: [],
+      iiko_receipt_ready_supplier_mapping: false, warning: null,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await getSupplySupplierIikoMapping('supplier')
+    await getIikoSupplierReferences('supplier', ' Альфа ', true)
+    await confirmSupplySupplierIikoMapping('supplier', 'iiko-supplier')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(calls[0].url, '/api/supply/suppliers/supplier/iiko-mapping')
+  assert.match(calls[1].url, /\/api\/supply\/iiko\/suppliers\?/)
+  assert.match(calls[1].url, /supplier_id=supplier/)
+  assert.match(calls[1].url, /search=%D0%90%D0%BB%D1%8C%D1%84%D0%B0/)
+  assert.match(calls[1].url, /include_deleted=true/)
+  assert.equal(calls[2].options.method, 'POST')
+  assert.deepEqual(JSON.parse(String(calls[2].options.body)), {
+    iiko_supplier_id: 'iiko-supplier',
+  })
 })
 
 test('форма нормализует строки и отправляет все backend-поля', () => {

@@ -1219,6 +1219,48 @@ class SupplyPurchaseAllocation(Base):
     package_unit_snapshot: Mapped[SupplyUnit] = relationship(
         overlaps="purchase_allocations,purchase_request_line,product_supplier"
     )
+    sources: Mapped[list["SupplyPurchaseAllocationSource"]] = relationship(
+        back_populates="allocation", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplyPurchaseAllocationSource.created_at",
+    )
+
+
+class SupplyPurchaseAllocationSource(Base):
+    __tablename__ = "supply_purchase_allocation_sources"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_purchase_allocation_sources_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "allocation_id", "purchase_request_line_source_id",
+            name="uq_supply_purchase_allocation_sources_pair",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "allocation_id"],
+            ["supply_purchase_allocations.tenant_id", "supply_purchase_allocations.id"],
+            name="fk_supply_purchase_allocation_sources_allocation_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "purchase_request_line_source_id"],
+            ["supply_purchase_request_line_sources.tenant_id", "supply_purchase_request_line_sources.id"],
+            name="fk_supply_purchase_allocation_sources_line_source_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("allocated_quantity > 0", name="ck_supply_purchase_allocation_sources_quantity"),
+        Index(
+            "ix_supply_purchase_allocation_sources_line_source",
+            "tenant_id", "purchase_request_line_source_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    allocation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    purchase_request_line_source_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    allocated_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    allocation: Mapped[SupplyPurchaseAllocation] = relationship(back_populates="sources")
+    purchase_request_line_source: Mapped["SupplyPurchaseRequestLineSource"] = relationship(
+        back_populates="allocation_sources", overlaps="allocation,sources"
+    )
 
 
 class SupplySupplierOrder(Base):
@@ -1387,6 +1429,69 @@ class SupplySupplierOrderLine(Base):
     source_allocation: Mapped[SupplyPurchaseAllocation] = relationship(overlaps="supplier_order,lines")
     product: Mapped[SupplyProduct] = relationship(overlaps="source_allocation,supplier_order,lines")
     package_unit_snapshot: Mapped[SupplyUnit] = relationship(overlaps="product,source_allocation,supplier_order,lines")
+    sources: Mapped[list["SupplySupplierOrderLineSource"]] = relationship(
+        back_populates="order_line", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplySupplierOrderLineSource.created_at",
+    )
+
+
+class SupplySupplierOrderLineSource(Base):
+    __tablename__ = "supply_supplier_order_line_sources"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_order_line_sources_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "order_line_id", "purchase_request_line_source_id",
+            name="uq_supply_supplier_order_line_sources_pair",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "order_line_id"],
+            ["supply_supplier_order_lines.tenant_id", "supply_supplier_order_lines.id"],
+            name="fk_supply_supplier_order_line_sources_order_line_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "allocation_source_id"],
+            ["supply_purchase_allocation_sources.tenant_id", "supply_purchase_allocation_sources.id"],
+            name="fk_supply_supplier_order_line_sources_allocation_source_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "purchase_request_line_source_id"],
+            ["supply_purchase_request_line_sources.tenant_id", "supply_purchase_request_line_sources.id"],
+            name="fk_supply_supplier_order_line_sources_line_source_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("planned_quantity > 0", name="ck_supply_supplier_order_line_sources_quantity"),
+        CheckConstraint(
+            "(source_type_snapshot = 'PROCUREMENT_NEED' AND procurement_need_id_snapshot IS NOT NULL) OR "
+            "(source_type_snapshot = 'MANUAL_FUTURE' AND procurement_need_id_snapshot IS NULL)",
+            name="ck_supply_supplier_order_line_sources_reference",
+        ),
+        Index("ix_supply_supplier_order_line_sources_line", "tenant_id", "order_line_id"),
+        Index(
+            "ix_supply_supplier_order_line_sources_line_source",
+            "tenant_id", "purchase_request_line_source_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    order_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    allocation_source_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    purchase_request_line_source_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_type_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
+    procurement_need_id_snapshot: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    planned_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    order_line: Mapped[SupplySupplierOrderLine] = relationship(back_populates="sources")
+    allocation_source: Mapped[SupplyPurchaseAllocationSource] = relationship(
+        overlaps="order_line,sources"
+    )
+    purchase_request_line_source: Mapped["SupplyPurchaseRequestLineSource"] = relationship(
+        overlaps="allocation_source,order_line,sources"
+    )
+    acceptance_sources: Mapped[list["SupplySupplierAcceptanceLineSource"]] = relationship(
+        back_populates="order_line_source", passive_deletes=True,
+        order_by="SupplySupplierAcceptanceLineSource.created_at",
+    )
 
 
 class SupplySupplierOrderDeliveryAttempt(Base):
@@ -2313,6 +2418,51 @@ class SupplySupplierAcceptanceLine(Base):
         order_by="SupplyAcceptanceResolution.created_at",
         overlaps="acceptance,resolutions",
     )
+    sources: Mapped[list["SupplySupplierAcceptanceLineSource"]] = relationship(
+        back_populates="acceptance_line", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplySupplierAcceptanceLineSource.created_at",
+        overlaps="acceptance_sources",
+    )
+
+
+class SupplySupplierAcceptanceLineSource(Base):
+    __tablename__ = "supply_supplier_acceptance_line_sources"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_acceptance_line_sources_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "acceptance_line_id", "supplier_order_line_source_id",
+            name="uq_supply_supplier_acceptance_line_sources_pair",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "acceptance_line_id"],
+            ["supply_supplier_acceptance_lines.tenant_id", "supply_supplier_acceptance_lines.id"],
+            name="fk_supply_accept_line_sources_line_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_line_source_id"],
+            ["supply_supplier_order_line_sources.tenant_id", "supply_supplier_order_line_sources.id"],
+            name="fk_supply_supplier_acceptance_line_sources_order_source_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("accepted_quantity > 0", name="ck_supply_supplier_acceptance_line_sources_quantity"),
+        Index(
+            "ix_supply_supplier_acceptance_line_sources_order_source",
+            "tenant_id", "supplier_order_line_source_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    acceptance_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_order_line_source_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    accepted_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    acceptance_line: Mapped[SupplySupplierAcceptanceLine] = relationship(
+        back_populates="sources", overlaps="acceptance_sources"
+    )
+    order_line_source: Mapped[SupplySupplierOrderLineSource] = relationship(
+        back_populates="acceptance_sources", overlaps="acceptance_line,sources"
+    )
 
 
 class SupplyAcceptanceResolution(Base):
@@ -2418,6 +2568,10 @@ class SupplyAcceptanceResolution(Base):
 class SupplyPurchaseRequestLineSource(Base):
     __tablename__ = "supply_purchase_request_line_sources"
     __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id",
+            name="uq_supply_purchase_request_line_sources_tenant_id",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "purchase_request_line_id"],
             ["supply_purchase_request_lines.tenant_id", "supply_purchase_request_lines.id"],
@@ -2473,6 +2627,11 @@ class SupplyPurchaseRequestLineSource(Base):
     unit: Mapped[SupplyUnit] = relationship(overlaps="line,sources")
     procurement_need: Mapped["SupplyProcurementNeed | None"] = relationship(
         foreign_keys=[procurement_need_id]
+    )
+    allocation_sources: Mapped[list[SupplyPurchaseAllocationSource]] = relationship(
+        back_populates="purchase_request_line_source", passive_deletes=True,
+        order_by="SupplyPurchaseAllocationSource.created_at",
+        overlaps="allocation,sources",
     )
 
 

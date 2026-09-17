@@ -71,6 +71,18 @@ class SupplySupplierOrderLineRead(BaseModel):
     planned_amount: Decimal
     currency: str
     created_at: datetime
+    traceability_status: str
+    source_covered_quantity: Decimal
+    procurement_surplus_quantity: Decimal
+    sources: list["SupplySupplierOrderLineSourceRead"]
+
+
+class SupplySupplierOrderLineSourceRead(BaseModel):
+    id: UUID
+    purchase_request_line_source_id: UUID
+    source_type: str
+    procurement_need_id: UUID | None
+    planned_quantity: Decimal
 
 
 class SupplySupplierOrderListItem(BaseModel):

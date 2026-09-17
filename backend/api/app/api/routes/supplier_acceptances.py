@@ -10,7 +10,8 @@ from app.models.user import User
 from app.schemas.supplier_acceptance import (
     SupplyAcceptanceResolutionRead, SupplyAcceptanceResolutionResolve,
     SupplySupplierAcceptanceCreate, SupplySupplierAcceptanceLineCreate,
-    SupplySupplierAcceptanceLineUpdate, SupplySupplierAcceptanceRead,
+    SupplySupplierAcceptanceLineSourcesUpdate, SupplySupplierAcceptanceLineUpdate,
+    SupplySupplierAcceptanceRead,
     SupplySupplierAcceptanceUpdate,
 )
 from app.supply.supplier_acceptances import (
@@ -27,7 +28,7 @@ from app.supply.supplier_acceptances import (
     cancel_acceptance, create_acceptance, create_line, delete_line,
     list_acceptance_resolutions, list_acceptances, read_acceptance,
     read_acceptance_resolution, record_acceptance, resolve_acceptance_resolution,
-    update_acceptance, update_line,
+    update_acceptance, update_acceptance_line_sources, update_line,
 )
 
 order_router = APIRouter(prefix="/supply/supplier-orders", tags=["supply"])
@@ -127,6 +128,12 @@ def add_line(acceptance_id: UUID, payload: SupplySupplierAcceptanceLineCreate, d
 def patch_line(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
     try: return update_line(db, acceptance_id, line_id, payload, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError) as error: raise _error(error) from error
+
+
+@acceptance_router.put("/{acceptance_id}/lines/{line_id}/sources", response_model=SupplySupplierAcceptanceRead)
+def patch_line_sources(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineSourcesUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+    try: return update_acceptance_line_sources(db, acceptance_id, line_id, payload.sources, tenant_id=admin.tenant_id)
+    except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError, SupplierAcceptanceConflictError) as error: raise _error(error) from error
 
 
 @acceptance_router.delete("/{acceptance_id}/lines/{line_id}", response_model=SupplySupplierAcceptanceRead)

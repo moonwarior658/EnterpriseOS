@@ -10,10 +10,12 @@ from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 from app.models.supply import (
     SupplyProductSupplier,
     SupplyPurchaseAllocation,
+    SupplyPurchaseAllocationSource,
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
     SupplySupplierOrder,
     SupplySupplierOrderLine,
+    SupplySupplierOrderLineSource,
     SupplySupplierConfirmation,
     SupplySupplierAcceptance,
     SupplySupplierPayment,
@@ -25,6 +27,7 @@ from app.schemas.supplier_order import (
     SupplySupplierOrderMessageRecipient,
     SupplySupplierOrderMessageResponsible,
     SupplySupplierOrderLineRead,
+    SupplySupplierOrderLineSourceRead,
     SupplySupplierOrderListItem,
     SupplySupplierOrderMinimumStatus,
     SupplySupplierOrderRead,
@@ -71,6 +74,9 @@ def _options():
         joinedload(SupplySupplierOrder.purchase_request),
         selectinload(SupplySupplierOrder.lines).joinedload(
             SupplySupplierOrderLine.package_unit_snapshot
+        ),
+        selectinload(SupplySupplierOrder.lines).selectinload(
+            SupplySupplierOrderLine.sources
         ),
         selectinload(SupplySupplierOrder.delivery_attempts),
         selectinload(SupplySupplierOrder.confirmations).selectinload(
@@ -135,6 +141,22 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
             base_unit_price_snapshot=line.base_unit_price_snapshot,
             planned_amount=line.planned_amount, currency=line.currency,
             created_at=line.created_at,
+            traceability_status=("TRACEABLE" if line.sources else "UNTRACEABLE_LEGACY"),
+            source_covered_quantity=sum(
+                (Decimal(source.planned_quantity) for source in line.sources), Decimal("0")
+            ),
+            procurement_surplus_quantity=max(
+                Decimal(line.quantity_base) - sum(
+                    (Decimal(source.planned_quantity) for source in line.sources), Decimal("0")
+                ), Decimal("0"),
+            ),
+            sources=[SupplySupplierOrderLineSourceRead(
+                id=source.id,
+                purchase_request_line_source_id=source.purchase_request_line_source_id,
+                source_type=source.source_type_snapshot,
+                procurement_need_id=source.procurement_need_id_snapshot,
+                planned_quantity=source.planned_quantity,
+            ) for source in line.sources],
         ) for line in order.lines],
         created_at=order.created_at, updated_at=order.updated_at,
         confirmed_at=order.confirmed_at, cancelled_at=order.cancelled_at,
@@ -351,8 +373,13 @@ def create_supplier_orders(
         .options(
             joinedload(SupplyPurchaseAllocation.purchase_request_line).joinedload(SupplyPurchaseRequestLine.product),
             joinedload(SupplyPurchaseAllocation.product_supplier).joinedload(SupplyProductSupplier.supplier),
+            selectinload(SupplyPurchaseAllocation.sources).joinedload(
+                SupplyPurchaseAllocationSource.purchase_request_line_source
+            ),
         ).with_for_update(of=SupplyPurchaseAllocation)
     ).all())
+    if any(not allocation.sources for allocation in allocations):
+        raise SupplierOrderConflictError
     grouped: dict[UUID, list[SupplyPurchaseAllocation]] = defaultdict(list)
     for allocation in allocations:
         grouped[allocation.product_supplier.supplier_id].append(allocation)
@@ -369,7 +396,7 @@ def create_supplier_orders(
             )
             session.add(order); session.flush(); created.append(order.id)
             for allocation in group:
-                session.add(SupplySupplierOrderLine(
+                order_line = SupplySupplierOrderLine(
                     tenant_id=tenant_id, supplier_order_id=order.id,
                     source_allocation_id=allocation.id,
                     product_id=allocation.purchase_request_line.product_id,
@@ -382,7 +409,19 @@ def create_supplier_orders(
                     base_unit_price_snapshot=allocation.base_unit_price_snapshot,
                     planned_amount=allocation.planned_amount, currency=allocation.currency,
                     is_active_owner=True,
-                ))
+                )
+                session.add(order_line)
+                session.flush()
+                for source in allocation.sources:
+                    line_source = source.purchase_request_line_source
+                    order_line.sources.append(SupplySupplierOrderLineSource(
+                        tenant_id=tenant_id,
+                        allocation_source_id=source.id,
+                        purchase_request_line_source_id=source.purchase_request_line_source_id,
+                        source_type_snapshot=line_source.source_type,
+                        procurement_need_id_snapshot=line_source.procurement_need_id,
+                        planned_quantity=source.allocated_quantity,
+                    ))
         session.commit()
     except IntegrityError as error:
         session.rollback()

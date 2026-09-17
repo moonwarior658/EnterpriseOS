@@ -14,10 +14,12 @@ from app.schemas.purchase_request import (
     SupplyPurchaseRequestLineUpdate,
     SupplyPurchaseRequestPage,
     SupplyPurchaseRequestRead,
+    SupplyPurchaseRequestCoverageRead,
     SupplyPurchaseRequestUpdate,
 )
 from app.schemas.purchase_allocation import (
     SupplyPurchaseAllocationCreate,
+    SupplyPurchaseAllocationSourcesUpdate,
     SupplyPurchaseAllocationUpdate,
     SupplyPurchaseAllocationWorkspaceRead,
 )
@@ -31,6 +33,7 @@ from app.supply.purchase_allocations import (
     delete_purchase_allocation,
     get_purchase_allocation_workspace,
     update_purchase_allocation,
+    update_purchase_allocation_sources,
 )
 from app.supply.purchase_requests import (
     DuplicatePurchaseRequestLineError,
@@ -47,6 +50,7 @@ from app.supply.purchase_requests import (
     create_purchase_request,
     delete_purchase_request_line,
     get_purchase_request,
+    get_purchase_request_coverage,
     list_purchase_requests,
     mark_purchase_request_ready,
     update_purchase_request,
@@ -142,6 +146,18 @@ def read_purchase_request(
     admin: Annotated[User, Depends(get_current_admin)],
 ) -> SupplyPurchaseRequest:
     return _get(db, request_id, admin)
+
+
+@router.get("/{request_id}/coverage", response_model=SupplyPurchaseRequestCoverageRead)
+def read_purchase_request_coverage(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseRequestCoverageRead:
+    try:
+        return get_purchase_request_coverage(db, request_id, tenant_id=admin.tenant_id)
+    except PurchaseRequestNotFoundError as error:
+        raise _not_found() from error
 
 
 @router.patch("/{request_id}", response_model=SupplyPurchaseRequestRead)
@@ -408,5 +424,26 @@ def confirm_allocation(
     except (
         PurchaseAllocationNotFoundError, PurchaseAllocationStateError,
         PurchaseAllocationEligibilityError,
+    ) as error:
+        raise _allocation_error(error) from error
+
+
+@router.put(
+    "/{request_id}/lines/{line_id}/allocations/{allocation_id}/sources",
+    response_model=SupplyPurchaseAllocationWorkspaceRead,
+)
+def update_allocation_sources(
+    request_id: UUID, line_id: UUID, allocation_id: UUID,
+    payload: SupplyPurchaseAllocationSourcesUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplyPurchaseAllocationWorkspaceRead:
+    try:
+        return update_purchase_allocation_sources(
+            db, request_id, line_id, allocation_id, payload.sources,
+            tenant_id=admin.tenant_id,
+        )
+    except (
+        PurchaseAllocationNotFoundError, PurchaseAllocationStateError,
     ) as error:
         raise _allocation_error(error) from error

@@ -3,19 +3,24 @@ import { Link, useParams } from 'react-router-dom'
 import { EosDateField, EosSelect } from '../components/EosFormControls'
 import { EosProductCombobox } from '../components/EosProductCombobox'
 import SupplyPurchaseAllocationWorkspace from './SupplyPurchaseAllocationWorkspace'
+import ProcurementCashFlowSummary from '../components/ProcurementCashFlowSummary'
 import {
   addSupplyPurchaseRequestLine,
   cancelSupplyPurchaseRequest,
   collectSupplyPurchaseRequestNeeds,
   deleteSupplyPurchaseRequestLine,
   getSupplyPurchaseRequest,
+  getSupplyPurchaseRequestCoverage,
+  getSupplyPurchaseRequestCashFlow,
   getSupplyUnits,
   readySupplyPurchaseRequest,
   updateSupplyPurchaseRequest,
   updateSupplyPurchaseRequestLine,
   type SupplyProduct,
   type SupplyPurchaseRequest,
+  type SupplyPurchaseRequestCoverage,
   type SupplyPurchaseRequestLine,
+  type SupplyProcurementCashFlowSummary as CashFlowSummary,
   type SupplyUnit,
   SupplyApiError,
 } from '../services/supplyAdmin'
@@ -44,14 +49,20 @@ export default function SupplyPurchaseRequestDetailPage() {
   const [message, setMessage] = useState('')
   const [collected, setCollected] = useState(false)
   const [showAllocations, setShowAllocations] = useState(false)
+  const [coverage, setCoverage] = useState<SupplyPurchaseRequestCoverage | null>(null)
+  const [cashFlow, setCashFlow] = useState<CashFlowSummary | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
     Promise.all([
       getSupplyPurchaseRequest(requestId, controller.signal),
       getSupplyUnits(controller.signal),
-    ]).then(([loaded, loadedUnits]) => {
+      getSupplyPurchaseRequestCoverage(requestId, controller.signal),
+      getSupplyPurchaseRequestCashFlow(requestId, controller.signal),
+    ]).then(([loaded, loadedUnits, loadedCoverage, loadedCashFlow]) => {
       setRequest(loaded); setNeedDate(loaded.need_date)
+      setCoverage(loadedCoverage)
+      setCashFlow(loadedCashFlow)
       setComment(loaded.comment ?? ''); setUnits(loadedUnits.filter((unit) => unit.is_active))
     }).catch(() => { if (!controller.signal.aborted) setMessage('Не удалось загрузить закупочный запрос') })
     return () => controller.abort()
@@ -131,6 +142,10 @@ export default function SupplyPurchaseRequestDetailPage() {
         {isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="secondary-action" disabled={busy} onClick={collectNeeds}>Собрать потребность</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
         {request.status === 'READY' && <div className="purchase-actions"><button type="button" className="primary-action" onClick={() => setShowAllocations((value) => !value)}>{showAllocations ? 'Скрыть распределение' : 'Распределить по поставщикам'}</button></div>}
 
+        {request.status === 'READY' && coverage && <div className="allocation-summary"><div><span>Покрыто полностью</span><strong>{coverage.fully_covered_count}</strong></div><div><span>Покрыто частично</span><strong>{coverage.partially_covered_count}</strong></div><div><span>Не покрыто</span><strong>{coverage.not_covered_count}</strong></div><div><span>Legacy без traceability</span><strong>{coverage.unknown_legacy_count}</strong></div><div><span>С задержкой</span><strong>{coverage.delayed_count}</strong></div><div><span>Будущая потребность покрыта</span><strong>{coverage.manual_future_covered_quantity}</strong></div></div>}
+
+        {cashFlow && <ProcurementCashFlowSummary value={cashFlow} />}
+
         {request.status === 'READY' && showAllocations && <SupplyPurchaseAllocationWorkspace requestId={requestId} />}
 
         {isDraft && (
@@ -147,7 +162,7 @@ export default function SupplyPurchaseRequestDetailPage() {
           <div className="supplier-table-wrap"><table className="supplier-table purchase-lines-table"><thead><tr><th>Товар</th><th>Количество</th><th>Источник / разбивка</th><th>Комментарий</th>{isDraft && <th>Действия</th>}</tr></thead><tbody>{request.lines.map((line) => {
             const automatic = line.sources.filter((source) => source.source_type === 'PROCUREMENT_NEED')
             const hasManual = line.sources.some((source) => source.source_type === 'MANUAL_FUTURE')
-            return <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{automatic.length > 0 && <div className="purchase-source-group"><strong>Автоматическая потребность {automatic.reduce((sum, source) => sum + Number(source.quantity), 0)} {line.unit.short_name_ru}</strong>{automatic.map((source) => <div className="purchase-source-trace" key={source.id}><span>{source.procurement_need?.department ?? 'Подразделение не указано'} · {source.quantity} {source.unit.short_name_ru}</span><small>{source.procurement_need?.request_number ? `Заявка ${source.procurement_need.request_number}` : 'Долг подразделения'} · {REASON_LABELS[source.procurement_need?.reason ?? ''] ?? source.procurement_need?.reason}</small></div>)}</div>}{hasManual && <div className="purchase-source-group"><strong>Будущая потребность {line.manual_future_quantity} {line.unit.short_name_ru}</strong></div>}</td><td>{line.comment || '—'}</td>{isDraft && <td><div className="supplier-row-actions">{hasManual && <button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить будущую</button>}{hasManual && <button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить будущую</button>}</div></td>}</tr>
+            return <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{automatic.length > 0 && <div className="purchase-source-group"><strong>Автоматическая потребность {automatic.reduce((sum, source) => sum + Number(source.quantity), 0)} {line.unit.short_name_ru}</strong>{automatic.map((source) => { const item = coverage?.needs.find((value) => value.purchase_request_line_source_id === source.id); return <div className="purchase-source-trace" key={source.id}><span>{source.procurement_need?.department ?? 'Подразделение не указано'} · {source.quantity} {source.unit.short_name_ru}</span><small>{source.procurement_need?.request_number ? `Заявка ${source.procurement_need.request_number}` : 'Долг подразделения'} · {REASON_LABELS[source.procurement_need?.reason ?? ''] ?? source.procurement_need?.reason}</small>{item && <small>{item.coverage_status === 'UNKNOWN_LEGACY' ? 'Покрытие неизвестно: legacy без количественной traceability' : `${item.covered_quantity} / ${item.required_quantity} · ${item.coverage_status === 'FULLY_COVERED' ? 'покрыто' : item.coverage_status === 'PARTIALLY_COVERED' ? 'частично' : 'не покрыто'}${item.has_delay ? ' · с задержкой' : ''}`}</small>}</div>})}</div>}{hasManual && <div className="purchase-source-group"><strong>Будущая потребность {line.manual_future_quantity} {line.unit.short_name_ru}</strong></div>}</td><td>{line.comment || '—'}</td>{isDraft && <td><div className="supplier-row-actions">{hasManual && <button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить будущую</button>}{hasManual && <button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить будущую</button>}</div></td>}</tr>
           })}</tbody></table></div>
         )}
       </div>

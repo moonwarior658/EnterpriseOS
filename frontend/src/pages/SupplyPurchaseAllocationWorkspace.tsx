@@ -6,6 +6,7 @@ import {
   deleteSupplyPurchaseAllocation,
   getSupplyPurchaseAllocations,
   updateSupplyPurchaseAllocation,
+  updateSupplyPurchaseAllocationSources,
   createSupplySupplierOrders,
   type SupplySupplierOrder,
   type SupplyPurchaseAllocationWorkspace as Workspace,
@@ -26,6 +27,7 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
   const [busyKey, setBusyKey] = useState('')
   const [message, setMessage] = useState('')
   const [orders, setOrders] = useState<SupplySupplierOrder[]>([])
+  const [sourceValues, setSourceValues] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const controller = new AbortController()
@@ -51,6 +53,10 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
     } catch (error) {
       setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось сформировать заказы')
     } finally { setBusyKey('') }
+  }
+
+  function sourceValue(allocationId: string, sourceId: string, fallback: string) {
+    return sourceValues[`${allocationId}:${sourceId}`] ?? fallback
   }
 
   if (!workspace) return <p className="page-state">{message || 'Загружаем поставщиков…'}</p>
@@ -103,9 +109,24 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
             <span>{count} уп. = {quantity} {line.unit.short_name_ru}</span>
           </div>
           <strong className="allocation-amount">{money.format(Number(amount))}</strong>
+          {allocation && <div className="purchase-source-group">
+            <strong>Распределение по источникам</strong>
+            {allocation.sources.map((source) => <label className="eos-field" key={source.purchase_request_line_source_id}>
+              <span>{source.source_type === 'MANUAL_FUTURE' ? 'Будущая потребность' : source.source_label}{source.need_date ? ` · ${source.need_date}` : ''}</span>
+              <small>Нужно {source.required_quantity}; уже распределено {source.already_allocated_quantity}; осталось {source.remaining_quantity} {line.unit.short_name_ru}</small>
+              <input aria-label={`Источник ${source.source_label}`} type="number" min="0" step="0.000001" disabled={readOnly || busyKey !== '' || allocation.sources.length === 1} value={sourceValue(allocation.id, source.purchase_request_line_source_id, source.allocated_quantity)} onChange={(event) => setSourceValues({ ...sourceValues, [`${allocation.id}:${source.purchase_request_line_source_id}`]: event.target.value })} />
+            </label>)}
+            {(() => {
+              const target = Math.min(Number(quantity), allocation.sources.reduce((sum, source) => sum + Number(source.remaining_quantity), 0))
+              const distributed = allocation.sources.reduce((sum, source) => sum + Number(sourceValue(allocation.id, source.purchase_request_line_source_id, source.allocated_quantity)), 0)
+              const left = Math.max(target - distributed, 0)
+              return <><p>Осталось распределить: {left} {line.unit.short_name_ru}</p><p>Покрыто источниками: {distributed}; излишек фасовки: {Math.max(Number(quantity) - distributed, 0)} {line.unit.short_name_ru}</p>{allocation.status === 'DRAFT' && allocation.sources.length > 1 && <button type="button" className="secondary-action" disabled={busyKey !== '' || Math.abs(left) > 0.000001 || distributed > target + 0.000001} onClick={() => mutate(allocation.id, () => updateSupplyPurchaseAllocationSources(requestId, line.line_id, allocation.id, allocation.sources.filter((source) => Number(sourceValue(allocation.id, source.purchase_request_line_source_id, source.allocated_quantity)) > 0).map((source) => ({ purchase_request_line_source_id: source.purchase_request_line_source_id, allocated_quantity: sourceValue(allocation.id, source.purchase_request_line_source_id, source.allocated_quantity) }))))}>Сохранить распределение</button>}</>
+            })()}
+            {allocation.traceability_status === 'UNTRACEABLE_LEGACY' && <p className="allocation-warning">Для legacy-распределения происхождение количества неизвестно.</p>}
+          </div>}
           <div className="supplier-row-actions">
             {!allocation && <button type="button" className="primary-action" disabled={busyKey !== ''} onClick={() => mutate(supplier.product_supplier_id, () => createSupplyPurchaseAllocation(requestId, line.line_id, supplier.product_supplier_id, count))}>Добавить</button>}
-            {allocation?.status === 'DRAFT' && <><button type="button" className="secondary-action" disabled={busyKey !== ''} onClick={() => mutate(allocation.id, () => updateSupplyPurchaseAllocation(requestId, line.line_id, allocation.id, count))}>Сохранить</button><button type="button" className="primary-action" disabled={busyKey !== ''} onClick={() => mutate(allocation.id, () => confirmSupplyPurchaseAllocation(requestId, line.line_id, allocation.id))}>Подтвердить</button><button type="button" className="danger-action" disabled={busyKey !== ''} onClick={() => mutate(allocation.id, () => deleteSupplyPurchaseAllocation(requestId, line.line_id, allocation.id))}>Удалить</button></>}
+            {allocation?.status === 'DRAFT' && <><button type="button" className="secondary-action" disabled={busyKey !== ''} onClick={() => mutate(allocation.id, () => updateSupplyPurchaseAllocation(requestId, line.line_id, allocation.id, count))}>Сохранить</button><button type="button" className="primary-action" disabled={busyKey !== '' || allocation.traceability_status !== 'TRACEABLE'} onClick={() => mutate(allocation.id, () => confirmSupplyPurchaseAllocation(requestId, line.line_id, allocation.id))}>Подтвердить</button><button type="button" className="danger-action" disabled={busyKey !== ''} onClick={() => mutate(allocation.id, () => deleteSupplyPurchaseAllocation(requestId, line.line_id, allocation.id))}>Удалить</button></>}
             {readOnly && <span className="purchase-status purchase-status-ready">Подтверждено</span>}
           </div>
         </section>

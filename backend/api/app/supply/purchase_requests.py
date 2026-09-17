@@ -13,15 +13,24 @@ from app.models.supply import (
     SupplyPurchaseRequest,
     SupplyPurchaseRequestLine,
     SupplyPurchaseRequestLineSource,
+    SupplyPurchaseAllocation,
+    SupplyPurchaseAllocationSource,
     SupplyRequest,
     SupplyRequestLine,
     SupplyUnit,
+    SupplySupplierAcceptance,
+    SupplySupplierAcceptanceLine,
+    SupplySupplierAcceptanceLineSource,
+    SupplySupplierOrderLine,
+    SupplySupplierOrderLineSource,
 )
 from app.schemas.purchase_request import (
     SupplyPurchaseRequestCreate,
     SupplyPurchaseRequestLineCreate,
     SupplyPurchaseRequestLineUpdate,
     SupplyPurchaseRequestUpdate,
+    SupplyProcurementNeedCoverageRead,
+    SupplyPurchaseRequestCoverageRead,
 )
 
 
@@ -130,6 +139,156 @@ def list_purchase_requests(
         .limit(limit).offset(offset)
     ).all())
     return items, total
+
+
+def get_purchase_request_coverage(
+    session: Session, request_id: UUID, *, tenant_id: str,
+) -> SupplyPurchaseRequestCoverageRead:
+    request = get_purchase_request(session, request_id, tenant_id=tenant_id)
+    needs: list[SupplyProcurementNeedCoverageRead] = []
+    manual_covered = Decimal("0")
+    for line in request.lines:
+        confirmed_untraceable = bool(session.scalar(
+            select(func.count()).select_from(SupplyPurchaseAllocation).where(
+                SupplyPurchaseAllocation.tenant_id == tenant_id,
+                SupplyPurchaseAllocation.purchase_request_line_id == line.id,
+                SupplyPurchaseAllocation.status == "CONFIRMED",
+                ~SupplyPurchaseAllocation.id.in_(
+                    select(SupplyPurchaseAllocationSource.allocation_id).where(
+                        SupplyPurchaseAllocationSource.tenant_id == tenant_id
+                    )
+                ),
+            )
+        ))
+        order_untraceable = bool(session.scalar(
+            select(func.count()).select_from(SupplySupplierOrderLine)
+            .join(
+                SupplyPurchaseAllocation,
+                SupplyPurchaseAllocation.id == SupplySupplierOrderLine.source_allocation_id,
+            )
+            .where(
+                SupplySupplierOrderLine.tenant_id == tenant_id,
+                SupplyPurchaseAllocation.purchase_request_line_id == line.id,
+                ~SupplySupplierOrderLine.id.in_(
+                    select(SupplySupplierOrderLineSource.order_line_id).where(
+                        SupplySupplierOrderLineSource.tenant_id == tenant_id
+                    )
+                ),
+            )
+        ))
+        acceptance_untraceable = bool(session.scalar(
+            select(func.count()).select_from(SupplySupplierAcceptanceLine)
+            .join(
+                SupplySupplierAcceptance,
+                SupplySupplierAcceptance.id == SupplySupplierAcceptanceLine.acceptance_id,
+            )
+            .join(
+                SupplySupplierOrderLine,
+                SupplySupplierOrderLine.id == SupplySupplierAcceptanceLine.supplier_order_line_id,
+            )
+            .join(
+                SupplyPurchaseAllocation,
+                SupplyPurchaseAllocation.id == SupplySupplierOrderLine.source_allocation_id,
+            )
+            .where(
+                SupplySupplierAcceptanceLine.tenant_id == tenant_id,
+                SupplyPurchaseAllocation.purchase_request_line_id == line.id,
+                SupplySupplierAcceptance.status == "RECORDED",
+                SupplySupplierAcceptanceLine.accepted_quantity > 0,
+                ~SupplySupplierAcceptanceLine.id.in_(
+                    select(SupplySupplierAcceptanceLineSource.acceptance_line_id).where(
+                        SupplySupplierAcceptanceLineSource.tenant_id == tenant_id
+                    )
+                ),
+            )
+        ))
+        line_unknown = confirmed_untraceable or order_untraceable or acceptance_untraceable
+        for source in line.sources:
+            fact_rows = session.execute(
+                select(
+                    SupplySupplierAcceptanceLineSource.accepted_quantity,
+                    SupplySupplierAcceptance.recorded_at,
+                )
+                .join(
+                    SupplySupplierOrderLineSource,
+                    SupplySupplierOrderLineSource.id
+                    == SupplySupplierAcceptanceLineSource.supplier_order_line_source_id,
+                )
+                .join(
+                    SupplySupplierAcceptanceLine,
+                    SupplySupplierAcceptanceLine.id
+                    == SupplySupplierAcceptanceLineSource.acceptance_line_id,
+                )
+                .join(
+                    SupplySupplierAcceptance,
+                    SupplySupplierAcceptance.id == SupplySupplierAcceptanceLine.acceptance_id,
+                )
+                .where(
+                    SupplySupplierAcceptanceLineSource.tenant_id == tenant_id,
+                    SupplySupplierOrderLineSource.purchase_request_line_source_id == source.id,
+                    SupplySupplierAcceptance.status == "RECORDED",
+                )
+            ).all()
+            attributable = sum((Decimal(row[0]) for row in fact_rows), Decimal("0"))
+            if source.source_type == "MANUAL_FUTURE":
+                if not line_unknown:
+                    manual_covered += min(Decimal(source.quantity), attributable)
+                continue
+            if source.procurement_need_id is None:
+                continue
+            required = Decimal(source.quantity)
+            if line_unknown:
+                needs.append(SupplyProcurementNeedCoverageRead(
+                    purchase_request_line_source_id=source.id,
+                    procurement_need_id=source.procurement_need_id,
+                    required_quantity=required,
+                    covered_quantity=None, remaining_quantity=None,
+                    coverage_status="UNKNOWN_LEGACY",
+                    traceability_status="UNKNOWN_LEGACY",
+                    has_delay=None, has_substitution=None,
+                    substitution_status="MISSING_SOURCE_FACT",
+                ))
+                continue
+            covered = min(required, attributable)
+            status = (
+                "NOT_COVERED" if covered == 0
+                else "FULLY_COVERED" if covered >= required
+                else "PARTIALLY_COVERED"
+            )
+            need_date = source.procurement_need.need_date if source.procurement_need else None
+            has_delay = bool(
+                covered >= required and need_date is not None and any(
+                    recorded_at is not None
+                    and recorded_at.date() > need_date
+                    and Decimal(quantity) > 0
+                    for quantity, recorded_at in fact_rows
+                )
+            )
+            needs.append(SupplyProcurementNeedCoverageRead(
+                purchase_request_line_source_id=source.id,
+                procurement_need_id=source.procurement_need_id,
+                required_quantity=required,
+                covered_quantity=covered,
+                remaining_quantity=max(required - covered, Decimal("0")),
+                coverage_status=status, traceability_status="TRACEABLE",
+                has_delay=has_delay, has_substitution=False,
+                substitution_status="MISSING_SOURCE_FACT",
+            ))
+    counts = {key: sum(item.coverage_status == key for item in needs) for key in (
+        "FULLY_COVERED", "PARTIALLY_COVERED", "NOT_COVERED", "UNKNOWN_LEGACY"
+    )}
+    return SupplyPurchaseRequestCoverageRead(
+        request_id=request.id, needs=needs,
+        fully_covered_count=counts["FULLY_COVERED"],
+        partially_covered_count=counts["PARTIALLY_COVERED"],
+        not_covered_count=counts["NOT_COVERED"],
+        unknown_legacy_count=counts["UNKNOWN_LEGACY"],
+        delayed_count=sum(item.has_delay is True for item in needs),
+        uncovered_positions_count=sum(
+            item.coverage_status != "FULLY_COVERED" for item in needs
+        ),
+        manual_future_covered_quantity=manual_covered,
+    )
 
 
 def _next_number(session: Session, tenant_id: str, need_date) -> str:

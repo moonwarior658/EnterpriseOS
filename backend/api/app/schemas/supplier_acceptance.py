@@ -81,6 +81,30 @@ class SupplySupplierAcceptanceLineUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SupplySupplierAcceptanceLineSourceWrite(BaseModel):
+    supplier_order_line_source_id: UUID
+    accepted_quantity: Decimal = Field(gt=0, max_digits=30, decimal_places=6)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplySupplierAcceptanceLineSourcesUpdate(BaseModel):
+    sources: list[SupplySupplierAcceptanceLineSourceWrite]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SupplySupplierAcceptanceLineSourceRead(BaseModel):
+    supplier_order_line_source_id: UUID
+    source_type: str
+    procurement_need_id: UUID | None
+    source_label: str
+    planned_quantity: Decimal
+    already_accepted_quantity: Decimal
+    remaining_quantity: Decimal
+    accepted_quantity: Decimal
+
+
 class SupplySupplierAcceptanceLineRead(BaseModel):
     id: UUID
     supplier_document_line_id: UUID | None
@@ -96,8 +120,15 @@ class SupplySupplierAcceptanceLineRead(BaseModel):
     received_quantity: Decimal
     accepted_quantity: Decimal
     rejected_quantity: Decimal
+    ordered_vs_confirmed: Decimal | None
+    confirmed_vs_documented: Decimal | None
+    documented_vs_received: Decimal | None
+    received_vs_accepted: Decimal
     shortage_quantity: Decimal
     excess_quantity: Decimal
+    accepted_excess_quantity: Decimal
+    downstream_accepted_quantity: Decimal
+    receipt_eligible_quantity: Decimal | None
     documented_unit_price: Decimal | None
     accepted_unit_price: Decimal | None
     accepted_amount: Decimal | None
@@ -105,6 +136,10 @@ class SupplySupplierAcceptanceLineRead(BaseModel):
     rejection_reason: SupplySupplierAcceptanceRejectionReason | None
     comment: str | None
     is_unmatched: bool
+    traceability_status: str
+    source_accepted_quantity: Decimal
+    unassigned_accepted_surplus: Decimal
+    sources: list[SupplySupplierAcceptanceLineSourceRead]
 
 
 class SupplySupplierAcceptanceDestinationRead(BaseModel):
@@ -171,7 +206,22 @@ class SupplySupplierAcceptanceRead(BaseModel):
     updated_at: datetime
     lines: list[SupplySupplierAcceptanceLineRead]
     resolution_state: str
+    open_issues_count: int
     resolutions: list[SupplyAcceptanceResolutionRead]
+
+
+class SupplySupplierAcceptanceCumulativeLineRead(BaseModel):
+    source_type: str
+    source_line_id: UUID | None
+    product_name: str
+    unit_name: str | None
+    source_quantity: Decimal | None
+    total_received: Decimal
+    total_accepted: Decimal
+    total_rejected: Decimal
+    remaining_quantity: Decimal | None
+    downstream_accepted_quantity: Decimal
+    receipt_eligible_quantity: Decimal | None
 
 
 class SupplySupplierAcceptanceSummary(BaseModel):
@@ -179,5 +229,7 @@ class SupplySupplierAcceptanceSummary(BaseModel):
     recorded_count: int
     latest_acceptance: SupplySupplierAcceptanceRead | None
     quantities_by_unit: dict[str, dict[str, Decimal]]
+    cumulative_lines: list[SupplySupplierAcceptanceCumulativeLineRead]
+    open_issues_count: int
     has_shortage: bool
     has_excess: bool

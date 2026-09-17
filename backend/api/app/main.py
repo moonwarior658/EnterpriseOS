@@ -6,9 +6,11 @@ from app.api.routes.automation import router as automation_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.iiko import router as iiko_router
 from app.api.routes.iiko_mapping import router as iiko_mapping_router
+from app.api.routes.iiko_supplier_mapping import router as iiko_supplier_mapping_router
 from app.api.routes.public_requests import router as public_requests_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.purchase_requests import router as purchase_requests_router
+from app.api.routes.procurement_cash_flow import router as procurement_cash_flow_router
 from app.api.routes.supplier_orders import router as supplier_orders_router
 from app.api.routes.supplier_payments import router as supplier_payments_router
 from app.api.routes.supplier_settlements import router as supplier_settlements_router
@@ -44,6 +46,7 @@ app.include_router(public_supply_router)
 app.include_router(requests_router)
 app.include_router(supply_router)
 app.include_router(purchase_requests_router)
+app.include_router(procurement_cash_flow_router)
 app.include_router(supplier_orders_router)
 app.include_router(supplier_order_documents_router)
 app.include_router(supplier_documents_router)
@@ -58,6 +61,7 @@ app.include_router(supplier_confirmation_deviations_router)
 app.include_router(automation_router)
 app.include_router(iiko_router)
 app.include_router(iiko_mapping_router)
+app.include_router(iiko_supplier_mapping_router)
 
 
 @app.get("/health")

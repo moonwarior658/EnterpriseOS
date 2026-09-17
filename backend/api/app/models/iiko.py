@@ -97,6 +97,11 @@ class IikoMappingKind(StrEnum):
     WAREHOUSE = "WAREHOUSE"
 
 
+class IikoSupplierMappingStatus(StrEnum):
+    CONFIRMED = "CONFIRMED"
+    ARCHIVED = "ARCHIVED"
+
+
 class IikoMappingAction(StrEnum):
     GENERATED = "GENERATED"
     CONFIRMED = "CONFIRMED"
@@ -869,3 +874,89 @@ class IikoMappingAuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class IikoSupplierMapping(Base):
+    __tablename__ = "iiko_supplier_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_iiko_supplier_mappings_tenant_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"],
+            ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_iiko_supplier_mappings_supplier_tenant",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "uq_iiko_supplier_mappings_active_supplier",
+            "tenant_id", "supplier_id",
+            unique=True,
+            postgresql_where=text("status = 'CONFIRMED'"),
+            sqlite_where=text("status = 'CONFIRMED'"),
+        ),
+        Index(
+            "uq_iiko_supplier_mappings_active_external",
+            "tenant_id", "iiko_supplier_id",
+            unique=True,
+            postgresql_where=text("status = 'CONFIRMED'"),
+            sqlite_where=text("status = 'CONFIRMED'"),
+        ),
+        Index(
+            "ix_iiko_supplier_mappings_history",
+            "tenant_id", "supplier_id", "created_at",
+        ),
+        CheckConstraint(
+            "(status = 'CONFIRMED' AND archived_at IS NULL) OR "
+            "(status = 'ARCHIVED' AND archived_at IS NOT NULL)",
+            name="ck_iiko_supplier_mappings_archive_state",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_supplier_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    iiko_supplier_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    iiko_supplier_code: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    iiko_supplier_inn: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    iiko_supplier_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    status: Mapped[IikoSupplierMappingStatus] = mapped_column(
+        SqlEnum(
+            IikoSupplierMappingStatus,
+            name="iiko_supplier_mapping_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=enum_values,
+            length=16,
+        ),
+        default=IikoSupplierMappingStatus.CONFIRMED,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    archived_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    superseded_by_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("iiko_supplier_mappings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    supplier: Mapped[Any] = relationship("SupplySupplier")

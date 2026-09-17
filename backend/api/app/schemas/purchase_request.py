@@ -218,3 +218,28 @@ class SupplyPurchaseRequestPage(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
     offset: int = Field(ge=0)
+
+
+class SupplyProcurementNeedCoverageRead(BaseModel):
+    purchase_request_line_source_id: UUID
+    procurement_need_id: UUID
+    required_quantity: Decimal
+    covered_quantity: Decimal | None
+    remaining_quantity: Decimal | None
+    coverage_status: str
+    traceability_status: str
+    has_delay: bool | None
+    has_substitution: bool | None
+    substitution_status: str
+
+
+class SupplyPurchaseRequestCoverageRead(BaseModel):
+    request_id: UUID
+    needs: list[SupplyProcurementNeedCoverageRead]
+    fully_covered_count: int
+    partially_covered_count: int
+    not_covered_count: int
+    unknown_legacy_count: int
+    delayed_count: int
+    uncovered_positions_count: int
+    manual_future_covered_quantity: Decimal

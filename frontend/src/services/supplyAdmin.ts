@@ -70,6 +70,44 @@ export type SupplySupplierPage = {
   offset: number
 }
 
+export type IikoSupplierReference = {
+  external_id: string
+  name: string
+  code: string | null
+  inn: string | null
+  is_supplier: boolean
+  is_employee: boolean
+  represents_store: boolean
+  is_deleted: boolean
+  is_active: boolean
+  exact_inn_match: boolean
+}
+
+export type IikoSupplierMapping = {
+  id: string
+  supplier_id: string
+  iiko_supplier_id: string
+  iiko_supplier_name: string
+  iiko_supplier_code: string | null
+  iiko_supplier_inn: string | null
+  iiko_supplier_deleted: boolean
+  status: 'CONFIRMED' | 'ARCHIVED'
+  created_by_user_id: number | null
+  confirmed_at: string
+  archived_at: string | null
+  archived_by_user_id: number | null
+  superseded_by_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupplySupplierIikoMappingState = {
+  mapping: IikoSupplierMapping | null
+  history: IikoSupplierMapping[]
+  iiko_receipt_ready_supplier_mapping: boolean
+  warning: string | null
+}
+
 export type SupplyProductSupplierRole = 'PRIMARY' | 'BACKUP'
 
 export type SupplyProductSupplier = {
@@ -202,9 +240,50 @@ export type SupplyPurchaseAllocation = {
   currency: 'RUB'
   planned_amount: string
   status: 'DRAFT' | 'CONFIRMED'
+  traceability_status: 'TRACEABLE' | 'INCOMPLETE' | 'UNTRACEABLE_LEGACY'
+  source_covered_quantity: string
+  procurement_surplus_quantity: string
+  sources: SupplyPurchaseAllocationSource[]
   current_terms_changed: boolean
   created_at: string
   updated_at: string
+}
+
+export type SupplyPurchaseAllocationSource = {
+  purchase_request_line_source_id: string
+  source_type: 'PROCUREMENT_NEED' | 'MANUAL_FUTURE'
+  procurement_need_id: string | null
+  source_label: string
+  need_date: string | null
+  required_quantity: string
+  already_allocated_quantity: string
+  remaining_quantity: string
+  allocated_quantity: string
+}
+
+export type SupplyProcurementNeedCoverage = {
+  purchase_request_line_source_id: string
+  procurement_need_id: string
+  required_quantity: string
+  covered_quantity: string | null
+  remaining_quantity: string | null
+  coverage_status: 'NOT_COVERED' | 'PARTIALLY_COVERED' | 'FULLY_COVERED' | 'UNKNOWN_LEGACY'
+  traceability_status: 'TRACEABLE' | 'UNKNOWN_LEGACY'
+  has_delay: boolean | null
+  has_substitution: boolean | null
+  substitution_status: 'MISSING_SOURCE_FACT'
+}
+
+export type SupplyPurchaseRequestCoverage = {
+  request_id: string
+  needs: SupplyProcurementNeedCoverage[]
+  fully_covered_count: number
+  partially_covered_count: number
+  not_covered_count: number
+  unknown_legacy_count: number
+  delayed_count: number
+  uncovered_positions_count: number
+  manual_future_covered_quantity: string
 }
 
 export type SupplyEligibleSupplier = {
@@ -284,6 +363,10 @@ export type SupplySupplierOrderLine = {
   planned_amount: string
   currency: 'RUB'
   created_at: string
+  traceability_status: 'TRACEABLE' | 'UNTRACEABLE_LEGACY'
+  source_covered_quantity: string
+  procurement_surplus_quantity: string
+  sources: { id: string; purchase_request_line_source_id: string; source_type: 'PROCUREMENT_NEED' | 'MANUAL_FUTURE'; procurement_need_id: string | null; planned_quantity: string }[]
 }
 
 export type SupplySupplierConfirmationStatus = 'DRAFT' | 'RECORDED' | 'SUPERSEDED' | 'CANCELLED'
@@ -511,6 +594,25 @@ export type SupplySupplierSettlementStatement = {
   movements: Array<{ date: string; created_at: string; type: string; reference: string; debit: string; credit: string; balance_delta: string; running_balance: string }>
 }
 
+export type SupplyProcurementCashFlowSummary = {
+  scope: 'SUPPLIER' | 'PURCHASE_REQUEST'
+  supplier_id: string | null; purchase_request_id: string | null
+  date_from: string | null; date_to: string | null
+  planned_amount: string | null; planned_amount_status: 'AVAILABLE' | 'UNAVAILABLE'
+  ordered_amount: string; draft_order_amount: string; ready_order_amount: string; committed_order_amount: string
+  confirmed_amount: string; payable_documented_amount: string
+  accepted_goods_amount: string | null; accepted_goods_amount_status: 'AVAILABLE' | 'UNAVAILABLE'
+  gross_paid_amount: string; supplier_refund_amount: string; net_paid_amount: string
+  current_debt_amount: string; overdue_debt_amount: string; unallocated_prepayment_amount: string
+  supplier_credit_amount: string; ordered_vs_confirmed_amount: string
+  confirmed_vs_documented_amount: string; documented_vs_accepted_goods_amount: string | null
+  price_deviation_open_count: number; financial_exception_count: number
+  financial_exceptions: Array<{ code: string; requires_decision: boolean; amount: string | null }>
+  requires_decision: boolean; decision_reason_codes: string[]
+  breakdown: Array<{ entity_type: string; entity_id: string; reference: string; amount: string; business_date: string }>
+  date_semantics: Record<string, string>
+}
+
 export type SupplySupplierDocumentsSummary = {
   total_documents: number
   invoices_count: number
@@ -540,9 +642,21 @@ export type SupplySupplierAcceptanceLine = {
   unit_id: string | null; unit_name_snapshot: string | null; ordered_quantity: string | null
   confirmed_quantity: string | null; documented_quantity: string | null; received_quantity: string
   accepted_quantity: string; rejected_quantity: string; shortage_quantity: string; excess_quantity: string
+  ordered_vs_confirmed: string | null; confirmed_vs_documented: string | null
+  documented_vs_received: string | null; received_vs_accepted: string
+  accepted_excess_quantity: string; downstream_accepted_quantity: string
+  receipt_eligible_quantity: string | null
   documented_unit_price: string | null; accepted_unit_price: string | null; accepted_amount: string | null
   currency: 'RUB'; rejection_reason: SupplySupplierAcceptanceRejectionReason | null; comment: string | null
   is_unmatched: boolean
+  traceability_status: 'TRACEABLE' | 'INCOMPLETE' | 'UNTRACEABLE_LEGACY' | 'NOT_APPLICABLE'
+  source_accepted_quantity: string; unassigned_accepted_surplus: string
+  sources: SupplySupplierAcceptanceLineSource[]
+}
+export type SupplySupplierAcceptanceLineSource = {
+  supplier_order_line_source_id: string; source_type: 'PROCUREMENT_NEED' | 'MANUAL_FUTURE'
+  procurement_need_id: string | null; source_label: string; planned_quantity: string
+  already_accepted_quantity: string; remaining_quantity: string; accepted_quantity: string
 }
 export type SupplySupplierAcceptance = {
   id: string; supplier_order_id: string; supplier_document_id: string | null; supplier_confirmation_id: string | null
@@ -553,11 +667,20 @@ export type SupplySupplierAcceptance = {
   accepted_at: string | null; received_at: string | null; comment: string | null
   recorded_by_user_id: number | null; recorded_at: string | null; created_by_user_id: number
   created_at: string; updated_at: string; lines: SupplySupplierAcceptanceLine[]
-  resolution_state: 'CLEAN' | 'OPEN_ISSUES' | 'RESOLVED'; resolutions: SupplyAcceptanceResolution[]
+  resolution_state: 'CLEAN' | 'OPEN_ISSUES' | 'RESOLVED'; open_issues_count: number
+  resolutions: SupplyAcceptanceResolution[]
+}
+export type SupplySupplierAcceptanceCumulativeLine = {
+  source_type: 'DOCUMENT' | 'CONFIRMATION' | 'ORDER' | 'MANUAL'; source_line_id: string | null
+  product_name: string; unit_name: string | null; source_quantity: string | null
+  total_received: string; total_accepted: string; total_rejected: string
+  remaining_quantity: string | null; downstream_accepted_quantity: string
+  receipt_eligible_quantity: string | null
 }
 export type SupplySupplierAcceptanceSummary = {
   draft_count: number; recorded_count: number; latest_acceptance: SupplySupplierAcceptance | null
-  quantities_by_unit: Record<string, { documented: string; received: string; accepted: string; rejected: string }>
+  quantities_by_unit: Record<string, { documented: string; received: string; accepted: string; rejected: string; remaining: string }>
+  cumulative_lines: SupplySupplierAcceptanceCumulativeLine[]; open_issues_count: number
   has_shortage: boolean; has_excess: boolean
 }
 
@@ -1208,6 +1331,37 @@ export function restoreSupplySupplier(
   })
 }
 
+export function getSupplySupplierIikoMapping(
+  supplierId: string,
+  signal?: AbortSignal,
+): Promise<SupplySupplierIikoMappingState> {
+  return request(`/supply/suppliers/${supplierId}/iiko-mapping`, { signal })
+}
+
+export function getIikoSupplierReferences(
+  supplierId: string,
+  search = '',
+  includeDeleted = false,
+  signal?: AbortSignal,
+): Promise<{ items: IikoSupplierReference[]; total: number }> {
+  const query = new URLSearchParams({
+    supplier_id: supplierId,
+    include_deleted: String(includeDeleted),
+  })
+  if (search.trim()) query.set('search', search.trim())
+  return request(`/supply/iiko/suppliers?${query.toString()}`, { signal })
+}
+
+export function confirmSupplySupplierIikoMapping(
+  supplierId: string,
+  iikoSupplierId: string,
+): Promise<SupplySupplierIikoMappingState> {
+  return request(`/supply/suppliers/${supplierId}/iiko-mapping`, {
+    method: 'POST',
+    body: JSON.stringify({ iiko_supplier_id: iikoSupplierId }),
+  })
+}
+
 export function getSupplyProductSuppliers(
   productId: string,
   active: boolean,
@@ -1356,6 +1510,12 @@ export function getSupplyPurchaseAllocations(
   return request(`/supply/purchase-requests/${requestId}/allocations`, { signal })
 }
 
+export function getSupplyPurchaseRequestCoverage(
+  requestId: string, signal?: AbortSignal,
+): Promise<SupplyPurchaseRequestCoverage> {
+  return request(`/supply/purchase-requests/${requestId}/coverage`, { signal })
+}
+
 export function createSupplyPurchaseAllocation(
   requestId: string, lineId: string, productSupplierId: string, packagesCount: number,
 ): Promise<SupplyPurchaseAllocationWorkspace> {
@@ -1386,6 +1546,15 @@ export function confirmSupplyPurchaseAllocation(
 ): Promise<SupplyPurchaseAllocationWorkspace> {
   return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}/confirm`, {
     method: 'POST',
+  })
+}
+
+export function updateSupplyPurchaseAllocationSources(
+  requestId: string, lineId: string, allocationId: string,
+  sources: { purchase_request_line_source_id: string; allocated_quantity: string }[],
+): Promise<SupplyPurchaseAllocationWorkspace> {
+  return request(`/supply/purchase-requests/${requestId}/lines/${lineId}/allocations/${allocationId}/sources`, {
+    method: 'PUT', body: JSON.stringify({ sources }),
   })
 }
 
@@ -1601,6 +1770,15 @@ export function getSupplySupplierSettlement(supplierId: string): Promise<SupplyS
 export function getSupplySupplierSettlementStatement(supplierId: string, dateFrom: string, dateTo: string): Promise<SupplySupplierSettlementStatement> {
   return request(`/supply/suppliers/${supplierId}/settlement/statement?date_from=${dateFrom}&date_to=${dateTo}`)
 }
+export function getSupplySupplierCashFlow(supplierId: string, dateFrom?: string, dateTo?: string): Promise<SupplyProcurementCashFlowSummary> {
+  const params = new URLSearchParams()
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  return request(`/supply/suppliers/${supplierId}/cash-flow${params.size ? `?${params}` : ''}`)
+}
+export function getSupplyPurchaseRequestCashFlow(requestId: string, signal?: AbortSignal): Promise<SupplyProcurementCashFlowSummary> {
+  return request(`/supply/purchase-requests/${requestId}/cash-flow`, { signal })
+}
 export function createSupplySupplierSettlementAdjustment(input: { supplier_id: string; supplier_payment_id?: string | null; type: 'SUPPLIER_REFUND' | 'MANUAL_CORRECTION'; direction?: 'INCREASE_DEBT' | 'DECREASE_DEBT' | null; amount: string; effective_date: string; comment?: string | null }) {
   return request('/supply/supplier-settlement-adjustments', { method: 'POST', body: JSON.stringify(input) })
 }
@@ -1616,6 +1794,15 @@ export function updateSupplySupplierAcceptance(acceptanceId: string, input: { de
 }
 export function updateSupplySupplierAcceptanceLine(acceptanceId: string, lineId: string, input: Partial<Pick<SupplySupplierAcceptanceLine, 'received_quantity' | 'accepted_quantity' | 'rejected_quantity' | 'accepted_unit_price' | 'rejection_reason' | 'comment'>>): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-acceptances/${acceptanceId}/lines/${lineId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function updateSupplySupplierAcceptanceLineSources(
+  acceptanceId: string, lineId: string,
+  sources: { supplier_order_line_source_id: string; accepted_quantity: string }[],
+): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/lines/${lineId}/sources`, {
+    method: 'PUT', body: JSON.stringify({ sources }),
+  })
 }
 export function addSupplySupplierAcceptanceLine(acceptanceId: string, input: { product_name_snapshot: string; product_id?: string | null; unit_id: string; received_quantity: string; accepted_quantity: string; rejected_quantity: string; rejection_reason?: SupplySupplierAcceptanceRejectionReason | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-acceptances/${acceptanceId}/lines`, { method: 'POST', body: JSON.stringify(input) })

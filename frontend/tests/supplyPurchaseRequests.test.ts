@@ -8,6 +8,7 @@ import {
   createSupplyPurchaseRequest,
   deleteSupplyPurchaseRequestLine,
   getSupplyPurchaseRequest,
+  getSupplyPurchaseRequestCoverage,
   getSupplyPurchaseRequests,
   readySupplyPurchaseRequest,
   updateSupplyPurchaseRequest,
@@ -25,6 +26,9 @@ test('подключает admin-only список и редактор заку�
   assert.match(detail, /Зафиксировать потребность/)
   assert.match(detail, /Будущая потребность/)
   assert.match(detail, /request\?\.status === 'DRAFT'/)
+  assert.match(detail, /Legacy без traceability/)
+  assert.match(detail, /Покрыто частично/)
+  assert.match(detail, /с задержкой/)
   assert.doesNotMatch(detail, /SupplySupplier/)
   assert.doesNotMatch(detail, /price_per/)
 })
@@ -47,6 +51,7 @@ test('API-клиент покрывает CRUD, строки, ready и cancel', 
     await getSupplyPurchaseRequests()
     await createSupplyPurchaseRequest({ need_date: '2026-09-15' })
     await getSupplyPurchaseRequest('request')
+    await getSupplyPurchaseRequestCoverage('request')
     await updateSupplyPurchaseRequest('request', { comment: 'x' })
     await addSupplyPurchaseRequestLine('request', { product_id: 'product', quantity: '10', unit_id: 'unit' })
     await updateSupplyPurchaseRequestLine('request', 'line', { manual_future_quantity: '12' })
@@ -59,11 +64,12 @@ test('API-клиент покрывает CRUD, строки, ready и cancel', 
   assert.equal(calls[0].url, '/api/supply/purchase-requests?limit=100&offset=0')
   assert.equal(calls[1].options.method, 'POST')
   assert.equal(calls[2].url, '/api/supply/purchase-requests/request')
-  assert.equal(calls[3].options.method, 'PATCH')
-  assert.equal(calls[4].options.method, 'POST')
-  assert.equal(calls[5].options.method, 'PATCH')
-  assert.equal(calls[6].options.method, 'DELETE')
-  assert.match(calls[7].url, /\/collect-needs$/)
-  assert.match(calls[8].url, /\/ready$/)
-  assert.match(calls[9].url, /\/cancel$/)
+  assert.match(calls[3].url, /\/coverage$/)
+  assert.equal(calls[4].options.method, 'PATCH')
+  assert.equal(calls[5].options.method, 'POST')
+  assert.equal(calls[6].options.method, 'PATCH')
+  assert.equal(calls[7].options.method, 'DELETE')
+  assert.match(calls[8].url, /\/collect-needs$/)
+  assert.match(calls[9].url, /\/ready$/)
+  assert.match(calls[10].url, /\/cancel$/)
 })

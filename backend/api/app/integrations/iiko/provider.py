@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
@@ -116,6 +117,26 @@ class IikoProvider(ABC):
     ) -> list[IikoIncomingInvoiceDto]:
         """Return existing incoming invoices for contract discovery."""
         raise NotImplementedError
+
+    async def get_incoming_invoice_by_id(
+        self,
+        document_id: UUID,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> IikoIncomingInvoiceDto | None:
+        """Return one invoice from a bounded export by authoritative UUID."""
+        invoices = await self.get_incoming_invoices(
+            date_from=date_from,
+            date_to=date_to,
+        )
+        matches = [
+            invoice for invoice in invoices
+            if invoice.external_id == document_id
+        ]
+        if len(matches) > 1:
+            raise IikoContractError("IIKO_INCOMING_INVOICE_ID_AMBIGUOUS")
+        return matches[0] if matches else None
 
     async def get_outgoing_invoices(
         self,

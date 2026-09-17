@@ -171,9 +171,9 @@ def _map_outgoing_invoice_contracts(
         defaultdict(list)
     )
     for invoice in incoming_invoices:
-        if invoice.status != "DELETED":
+        if invoice.status != "DELETED" and invoice.default_store_id is not None:
             incoming_by_destination[
-                invoice.default_store_id.casefold()
+                str(invoice.default_store_id).casefold()
             ].append(invoice)
 
     results: list[IikoOutgoingInvoiceDestinationContractRead] = []
@@ -185,7 +185,7 @@ def _map_outgoing_invoice_contracts(
                 str(destination.iiko_warehouse_id).casefold()
             ]
             for outgoing in outgoing_by_incoming_id.get(
-                incoming.external_id.casefold(),
+                str(incoming.external_id).casefold(),
                 (),
             )
         ]

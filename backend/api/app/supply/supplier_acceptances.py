@@ -22,12 +22,14 @@ from app.models.supply import (
     SupplyPurchaseRequest,
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
+    SupplySupplierAcceptanceLineSource,
     SupplySupplierConfirmation,
     SupplySupplierConfirmationLine,
     SupplySupplierDocument,
     SupplySupplierDocumentLine,
     SupplySupplierOrder,
     SupplySupplierOrderLine,
+    SupplySupplierOrderLineSource,
     SupplyUnit,
 )
 from app.schemas.supplier_acceptance import (
@@ -35,9 +37,12 @@ from app.schemas.supplier_acceptance import (
     SupplyAcceptanceResolutionRead,
     SupplyAcceptanceResolutionResolve,
     SupplySupplierAcceptanceCreate,
+    SupplySupplierAcceptanceCumulativeLineRead,
     SupplySupplierAcceptanceDestinationRead,
     SupplySupplierAcceptanceLineCreate,
     SupplySupplierAcceptanceLineRead,
+    SupplySupplierAcceptanceLineSourceRead,
+    SupplySupplierAcceptanceLineSourceWrite,
     SupplySupplierAcceptanceLineUpdate,
     SupplySupplierAcceptanceRead,
     SupplySupplierAcceptanceUpdate,
@@ -64,7 +69,9 @@ class SupplierAcceptanceResolutionQuantityError(ValueError): pass
 
 def _options():
     return (
-        selectinload(SupplySupplierAcceptance.lines),
+        selectinload(SupplySupplierAcceptance.lines).selectinload(
+            SupplySupplierAcceptanceLine.sources
+        ).joinedload(SupplySupplierAcceptanceLineSource.order_line_source),
         selectinload(SupplySupplierAcceptance.resolutions).selectinload(
             SupplyAcceptanceResolution.procurement_need
         ),
@@ -84,12 +91,35 @@ def _enum_value(value):
     return value.value if hasattr(value, "value") else value
 
 
-def _resolution_read(resolution: SupplyAcceptanceResolution):
+def _downstream_quantities(
+    line: SupplySupplierAcceptanceLine,
+    resolutions: list[SupplyAcceptanceResolution],
+) -> tuple[Decimal, Decimal | None]:
+    rejected_excess = sum(
+        (
+            Decimal(value.quantity)
+            for value in resolutions
+            if value.issue_type == "EXCESS"
+            and value.status == "RESOLVED"
+            and value.resolution_type == "REJECT_EXCESS"
+        ),
+        Decimal("0"),
+    )
+    downstream = max(Decimal(line.accepted_quantity) - rejected_excess, Decimal("0"))
+    has_open_excess = any(
+        value.issue_type == "EXCESS" and value.status == "OPEN"
+        for value in resolutions
+    )
+    return downstream, None if has_open_excess else downstream
+
+
+def _resolution_read(
+    resolution: SupplyAcceptanceResolution,
+    line_resolutions: list[SupplyAcceptanceResolution],
+):
     line = resolution.acceptance_line
     need = resolution.procurement_need
-    downstream = Decimal(line.accepted_quantity)
-    if resolution.issue_type == "EXCESS" and resolution.resolution_type == "REJECT_EXCESS":
-        downstream -= Decimal(resolution.quantity)
+    downstream, _ = _downstream_quantities(line, line_resolutions)
     return SupplyAcceptanceResolutionRead(
         id=resolution.id,
         supplier_acceptance_id=resolution.supplier_acceptance_id,
@@ -176,12 +206,172 @@ def _source_quantities(session: Session, line: SupplySupplierAcceptanceLine):
     return ordered, confirmed
 
 
-def _line_read(session: Session, line: SupplySupplierAcceptanceLine):
+def _accepted_for_order_source(
+    session: Session, order_source_id: UUID, *, exclude_acceptance_line_id: UUID,
+) -> Decimal:
+    value = session.scalar(
+        select(func.coalesce(func.sum(SupplySupplierAcceptanceLineSource.accepted_quantity), 0))
+        .join(
+            SupplySupplierAcceptanceLine,
+            SupplySupplierAcceptanceLine.id
+            == SupplySupplierAcceptanceLineSource.acceptance_line_id,
+        )
+        .join(
+            SupplySupplierAcceptance,
+            SupplySupplierAcceptance.id == SupplySupplierAcceptanceLine.acceptance_id,
+        )
+        .where(
+            SupplySupplierAcceptanceLineSource.supplier_order_line_source_id == order_source_id,
+            SupplySupplierAcceptanceLineSource.acceptance_line_id != exclude_acceptance_line_id,
+            SupplySupplierAcceptance.status == "RECORDED",
+        )
+    )
+    return Decimal(value or 0)
+
+
+def _order_sources(
+    session: Session, line: SupplySupplierAcceptanceLine, *, lock: bool,
+) -> list[SupplySupplierOrderLineSource]:
+    if line.supplier_order_line_id is None:
+        return []
+    statement = select(SupplySupplierOrderLineSource).where(
+        SupplySupplierOrderLineSource.tenant_id == line.tenant_id,
+        SupplySupplierOrderLineSource.order_line_id == line.supplier_order_line_id,
+    ).order_by(SupplySupplierOrderLineSource.id)
+    if lock:
+        statement = statement.with_for_update()
+    return list(session.scalars(statement).all())
+
+
+def _acceptance_distribution_target(
+    session: Session, line: SupplySupplierAcceptanceLine,
+    order_sources: list[SupplySupplierOrderLineSource],
+) -> Decimal:
+    remaining = sum((
+        max(
+            Decimal(source.planned_quantity) - _accepted_for_order_source(
+                session, source.id, exclude_acceptance_line_id=line.id,
+            ),
+            Decimal("0"),
+        )
+        for source in order_sources
+    ), Decimal("0"))
+    return min(Decimal(line.accepted_quantity), remaining)
+
+
+def _acceptance_source_label(source: SupplySupplierOrderLineSource) -> str:
+    if source.source_type_snapshot == "MANUAL_FUTURE":
+        return "Будущая потребность"
+    line_source = source.purchase_request_line_source
+    need = line_source.procurement_need
+    reason_value = _enum_value(need.reason) if need is not None else None
+    reason = {
+        "INTERNAL_STOCK_DEFICIT": "Дефицит после расчёта остатков",
+        "DEBT_CARRY_FORWARD": "Перенос долга подразделения",
+        "SUPPLIER_SHORTAGE": "Недопоставка поставщика",
+        "SUPPLIER_REJECTION": "Отклонение при приёмке",
+    }.get(reason_value, "Потребность")
+    department = None
+    if need is not None and need.request_line is not None:
+        department = need.request_line.request.department.name
+    elif need is not None and need.department_debt is not None:
+        department = need.department_debt.department.name
+    return f"{department} · {reason}" if department else reason
+
+
+def _autofill_acceptance_single_source(
+    session: Session, line: SupplySupplierAcceptanceLine,
+) -> None:
+    sources = _order_sources(session, line, lock=True)
+    if len(sources) != 1:
+        return
+    target = _acceptance_distribution_target(session, line, sources)
+    if target <= 0:
+        line.sources.clear()
+    elif line.sources:
+        line.sources[0].supplier_order_line_source_id = sources[0].id
+        line.sources[0].accepted_quantity = target
+        for extra in line.sources[1:]:
+            session.delete(extra)
+    else:
+        line.sources.append(SupplySupplierAcceptanceLineSource(
+            tenant_id=line.tenant_id,
+            supplier_order_line_source_id=sources[0].id,
+            accepted_quantity=target,
+        ))
+
+
+def _validate_acceptance_distribution(
+    session: Session, line: SupplySupplierAcceptanceLine, *, lock: bool,
+) -> None:
+    if line.supplier_order_line_id is None:
+        return
+    order_sources = _order_sources(session, line, lock=lock)
+    if not order_sources:
+        raise SupplierAcceptanceConflictError
+    source_by_id = {source.id: source for source in order_sources}
+    total = Decimal("0")
+    seen: set[UUID] = set()
+    for item in line.sources:
+        source = source_by_id.get(item.supplier_order_line_source_id)
+        if source is None or source.id in seen:
+            raise SupplierAcceptanceValidationError
+        already = _accepted_for_order_source(
+            session, source.id, exclude_acceptance_line_id=line.id,
+        )
+        if Decimal(item.accepted_quantity) > Decimal(source.planned_quantity) - already:
+            raise SupplierAcceptanceConflictError
+        seen.add(source.id)
+        total += Decimal(item.accepted_quantity)
+    if total != _acceptance_distribution_target(session, line, order_sources):
+        raise SupplierAcceptanceValidationError
+
+
+def _line_read(
+    session: Session,
+    line: SupplySupplierAcceptanceLine,
+    resolutions: list[SupplyAcceptanceResolution],
+):
     documented = Decimal(line.documented_quantity) if line.documented_quantity is not None else None
     received = Decimal(line.received_quantity)
     shortage = max((documented or received) - received, Decimal("0")) if documented is not None else Decimal("0")
     excess = max(received - (documented or received), Decimal("0")) if documented is not None else Decimal("0")
     ordered, confirmed = _source_quantities(session, line)
+    accepted = Decimal(line.accepted_quantity)
+    accepted_excess = (
+        max(accepted - documented, Decimal("0"))
+        if documented is not None else Decimal("0")
+    )
+    downstream, receipt_eligible = _downstream_quantities(line, resolutions)
+    source_reads: list[SupplySupplierAcceptanceLineSourceRead] = []
+    if line.supplier_order_line_id:
+        order_sources = list(session.scalars(
+            select(SupplySupplierOrderLineSource).where(
+                SupplySupplierOrderLineSource.tenant_id == line.tenant_id,
+                SupplySupplierOrderLineSource.order_line_id == line.supplier_order_line_id,
+            ).order_by(SupplySupplierOrderLineSource.created_at)
+        ).all())
+        current_by_source = {
+            item.supplier_order_line_source_id: item for item in line.sources
+        }
+        for source in order_sources:
+            already = _accepted_for_order_source(
+                session, source.id, exclude_acceptance_line_id=line.id,
+            )
+            current = current_by_source.get(source.id)
+            source_reads.append(SupplySupplierAcceptanceLineSourceRead(
+                supplier_order_line_source_id=source.id,
+                source_type=source.source_type_snapshot,
+                procurement_need_id=source.procurement_need_id_snapshot,
+                source_label=_acceptance_source_label(source),
+                planned_quantity=source.planned_quantity,
+                already_accepted_quantity=already,
+                remaining_quantity=max(Decimal(source.planned_quantity) - already, Decimal("0")),
+                accepted_quantity=(current.accepted_quantity if current else Decimal("0")),
+            ))
+    source_accepted = sum(
+        (Decimal(item.accepted_quantity) for item in line.sources), Decimal("0")
+    )
     return SupplySupplierAcceptanceLineRead(
         id=line.id, supplier_document_line_id=line.supplier_document_line_id,
         supplier_order_line_id=line.supplier_order_line_id,
@@ -191,12 +381,28 @@ def _line_read(session: Session, line: SupplySupplierAcceptanceLine):
         ordered_quantity=ordered, confirmed_quantity=confirmed,
         documented_quantity=documented, received_quantity=received,
         accepted_quantity=line.accepted_quantity, rejected_quantity=line.rejected_quantity,
+        ordered_vs_confirmed=(confirmed - ordered if ordered is not None and confirmed is not None else None),
+        confirmed_vs_documented=(documented - confirmed if confirmed is not None and documented is not None else None),
+        documented_vs_received=(received - documented if documented is not None else None),
+        received_vs_accepted=accepted - received,
         shortage_quantity=shortage, excess_quantity=excess,
+        accepted_excess_quantity=accepted_excess,
+        downstream_accepted_quantity=downstream,
+        receipt_eligible_quantity=receipt_eligible,
         documented_unit_price=line.documented_unit_price,
         accepted_unit_price=line.accepted_unit_price, accepted_amount=line.accepted_amount,
         currency=line.currency, rejection_reason=line.rejection_reason,
         comment=line.comment,
         is_unmatched=line.supplier_document_line_id is None and line.supplier_order_line_id is None,
+        traceability_status=(
+            "NOT_APPLICABLE" if line.supplier_order_line_id is None
+            else "TRACEABLE" if line.sources
+            else "INCOMPLETE" if line.acceptance.status == "DRAFT"
+            else "UNTRACEABLE_LEGACY"
+        ),
+        source_accepted_quantity=source_accepted,
+        unassigned_accepted_surplus=max(accepted - source_accepted, Decimal("0")),
+        sources=source_reads,
     )
 
 
@@ -211,7 +417,13 @@ def _result(lines: list[SupplySupplierAcceptanceLineRead]) -> str:
 
 
 def _read(session: Session, acceptance: SupplySupplierAcceptance):
-    lines = [_line_read(session, line) for line in acceptance.lines]
+    resolutions_by_line: dict[UUID, list[SupplyAcceptanceResolution]] = {}
+    for resolution in acceptance.resolutions:
+        resolutions_by_line.setdefault(resolution.acceptance_line_id, []).append(resolution)
+    lines = [
+        _line_read(session, line, resolutions_by_line.get(line.id, []))
+        for line in acceptance.lines
+    ]
     source = "DOCUMENT" if acceptance.supplier_document_id else (
         "CONFIRMATION" if acceptance.supplier_confirmation_id else "ORDER"
     )
@@ -238,7 +450,12 @@ def _read(session: Session, acceptance: SupplySupplierAcceptance):
         and mapping.role is not None
         else None
     )
-    resolutions = [_resolution_read(value) for value in acceptance.resolutions]
+    resolutions = [
+        _resolution_read(
+            value, resolutions_by_line.get(value.acceptance_line_id, [])
+        )
+        for value in acceptance.resolutions
+    ]
     if not resolutions:
         resolution_state = "CLEAN"
     elif any(value.status == "OPEN" for value in acceptance.resolutions):
@@ -256,13 +473,21 @@ def _read(session: Session, acceptance: SupplySupplierAcceptance):
         comment=acceptance.comment, recorded_by_user_id=acceptance.recorded_by_user_id,
         recorded_at=acceptance.recorded_at, created_by_user_id=acceptance.created_by_user_id,
         created_at=acceptance.created_at, updated_at=acceptance.updated_at, lines=lines,
-        resolution_state=resolution_state, resolutions=resolutions,
+        resolution_state=resolution_state,
+        open_issues_count=sum(value.status == "OPEN" for value in acceptance.resolutions),
+        resolutions=resolutions,
     )
 
 
 def list_acceptance_resolutions(session: Session, acceptance_id: UUID, *, tenant_id: str):
     acceptance = _get(session, acceptance_id, tenant_id=tenant_id)
-    return [_resolution_read(value) for value in acceptance.resolutions]
+    by_line: dict[UUID, list[SupplyAcceptanceResolution]] = {}
+    for value in acceptance.resolutions:
+        by_line.setdefault(value.acceptance_line_id, []).append(value)
+    return [
+        _resolution_read(value, by_line[value.acceptance_line_id])
+        for value in acceptance.resolutions
+    ]
 
 
 def read_acceptance_resolution(session: Session, resolution_id: UUID, *, tenant_id: str):
@@ -278,7 +503,13 @@ def read_acceptance_resolution(session: Session, resolution_id: UUID, *, tenant_
     )
     if value is None:
         raise SupplierAcceptanceResolutionNotFoundError
-    return _resolution_read(value)
+    line_resolutions = session.scalars(
+        select(SupplyAcceptanceResolution).where(
+            SupplyAcceptanceResolution.tenant_id == tenant_id,
+            SupplyAcceptanceResolution.acceptance_line_id == value.acceptance_line_id,
+        )
+    ).all()
+    return _resolution_read(value, list(line_resolutions))
 
 
 def _generate_resolution_issues(session: Session, acceptance: SupplySupplierAcceptance) -> None:
@@ -382,6 +613,28 @@ def resolve_acceptance_resolution(
     }
     if resolution_type not in allowed[resolution.issue_type]:
         raise SupplierAcceptanceResolutionTypeError
+    if resolution_type == "REJECT_EXCESS":
+        facts = list(session.scalars(
+            select(SupplySupplierAcceptanceLineSource).where(
+                SupplySupplierAcceptanceLineSource.tenant_id == tenant_id,
+                SupplySupplierAcceptanceLineSource.acceptance_line_id
+                == resolution.acceptance_line_id,
+            ).with_for_update()
+        ).all())
+        assigned = sum((Decimal(item.accepted_quantity) for item in facts), Decimal("0"))
+        unassigned = max(
+            Decimal(resolution.acceptance_line.accepted_quantity) - assigned,
+            Decimal("0"),
+        )
+        source_reduction = Decimal(resolution.quantity) - min(
+            Decimal(resolution.quantity), unassigned
+        )
+        if source_reduction > 0:
+            if len(facts) != 1 or source_reduction > Decimal(facts[0].accepted_quantity):
+                raise SupplierAcceptanceConflictError
+            facts[0].accepted_quantity = Decimal(facts[0].accepted_quantity) - source_reduction
+            if facts[0].accepted_quantity == 0:
+                session.delete(facts[0])
     if resolution_type == "RETURN_TO_PROCUREMENT":
         line = resolution.acceptance_line
         if line.product_id is None or line.unit_id is None:
@@ -437,20 +690,92 @@ def list_acceptances(session: Session, order_id: UUID, *, tenant_id: str):
 def acceptance_summary(session: Session, values: list[SupplySupplierAcceptance]):
     reads = [_read(session, value) for value in values]
     recorded = [item for item in reads if item.status == "RECORDED"]
-    totals: dict[str, dict[str, Decimal]] = {}
+    cumulative: dict[tuple[str, UUID], dict] = {}
     for item in recorded:
         for line in item.lines:
-            unit = line.unit_name_snapshot or "—"
-            bucket = totals.setdefault(unit, {"documented": Decimal("0"), "received": Decimal("0"), "accepted": Decimal("0"), "rejected": Decimal("0")})
-            bucket["documented"] += line.documented_quantity or Decimal("0")
-            bucket["received"] += line.received_quantity
-            bucket["accepted"] += line.accepted_quantity
-            bucket["rejected"] += line.rejected_quantity
+            if line.supplier_document_line_id is not None:
+                source_type = "DOCUMENT"
+                source_line_id = line.supplier_document_line_id
+                source_quantity = session.scalar(
+                    select(SupplySupplierDocumentLine.quantity_base).where(
+                        SupplySupplierDocumentLine.id == source_line_id,
+                        SupplySupplierDocumentLine.tenant_id == values[0].tenant_id,
+                    )
+                )
+            elif line.supplier_confirmation_line_id is not None:
+                source_type = "CONFIRMATION"
+                source_line_id = line.supplier_confirmation_line_id
+                source_quantity = session.scalar(
+                    select(SupplySupplierConfirmationLine.confirmed_quantity_base).where(
+                        SupplySupplierConfirmationLine.id == source_line_id,
+                        SupplySupplierConfirmationLine.tenant_id == values[0].tenant_id,
+                    )
+                )
+            elif line.supplier_order_line_id is not None:
+                source_type = "ORDER"
+                source_line_id = line.supplier_order_line_id
+                source_quantity = session.scalar(
+                    select(SupplySupplierOrderLine.quantity_base).where(
+                        SupplySupplierOrderLine.id == source_line_id,
+                        SupplySupplierOrderLine.tenant_id == values[0].tenant_id,
+                    )
+                )
+            else:
+                source_type = "MANUAL"
+                source_line_id = line.id
+                source_quantity = None
+            key = (source_type, source_line_id)
+            bucket = cumulative.setdefault(key, {
+                "source_type": source_type,
+                "source_line_id": None if source_type == "MANUAL" else source_line_id,
+                "product_name": line.product_name_snapshot,
+                "unit_name": line.unit_name_snapshot,
+                "source_quantity": (
+                    Decimal(source_quantity) if source_quantity is not None else None
+                ),
+                "total_received": Decimal("0"),
+                "total_accepted": Decimal("0"),
+                "total_rejected": Decimal("0"),
+                "downstream_accepted_quantity": Decimal("0"),
+                "receipt_eligible_quantity": Decimal("0"),
+            })
+            bucket["total_received"] += line.received_quantity
+            bucket["total_accepted"] += line.accepted_quantity
+            bucket["total_rejected"] += line.rejected_quantity
+            bucket["downstream_accepted_quantity"] += line.downstream_accepted_quantity
+            if line.receipt_eligible_quantity is None:
+                bucket["receipt_eligible_quantity"] = None
+            elif bucket["receipt_eligible_quantity"] is not None:
+                bucket["receipt_eligible_quantity"] += line.receipt_eligible_quantity
+    cumulative_lines = []
+    totals: dict[str, dict[str, Decimal]] = {}
+    for bucket in cumulative.values():
+        source_quantity = bucket["source_quantity"]
+        bucket["remaining_quantity"] = (
+            max(source_quantity - bucket["total_received"], Decimal("0"))
+            if source_quantity is not None else None
+        )
+        cumulative_lines.append(SupplySupplierAcceptanceCumulativeLineRead(**bucket))
+        unit = bucket["unit_name"] or "—"
+        unit_totals = totals.setdefault(unit, {
+            "documented": Decimal("0"), "received": Decimal("0"),
+            "accepted": Decimal("0"), "rejected": Decimal("0"),
+            "remaining": Decimal("0"),
+        })
+        if bucket["source_type"] == "DOCUMENT" and source_quantity is not None:
+            unit_totals["documented"] += source_quantity
+        unit_totals["received"] += bucket["total_received"]
+        unit_totals["accepted"] += bucket["total_accepted"]
+        unit_totals["rejected"] += bucket["total_rejected"]
+        if bucket["remaining_quantity"] is not None:
+            unit_totals["remaining"] += bucket["remaining_quantity"]
     latest = max(reads, key=lambda item: item.created_at) if reads else None
     return SupplySupplierAcceptanceSummary(
         draft_count=sum(item.status == "DRAFT" for item in reads),
         recorded_count=len(recorded), latest_acceptance=latest,
         quantities_by_unit=totals,
+        cumulative_lines=cumulative_lines,
+        open_issues_count=sum(item.open_issues_count for item in recorded),
         has_shortage=any(line.shortage_quantity > 0 for item in recorded for line in item.lines),
         has_excess=any(line.excess_quantity > 0 for item in recorded for line in item.lines),
     )
@@ -520,7 +845,7 @@ def _confirmation_defaults(acceptance: SupplySupplierAcceptance, confirmation: S
             product_id=line.supplier_order_line.product_id,
             unit_id=line.confirmed_package_unit_id,
             unit_name_snapshot=line.confirmed_package_unit.short_name_ru,
-            documented_quantity=quantity, received_quantity=quantity,
+            documented_quantity=None, received_quantity=quantity,
             accepted_quantity=quantity, rejected_quantity=Decimal("0"),
             documented_unit_price=price, accepted_unit_price=price,
             accepted_amount=(quantity * price).quantize(Q) if price else None, currency="RUB",
@@ -535,7 +860,7 @@ def _order_defaults(acceptance: SupplySupplierAcceptance, order: SupplySupplierO
             supplier_order_line_id=line.id, product_name_snapshot=line.product_name_snapshot,
             product_id=line.product_id, unit_id=line.package_unit_id_snapshot,
             unit_name_snapshot=line.package_unit_snapshot.short_name_ru,
-            documented_quantity=quantity, received_quantity=quantity,
+            documented_quantity=None, received_quantity=quantity,
             accepted_quantity=quantity, rejected_quantity=Decimal("0"),
             documented_unit_price=line.base_unit_price_snapshot,
             accepted_unit_price=line.base_unit_price_snapshot,
@@ -591,6 +916,9 @@ def create_acceptance(session: Session, order_id: UUID, payload: SupplySupplierA
         _confirmation_defaults(acceptance, confirmation)
     else:
         _order_defaults(acceptance, order)
+    session.flush()
+    for line in acceptance.lines:
+        _autofill_acceptance_single_source(session, line)
     try:
         session.commit()
     except IntegrityError as error:
@@ -652,7 +980,37 @@ def update_line(session: Session, acceptance_id: UUID, line_id: UUID, payload: S
     line.received_quantity=received; line.accepted_quantity=accepted; line.rejected_quantity=rejected
     line.accepted_unit_price=values.get("accepted_unit_price"); line.accepted_amount=amount
     line.rejection_reason=reason; line.comment=comment
+    if "accepted_quantity" in payload.model_fields_set:
+        if len(_order_sources(session, line, lock=True)) == 1:
+            _autofill_acceptance_single_source(session, line)
+        else:
+            line.sources.clear()
     session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
+
+
+def update_acceptance_line_sources(
+    session: Session, acceptance_id: UUID, line_id: UUID,
+    values: list[SupplySupplierAcceptanceLineSourceWrite], *, tenant_id: str,
+):
+    acceptance = _get(session, acceptance_id, tenant_id=tenant_id, lock=True)
+    if acceptance.status != "DRAFT":
+        raise SupplierAcceptanceStateError
+    line = next((item for item in acceptance.lines if item.id == line_id), None)
+    if line is None:
+        raise SupplierAcceptanceNotFoundError
+    if len({value.supplier_order_line_source_id for value in values}) != len(values):
+        raise SupplierAcceptanceValidationError
+    line.sources.clear()
+    session.flush()
+    for value in values:
+        line.sources.append(SupplySupplierAcceptanceLineSource(
+            tenant_id=tenant_id,
+            supplier_order_line_source_id=value.supplier_order_line_source_id,
+            accepted_quantity=value.accepted_quantity,
+        ))
+    _validate_acceptance_distribution(session, line, lock=True)
+    session.commit()
+    return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
 def delete_line(session: Session, acceptance_id: UUID, line_id: UUID, *, tenant_id: str):
@@ -697,6 +1055,7 @@ def record_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str, 
     for line in acceptance.lines:
         if line.unit_id is None: raise SupplierAcceptanceUnitError
         _validate_values({"received_quantity": line.received_quantity, "accepted_quantity": line.accepted_quantity, "rejected_quantity": line.rejected_quantity, "accepted_unit_price": line.accepted_unit_price, "rejection_reason": line.rejection_reason, "comment": line.comment})
+        _validate_acceptance_distribution(session, line, lock=True)
     acceptance.status="RECORDED"; acceptance.recorded_by_user_id=user_id
     acceptance.recorded_at=datetime.now(timezone.utc); acceptance.accepted_at=acceptance.recorded_at
     _generate_resolution_issues(session, acceptance)

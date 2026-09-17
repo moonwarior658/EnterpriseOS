@@ -7,6 +7,7 @@ import {
   deleteSupplyPurchaseAllocation,
   getSupplyPurchaseAllocations,
   updateSupplyPurchaseAllocation,
+  updateSupplyPurchaseAllocationSources,
 } from '../src/services/supplyAdmin.ts'
 import {
   coverageLabel,
@@ -27,6 +28,10 @@ test('показывает allocation action только для READY и раб
   assert.match(workspace, /minimumOrderLabel/)
   assert.match(workspace, /minimum_order_status === 'BELOW_MINIMUM'/)
   assert.match(workspace, /planned_total_amount/)
+  assert.match(workspace, /Распределение по источникам/)
+  assert.match(workspace, /Осталось распределить/)
+  assert.match(workspace, /излишек фасовки/)
+  assert.match(workspace, /UNTRACEABLE_LEGACY/)
   assert.doesNotMatch(workspace, />UUID</)
 })
 
@@ -91,6 +96,9 @@ test('API-клиент покрывает read, create, update, delete и confir
     await updateSupplyPurchaseAllocation('request', 'line', 'allocation', 4)
     await deleteSupplyPurchaseAllocation('request', 'line', 'allocation')
     await confirmSupplyPurchaseAllocation('request', 'line', 'allocation')
+    await updateSupplyPurchaseAllocationSources('request', 'line', 'allocation', [
+      { purchase_request_line_source_id: 'source', allocated_quantity: '10' },
+    ])
   } finally { globalThis.fetch = originalFetch }
 
   assert.match(calls[0].url, /purchase-requests\/request\/allocations$/)
@@ -98,4 +106,6 @@ test('API-клиент покрывает read, create, update, delete и confir
   assert.equal(calls[2].options.method, 'PATCH')
   assert.equal(calls[3].options.method, 'DELETE')
   assert.match(calls[4].url, /\/confirm$/)
+  assert.equal(calls[5].options.method, 'PUT')
+  assert.match(calls[5].url, /\/sources$/)
 })

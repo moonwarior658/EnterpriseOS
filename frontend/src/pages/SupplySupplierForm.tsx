@@ -11,6 +11,7 @@ import {
   supplierToFormValues,
   type SupplySupplierFormValues,
 } from './supplySupplierLogic'
+import SupplierIikoMappingPanel from '../components/SupplierIikoMappingPanel'
 
 type SupplySupplierFormProps = {
   supplier: SupplySupplier | null
@@ -225,6 +226,8 @@ function SupplySupplierForm({
           />
         </label>
       </fieldset>
+
+      {supplier && <SupplierIikoMappingPanel supplier={supplier} />}
 
       {submitError && (
         <p className="request-message request-message-error" role="alert">

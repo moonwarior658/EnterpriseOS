@@ -19,6 +19,7 @@ import {
   getSupplyAcceptanceResolution, getSupplyAcceptanceResolutions,
   resolveSupplyAcceptanceResolution,
   updateSupplySupplierAcceptance, updateSupplySupplierAcceptanceLine,
+  updateSupplySupplierAcceptanceLineSources,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -97,6 +98,13 @@ test('подключает admin-only список, карточку и форм
   assert.match(acceptances, /Поставка сверх документа/)
   assert.match(acceptances, /Зафиксировать приёмку/)
   assert.match(acceptances, /История приёмок/)
+  assert.match(acceptances, /Накопительный факт приёмки/)
+  assert.match(acceptances, /Открытых расхождений/)
+  assert.match(acceptances, /Для будущего прихода/)
+  assert.match(acceptances, /ordered_vs_confirmed/)
+  assert.match(acceptances, /confirmed_vs_documented/)
+  assert.match(acceptances, /documented_vs_received/)
+  assert.match(acceptances, /received_vs_accepted/)
   assert.match(acceptances, /Добавить несопоставленную позицию/)
   assert.match(acceptances, /Расхождения при приёмке/)
   assert.match(acceptances, /Ждать довоз/)
@@ -106,6 +114,10 @@ test('подключает admin-only список, карточку и форм
   assert.match(acceptances, /Отклонить излишек/)
   assert.match(acceptances, /type="date"/)
   assert.match(acceptances, /downstream_accepted_quantity/)
+  assert.match(acceptances, /Распределение принятого количества/)
+  assert.match(acceptances, /Осталось распределить/)
+  assert.match(acceptances, /Нераспределённый принятый излишек/)
+  assert.match(acceptances, /updateSupplySupplierAcceptanceLineSources/)
 })
 
 
@@ -152,6 +164,7 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await updateSupplySupplierAcceptance('acceptance', { comment: 'Факт' })
     await addSupplySupplierAcceptanceLine('acceptance', { product_name_snapshot: 'Тара', unit_id: 'unit', received_quantity: '1', accepted_quantity: '1', rejected_quantity: '0' })
     await updateSupplySupplierAcceptanceLine('acceptance', 'line', { received_quantity: '9', accepted_quantity: '8', rejected_quantity: '1', rejection_reason: 'DAMAGED' })
+    await updateSupplySupplierAcceptanceLineSources('acceptance', 'line', [{ supplier_order_line_source_id: 'source', accepted_quantity: '8' }])
     await recordSupplySupplierAcceptance('acceptance')
     await cancelSupplySupplierAcceptance('acceptance')
     await getSupplyAcceptanceResolutions('acceptance')
@@ -196,8 +209,10 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.equal(calls[21].options.method, 'DELETE')
   assert.match(calls[22].url, /supplier-documents\/document\/record$/)
   assert.match(calls[23].url, /supplier-documents\/document\/cancel$/)
-  assert.match(calls[31].url, /supplier-acceptances\/acceptance\/resolutions$/)
-  assert.match(calls[32].url, /acceptance-resolutions\/resolution$/)
-  assert.match(calls[33].url, /acceptance-resolutions\/resolution\/resolve$/)
-  assert.equal(calls[33].options.method, 'POST')
+  assert.match(calls[29].url, /supplier-acceptances\/acceptance\/lines\/line\/sources$/)
+  assert.equal(calls[29].options.method, 'PUT')
+  assert.match(calls[32].url, /supplier-acceptances\/acceptance\/resolutions$/)
+  assert.match(calls[33].url, /acceptance-resolutions\/resolution$/)
+  assert.match(calls[34].url, /acceptance-resolutions\/resolution\/resolve$/)
+  assert.equal(calls[34].options.method, 'POST')
 })

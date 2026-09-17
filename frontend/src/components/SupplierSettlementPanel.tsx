@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { EosDateField, EosSelect } from './EosFormControls'
+import ProcurementCashFlowSummary from './ProcurementCashFlowSummary'
 import {
   createSupplySupplierSettlementAdjustment,
   getSupplySupplierSettlement,
   getSupplySupplierSettlementStatement,
+  getSupplySupplierCashFlow,
   type SupplySupplierOrder,
   type SupplySupplierSettlementStatement,
   type SupplySupplierSettlementSummary,
+  type SupplyProcurementCashFlowSummary as CashFlowSummary,
   SupplyApiError,
 } from '../services/supplyAdmin'
 
@@ -23,6 +26,7 @@ const movementLabels: Record<string, string> = {
 
 export default function SupplierSettlementPanel({ order }: { order: SupplySupplierOrder }) {
   const [summary, setSummary] = useState<SupplySupplierSettlementSummary | null>(null)
+  const [cashFlow, setCashFlow] = useState<CashFlowSummary | null>(null)
   const [statement, setStatement] = useState<SupplySupplierSettlementStatement | null>(null)
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(today())
@@ -33,11 +37,12 @@ export default function SupplierSettlementPanel({ order }: { order: SupplySuppli
   const [busy, setBusy] = useState(false)
 
   async function load() {
-    const [nextSummary, nextStatement] = await Promise.all([
+    const [nextSummary, nextStatement, nextCashFlow] = await Promise.all([
       getSupplySupplierSettlement(order.supplier_id),
       getSupplySupplierSettlementStatement(order.supplier_id, dateFrom, dateTo),
+      getSupplySupplierCashFlow(order.supplier_id, dateFrom, dateTo),
     ])
-    setSummary(nextSummary); setStatement(nextStatement)
+    setSummary(nextSummary); setStatement(nextStatement); setCashFlow(nextCashFlow)
   }
 
   useEffect(() => {
@@ -45,7 +50,8 @@ export default function SupplierSettlementPanel({ order }: { order: SupplySuppli
     Promise.all([
       getSupplySupplierSettlement(order.supplier_id),
       getSupplySupplierSettlementStatement(order.supplier_id, dateFrom, dateTo),
-    ]).then(([nextSummary, nextStatement]) => { if (active) { setSummary(nextSummary); setStatement(nextStatement) } })
+      getSupplySupplierCashFlow(order.supplier_id, dateFrom, dateTo),
+    ]).then(([nextSummary, nextStatement, nextCashFlow]) => { if (active) { setSummary(nextSummary); setStatement(nextStatement); setCashFlow(nextCashFlow) } })
       .catch(() => { if (active) setMessage('Не удалось загрузить взаиморасчёты') })
     return () => { active = false }
   }, [order.supplier_id, dateFrom, dateTo])
@@ -61,6 +67,7 @@ export default function SupplierSettlementPanel({ order }: { order: SupplySuppli
   }
 
   return <section className="supplier-message-panel supplier-settlement-panel">
+    {cashFlow && <ProcurementCashFlowSummary value={cashFlow} />}
     <div className="supplier-message-heading"><div><span className="field-label">ВЗАИМОРАСЧЁТЫ</span><h2>Баланс с поставщиком</h2></div><span>Положительный баланс — мы должны; отрицательный — переплата</span></div>
     {message && <p className="request-message">{message}</p>}
     {summary && <><div className="allocation-summary"><div><span>Документы</span><strong>{money.format(Number(summary.documented_amount))}</strong></div><div><span>Оплачено</span><strong>{money.format(Number(summary.recorded_payment_amount))}</strong></div><div><span>Баланс</span><strong>{money.format(Number(summary.running_balance))}</strong><small>{Number(summary.running_balance) > 0 ? 'Мы должны' : Number(summary.running_balance) < 0 ? 'Переплата / поставщик должен нам' : 'Закрыто'}</small></div><div><span>Просрочено</span><strong>{money.format(Number(summary.overdue_debt))}</strong></div><div><span>Нераспределённый аванс</span><strong>{money.format(Number(summary.unallocated_prepayment_amount))}</strong></div></div>{(summary.payment_without_supply || summary.supply_without_payment) && <p className="supplier-message-warning">{summary.payment_without_supply ? 'Есть оплата без поставки. ' : ''}{summary.supply_without_payment ? 'Есть поставка без оплаты.' : ''}</p>}</>}

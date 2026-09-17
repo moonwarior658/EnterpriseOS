@@ -50,6 +50,8 @@ from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoDocumentValidationResultDto,
     IikoIncomingInvoiceDto,
+    IikoIncomingInvoiceItemDto,
+    IikoIncomingInvoiceStatus,
     InternalTransferDto,
     InternalTransferItemDto,
     IikoOutgoingInvoiceCreateDto,
@@ -1466,24 +1468,42 @@ class IikoServerClient(IikoProvider):
             params={"from": date_from.isoformat(), "to": date_to.isoformat()},
         )
 
-        def optional_text(document: ET.Element, name: str) -> str | None:
-            element = next(
-                (
-                    child for child in document
-                    if child.tag.rsplit("}", 1)[-1] == name
-                ),
+        def local_name(element: ET.Element) -> str:
+            return element.tag.rsplit("}", 1)[-1]
+
+        def optional_text(
+            element: ET.Element,
+            *names: str,
+        ) -> str | None:
+            child = next(
+                (item for item in element if local_name(item) in names),
                 None,
             )
             value = (
-                element.text.strip()
-                if element is not None and element.text
+                child.text.strip()
+                if child is not None and child.text
                 else ""
             )
-            return value or None
+            return None if not value or value.casefold() == "null" else value
+
+        def optional_bool(element: ET.Element, *names: str) -> bool | None:
+            value = optional_text(element, *names)
+            if value is None:
+                return None
+            normalized = value.casefold()
+            if normalized not in {"true", "false"}:
+                raise ValueError(f"invalid boolean field {names[0]}")
+            return normalized == "true"
+
+        def normalized_status(raw_status: str) -> IikoIncomingInvoiceStatus:
+            try:
+                return IikoIncomingInvoiceStatus(raw_status.upper())
+            except ValueError:
+                return IikoIncomingInvoiceStatus.UNKNOWN
 
         invoices: list[IikoIncomingInvoiceDto] = []
         for document in root.iter():
-            if document.tag.rsplit("}", 1)[-1] != "document":
+            if local_name(document) != "document":
                 continue
             document_number = (
                 optional_text(document, "documentNumber") or "<unknown>"
@@ -1494,7 +1514,6 @@ class IikoServerClient(IikoProvider):
                     "id",
                     "documentNumber",
                     "status",
-                    "defaultStore",
                 )
             }
             missing_fields = [
@@ -1510,20 +1529,100 @@ class IikoServerClient(IikoProvider):
                     )
                 continue
             try:
+                items_element = next(
+                    (child for child in document if local_name(child) == "items"),
+                    None,
+                )
+                items = tuple(
+                    IikoIncomingInvoiceItemDto(
+                        external_id=optional_text(item, "id"),
+                        line_no=optional_text(item, "num"),
+                        code=optional_text(item, "code"),
+                        product_id=optional_text(item, "product"),
+                        product_article=optional_text(item, "productArticle"),
+                        supplier_product_id=optional_text(
+                            item, "supplierProduct",
+                        ),
+                        supplier_product_article=optional_text(
+                            item, "supplierProductArticle",
+                        ),
+                        store_id=optional_text(item, "store"),
+                        amount=optional_text(item, "amount"),
+                        actual_amount=optional_text(item, "actualAmount"),
+                        amount_unit=optional_text(item, "amountUnit"),
+                        container_id=optional_text(item, "containerId"),
+                        price=optional_text(item, "price"),
+                        price_without_vat=optional_text(
+                            item, "priceWithoutVat",
+                        ),
+                        price_unit=optional_text(item, "priceUnit"),
+                        sum_amount=optional_text(item, "sum"),
+                        discount_sum=optional_text(item, "discountSum"),
+                        vat_percent=optional_text(item, "vatPercent"),
+                        vat_sum=optional_text(item, "vatSum"),
+                        is_additional_expense=optional_bool(
+                            item, "isAdditionalExpense",
+                        ),
+                    )
+                    for item in (() if items_element is None else items_element)
+                    if local_name(item) == "item"
+                )
+                raw_status = required_values["status"]
                 invoices.append(IikoIncomingInvoiceDto(
                     external_id=required_values["id"],
                     document_number=required_values["documentNumber"],
-                    status=required_values["status"],
-                    default_store_id=required_values["defaultStore"],
+                    status=normalized_status(raw_status),
+                    raw_status=(
+                        raw_status
+                        if normalized_status(raw_status)
+                        == IikoIncomingInvoiceStatus.UNKNOWN
+                        else None
+                    ),
                     supplier_id=optional_text(document, "supplier"),
+                    supplier_name=optional_text(document, "supplierName"),
+                    supplier_code=optional_text(document, "supplierCode"),
+                    default_store_id=optional_text(document, "defaultStore"),
+                    date_incoming=optional_text(document, "dateIncoming"),
+                    incoming_date=optional_text(document, "incomingDate"),
+                    due_date=optional_text(document, "dueDate"),
+                    invoice=optional_text(document, "invoice"),
+                    incoming_document_number=optional_text(
+                        document, "incomingDocumentNumber",
+                    ),
+                    comment=optional_text(document, "comment"),
+                    revision=optional_text(document, "revision"),
+                    items=items,
                 ))
-            except ValidationError as error:
-                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+            except (TypeError, ValueError, ValidationError) as error:
+                field = (
+                    ".".join(str(item) for item in error.errors()[0]["loc"])
+                    if isinstance(error, ValidationError)
+                    else "value"
+                )
                 raise IikoContractError(
                     "Invalid incoming invoice field "
                     f"document_number={document_number} field={field}"
                 ) from error
         return invoices
+
+    async def get_incoming_invoice_by_id(
+        self,
+        document_id: UUID,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> IikoIncomingInvoiceDto | None:
+        invoices = await self.get_incoming_invoices(
+            date_from=date_from,
+            date_to=date_to,
+        )
+        matches = [
+            invoice for invoice in invoices
+            if invoice.external_id == document_id
+        ]
+        if len(matches) > 1:
+            raise IikoContractError("IIKO_INCOMING_INVOICE_ID_AMBIGUOUS")
+        return matches[0] if matches else None
 
     async def _corporation_payloads(self) -> list[dict[str, Any]]:
         payloads = await self._get_json_list(
