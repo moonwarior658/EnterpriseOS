@@ -354,16 +354,16 @@ class IncomingInvoicePreviewTests(unittest.TestCase):
         self.assertEqual(xml, (
             b"<document>"
             b"<documentNumber>EOS-18C-1</documentNumber>"
-            b"<dateIncoming>2026-09-17T10:15:30+00:00</dateIncoming>"
+            b"<dateIncoming>2026-09-17T10:15:30</dateIncoming>"
             b"<incomingDate>2026-09-17</incomingDate>"
-            b"<supplierId>11111111-1111-4111-8111-111111111111</supplierId>"
-            b"<defaultStoreId>22222222-2222-4222-8222-222222222222"
-            b"</defaultStoreId>"
+            b"<supplier>11111111-1111-4111-8111-111111111111</supplier>"
+            b"<defaultStore>22222222-2222-4222-8222-222222222222"
+            b"</defaultStore>"
             b"<status>NEW</status>"
             b"<items><item>"
             b"<num>1</num>"
-            b"<productId>33333333-3333-4333-8333-333333333333</productId>"
-            b"<storeId>22222222-2222-4222-8222-222222222222</storeId>"
+            b"<product>33333333-3333-4333-8333-333333333333</product>"
+            b"<store>22222222-2222-4222-8222-222222222222</store>"
             b"<amount>6</amount>"
             b"<amountUnit>44444444-4444-4444-8444-444444444444</amountUnit>"
             b"<price>38.03</price>"
@@ -376,13 +376,18 @@ class IncomingInvoicePreviewTests(unittest.TestCase):
         self.assertEqual(root.tag, "document")
         self.assertEqual(root.findtext("documentNumber"), "EOS-18C-1")
         self.assertEqual(root.findtext("status"), "NEW")
-        self.assertEqual(root.findtext("supplierId"), str(SUPPLIER_ID))
-        self.assertEqual(root.findtext("defaultStoreId"), str(STORE_ID))
+        self.assertEqual(root.findtext("supplier"), str(SUPPLIER_ID))
+        self.assertEqual(root.findtext("defaultStore"), str(STORE_ID))
+        self.assertIsNone(root.find("supplierId"))
+        self.assertIsNone(root.find("defaultStoreId"))
+        self.assertIsNone(root.find("dueDate"))
         item = root.find("items/item")
         self.assertIsNotNone(item)
         self.assertEqual(item.findtext("num"), "1")
-        self.assertEqual(item.findtext("productId"), str(PRODUCT_ID))
-        self.assertEqual(item.findtext("storeId"), str(STORE_ID))
+        self.assertEqual(item.findtext("product"), str(PRODUCT_ID))
+        self.assertEqual(item.findtext("store"), str(STORE_ID))
+        self.assertIsNone(item.find("productId"))
+        self.assertIsNone(item.find("storeId"))
         self.assertEqual(item.findtext("amount"), "6")
         self.assertEqual(item.findtext("amountUnit"), str(UNIT_ID))
         self.assertEqual(item.findtext("price"), "38.03")

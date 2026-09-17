@@ -258,18 +258,18 @@ class IikoIncomingInvoicePreviewDto(IikoDto):
         add_text(
             document,
             "dateIncoming",
-            self.date_incoming.isoformat(timespec="seconds"),
+            self.date_incoming.strftime("%Y-%m-%dT%H:%M:%S"),
         )
         add_text(document, "incomingDate", self.incoming_date.isoformat())
-        add_text(document, "supplierId", str(self.supplier_id))
-        add_text(document, "defaultStoreId", str(self.default_store_id))
+        add_text(document, "supplier", str(self.supplier_id))
+        add_text(document, "defaultStore", str(self.default_store_id))
         add_text(document, "status", self.status)
         items = ET.SubElement(document, "items")
         for item in self.items:
             item_element = ET.SubElement(items, "item")
             add_text(item_element, "num", str(item.num))
-            add_text(item_element, "productId", str(item.product_id))
-            add_text(item_element, "storeId", str(item.store_id))
+            add_text(item_element, "product", str(item.product_id))
+            add_text(item_element, "store", str(item.store_id))
             add_text(item_element, "amount", format(item.amount, "f"))
             add_text(item_element, "amountUnit", str(item.amount_unit_id))
             add_text(item_element, "price", format(item.price, "f"))
@@ -301,7 +301,7 @@ class IikoIncomingInvoiceItemDto(IikoDto):
     price_without_vat: Decimal | None = Field(
         default=None, allow_inf_nan=False
     )
-    price_unit: Decimal | None = Field(default=None, allow_inf_nan=False)
+    price_unit: UUID | None = None
     sum_amount: Decimal | None = Field(default=None, allow_inf_nan=False)
     discount_sum: Decimal | None = Field(default=None, allow_inf_nan=False)
     vat_percent: Decimal | None = Field(default=None, allow_inf_nan=False)

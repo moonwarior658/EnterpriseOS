@@ -89,7 +89,7 @@ class IncomingInvoiceParserTests(unittest.IsolatedAsyncioTestCase):
       <store>{STORE_ID}</store><amount>2</amount>
       <amountUnit>{AMOUNT_UNIT_ID}</amountUnit>
       <containerId>{CONTAINER_ID}</containerId><price>50</price>
-      <priceUnit>5</priceUnit><sum>100</sum>
+      <priceUnit>{AMOUNT_UNIT_ID}</priceUnit><sum>100</sum>
       <vatPercent>0</vatPercent><vatSum>0</vatSum>
       <isAdditionalExpense>true</isAdditionalExpense></item>
   </items>
@@ -112,7 +112,7 @@ class IncomingInvoiceParserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(invoice.items[0].vat_sum, Decimal("16.67"))
         self.assertEqual(invoice.items[1].container_id, CONTAINER_ID)
         self.assertEqual(invoice.items[1].amount_unit, AMOUNT_UNIT_ID)
-        self.assertEqual(invoice.items[1].price_unit, Decimal("5"))
+        self.assertEqual(invoice.items[1].price_unit, AMOUNT_UNIT_ID)
         self.assertTrue(invoice.items[1].is_additional_expense)
 
     async def test_preserves_known_deleted_and_unknown_statuses(self) -> None:
