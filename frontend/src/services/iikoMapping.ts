@@ -240,6 +240,31 @@ export async function getConfirmedSourceWarehouseMappings(): Promise<
   return sources
 }
 
+export async function getConfirmedDestinationWarehouseMappings(): Promise<
+  IikoWarehouseMapping[]
+> {
+  const limit = 200
+  let offset = 0
+  const destinations: IikoWarehouseMapping[] = []
+  while (true) {
+    const page = await getWarehouseMappings(mappingQuery({
+      status: 'CONFIRMED',
+      limit,
+      offset,
+    }))
+    destinations.push(...page.items.filter((item) => (
+      item.destination_type === 'DESTINATION'
+      && item.status === 'CONFIRMED'
+      && !item.is_deleted
+      && item.eos_department_id !== null
+      && item.role !== null
+    )))
+    offset += page.items.length
+    if (offset >= page.total || page.items.length === 0) break
+  }
+  return destinations
+}
+
 export function takeIikoStockBalanceSnapshot(
   departmentId: string,
   sourceWarehouseMappingIds: string[],

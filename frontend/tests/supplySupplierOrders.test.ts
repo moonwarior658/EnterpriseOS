@@ -16,6 +16,8 @@ import {
   updateSupplySupplierDocument, updateSupplySupplierDocumentLine,
   addSupplySupplierAcceptanceLine, cancelSupplySupplierAcceptance, createSupplySupplierAcceptance,
   getSupplySupplierAcceptances, recordSupplySupplierAcceptance,
+  getSupplyAcceptanceResolution, getSupplyAcceptanceResolutions,
+  resolveSupplyAcceptanceResolution,
   updateSupplySupplierAcceptance, updateSupplySupplierAcceptanceLine,
 } from '../src/services/supplyAdmin.ts'
 
@@ -82,6 +84,9 @@ test('подключает admin-only список, карточку и форм
   assert.doesNotMatch(documents, /Поставка принята/)
   assert.match(detail, /SupplierAcceptancesPanel/)
   assert.match(acceptances, /Фактическая приёмка товара/)
+  assert.match(acceptances, /Склад приёмки/)
+  assert.match(acceptances, /getConfirmedDestinationWarehouseMappings/)
+  assert.match(acceptances, /destination_mapping_id/)
   assert.match(acceptances, /Заказано/)
   assert.match(acceptances, /Подтверждено/)
   assert.match(acceptances, /По документу/)
@@ -93,6 +98,14 @@ test('подключает admin-only список, карточку и форм
   assert.match(acceptances, /Зафиксировать приёмку/)
   assert.match(acceptances, /История приёмок/)
   assert.match(acceptances, /Добавить несопоставленную позицию/)
+  assert.match(acceptances, /Расхождения при приёмке/)
+  assert.match(acceptances, /Ждать довоз/)
+  assert.match(acceptances, /Ждать замену/)
+  assert.match(acceptances, /Вернуть в закупку/)
+  assert.match(acceptances, /Принять излишек/)
+  assert.match(acceptances, /Отклонить излишек/)
+  assert.match(acceptances, /type="date"/)
+  assert.match(acceptances, /downstream_accepted_quantity/)
 })
 
 
@@ -141,6 +154,9 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await updateSupplySupplierAcceptanceLine('acceptance', 'line', { received_quantity: '9', accepted_quantity: '8', rejected_quantity: '1', rejection_reason: 'DAMAGED' })
     await recordSupplySupplierAcceptance('acceptance')
     await cancelSupplySupplierAcceptance('acceptance')
+    await getSupplyAcceptanceResolutions('acceptance')
+    await getSupplyAcceptanceResolution('resolution')
+    await resolveSupplyAcceptanceResolution('resolution', { resolution_type: 'RETURN_TO_PROCUREMENT', need_date: '2026-09-20' })
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -180,4 +196,8 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.equal(calls[21].options.method, 'DELETE')
   assert.match(calls[22].url, /supplier-documents\/document\/record$/)
   assert.match(calls[23].url, /supplier-documents\/document\/cancel$/)
+  assert.match(calls[31].url, /supplier-acceptances\/acceptance\/resolutions$/)
+  assert.match(calls[32].url, /acceptance-resolutions\/resolution$/)
+  assert.match(calls[33].url, /acceptance-resolutions\/resolution\/resolve$/)
+  assert.equal(calls[33].options.method, 'POST')
 })

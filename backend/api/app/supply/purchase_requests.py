@@ -87,6 +87,11 @@ def _options():
         ).joinedload(
             SupplyPurchaseRequestLineSource.procurement_need
         ).joinedload(SupplyProcurementNeed.basis_stock_calculation_line),
+        selectinload(SupplyPurchaseRequest.lines).selectinload(
+            SupplyPurchaseRequestLine.sources
+        ).joinedload(
+            SupplyPurchaseRequestLineSource.procurement_need
+        ).joinedload(SupplyProcurementNeed.acceptance_resolution),
     )
 
 

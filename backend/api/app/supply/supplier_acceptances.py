@@ -4,10 +4,22 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
+
+from app.models.iiko import (
+    IikoMappingStatus,
+    IikoWarehouseDestinationType,
+    IikoWarehouseMapping,
+)
 
 from app.models.supply import (
+    SupplyAcceptanceResolution,
+    SupplyProcurementNeed,
+    SupplyProcurementNeedReason,
+    SupplyProcurementNeedSourceType,
+    SupplyProcurementNeedStatus,
     SupplyProduct,
+    SupplyPurchaseRequest,
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
     SupplySupplierConfirmation,
@@ -19,7 +31,11 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.schemas.supplier_acceptance import (
+    SupplyAcceptanceResolutionNeedRead,
+    SupplyAcceptanceResolutionRead,
+    SupplyAcceptanceResolutionResolve,
     SupplySupplierAcceptanceCreate,
+    SupplySupplierAcceptanceDestinationRead,
     SupplySupplierAcceptanceLineCreate,
     SupplySupplierAcceptanceLineRead,
     SupplySupplierAcceptanceLineUpdate,
@@ -37,17 +53,106 @@ class SupplierAcceptanceValidationError(ValueError): pass
 class SupplierAcceptanceLinkError(ValueError): pass
 class SupplierAcceptanceConflictError(ValueError): pass
 class SupplierAcceptanceUnitError(ValueError): pass
+class SupplierAcceptanceDestinationError(ValueError): pass
+class SupplierAcceptanceResolutionNotFoundError(LookupError): pass
+class SupplierAcceptanceResolutionStateError(ValueError): pass
+class SupplierAcceptanceResolutionTypeError(ValueError): pass
+class SupplierAcceptanceResolutionSourceError(ValueError): pass
+class SupplierAcceptanceResolutionNeedDateError(ValueError): pass
+class SupplierAcceptanceResolutionQuantityError(ValueError): pass
 
 
 def _options():
-    return (selectinload(SupplySupplierAcceptance.lines),)
+    return (
+        selectinload(SupplySupplierAcceptance.lines),
+        selectinload(SupplySupplierAcceptance.resolutions).selectinload(
+            SupplyAcceptanceResolution.procurement_need
+        ),
+        selectinload(SupplySupplierAcceptance.resolutions).selectinload(
+            SupplyAcceptanceResolution.acceptance_line
+        ),
+        selectinload(SupplySupplierAcceptance.resolutions).selectinload(
+            SupplyAcceptanceResolution.unit
+        ),
+        joinedload(SupplySupplierAcceptance.destination_mapping).joinedload(
+            IikoWarehouseMapping.eos_department
+        ),
+    )
+
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
+def _resolution_read(resolution: SupplyAcceptanceResolution):
+    line = resolution.acceptance_line
+    need = resolution.procurement_need
+    downstream = Decimal(line.accepted_quantity)
+    if resolution.issue_type == "EXCESS" and resolution.resolution_type == "REJECT_EXCESS":
+        downstream -= Decimal(resolution.quantity)
+    return SupplyAcceptanceResolutionRead(
+        id=resolution.id,
+        supplier_acceptance_id=resolution.supplier_acceptance_id,
+        acceptance_line_id=resolution.acceptance_line_id,
+        product_name=line.product_name_snapshot,
+        product_id=line.product_id,
+        issue_type=resolution.issue_type,
+        status=resolution.status,
+        resolution_type=resolution.resolution_type,
+        quantity=resolution.quantity,
+        unit_id=resolution.unit_id,
+        unit_name=resolution.unit.short_name_ru,
+        comment=resolution.comment,
+        resolved_by_user_id=resolution.resolved_by_user_id,
+        resolved_at=resolution.resolved_at,
+        created_at=resolution.created_at,
+        updated_at=resolution.updated_at,
+        procurement_need=(
+            SupplyAcceptanceResolutionNeedRead(
+                id=need.id, quantity=need.quantity, need_date=need.need_date,
+                status=_enum_value(need.status), reason=_enum_value(need.reason),
+            ) if need is not None else None
+        ),
+        downstream_accepted_quantity=downstream,
+    )
+
+
+def _destination_mapping(
+    session: Session,
+    mapping_id: UUID | None,
+    *,
+    tenant_id: str,
+    lock: bool = False,
+) -> IikoWarehouseMapping | None:
+    if mapping_id is None:
+        return None
+    query = (
+        select(IikoWarehouseMapping)
+        .where(
+            IikoWarehouseMapping.id == mapping_id,
+            IikoWarehouseMapping.tenant_id == tenant_id,
+            IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
+            IikoWarehouseMapping.destination_type
+            == IikoWarehouseDestinationType.DESTINATION,
+            IikoWarehouseMapping.is_deleted.is_(False),
+            IikoWarehouseMapping.eos_department_id.is_not(None),
+            IikoWarehouseMapping.role.is_not(None),
+        )
+        .options(joinedload(IikoWarehouseMapping.eos_department))
+    )
+    if lock:
+        query = query.with_for_update(of=IikoWarehouseMapping)
+    mapping = session.scalar(query)
+    if mapping is None or mapping.eos_department is None:
+        raise SupplierAcceptanceDestinationError
+    return mapping
 
 
 def _get(session: Session, acceptance_id: UUID, *, tenant_id: str, lock: bool = False):
     query = select(SupplySupplierAcceptance).where(
         SupplySupplierAcceptance.id == acceptance_id,
         SupplySupplierAcceptance.tenant_id == tenant_id,
-    ).options(*_options())
+    ).options(*_options()).execution_options(populate_existing=True)
     if lock:
         query = query.with_for_update(of=SupplySupplierAcceptance)
     value = session.scalar(query)
@@ -110,16 +215,207 @@ def _read(session: Session, acceptance: SupplySupplierAcceptance):
     source = "DOCUMENT" if acceptance.supplier_document_id else (
         "CONFIRMATION" if acceptance.supplier_confirmation_id else "ORDER"
     )
+    mapping = acceptance.destination_mapping
+    if mapping is None and acceptance.destination_mapping_id is not None:
+        mapping = session.scalar(
+            select(IikoWarehouseMapping)
+            .where(
+                IikoWarehouseMapping.id == acceptance.destination_mapping_id,
+                IikoWarehouseMapping.tenant_id == acceptance.tenant_id,
+            )
+            .options(joinedload(IikoWarehouseMapping.eos_department))
+        )
+    destination = (
+        SupplySupplierAcceptanceDestinationRead(
+            mapping_id=mapping.id,
+            department_name=mapping.eos_department.name,
+            role=mapping.role.value,
+            iiko_store_name=mapping.source_name,
+            iiko_store_code=mapping.source_code,
+        )
+        if mapping is not None
+        and mapping.eos_department is not None
+        and mapping.role is not None
+        else None
+    )
+    resolutions = [_resolution_read(value) for value in acceptance.resolutions]
+    if not resolutions:
+        resolution_state = "CLEAN"
+    elif any(value.status == "OPEN" for value in acceptance.resolutions):
+        resolution_state = "OPEN_ISSUES"
+    else:
+        resolution_state = "RESOLVED"
     return SupplySupplierAcceptanceRead(
         id=acceptance.id, supplier_order_id=acceptance.supplier_order_id,
         supplier_document_id=acceptance.supplier_document_id,
         supplier_confirmation_id=acceptance.supplier_confirmation_id,
+        destination_mapping_id=acceptance.destination_mapping_id,
+        destination=destination,
         source=source, status=acceptance.status, result=_result(lines),
         accepted_at=acceptance.accepted_at, received_at=acceptance.received_at,
         comment=acceptance.comment, recorded_by_user_id=acceptance.recorded_by_user_id,
         recorded_at=acceptance.recorded_at, created_by_user_id=acceptance.created_by_user_id,
         created_at=acceptance.created_at, updated_at=acceptance.updated_at, lines=lines,
+        resolution_state=resolution_state, resolutions=resolutions,
     )
+
+
+def list_acceptance_resolutions(session: Session, acceptance_id: UUID, *, tenant_id: str):
+    acceptance = _get(session, acceptance_id, tenant_id=tenant_id)
+    return [_resolution_read(value) for value in acceptance.resolutions]
+
+
+def read_acceptance_resolution(session: Session, resolution_id: UUID, *, tenant_id: str):
+    value = session.scalar(
+        select(SupplyAcceptanceResolution).where(
+            SupplyAcceptanceResolution.id == resolution_id,
+            SupplyAcceptanceResolution.tenant_id == tenant_id,
+        ).options(
+            selectinload(SupplyAcceptanceResolution.acceptance_line),
+            selectinload(SupplyAcceptanceResolution.unit),
+            selectinload(SupplyAcceptanceResolution.procurement_need),
+        ).execution_options(populate_existing=True)
+    )
+    if value is None:
+        raise SupplierAcceptanceResolutionNotFoundError
+    return _resolution_read(value)
+
+
+def _generate_resolution_issues(session: Session, acceptance: SupplySupplierAcceptance) -> None:
+    existing = {
+        (value.acceptance_line_id, value.issue_type)
+        for value in session.scalars(select(SupplyAcceptanceResolution).where(
+            SupplyAcceptanceResolution.tenant_id == acceptance.tenant_id,
+            SupplyAcceptanceResolution.supplier_acceptance_id == acceptance.id,
+        )).all()
+    }
+    for line in acceptance.lines:
+        if line.unit_id is None:
+            raise SupplierAcceptanceUnitError
+        documented = Decimal(line.documented_quantity) if line.documented_quantity is not None else None
+        received = Decimal(line.received_quantity)
+        accepted = Decimal(line.accepted_quantity)
+        rejected = Decimal(line.rejected_quantity)
+        issues: list[tuple[str, Decimal]] = []
+        if documented is not None and documented > received:
+            issues.append(("SHORTAGE", documented - received))
+        if documented is not None and accepted > documented:
+            issues.append(("EXCESS", accepted - documented))
+        if rejected > 0:
+            issues.append(("REJECTED", rejected))
+        for issue_type, quantity in issues:
+            if (line.id, issue_type) in existing:
+                continue
+            session.add(SupplyAcceptanceResolution(
+                tenant_id=acceptance.tenant_id,
+                supplier_acceptance_id=acceptance.id,
+                acceptance_line_id=line.id,
+                issue_type=issue_type,
+                quantity=quantity,
+                unit_id=line.unit_id,
+            ))
+
+
+def _resolution_need_date(
+    session: Session,
+    resolution: SupplyAcceptanceResolution,
+    payload: SupplyAcceptanceResolutionResolve,
+):
+    line = resolution.acceptance_line
+    derived = None
+    if line.supplier_order_line_id is not None:
+        derived = session.scalar(
+            select(SupplyPurchaseRequest.need_date)
+            .join(
+                SupplySupplierOrder,
+                SupplySupplierOrder.purchase_request_id == SupplyPurchaseRequest.id,
+            )
+            .join(
+                SupplySupplierOrderLine,
+                SupplySupplierOrderLine.supplier_order_id == SupplySupplierOrder.id,
+            )
+            .where(
+                SupplyPurchaseRequest.tenant_id == resolution.tenant_id,
+                SupplySupplierOrder.tenant_id == resolution.tenant_id,
+                SupplySupplierOrder.id == resolution.acceptance.supplier_order_id,
+                SupplySupplierOrderLine.tenant_id == resolution.tenant_id,
+                SupplySupplierOrderLine.id == line.supplier_order_line_id,
+            )
+        )
+    if derived is not None:
+        if payload.need_date is not None and payload.need_date != derived:
+            raise SupplierAcceptanceResolutionNeedDateError
+        return derived
+    if payload.need_date is None:
+        raise SupplierAcceptanceResolutionNeedDateError
+    return payload.need_date
+
+
+def resolve_acceptance_resolution(
+    session: Session,
+    resolution_id: UUID,
+    payload: SupplyAcceptanceResolutionResolve,
+    *,
+    tenant_id: str,
+    user_id: int,
+):
+    resolution = session.scalar(
+        select(SupplyAcceptanceResolution).where(
+            SupplyAcceptanceResolution.id == resolution_id,
+            SupplyAcceptanceResolution.tenant_id == tenant_id,
+        ).options(
+            joinedload(SupplyAcceptanceResolution.acceptance),
+            joinedload(SupplyAcceptanceResolution.acceptance_line),
+            joinedload(SupplyAcceptanceResolution.unit),
+            joinedload(SupplyAcceptanceResolution.procurement_need),
+        ).with_for_update(of=SupplyAcceptanceResolution)
+    )
+    if resolution is None:
+        raise SupplierAcceptanceResolutionNotFoundError
+    if resolution.status != "OPEN":
+        raise SupplierAcceptanceResolutionStateError
+    resolution_type = _enum_value(payload.resolution_type)
+    allowed = {
+        "SHORTAGE": {"WAIT_FOR_DELIVERY", "CLOSE_SHORTAGE", "RETURN_TO_PROCUREMENT"},
+        "REJECTED": {"WAIT_FOR_REPLACEMENT", "CLOSE_REJECTION", "RETURN_TO_PROCUREMENT"},
+        "EXCESS": {"ACCEPT_EXCESS", "REJECT_EXCESS"},
+    }
+    if resolution_type not in allowed[resolution.issue_type]:
+        raise SupplierAcceptanceResolutionTypeError
+    if resolution_type == "RETURN_TO_PROCUREMENT":
+        line = resolution.acceptance_line
+        if line.product_id is None or line.unit_id is None:
+            raise SupplierAcceptanceResolutionSourceError
+        if Decimal(resolution.quantity) != Decimal(resolution.quantity).quantize(Decimal("0.001")):
+            raise SupplierAcceptanceResolutionQuantityError
+        need_date = _resolution_need_date(session, resolution, payload)
+        reason = (
+            SupplyProcurementNeedReason.SUPPLIER_SHORTAGE
+            if resolution.issue_type == "SHORTAGE"
+            else SupplyProcurementNeedReason.SUPPLIER_REJECTION
+        )
+        session.add(SupplyProcurementNeed(
+            tenant_id=tenant_id,
+            source_type=SupplyProcurementNeedSourceType.ACCEPTANCE_RESOLUTION,
+            acceptance_resolution_id=resolution.id,
+            product_id=line.product_id,
+            unit_id=line.unit_id,
+            quantity=resolution.quantity,
+            need_date=need_date,
+            status=SupplyProcurementNeedStatus.OPEN,
+            reason=reason,
+        ))
+    resolution.status = "RESOLVED"
+    resolution.resolution_type = resolution_type
+    resolution.comment = (payload.comment or "").strip() or None
+    resolution.resolved_by_user_id = user_id
+    resolution.resolved_at = datetime.now(timezone.utc)
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise SupplierAcceptanceConflictError from error
+    return read_acceptance_resolution(session, resolution_id, tenant_id=tenant_id)
 
 
 def read_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str):
@@ -278,10 +574,14 @@ def create_acceptance(session: Session, order_id: UUID, payload: SupplySupplierA
             selectinload(SupplySupplierConfirmation.lines).selectinload(SupplySupplierConfirmationLine.supplier_order_line),
             selectinload(SupplySupplierConfirmation.lines).selectinload(SupplySupplierConfirmationLine.confirmed_package_unit),
         ).order_by(SupplySupplierConfirmation.revision_number.desc()).limit(1))
+    destination = _destination_mapping(
+        session, payload.destination_mapping_id, tenant_id=tenant_id
+    )
     acceptance = SupplySupplierAcceptance(
         tenant_id=tenant_id, supplier_order_id=order_id,
         supplier_document_id=document.id if document else None,
         supplier_confirmation_id=document.supplier_confirmation_id if document else (confirmation.id if confirmation else None),
+        destination_mapping_id=destination.id if destination else None,
         received_at=payload.received_at, comment=payload.comment, created_by_user_id=user_id,
     )
     session.add(acceptance); session.flush()
@@ -301,7 +601,13 @@ def create_acceptance(session: Session, order_id: UUID, payload: SupplySupplierA
 def update_acceptance(session: Session, acceptance_id: UUID, payload: SupplySupplierAcceptanceUpdate, *, tenant_id: str):
     acceptance = _get(session, acceptance_id, tenant_id=tenant_id, lock=True)
     if acceptance.status != "DRAFT": raise SupplierAcceptanceStateError
-    for field in payload.model_fields_set: setattr(acceptance, field, getattr(payload, field))
+    if "destination_mapping_id" in payload.model_fields_set:
+        destination = _destination_mapping(
+            session, payload.destination_mapping_id, tenant_id=tenant_id
+        )
+        acceptance.destination_mapping_id = destination.id if destination else None
+    for field in payload.model_fields_set - {"destination_mapping_id"}:
+        setattr(acceptance, field, getattr(payload, field))
     session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
@@ -363,6 +669,14 @@ def record_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str, 
     order = session.scalar(select(SupplySupplierOrder).where(SupplySupplierOrder.id == ref.supplier_order_id, SupplySupplierOrder.tenant_id == tenant_id).with_for_update(of=SupplySupplierOrder))
     acceptance = _get(session, acceptance_id, tenant_id=tenant_id, lock=True)
     if order is None or order.status != "SENT" or acceptance.status != "DRAFT": raise SupplierAcceptanceStateError
+    if acceptance.destination_mapping_id is None:
+        raise SupplierAcceptanceDestinationError
+    _destination_mapping(
+        session,
+        acceptance.destination_mapping_id,
+        tenant_id=tenant_id,
+        lock=True,
+    )
     if not acceptance.lines: raise SupplierAcceptanceValidationError
     document_line_ids = sorted(
         (line.supplier_document_line_id for line in acceptance.lines if line.supplier_document_line_id),
@@ -385,6 +699,7 @@ def record_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str, 
         _validate_values({"received_quantity": line.received_quantity, "accepted_quantity": line.accepted_quantity, "rejected_quantity": line.rejected_quantity, "accepted_unit_price": line.accepted_unit_price, "rejection_reason": line.rejection_reason, "comment": line.comment})
     acceptance.status="RECORDED"; acceptance.recorded_by_user_id=user_id
     acceptance.recorded_at=datetime.now(timezone.utc); acceptance.accepted_at=acceptance.recorded_at
+    _generate_resolution_issues(session, acceptance)
     try: session.commit()
     except IntegrityError as error: session.rollback(); raise SupplierAcceptanceConflictError from error
     return read_acceptance(session, acceptance_id, tenant_id=tenant_id)

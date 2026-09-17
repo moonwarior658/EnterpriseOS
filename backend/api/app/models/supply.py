@@ -176,9 +176,32 @@ class SupplySupplierAcceptanceRejectionReason(StrEnum):
     OTHER = "OTHER"
 
 
+class SupplyAcceptanceResolutionIssueType(StrEnum):
+    SHORTAGE = "SHORTAGE"
+    EXCESS = "EXCESS"
+    REJECTED = "REJECTED"
+
+
+class SupplyAcceptanceResolutionStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplyAcceptanceResolutionType(StrEnum):
+    WAIT_FOR_DELIVERY = "WAIT_FOR_DELIVERY"
+    CLOSE_SHORTAGE = "CLOSE_SHORTAGE"
+    RETURN_TO_PROCUREMENT = "RETURN_TO_PROCUREMENT"
+    WAIT_FOR_REPLACEMENT = "WAIT_FOR_REPLACEMENT"
+    CLOSE_REJECTION = "CLOSE_REJECTION"
+    ACCEPT_EXCESS = "ACCEPT_EXCESS"
+    REJECT_EXCESS = "REJECT_EXCESS"
+
+
 class SupplyProcurementNeedSourceType(StrEnum):
     REQUEST_LINE = "REQUEST_LINE"
     DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
+    ACCEPTANCE_RESOLUTION = "ACCEPTANCE_RESOLUTION"
 
 
 class SupplyProcurementNeedStatus(StrEnum):
@@ -192,6 +215,8 @@ class SupplyProcurementNeedReason(StrEnum):
     INTERNAL_STOCK_DEFICIT = "INTERNAL_STOCK_DEFICIT"
     DEBT_CARRY_FORWARD = "DEBT_CARRY_FORWARD"
     ACTUAL_SHORTFALL = "ACTUAL_SHORTFALL"
+    SUPPLIER_SHORTAGE = "SUPPLIER_SHORTAGE"
+    SUPPLIER_REJECTION = "SUPPLIER_REJECTION"
 
 
 class SupplyContextMappingAuditAction(StrEnum):
@@ -1821,6 +1846,11 @@ class SupplySupplierAcceptance(Base):
             ["supply_supplier_confirmations.tenant_id", "supply_supplier_confirmations.id", "supply_supplier_confirmations.supplier_order_id"],
             name="fk_supply_supplier_acceptances_confirmation_order_tenant", ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "destination_mapping_id"],
+            ["iiko_warehouse_mappings.tenant_id", "iiko_warehouse_mappings.id"],
+            name="fk_supply_supplier_acceptances_destination_tenant", ondelete="RESTRICT",
+        ),
         CheckConstraint(
             "status IN ('DRAFT', 'RECORDED', 'CANCELLED')",
             name="ck_supply_supplier_acceptances_status",
@@ -1832,6 +1862,7 @@ class SupplySupplierAcceptance(Base):
         ),
         Index("ix_supply_supplier_acceptances_order", "tenant_id", "supplier_order_id", "created_at"),
         Index("ix_supply_supplier_acceptances_document", "tenant_id", "supplier_document_id", "status"),
+        Index("ix_supply_supplier_acceptances_destination", "tenant_id", "destination_mapping_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -1839,6 +1870,7 @@ class SupplySupplierAcceptance(Base):
     supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     supplier_document_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     supplier_confirmation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    destination_mapping_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1850,9 +1882,17 @@ class SupplySupplierAcceptance(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     supplier_order: Mapped[SupplySupplierOrder] = relationship(back_populates="acceptances")
+    destination_mapping: Mapped["IikoWarehouseMapping | None"] = relationship(
+        "IikoWarehouseMapping", viewonly=True
+    )
     lines: Mapped[list["SupplySupplierAcceptanceLine"]] = relationship(
         back_populates="acceptance", cascade="all, delete-orphan", passive_deletes=True,
         order_by="SupplySupplierAcceptanceLine.created_at",
+    )
+    resolutions: Mapped[list["SupplyAcceptanceResolution"]] = relationship(
+        back_populates="acceptance", passive_deletes=True,
+        order_by="SupplyAcceptanceResolution.created_at",
+        overlaps="acceptance_line,resolutions",
     )
 
 
@@ -1860,6 +1900,10 @@ class SupplySupplierAcceptanceLine(Base):
     __tablename__ = "supply_supplier_acceptance_lines"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_acceptance_lines_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "acceptance_id",
+            name="uq_supply_supplier_acceptance_lines_tenant_id_acceptance",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "acceptance_id", "supplier_order_id"],
             ["supply_supplier_acceptances.tenant_id", "supply_supplier_acceptances.id", "supply_supplier_acceptances.supplier_order_id"],
@@ -1940,6 +1984,111 @@ class SupplySupplierAcceptanceLine(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     acceptance: Mapped[SupplySupplierAcceptance] = relationship(back_populates="lines")
+    resolutions: Mapped[list["SupplyAcceptanceResolution"]] = relationship(
+        back_populates="acceptance_line", passive_deletes=True,
+        order_by="SupplyAcceptanceResolution.created_at",
+        overlaps="acceptance,resolutions",
+    )
+
+
+class SupplyAcceptanceResolution(Base):
+    __tablename__ = "supply_acceptance_resolutions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_acceptance_resolutions_tenant_id"
+        ),
+        UniqueConstraint(
+            "tenant_id", "acceptance_line_id", "issue_type",
+            name="uq_supply_acceptance_resolutions_line_issue",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_acceptance_id"],
+            ["supply_supplier_acceptances.tenant_id", "supply_supplier_acceptances.id"],
+            name="fk_supply_acceptance_resolutions_acceptance_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "acceptance_line_id", "supplier_acceptance_id"],
+            [
+                "supply_supplier_acceptance_lines.tenant_id",
+                "supply_supplier_acceptance_lines.id",
+                "supply_supplier_acceptance_lines.acceptance_id",
+            ],
+            name="fk_supply_acceptance_resolutions_line_acceptance_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_acceptance_resolutions_unit_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "issue_type IN ('SHORTAGE', 'EXCESS', 'REJECTED')",
+            name="ck_supply_acceptance_resolutions_issue_type",
+        ),
+        CheckConstraint(
+            "status IN ('OPEN', 'RESOLVED', 'CANCELLED')",
+            name="ck_supply_acceptance_resolutions_status",
+        ),
+        CheckConstraint("quantity > 0", name="ck_supply_acceptance_resolutions_quantity"),
+        CheckConstraint(
+            "resolution_type IS NULL OR "
+            "(issue_type = 'SHORTAGE' AND resolution_type IN "
+            "('WAIT_FOR_DELIVERY','CLOSE_SHORTAGE','RETURN_TO_PROCUREMENT')) OR "
+            "(issue_type = 'REJECTED' AND resolution_type IN "
+            "('WAIT_FOR_REPLACEMENT','CLOSE_REJECTION','RETURN_TO_PROCUREMENT')) OR "
+            "(issue_type = 'EXCESS' AND resolution_type IN "
+            "('ACCEPT_EXCESS','REJECT_EXCESS'))",
+            name="ck_supply_acceptance_resolutions_compatible_type",
+        ),
+        CheckConstraint(
+            "(status = 'RESOLVED' AND resolution_type IS NOT NULL "
+            "AND resolved_by_user_id IS NOT NULL AND resolved_at IS NOT NULL) OR "
+            "(status IN ('OPEN','CANCELLED') AND resolution_type IS NULL "
+            "AND resolved_by_user_id IS NULL AND resolved_at IS NULL)",
+            name="ck_supply_acceptance_resolutions_state",
+        ),
+        Index(
+            "ix_supply_acceptance_resolutions_acceptance",
+            "tenant_id", "supplier_acceptance_id", "status", "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_acceptance_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    acceptance_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    issue_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="OPEN", server_default="OPEN", nullable=False)
+    resolution_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    acceptance: Mapped[SupplySupplierAcceptance] = relationship(
+        back_populates="resolutions", overlaps="acceptance_line,resolutions"
+    )
+    acceptance_line: Mapped[SupplySupplierAcceptanceLine] = relationship(
+        back_populates="resolutions", overlaps="acceptance,resolutions"
+    )
+    unit: Mapped[SupplyUnit] = relationship(
+        overlaps="acceptance,acceptance_line,resolutions"
+    )
+    procurement_need: Mapped["SupplyProcurementNeed | None"] = relationship(
+        back_populates="acceptance_resolution", uselist=False,
+        foreign_keys="SupplyProcurementNeed.acceptance_resolution_id",
+    )
 
 
 class SupplyPurchaseRequestLineSource(Base):
@@ -2031,6 +2180,12 @@ class SupplyProcurementNeed(Base):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
+            ["tenant_id", "acceptance_resolution_id"],
+            ["supply_acceptance_resolutions.tenant_id", "supply_acceptance_resolutions.id"],
+            name="fk_supply_procurement_needs_acceptance_resolution_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["tenant_id", "product_id"],
             ["supply_products.tenant_id", "supply_products.id"],
             name="fk_supply_procurement_needs_product_tenant",
@@ -2053,12 +2208,20 @@ class SupplyProcurementNeed(Base):
             "AND supply_request_line_id IS NOT NULL "
             "AND department_debt_id IS NULL "
             "AND basis_stock_calculation_line_id IS NOT NULL "
+            "AND acceptance_resolution_id IS NULL "
             "AND reason = 'INTERNAL_STOCK_DEFICIT') OR "
             "(source_type = 'DEPARTMENT_DEBT' "
             "AND department_debt_id IS NOT NULL "
             "AND supply_request_line_id IS NULL "
             "AND basis_stock_calculation_line_id IS NULL "
-            "AND reason = 'DEBT_CARRY_FORWARD')",
+            "AND acceptance_resolution_id IS NULL "
+            "AND reason = 'DEBT_CARRY_FORWARD') OR "
+            "(source_type = 'ACCEPTANCE_RESOLUTION' "
+            "AND acceptance_resolution_id IS NOT NULL "
+            "AND supply_request_line_id IS NULL "
+            "AND department_debt_id IS NULL "
+            "AND basis_stock_calculation_line_id IS NULL "
+            "AND reason IN ('SUPPLIER_SHORTAGE','SUPPLIER_REJECTION'))",
             name="ck_supply_procurement_needs_source",
         ),
         CheckConstraint("quantity > 0", name="ck_supply_procurement_needs_quantity"),
@@ -2091,6 +2254,12 @@ class SupplyProcurementNeed(Base):
             ),
         ),
         Index(
+            "uq_supply_procurement_needs_acceptance_resolution",
+            "tenant_id", "acceptance_resolution_id", unique=True,
+            postgresql_where=text("acceptance_resolution_id IS NOT NULL"),
+            sqlite_where=text("acceptance_resolution_id IS NOT NULL"),
+        ),
+        Index(
             "ix_supply_procurement_needs_tenant_status_date_product_unit",
             "tenant_id", "status", "need_date", "product_id", "unit_id",
         ),
@@ -2116,6 +2285,9 @@ class SupplyProcurementNeed(Base):
         Uuid(as_uuid=True), nullable=True
     )
     basis_stock_calculation_line_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    acceptance_resolution_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True
     )
     product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
@@ -2171,6 +2343,9 @@ class SupplyProcurementNeed(Base):
     )
     basis_stock_calculation_line: Mapped["SupplyStockCalculationLine | None"] = relationship(
         foreign_keys=[basis_stock_calculation_line_id]
+    )
+    acceptance_resolution: Mapped["SupplyAcceptanceResolution | None"] = relationship(
+        back_populates="procurement_need", foreign_keys=[acceptance_resolution_id]
     )
     product: Mapped[SupplyProduct] = relationship(foreign_keys=[product_id])
     unit: Mapped[SupplyUnit] = relationship(foreign_keys=[unit_id])

@@ -33,6 +33,7 @@ from app.models.supply import (
     SupplySupplierDocumentLine,
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
+    SupplyAcceptanceResolution,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
@@ -55,6 +56,7 @@ from app.automation.outbox import SqlAlchemyOutboxStore
 from app.automation.providers.base import CommandAcceptance
 from app.supply.supplier_order_delivery import finalize_supplier_order_email
 from app.supply.supplier_order_delivery import queue_supplier_order_email
+from app.supply.supplier_acceptances import _generate_resolution_issues
 from app.core.config import settings
 from app.models.user import User
 from app.models.iiko import IikoWarehouseMapping
@@ -91,6 +93,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierConfirmationDeviation.__table__,
             SupplySupplierDocument.__table__, SupplySupplierDocumentLine.__table__,
             SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
+            SupplyAcceptanceResolution.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:
@@ -178,6 +181,15 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             self.department = Department(tenant_id="eclair", code="M15", name="М15", is_active=True, display_order=1)
             self.direction = SupplyRequestDirection(tenant_id="eclair", code="FOOD", name="Продукты", is_active=True, display_order=1)
             session.add_all([self.department, self.direction])
+            session.flush()
+            self.destination_mapping = IikoWarehouseMapping(
+                tenant_id="eclair", iiko_warehouse_id=uuid4(),
+                eos_department_id=self.department.id,
+                destination_type="DESTINATION", role="MAIN",
+                status="CONFIRMED", source_name="Основной склад М15",
+                source_code="M15-MAIN", is_deleted=False,
+            )
+            session.add(self.destination_mapping)
         self.current_user_id = 2
 
         def override_db():
@@ -1069,6 +1081,35 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def _record_acceptance_case(self, *, received: str, accepted: str, rejected: str):
+        order = self._sent_order()
+        created = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"destination_mapping_id": str(self.destination_mapping.id)},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        acceptance = created.json()
+        line = acceptance["lines"][0]
+        with self.sessions.begin() as session:
+            session.get(SupplySupplierAcceptanceLine, UUID(line["id"])).documented_quantity = Decimal("10")
+        payload = {
+            "received_quantity": received,
+            "accepted_quantity": accepted,
+            "rejected_quantity": rejected,
+        }
+        if Decimal(rejected) > 0:
+            payload["rejection_reason"] = "DAMAGED"
+        changed = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance['id']}/lines/{line['id']}",
+            json=payload,
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        recorded = self.client.post(
+            f"/supply/supplier-acceptances/{acceptance['id']}/record"
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        return recorded.json()
+
     def test_supplier_confirmation_revision_defaults_record_history_and_immutability(self) -> None:
         order = self._sent_order()
         created = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
@@ -1564,11 +1605,19 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
 
         created = self.client.post(
             f"/supply/supplier-orders/{order['id']}/acceptances",
-            json={"supplier_document_id": document["id"], "comment": "Первая машина"},
+            json={
+                "supplier_document_id": document["id"],
+                "destination_mapping_id": str(self.destination_mapping.id),
+                "comment": "Первая машина",
+            },
         )
         self.assertEqual(created.status_code, 201, created.text)
         acceptance = created.json()
         self.assertEqual(acceptance["source"], "DOCUMENT")
+        self.assertEqual(acceptance["destination_mapping_id"], str(self.destination_mapping.id))
+        self.assertEqual(acceptance["destination"]["department_name"], "М15")
+        self.assertEqual(acceptance["destination"]["role"], "MAIN")
+        self.assertEqual(acceptance["destination"]["iiko_store_name"], "Основной склад М15")
         self.assertEqual(len(acceptance["lines"]), 1)
         self.assertEqual(acceptance["lines"][0]["documented_quantity"], "24.000000")
 
@@ -1590,10 +1639,17 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(self.client.patch(
             f"/supply/supplier-acceptances/{acceptance['id']}", json={"comment": "late"},
         ).status_code, 409)
+        self.assertEqual(self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance['id']}",
+            json={"destination_mapping_id": None},
+        ).status_code, 409)
 
         second = self.client.post(
             f"/supply/supplier-orders/{order['id']}/acceptances",
-            json={"supplier_document_id": document["id"]},
+            json={
+                "supplier_document_id": document["id"],
+                "destination_mapping_id": str(self.destination_mapping.id),
+            },
         )
         self.assertEqual(second.status_code, 201, second.text)
         self.assertEqual(second.json()["lines"][0]["documented_quantity"], "6.000000")
@@ -1630,6 +1686,270 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(from_confirmation.status_code, 201, from_confirmation.text)
         self.assertEqual(from_confirmation.json()["source"], "CONFIRMATION")
         self.assertEqual(from_confirmation.json()["lines"][0]["confirmed_quantity"], "24.000000")
+
+    def test_supplier_acceptance_requires_valid_destination_before_record(self) -> None:
+        order = self._sent_order()
+        created = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances", json={},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        acceptance_id = created.json()["id"]
+        blocked = self.client.post(
+            f"/supply/supplier-acceptances/{acceptance_id}/record"
+        )
+        self.assertEqual(blocked.status_code, 422, blocked.text)
+        self.assertEqual(blocked.json()["detail"], "Выберите действующий склад приёмки")
+        foreign = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance_id}",
+            json={"destination_mapping_id": str(uuid4())},
+        )
+        self.assertEqual(foreign.status_code, 422, foreign.text)
+        updated = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance_id}",
+            json={"destination_mapping_id": str(self.destination_mapping.id)},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(
+            updated.json()["destination"]["iiko_store_code"], "M15-MAIN"
+        )
+        recorded = self.client.post(
+            f"/supply/supplier-acceptances/{acceptance_id}/record"
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+
+    def test_acceptance_excess_uses_documented_quantity_accepted_first(self) -> None:
+        fully_accepted = self._record_acceptance_case(
+            received="12", accepted="12", rejected="0"
+        )
+        self.assertEqual(fully_accepted["resolution_state"], "OPEN_ISSUES")
+        self.assertEqual(
+            [(item["issue_type"], item["quantity"]) for item in fully_accepted["resolutions"]],
+            [("EXCESS", "2.000000")],
+        )
+
+        rejected_excess = self._record_acceptance_case(
+            received="12", accepted="10", rejected="2"
+        )
+        self.assertNotIn(
+            "EXCESS", {item["issue_type"] for item in rejected_excess["resolutions"]}
+        )
+        self.assertEqual(
+            [(item["issue_type"], item["quantity"]) for item in rejected_excess["resolutions"]],
+            [("REJECTED", "2.000000")],
+        )
+
+        mixed = self._record_acceptance_case(
+            received="12", accepted="11", rejected="1"
+        )
+        issues = {item["issue_type"]: item for item in mixed["resolutions"]}
+        self.assertEqual(issues["EXCESS"]["quantity"], "1.000000")
+        self.assertEqual(issues["REJECTED"]["quantity"], "1.000000")
+
+        rejected = self.client.post(
+            f"/supply/acceptance-resolutions/{fully_accepted['resolutions'][0]['id']}/resolve",
+            json={"resolution_type": "REJECT_EXCESS"},
+        )
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertEqual(rejected.json()["downstream_accepted_quantity"], "10.000000")
+        with self.sessions() as session:
+            line = session.get(
+                SupplySupplierAcceptanceLine,
+                UUID(fully_accepted["resolutions"][0]["acceptance_line_id"]),
+            )
+            self.assertEqual(line.accepted_quantity, Decimal("12.000000"))
+
+        accepted = self.client.post(
+            f"/supply/acceptance-resolutions/{issues['EXCESS']['id']}/resolve",
+            json={"resolution_type": "ACCEPT_EXCESS"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(accepted.json()["downstream_accepted_quantity"], "11.000000")
+        self.assertEqual(self.client.post(
+            f"/supply/acceptance-resolutions/{issues['EXCESS']['id']}/resolve",
+            json={"resolution_type": "REJECT_EXCESS"},
+        ).status_code, 409)
+
+    def test_acceptance_shortage_returns_canonical_need_with_order_date(self) -> None:
+        acceptance = self._record_acceptance_case(
+            received="8", accepted="8", rejected="0"
+        )
+        shortage = acceptance["resolutions"][0]
+        self.assertEqual(shortage["issue_type"], "SHORTAGE")
+        resolved = self.client.post(
+            f"/supply/acceptance-resolutions/{shortage['id']}/resolve",
+            json={"resolution_type": "RETURN_TO_PROCUREMENT"},
+        )
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        need = resolved.json()["procurement_need"]
+        self.assertEqual(need["quantity"], "2.000")
+        self.assertEqual(need["reason"], "SUPPLIER_SHORTAGE")
+        self.assertEqual(need["status"], "OPEN")
+        self.assertEqual(need["need_date"], (date.today() + timedelta(days=1)).isoformat())
+        self.assertEqual(self.client.post(
+            f"/supply/acceptance-resolutions/{shortage['id']}/resolve",
+            json={"resolution_type": "CLOSE_SHORTAGE"},
+        ).status_code, 409)
+
+        request_id = self.create_request()["id"]
+        collected = self.client.post(
+            f"/supply/purchase-requests/{request_id}/collect-needs"
+        )
+        self.assertEqual(collected.status_code, 200, collected.text)
+        self.assertEqual(collected.json()["lines"][0]["quantity"], "2.000")
+        self.assertEqual(
+            collected.json()["lines"][0]["sources"][0]["procurement_need_id"],
+            need["id"],
+        )
+        trace = collected.json()["lines"][0]["sources"][0]["procurement_need"]["acceptance_resolution_info"]
+        self.assertEqual(trace["id"], shortage["id"])
+        self.assertEqual(trace["supplier_acceptance_id"], acceptance["id"])
+        self.assertEqual(trace["acceptance_line_id"], shortage["acceptance_line_id"])
+        self.assertEqual(trace["issue_type"], "SHORTAGE")
+
+    def test_acceptance_resolution_wait_close_manual_and_transaction_rollback(self) -> None:
+        shortage_wait = self._record_acceptance_case(
+            received="8", accepted="8", rejected="0"
+        )["resolutions"][0]
+        waited = self.client.post(
+            f"/supply/acceptance-resolutions/{shortage_wait['id']}/resolve",
+            json={"resolution_type": "WAIT_FOR_DELIVERY", "comment": "Довезут завтра"},
+        )
+        self.assertEqual(waited.status_code, 200, waited.text)
+        self.assertIsNone(waited.json()["procurement_need"])
+
+        shortage_close = self._record_acceptance_case(
+            received="9", accepted="9", rejected="0"
+        )["resolutions"][0]
+        closed = self.client.post(
+            f"/supply/acceptance-resolutions/{shortage_close['id']}/resolve",
+            json={"resolution_type": "CLOSE_SHORTAGE"},
+        )
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertIsNone(closed.json()["procurement_need"])
+
+        rejection = self._record_acceptance_case(
+            received="10", accepted="8", rejected="2"
+        )
+        rejected_issue = next(
+            item for item in rejection["resolutions"] if item["issue_type"] == "REJECTED"
+        )
+        replacement = self.client.post(
+            f"/supply/acceptance-resolutions/{rejected_issue['id']}/resolve",
+            json={"resolution_type": "WAIT_FOR_REPLACEMENT"},
+        )
+        self.assertEqual(replacement.status_code, 200, replacement.text)
+        self.assertIsNone(replacement.json()["procurement_need"])
+
+        order = self._sent_order()
+        created = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"destination_mapping_id": str(self.destination_mapping.id)},
+        ).json()
+        manual = self.client.post(
+            f"/supply/supplier-acceptances/{created['id']}/lines",
+            json={
+                "product_name_snapshot": "Неизвестный товар", "unit_id": str(self.unit.id),
+                "received_quantity": "1", "accepted_quantity": "0", "rejected_quantity": "1",
+                "rejection_reason": "WRONG_PRODUCT",
+            },
+        )
+        self.assertEqual(manual.status_code, 200, manual.text)
+        recorded = self.client.post(
+            f"/supply/supplier-acceptances/{created['id']}/record"
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        manual_issue = next(
+            item for item in recorded.json()["resolutions"]
+            if item["product_name"] == "Неизвестный товар"
+        )
+        blocked = self.client.post(
+            f"/supply/acceptance-resolutions/{manual_issue['id']}/resolve",
+            json={"resolution_type": "RETURN_TO_PROCUREMENT", "need_date": "2026-09-30"},
+        )
+        self.assertEqual(blocked.status_code, 422, blocked.text)
+        self.assertIn("сопоставленные товар и единица", blocked.json()["detail"])
+
+        order = self._sent_order()
+        draft = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"destination_mapping_id": str(self.destination_mapping.id)},
+        ).json()
+        line_id = draft["lines"][0]["id"]
+        with self.sessions.begin() as session:
+            line = session.get(SupplySupplierAcceptanceLine, UUID(line_id))
+            line.documented_quantity = Decimal("10")
+        self.client.patch(
+            f"/supply/supplier-acceptances/{draft['id']}/lines/{line_id}",
+            json={"received_quantity": "8", "accepted_quantity": "8", "rejected_quantity": "0"},
+        )
+        with patch(
+            "app.supply.supplier_acceptances._generate_resolution_issues",
+            side_effect=RuntimeError("synthetic issue generation failure"),
+        ), self.assertRaises(RuntimeError):
+            self.client.post(f"/supply/supplier-acceptances/{draft['id']}/record")
+        with self.sessions() as session:
+            stored = session.get(SupplySupplierAcceptance, UUID(draft["id"]))
+            self.assertEqual(stored.status, "DRAFT")
+            self.assertEqual(session.query(SupplyAcceptanceResolution).filter_by(
+                supplier_acceptance_id=stored.id
+            ).count(), 0)
+
+        self.current_user_id = 3
+        self.assertEqual(self.client.get(
+            f"/supply/acceptance-resolutions/{shortage_close['id']}"
+        ).status_code, 404)
+
+    def test_acceptance_clean_combined_and_rejected_resolution_types(self) -> None:
+        clean = self._record_acceptance_case(
+            received="10", accepted="10", rejected="0"
+        )
+        self.assertEqual(clean["resolution_state"], "CLEAN")
+        self.assertEqual(clean["resolutions"], [])
+
+        combined = self._record_acceptance_case(
+            received="8", accepted="7", rejected="1"
+        )
+        self.assertEqual(
+            {item["issue_type"] for item in combined["resolutions"]},
+            {"SHORTAGE", "REJECTED"},
+        )
+        with self.sessions.begin() as session:
+            stored = session.get(SupplySupplierAcceptance, UUID(combined["id"]))
+            _generate_resolution_issues(session, stored)
+            _generate_resolution_issues(session, stored)
+        with self.sessions() as session:
+            self.assertEqual(session.query(SupplyAcceptanceResolution).filter_by(
+                supplier_acceptance_id=UUID(combined["id"])
+            ).count(), 2)
+
+        closed_case = self._record_acceptance_case(
+            received="10", accepted="9", rejected="1"
+        )
+        closed_issue = next(
+            item for item in closed_case["resolutions"] if item["issue_type"] == "REJECTED"
+        )
+        closed = self.client.post(
+            f"/supply/acceptance-resolutions/{closed_issue['id']}/resolve",
+            json={"resolution_type": "CLOSE_REJECTION"},
+        )
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertIsNone(closed.json()["procurement_need"])
+
+        return_case = self._record_acceptance_case(
+            received="10", accepted="8", rejected="2"
+        )
+        return_issue = next(
+            item for item in return_case["resolutions"] if item["issue_type"] == "REJECTED"
+        )
+        returned = self.client.post(
+            f"/supply/acceptance-resolutions/{return_issue['id']}/resolve",
+            json={"resolution_type": "RETURN_TO_PROCUREMENT"},
+        )
+        self.assertEqual(returned.status_code, 200, returned.text)
+        self.assertEqual(returned.json()["procurement_need"]["quantity"], "2.000")
+        self.assertEqual(
+            returned.json()["procurement_need"]["reason"], "SUPPLIER_REJECTION"
+        )
 
 
 if __name__ == "__main__":

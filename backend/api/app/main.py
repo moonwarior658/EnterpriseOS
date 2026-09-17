@@ -16,6 +16,7 @@ from app.api.routes.supplier_documents import (
 )
 from app.api.routes.supplier_acceptances import (
     acceptance_router as supplier_acceptances_router,
+    resolution_router as supplier_acceptance_resolutions_router,
     order_router as supplier_order_acceptances_router,
 )
 from app.api.routes.supplier_confirmations import (
@@ -46,6 +47,7 @@ app.include_router(supplier_order_documents_router)
 app.include_router(supplier_documents_router)
 app.include_router(supplier_order_acceptances_router)
 app.include_router(supplier_acceptances_router)
+app.include_router(supplier_acceptance_resolutions_router)
 app.include_router(supplier_order_confirmations_router)
 app.include_router(supplier_confirmations_router)
 app.include_router(supplier_confirmation_deviations_router)

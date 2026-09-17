@@ -129,6 +129,16 @@ class SupplyPurchaseRequestBasisTraceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SupplyPurchaseRequestAcceptanceResolutionTraceRead(BaseModel):
+    id: UUID
+    supplier_acceptance_id: UUID
+    acceptance_line_id: UUID
+    issue_type: str
+    resolution_type: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SupplyPurchaseRequestNeedTraceRead(BaseModel):
     status: str
     version: int
@@ -142,6 +152,9 @@ class SupplyPurchaseRequestNeedTraceRead(BaseModel):
     )
     basis_stock_calculation_info: SupplyPurchaseRequestBasisTraceRead | None = Field(
         default=None, validation_alias="basis_stock_calculation_line"
+    )
+    acceptance_resolution_info: SupplyPurchaseRequestAcceptanceResolutionTraceRead | None = Field(
+        default=None, validation_alias="acceptance_resolution"
     )
 
     model_config = ConfigDict(from_attributes=True)

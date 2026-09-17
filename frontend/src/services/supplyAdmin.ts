@@ -451,6 +451,18 @@ export type SupplySupplierDocumentsSummary = {
 
 export type SupplySupplierAcceptanceStatus = 'DRAFT' | 'RECORDED' | 'CANCELLED'
 export type SupplySupplierAcceptanceRejectionReason = 'DAMAGED' | 'QUALITY_MISMATCH' | 'WRONG_PRODUCT' | 'WRONG_PACKAGE' | 'EXPIRED' | 'OTHER'
+export type SupplyAcceptanceResolutionIssueType = 'SHORTAGE' | 'EXCESS' | 'REJECTED'
+export type SupplyAcceptanceResolutionType = 'WAIT_FOR_DELIVERY' | 'CLOSE_SHORTAGE' | 'RETURN_TO_PROCUREMENT' | 'WAIT_FOR_REPLACEMENT' | 'CLOSE_REJECTION' | 'ACCEPT_EXCESS' | 'REJECT_EXCESS'
+export type SupplyAcceptanceResolution = {
+  id: string; supplier_acceptance_id: string; acceptance_line_id: string
+  product_name: string; product_id: string | null
+  issue_type: SupplyAcceptanceResolutionIssueType; status: 'OPEN' | 'RESOLVED' | 'CANCELLED'
+  resolution_type: SupplyAcceptanceResolutionType | null
+  quantity: string; unit_id: string; unit_name: string; comment: string | null
+  resolved_by_user_id: number | null; resolved_at: string | null; created_at: string; updated_at: string
+  procurement_need: null | { id: string; quantity: string; need_date: string | null; status: string; reason: string }
+  downstream_accepted_quantity: string
+}
 export type SupplySupplierAcceptanceLine = {
   id: string; supplier_document_line_id: string | null; supplier_order_line_id: string | null
   supplier_confirmation_line_id: string | null; product_name_snapshot: string; product_id: string | null
@@ -463,11 +475,14 @@ export type SupplySupplierAcceptanceLine = {
 }
 export type SupplySupplierAcceptance = {
   id: string; supplier_order_id: string; supplier_document_id: string | null; supplier_confirmation_id: string | null
+  destination_mapping_id: string | null
+  destination: null | { mapping_id: string; department_name: string; role: string; iiko_store_name: string; iiko_store_code: string | null }
   source: 'DOCUMENT' | 'CONFIRMATION' | 'ORDER'; status: SupplySupplierAcceptanceStatus
   result: 'FULLY_ACCEPTED' | 'PARTIALLY_ACCEPTED' | 'REJECTED' | 'OVER_DELIVERED' | 'MIXED'
   accepted_at: string | null; received_at: string | null; comment: string | null
   recorded_by_user_id: number | null; recorded_at: string | null; created_by_user_id: number
   created_at: string; updated_at: string; lines: SupplySupplierAcceptanceLine[]
+  resolution_state: 'CLEAN' | 'OPEN_ISSUES' | 'RESOLVED'; resolutions: SupplyAcceptanceResolution[]
 }
 export type SupplySupplierAcceptanceSummary = {
   draft_count: number; recorded_count: number; latest_acceptance: SupplySupplierAcceptance | null
@@ -1450,13 +1465,13 @@ export function cancelSupplySupplierDocument(documentId: string): Promise<Supply
   return request(`/supply/supplier-documents/${documentId}/cancel`, { method: 'POST' })
 }
 
-export function createSupplySupplierAcceptance(orderId: string, input: { supplier_document_id?: string | null; received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
+export function createSupplySupplierAcceptance(orderId: string, input: { supplier_document_id?: string | null; destination_mapping_id?: string | null; received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-orders/${orderId}/acceptances`, { method: 'POST', body: JSON.stringify(input) })
 }
 export function getSupplySupplierAcceptances(orderId: string): Promise<SupplySupplierAcceptance[]> {
   return request(`/supply/supplier-orders/${orderId}/acceptances`)
 }
-export function updateSupplySupplierAcceptance(acceptanceId: string, input: { received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
+export function updateSupplySupplierAcceptance(acceptanceId: string, input: { destination_mapping_id?: string | null; received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-acceptances/${acceptanceId}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 export function updateSupplySupplierAcceptanceLine(acceptanceId: string, lineId: string, input: Partial<Pick<SupplySupplierAcceptanceLine, 'received_quantity' | 'accepted_quantity' | 'rejected_quantity' | 'accepted_unit_price' | 'rejection_reason' | 'comment'>>): Promise<SupplySupplierAcceptance> {
@@ -1470,6 +1485,15 @@ export function recordSupplySupplierAcceptance(acceptanceId: string): Promise<Su
 }
 export function cancelSupplySupplierAcceptance(acceptanceId: string): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-acceptances/${acceptanceId}/cancel`, { method: 'POST' })
+}
+export function getSupplyAcceptanceResolutions(acceptanceId: string): Promise<SupplyAcceptanceResolution[]> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/resolutions`)
+}
+export function getSupplyAcceptanceResolution(resolutionId: string): Promise<SupplyAcceptanceResolution> {
+  return request(`/supply/acceptance-resolutions/${resolutionId}`)
+}
+export function resolveSupplyAcceptanceResolution(resolutionId: string, input: { resolution_type: SupplyAcceptanceResolutionType; need_date?: string | null; comment?: string | null }): Promise<SupplyAcceptanceResolution> {
+  return request(`/supply/acceptance-resolutions/${resolutionId}/resolve`, { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function disableSupplyAlias(

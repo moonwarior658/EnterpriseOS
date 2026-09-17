@@ -19,9 +19,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.schemas.supplier_acceptance import SupplySupplierAcceptanceCreate
+from app.schemas.supplier_acceptance import (
+    SupplyAcceptanceResolutionResolve,
+    SupplySupplierAcceptanceCreate,
+)
 from app.supply.supplier_acceptances import (
-    SupplierAcceptanceConflictError, create_acceptance, record_acceptance,
+    SupplierAcceptanceConflictError,
+    SupplierAcceptanceResolutionStateError,
+    create_acceptance,
+    record_acceptance,
+    resolve_acceptance_resolution,
 )
 
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
@@ -58,20 +65,35 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
         command.upgrade(self.config, "20260917_0048")
         command.upgrade(self.config, "20260917_0049")
         self.assertEqual(self.revision(), "20260917_0049")
+        command.upgrade(self.config, "20260917_0051")
+        self.assertEqual(self.revision(), "20260917_0051")
+        command.downgrade(self.config, "20260917_0050")
+        self.assertEqual(self.revision(), "20260917_0050")
+        command.upgrade(self.config, "20260917_0051")
+        self.assertEqual(self.revision(), "20260917_0051")
         command.downgrade(self.config, "20260917_0048")
         self.assertEqual(self.revision(), "20260917_0048")
-        command.upgrade(self.config, "20260917_0049")
+        command.upgrade(self.config, "20260917_0051")
 
         inspector = inspect(self.engine)
         self.assertIn("ck_supply_supplier_acceptance_lines_equation", {x["name"] for x in inspector.get_check_constraints("supply_supplier_acceptance_lines")})
         self.assertIn("fk_supply_supplier_acceptance_lines_document_line_tenant", {x["name"] for x in inspector.get_foreign_keys("supply_supplier_acceptance_lines")})
+        self.assertIn("fk_supply_supplier_acceptances_destination_tenant", {x["name"] for x in inspector.get_foreign_keys("supply_supplier_acceptances")})
+        self.assertIn("destination_mapping_id", {x["name"] for x in inspector.get_columns("supply_supplier_acceptances")})
+        self.assertIn("ck_supply_acceptance_resolutions_compatible_type", {x["name"] for x in inspector.get_check_constraints("supply_acceptance_resolutions")})
+        self.assertIn("fk_supply_acceptance_resolutions_line_acceptance_tenant", {x["name"] for x in inspector.get_foreign_keys("supply_acceptance_resolutions")})
+        self.assertIn("acceptance_resolution_id", {x["name"] for x in inspector.get_columns("supply_procurement_needs")})
+        self.assertTrue({x["name"]: x for x in inspector.get_indexes("supply_procurement_needs")}["uq_supply_procurement_needs_acceptance_resolution"]["unique"])
         self.assertTrue({x["name"]: x for x in inspector.get_indexes("supply_supplier_acceptance_lines")}["uq_supply_supplier_acceptance_lines_document_identity"]["unique"])
 
         unit_id, product_id, supplier_id, relation_id = uuid4(), uuid4(), uuid4(), uuid4()
+        department_id, destination_mapping_id = uuid4(), uuid4()
         request_id, request_line_id, allocation_id, order_id, order_line_id = (uuid4() for _ in range(5))
         document_id, document_line_id = uuid4(), uuid4()
         with self.engine.begin() as c:
             c.execute(text("INSERT INTO users (id, username, display_name, hashed_password, tenant_id, is_active, is_admin) VALUES (94901, 'accept-admin', 'Admin', 'x', 'accept-test', true, true)"))
+            c.execute(text("INSERT INTO departments (id, tenant_id, code, name, legal_contour, is_active, display_order) VALUES (:id, 'accept-test', 'ACC', 'Acceptance Department', 'IP', true, 1)"), {"id": department_id})
+            c.execute(text("INSERT INTO iiko_warehouse_mappings (id, tenant_id, iiko_warehouse_id, eos_department_id, destination_type, role, status, source_name, is_deleted, reasons) VALUES (:id, 'accept-test', :warehouse, :department, 'DESTINATION', 'MAIN', 'CONFIRMED', 'Acceptance Store', false, CAST('[]' AS JSONB))"), {"id": destination_mapping_id, "warehouse": uuid4(), "department": department_id})
             c.execute(text("INSERT INTO supply_units (id, tenant_id, code, name_ru, short_name_ru, allows_fraction, is_active) VALUES (:id, 'accept-test', 'ACC_KG', 'Килограмм', 'кг', true, true)"), {"id": unit_id})
             c.execute(text("INSERT INTO supply_products (id, tenant_id, name, normalized_name, default_unit_id, is_active) VALUES (:id, 'accept-test', 'Сахар acceptance', 'сахар acceptance', :unit, true)"), {"id": product_id, "unit": unit_id})
             c.execute(text("INSERT INTO supply_suppliers (id, tenant_id, display_name, inn, kpp, is_active) VALUES (:id, 'accept-test', 'Acceptance Supplier', '6671000001', '667101001', true)"), {"id": supplier_id})
@@ -86,10 +108,18 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
 
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with sessions() as session:
-            first = create_acceptance(session, order_id, SupplySupplierAcceptanceCreate(supplier_document_id=document_id), tenant_id="accept-test", user_id=94901)
+            first = create_acceptance(session, order_id, SupplySupplierAcceptanceCreate(supplier_document_id=document_id, destination_mapping_id=destination_mapping_id), tenant_id="accept-test", user_id=94901)
         with sessions() as session:
-            second = create_acceptance(session, order_id, SupplySupplierAcceptanceCreate(supplier_document_id=document_id), tenant_id="accept-test", user_id=94901)
+            second = create_acceptance(session, order_id, SupplySupplierAcceptanceCreate(supplier_document_id=document_id, destination_mapping_id=destination_mapping_id), tenant_id="accept-test", user_id=94901)
+        with self.engine.begin() as c:
+            c.execute(text(
+                "UPDATE supply_supplier_acceptance_lines SET received_quantity = 22, "
+                "accepted_quantity = 22, rejected_quantity = 0 "
+                "WHERE id IN (:first_line, :second_line)"
+            ), {"first_line": first.lines[0].id, "second_line": second.lines[0].id})
         self.assertEqual(first.lines[0].documented_quantity, 24)
+        self.assertEqual(first.destination_mapping_id, destination_mapping_id)
+        self.assertEqual(first.destination.iiko_store_name, "Acceptance Store")
         barrier = Barrier(2); statements: list[str] = []
         def capture(_c, _cursor, statement, _parameters, _context, _executemany): statements.append(statement)
         def record(identifier):
@@ -105,6 +135,72 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
         finally: event.remove(self.engine, "before_cursor_execute", capture)
         self.assertEqual(sorted(results), ["CONFLICT", "RECORDED"])
         self.assertTrue(any("FOR UPDATE" in statement.upper() and "supply_supplier_document_lines" in statement for statement in statements))
+
+        with self.engine.connect() as c:
+            resolution_id = c.execute(text(
+                "SELECT id FROM supply_acceptance_resolutions "
+                "WHERE issue_type = 'SHORTAGE'"
+            )).scalar_one()
+
+        resolve_barrier = Barrier(2)
+        def resolve():
+            with sessions() as session:
+                resolve_barrier.wait()
+                try:
+                    value = resolve_acceptance_resolution(
+                        session, resolution_id,
+                        SupplyAcceptanceResolutionResolve(resolution_type="RETURN_TO_PROCUREMENT"),
+                        tenant_id="accept-test", user_id=94901,
+                    )
+                    return value.status.value
+                except SupplierAcceptanceResolutionStateError:
+                    return "CONFLICT"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            resolution_results = [future.result(timeout=15) for future in (pool.submit(resolve), pool.submit(resolve))]
+        self.assertEqual(sorted(resolution_results), ["CONFLICT", "RESOLVED"])
+        with self.engine.connect() as c:
+            self.assertEqual(c.execute(text(
+                "SELECT count(*) FROM supply_procurement_needs WHERE acceptance_resolution_id = :resolution"
+            ), {"resolution": resolution_id}).scalar_one(), 1)
+            need = c.execute(text(
+                "SELECT quantity, reason, status FROM supply_procurement_needs WHERE acceptance_resolution_id = :resolution"
+            ), {"resolution": resolution_id}).one()
+            self.assertEqual(need.quantity, 2)
+            self.assertEqual(need.reason, "SUPPLIER_SHORTAGE")
+            self.assertEqual(need.status, "OPEN")
+
+        with self.assertRaises(IntegrityError), self.engine.begin() as c:
+            c.execute(text(
+                "INSERT INTO supply_acceptance_resolutions "
+                "(id, tenant_id, supplier_acceptance_id, acceptance_line_id, issue_type, status, resolution_type, quantity, unit_id, resolved_by_user_id, resolved_at) "
+                "VALUES (:id, 'accept-test', :acceptance, :line, 'EXCESS', 'RESOLVED', 'WAIT_FOR_DELIVERY', 1, :unit, 94901, now())"
+            ), {
+                "id": uuid4(),
+                "acceptance": c.execute(text(
+                    "SELECT supplier_acceptance_id FROM supply_acceptance_resolutions WHERE id = :id"
+                ), {"id": resolution_id}).scalar_one(),
+                "line": c.execute(text(
+                    "SELECT acceptance_line_id FROM supply_acceptance_resolutions WHERE id = :id"
+                ), {"id": resolution_id}).scalar_one(),
+                "unit": unit_id,
+            })
+
+        with self.assertRaises(IntegrityError) as duplicate_need, self.engine.begin() as c:
+            c.execute(text(
+                "INSERT INTO supply_procurement_needs "
+                "(id, tenant_id, source_type, acceptance_resolution_id, product_id, unit_id, quantity, need_date, status, reason, version) "
+                "VALUES (:id, 'accept-test', 'ACCEPTANCE_RESOLUTION', :resolution, :product, :unit, 2, CURRENT_DATE, 'OPEN', 'SUPPLIER_SHORTAGE', 1)"
+            ), {"id": uuid4(), "resolution": resolution_id, "product": product_id, "unit": unit_id})
+        self.assertEqual(duplicate_need.exception.orig.sqlstate, "23505")
+
+        with self.assertRaises(IntegrityError) as tenant_fk, self.engine.begin() as c:
+            c.execute(text(
+                "INSERT INTO supply_acceptance_resolutions "
+                "(id, tenant_id, supplier_acceptance_id, acceptance_line_id, issue_type, status, quantity, unit_id) "
+                "SELECT :id, 'foreign-tenant', supplier_acceptance_id, acceptance_line_id, 'SHORTAGE', 'OPEN', 1, unit_id "
+                "FROM supply_acceptance_resolutions WHERE id = :resolution"
+            ), {"id": uuid4(), "resolution": resolution_id})
+        self.assertEqual(tenant_fk.exception.orig.sqlstate, "23503")
 
         with self.assertRaises(IntegrityError), self.engine.begin() as c:
             c.execute(text("INSERT INTO supply_supplier_acceptance_lines (id, tenant_id, acceptance_id, supplier_order_id, product_name_snapshot, unit_id, received_quantity, accepted_quantity, rejected_quantity, currency) VALUES (:id, 'accept-test', :acceptance, :order, 'Bad equation', :unit, 10, 8, 1, 'RUB')"), {"id": uuid4(), "acceptance": first.id, "order": order_id, "unit": unit_id})
