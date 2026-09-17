@@ -449,6 +449,32 @@ export type SupplySupplierDocumentsSummary = {
   latest_document: SupplySupplierDocumentSummary | null
 }
 
+export type SupplySupplierAcceptanceStatus = 'DRAFT' | 'RECORDED' | 'CANCELLED'
+export type SupplySupplierAcceptanceRejectionReason = 'DAMAGED' | 'QUALITY_MISMATCH' | 'WRONG_PRODUCT' | 'WRONG_PACKAGE' | 'EXPIRED' | 'OTHER'
+export type SupplySupplierAcceptanceLine = {
+  id: string; supplier_document_line_id: string | null; supplier_order_line_id: string | null
+  supplier_confirmation_line_id: string | null; product_name_snapshot: string; product_id: string | null
+  unit_id: string | null; unit_name_snapshot: string | null; ordered_quantity: string | null
+  confirmed_quantity: string | null; documented_quantity: string | null; received_quantity: string
+  accepted_quantity: string; rejected_quantity: string; shortage_quantity: string; excess_quantity: string
+  documented_unit_price: string | null; accepted_unit_price: string | null; accepted_amount: string | null
+  currency: 'RUB'; rejection_reason: SupplySupplierAcceptanceRejectionReason | null; comment: string | null
+  is_unmatched: boolean
+}
+export type SupplySupplierAcceptance = {
+  id: string; supplier_order_id: string; supplier_document_id: string | null; supplier_confirmation_id: string | null
+  source: 'DOCUMENT' | 'CONFIRMATION' | 'ORDER'; status: SupplySupplierAcceptanceStatus
+  result: 'FULLY_ACCEPTED' | 'PARTIALLY_ACCEPTED' | 'REJECTED' | 'OVER_DELIVERED' | 'MIXED'
+  accepted_at: string | null; received_at: string | null; comment: string | null
+  recorded_by_user_id: number | null; recorded_at: string | null; created_by_user_id: number
+  created_at: string; updated_at: string; lines: SupplySupplierAcceptanceLine[]
+}
+export type SupplySupplierAcceptanceSummary = {
+  draft_count: number; recorded_count: number; latest_acceptance: SupplySupplierAcceptance | null
+  quantities_by_unit: Record<string, { documented: string; received: string; accepted: string; rejected: string }>
+  has_shortage: boolean; has_excess: boolean
+}
+
 export type SupplySupplierOrder = {
   id: string
   number: string
@@ -484,6 +510,7 @@ export type SupplySupplierOrder = {
   supplier_confirmation_review_state?: SupplySupplierConfirmationReviewState
   open_required_deviations_count?: number
   supplier_documents_summary?: SupplySupplierDocumentsSummary
+  acceptance_summary?: SupplySupplierAcceptanceSummary
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1421,6 +1448,28 @@ export function recordSupplySupplierDocument(documentId: string): Promise<Supply
 
 export function cancelSupplySupplierDocument(documentId: string): Promise<SupplySupplierDocument> {
   return request(`/supply/supplier-documents/${documentId}/cancel`, { method: 'POST' })
+}
+
+export function createSupplySupplierAcceptance(orderId: string, input: { supplier_document_id?: string | null; received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-orders/${orderId}/acceptances`, { method: 'POST', body: JSON.stringify(input) })
+}
+export function getSupplySupplierAcceptances(orderId: string): Promise<SupplySupplierAcceptance[]> {
+  return request(`/supply/supplier-orders/${orderId}/acceptances`)
+}
+export function updateSupplySupplierAcceptance(acceptanceId: string, input: { received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+export function updateSupplySupplierAcceptanceLine(acceptanceId: string, lineId: string, input: Partial<Pick<SupplySupplierAcceptanceLine, 'received_quantity' | 'accepted_quantity' | 'rejected_quantity' | 'accepted_unit_price' | 'rejection_reason' | 'comment'>>): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/lines/${lineId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+export function addSupplySupplierAcceptanceLine(acceptanceId: string, input: { product_name_snapshot: string; product_id?: string | null; unit_id: string; received_quantity: string; accepted_quantity: string; rejected_quantity: string; rejection_reason?: SupplySupplierAcceptanceRejectionReason | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/lines`, { method: 'POST', body: JSON.stringify(input) })
+}
+export function recordSupplySupplierAcceptance(acceptanceId: string): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/record`, { method: 'POST' })
+}
+export function cancelSupplySupplierAcceptance(acceptanceId: string): Promise<SupplySupplierAcceptance> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/cancel`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

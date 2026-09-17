@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { EosDateField } from '../components/EosFormControls'
 import SupplierConfirmationPanel from '../components/SupplierConfirmationPanel'
 import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
+import SupplierAcceptancesPanel from '../components/SupplierAcceptancesPanel'
 import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplySupplierOrder, getSupplySupplierOrder, readySupplySupplierOrder,
@@ -127,5 +128,6 @@ export default function SupplySupplierOrderDetailPage() {
     </section>}
     {order.status === 'SENT' && <SupplierConfirmationPanel order={order} onOrderRefresh={refreshOrder} />}
     {order.status === 'SENT' && <SupplierDocumentsPanel order={order} onOrderRefresh={refreshOrder} />}
+    {order.status === 'SENT' && <SupplierAcceptancesPanel order={order} onOrderRefresh={refreshOrder} />}
   </div></section>
 }

@@ -14,6 +14,9 @@ import {
   createSupplySupplierDocument, deleteSupplySupplierDocumentLine,
   getSupplySupplierDocuments, recordSupplySupplierDocument,
   updateSupplySupplierDocument, updateSupplySupplierDocumentLine,
+  addSupplySupplierAcceptanceLine, cancelSupplySupplierAcceptance, createSupplySupplierAcceptance,
+  getSupplySupplierAcceptances, recordSupplySupplierAcceptance,
+  updateSupplySupplierAcceptance, updateSupplySupplierAcceptanceLine,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -25,6 +28,7 @@ test('подключает admin-only список, карточку и форм
   const detail = readFileSync(new URL('../src/pages/SupplySupplierOrderDetailPage.tsx', import.meta.url), 'utf8')
   const confirmation = readFileSync(new URL('../src/components/SupplierConfirmationPanel.tsx', import.meta.url), 'utf8')
   const documents = readFileSync(new URL('../src/components/SupplierDocumentsPanel.tsx', import.meta.url), 'utf8')
+  const acceptances = readFileSync(new URL('../src/components/SupplierAcceptancesPanel.tsx', import.meta.url), 'utf8')
   assert.match(app, /path="\/supply\/supplier-orders"/)
   assert.match(app, /path="\/supply\/supplier-orders\/:orderId"/)
   assert.match(layout, /Заказы поставщикам/)
@@ -76,6 +80,19 @@ test('подключает admin-only список, карточку и форм
   assert.match(documents, /supplier_confirmation_review_state === 'REQUIRES_DECISION'/)
   assert.match(documents, /не факт приёмки товара/)
   assert.doesNotMatch(documents, /Поставка принята/)
+  assert.match(detail, /SupplierAcceptancesPanel/)
+  assert.match(acceptances, /Фактическая приёмка товара/)
+  assert.match(acceptances, /Заказано/)
+  assert.match(acceptances, /Подтверждено/)
+  assert.match(acceptances, /По документу/)
+  assert.match(acceptances, /Приехало/)
+  assert.match(acceptances, /Принято/)
+  assert.match(acceptances, /Отклонено/)
+  assert.match(acceptances, /Недопоставка/)
+  assert.match(acceptances, /Поставка сверх документа/)
+  assert.match(acceptances, /Зафиксировать приёмку/)
+  assert.match(acceptances, /История приёмок/)
+  assert.match(acceptances, /Добавить несопоставленную позицию/)
 })
 
 
@@ -117,6 +134,13 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await deleteSupplySupplierDocumentLine('document', 'line')
     await recordSupplySupplierDocument('document')
     await cancelSupplySupplierDocument('document')
+    await createSupplySupplierAcceptance('order', { supplier_document_id: 'document' })
+    await getSupplySupplierAcceptances('order')
+    await updateSupplySupplierAcceptance('acceptance', { comment: 'Факт' })
+    await addSupplySupplierAcceptanceLine('acceptance', { product_name_snapshot: 'Тара', unit_id: 'unit', received_quantity: '1', accepted_quantity: '1', rejected_quantity: '0' })
+    await updateSupplySupplierAcceptanceLine('acceptance', 'line', { received_quantity: '9', accepted_quantity: '8', rejected_quantity: '1', rejection_reason: 'DAMAGED' })
+    await recordSupplySupplierAcceptance('acceptance')
+    await cancelSupplySupplierAcceptance('acceptance')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')

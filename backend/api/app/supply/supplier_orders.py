@@ -15,6 +15,7 @@ from app.models.supply import (
     SupplySupplierOrder,
     SupplySupplierOrderLine,
     SupplySupplierConfirmation,
+    SupplySupplierAcceptance,
 )
 from app.schemas.supplier_order import (
     SupplySupplierOrderMessageLine,
@@ -78,6 +79,7 @@ def _options():
             SupplySupplierConfirmation.deviations
         ),
         selectinload(SupplySupplierOrder.supplier_documents),
+        selectinload(SupplySupplierOrder.acceptances).selectinload(SupplySupplierAcceptance.lines),
     )
 
 
@@ -97,6 +99,7 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     from app.supply.supplier_order_delivery import delivery_attempt_read
     from app.supply.supplier_confirmations import confirmation_summary
     from app.supply.supplier_documents import documents_summary
+    from app.supply.supplier_acceptances import acceptance_summary
 
     minimum_status, shortfall = _minimum(order)
     history = [delivery_attempt_read(item) for item in order.delivery_attempts]
@@ -147,6 +150,7 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         supplier_documents_summary=documents_summary(
             object_session(order), order.supplier_documents,
         ),
+        acceptance_summary=acceptance_summary(object_session(order), order.acceptances),
     )
 
 

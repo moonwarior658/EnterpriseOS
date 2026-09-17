@@ -161,6 +161,21 @@ class SupplySupplierDocumentPricingBasis(StrEnum):
     FIXED_AMOUNT = "FIXED_AMOUNT"
 
 
+class SupplySupplierAcceptanceStatus(StrEnum):
+    DRAFT = "DRAFT"
+    RECORDED = "RECORDED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplySupplierAcceptanceRejectionReason(StrEnum):
+    DAMAGED = "DAMAGED"
+    QUALITY_MISMATCH = "QUALITY_MISMATCH"
+    WRONG_PRODUCT = "WRONG_PRODUCT"
+    WRONG_PACKAGE = "WRONG_PACKAGE"
+    EXPIRED = "EXPIRED"
+    OTHER = "OTHER"
+
+
 class SupplyProcurementNeedSourceType(StrEnum):
     REQUEST_LINE = "REQUEST_LINE"
     DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
@@ -1226,6 +1241,10 @@ class SupplySupplierOrder(Base):
         passive_deletes=True, order_by="SupplySupplierDocument.created_at",
         foreign_keys="SupplySupplierDocument.supplier_order_id",
     )
+    acceptances: Mapped[list["SupplySupplierAcceptance"]] = relationship(
+        back_populates="supplier_order", passive_deletes=True,
+        order_by="SupplySupplierAcceptance.created_at",
+    )
 
     @property
     def line_count(self) -> int:
@@ -1687,6 +1706,10 @@ class SupplySupplierDocumentLine(Base):
     __tablename__ = "supply_supplier_document_lines"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_document_lines_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_order_id",
+            name="uq_supply_supplier_document_lines_tenant_id_order",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "supplier_document_id", "supplier_order_id"],
             ["supply_supplier_documents.tenant_id", "supply_supplier_documents.id", "supply_supplier_documents.supplier_order_id"],
@@ -1773,6 +1796,150 @@ class SupplySupplierDocumentLine(Base):
             "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentLine.tenant_id))"
         ),
     )
+
+
+class SupplySupplierAcceptance(Base):
+    __tablename__ = "supply_supplier_acceptances"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_acceptances_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_order_id",
+            name="uq_supply_supplier_acceptances_tenant_id_order",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_id"],
+            ["supply_supplier_orders.tenant_id", "supply_supplier_orders.id"],
+            name="fk_supply_supplier_acceptances_order_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_id", "supplier_order_id"],
+            ["supply_supplier_documents.tenant_id", "supply_supplier_documents.id", "supply_supplier_documents.supplier_order_id"],
+            name="fk_supply_supplier_acceptances_document_order_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_confirmation_id", "supplier_order_id"],
+            ["supply_supplier_confirmations.tenant_id", "supply_supplier_confirmations.id", "supply_supplier_confirmations.supplier_order_id"],
+            name="fk_supply_supplier_acceptances_confirmation_order_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'RECORDED', 'CANCELLED')",
+            name="ck_supply_supplier_acceptances_status",
+        ),
+        CheckConstraint(
+            "(status = 'RECORDED' AND recorded_by_user_id IS NOT NULL AND recorded_at IS NOT NULL) OR "
+            "(status <> 'RECORDED' AND recorded_by_user_id IS NULL AND recorded_at IS NULL)",
+            name="ck_supply_supplier_acceptances_recorded",
+        ),
+        Index("ix_supply_supplier_acceptances_order", "tenant_id", "supplier_order_id", "created_at"),
+        Index("ix_supply_supplier_acceptances_document", "tenant_id", "supplier_document_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_document_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_confirmation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    supplier_order: Mapped[SupplySupplierOrder] = relationship(back_populates="acceptances")
+    lines: Mapped[list["SupplySupplierAcceptanceLine"]] = relationship(
+        back_populates="acceptance", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="SupplySupplierAcceptanceLine.created_at",
+    )
+
+
+class SupplySupplierAcceptanceLine(Base):
+    __tablename__ = "supply_supplier_acceptance_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_acceptance_lines_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "acceptance_id", "supplier_order_id"],
+            ["supply_supplier_acceptances.tenant_id", "supply_supplier_acceptances.id", "supply_supplier_acceptances.supplier_order_id"],
+            name="fk_supply_supplier_acceptance_lines_acceptance_order_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_line_id", "supplier_order_id"],
+            ["supply_supplier_document_lines.tenant_id", "supply_supplier_document_lines.id", "supply_supplier_document_lines.supplier_order_id"],
+            name="fk_supply_supplier_acceptance_lines_document_line_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_line_id", "supplier_order_id"],
+            ["supply_supplier_order_lines.tenant_id", "supply_supplier_order_lines.id", "supply_supplier_order_lines.supplier_order_id"],
+            name="fk_supply_supplier_acceptance_lines_order_line_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_confirmation_line_id", "supplier_order_line_id", "supplier_confirmation_id"],
+            ["supply_supplier_confirmation_lines.tenant_id", "supply_supplier_confirmation_lines.id", "supply_supplier_confirmation_lines.supplier_order_line_id", "supply_supplier_confirmation_lines.confirmation_id"],
+            name="fk_supply_supplier_acceptance_lines_confirmation_line_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"], ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_supplier_acceptance_lines_product_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"], ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_supplier_acceptance_lines_unit_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("received_quantity > 0", name="ck_supply_supplier_acceptance_lines_received"),
+        CheckConstraint("accepted_quantity >= 0", name="ck_supply_supplier_acceptance_lines_accepted"),
+        CheckConstraint("rejected_quantity >= 0", name="ck_supply_supplier_acceptance_lines_rejected"),
+        CheckConstraint("accepted_quantity + rejected_quantity = received_quantity", name="ck_supply_supplier_acceptance_lines_equation"),
+        CheckConstraint("documented_quantity IS NULL OR documented_quantity >= 0", name="ck_supply_supplier_acceptance_lines_documented"),
+        CheckConstraint("currency = 'RUB'", name="ck_supply_supplier_acceptance_lines_currency"),
+        CheckConstraint(
+            "(rejected_quantity = 0 AND rejection_reason IS NULL) OR "
+            "(rejected_quantity > 0 AND rejection_reason IN ('DAMAGED','QUALITY_MISMATCH','WRONG_PRODUCT','WRONG_PACKAGE','EXPIRED','OTHER'))",
+            name="ck_supply_supplier_acceptance_lines_rejection",
+        ),
+        CheckConstraint(
+            "rejection_reason <> 'OTHER' OR (comment IS NOT NULL AND length(trim(comment)) > 0)",
+            name="ck_supply_supplier_acceptance_lines_other_comment",
+        ),
+        CheckConstraint(
+            "(supplier_confirmation_line_id IS NULL AND supplier_confirmation_id IS NULL) OR "
+            "(supplier_confirmation_line_id IS NOT NULL AND supplier_confirmation_id IS NOT NULL AND supplier_order_line_id IS NOT NULL)",
+            name="ck_supply_supplier_acceptance_lines_confirmation_link",
+        ),
+        Index("ix_supply_supplier_acceptance_lines_acceptance", "tenant_id", "acceptance_id", "created_at"),
+        Index("ix_supply_supplier_acceptance_lines_document_line", "tenant_id", "supplier_document_line_id"),
+        Index("uq_supply_supplier_acceptance_lines_document_identity", "tenant_id", "acceptance_id", "supplier_document_line_id", unique=True, postgresql_where=text("supplier_document_line_id IS NOT NULL"), sqlite_where=text("supplier_document_line_id IS NOT NULL")),
+        Index("uq_supply_supplier_acceptance_lines_order_identity", "tenant_id", "acceptance_id", "supplier_order_line_id", unique=True, postgresql_where=text("supplier_document_line_id IS NULL AND supplier_order_line_id IS NOT NULL"), sqlite_where=text("supplier_document_line_id IS NULL AND supplier_order_line_id IS NOT NULL")),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    acceptance_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_confirmation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_document_line_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_order_line_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_confirmation_line_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    product_name_snapshot: Mapped[str] = mapped_column(String(240), nullable=False)
+    product_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    unit_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    unit_name_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    documented_quantity: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    received_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    accepted_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    documented_unit_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    accepted_unit_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    accepted_amount: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="RUB", server_default="RUB", nullable=False)
+    rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    acceptance: Mapped[SupplySupplierAcceptance] = relationship(back_populates="lines")
 
 
 class SupplyPurchaseRequestLineSource(Base):

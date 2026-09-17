@@ -31,6 +31,8 @@ from app.models.supply import (
     SupplySupplierConfirmationDeviation,
     SupplySupplierDocument,
     SupplySupplierDocumentLine,
+    SupplySupplierAcceptance,
+    SupplySupplierAcceptanceLine,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
@@ -88,6 +90,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
             SupplySupplierConfirmationDeviation.__table__,
             SupplySupplierDocument.__table__, SupplySupplierDocumentLine.__table__,
+            SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:
@@ -1545,6 +1548,88 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(foreign_unit.status_code, 409, foreign_unit.text)
+
+    def test_supplier_acceptance_document_defaults_partial_remaining_and_immutability(self) -> None:
+        order = self._sent_order()
+        document = self._create_supplier_document(order, document_type="DELIVERY_NOTE")
+        extra = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/lines",
+            json={"product_name_snapshot": "Доставка", "pricing_basis": "FIXED_AMOUNT", "line_amount": "100"},
+        )
+        self.assertEqual(extra.status_code, 200, extra.text)
+        recorded_document = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/record"
+        )
+        self.assertEqual(recorded_document.status_code, 200, recorded_document.text)
+
+        created = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"supplier_document_id": document["id"], "comment": "Первая машина"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        acceptance = created.json()
+        self.assertEqual(acceptance["source"], "DOCUMENT")
+        self.assertEqual(len(acceptance["lines"]), 1)
+        self.assertEqual(acceptance["lines"][0]["documented_quantity"], "24.000000")
+
+        line = acceptance["lines"][0]
+        invalid = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance['id']}/lines/{line['id']}",
+            json={"received_quantity": "18", "accepted_quantity": "16", "rejected_quantity": "2"},
+        )
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        changed = self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance['id']}/lines/{line['id']}",
+            json={"received_quantity": "18", "accepted_quantity": "16", "rejected_quantity": "2", "rejection_reason": "DAMAGED"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()["lines"][0]["shortage_quantity"], "6.000000")
+        fixed = self.client.post(f"/supply/supplier-acceptances/{acceptance['id']}/record")
+        self.assertEqual(fixed.status_code, 200, fixed.text)
+        self.assertEqual(fixed.json()["result"], "PARTIALLY_ACCEPTED")
+        self.assertEqual(self.client.patch(
+            f"/supply/supplier-acceptances/{acceptance['id']}", json={"comment": "late"},
+        ).status_code, 409)
+
+        second = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances",
+            json={"supplier_document_id": document["id"]},
+        )
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertEqual(second.json()["lines"][0]["documented_quantity"], "6.000000")
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        self.assertEqual(detail["acceptance_summary"]["recorded_count"], 1)
+        self.assertTrue(detail["acceptance_summary"]["has_shortage"])
+
+    def test_supplier_acceptance_fallback_chain_and_sent_guard(self) -> None:
+        ready = self.create_supplier_order()
+        blocked = self.client.post(
+            f"/supply/supplier-orders/{ready['id']}/acceptances", json={},
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+
+        order = self._sent_order()
+        from_order = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances", json={},
+        )
+        self.assertEqual(from_order.status_code, 201, from_order.text)
+        self.assertEqual(from_order.json()["source"], "ORDER")
+        self.assertEqual(from_order.json()["lines"][0]["ordered_quantity"], "24.000000")
+        self.client.post(f"/supply/supplier-acceptances/{from_order.json()['id']}/cancel")
+
+        confirmation = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/confirmations"
+        ).json()
+        recorded = self.client.post(
+            f"/supply/supplier-confirmations/{confirmation['id']}/record"
+        )
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        from_confirmation = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/acceptances", json={},
+        )
+        self.assertEqual(from_confirmation.status_code, 201, from_confirmation.text)
+        self.assertEqual(from_confirmation.json()["source"], "CONFIRMATION")
+        self.assertEqual(from_confirmation.json()["lines"][0]["confirmed_quantity"], "24.000000")
 
 
 if __name__ == "__main__":
