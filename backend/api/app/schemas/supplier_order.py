@@ -9,6 +9,7 @@ from app.schemas.supply import SupplyUnitRead
 from app.schemas.supplier_confirmation import SupplySupplierConfirmationSummary
 from app.schemas.supplier_document import SupplySupplierDocumentsSummary
 from app.schemas.supplier_acceptance import SupplySupplierAcceptanceSummary
+from app.schemas.supplier_payment import SupplySupplierOrderPrepaymentSummary
 
 
 class SupplySupplierOrderStatus(StrEnum):
@@ -111,6 +112,7 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     open_required_deviations_count: int
     supplier_documents_summary: SupplySupplierDocumentsSummary
     acceptance_summary: SupplySupplierAcceptanceSummary
+    prepayment_summary: SupplySupplierOrderPrepaymentSummary
 
 
 class SupplySupplierOrderDeliveryAttemptRead(BaseModel):

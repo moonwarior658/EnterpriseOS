@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.supplier_payment import SupplySupplierPaymentRead
+
 
 class SupplySupplierDocumentType(StrEnum):
     INVOICE = "INVOICE"
@@ -16,6 +18,12 @@ class SupplySupplierDocumentStatus(StrEnum):
     DRAFT = "DRAFT"
     RECORDED = "RECORDED"
     CANCELLED = "CANCELLED"
+
+
+class SupplySupplierDocumentFinancialRole(StrEnum):
+    PAYABLE = "PAYABLE"
+    SUPPORTING = "SUPPORTING"
+    NON_FINANCIAL = "NON_FINANCIAL"
 
 
 class SupplySupplierDocumentPricingBasis(StrEnum):
@@ -30,8 +38,12 @@ def _clean(value: str | None) -> str | None:
 
 class SupplySupplierDocumentCreate(BaseModel):
     document_type: SupplySupplierDocumentType
+    financial_role: SupplySupplierDocumentFinancialRole | None = None
+    obligation_id: UUID | None = None
+    create_obligation: bool = False
     document_number: str | None = Field(default=None, max_length=128)
     document_date: date | None = None
+    payment_due_date: date | None = None
     comment: str | None = Field(default=None, max_length=2000)
     model_config = ConfigDict(extra="forbid")
 
@@ -43,8 +55,12 @@ class SupplySupplierDocumentCreate(BaseModel):
 
 class SupplySupplierDocumentUpdate(BaseModel):
     document_type: SupplySupplierDocumentType | None = None
+    financial_role: SupplySupplierDocumentFinancialRole | None = None
+    obligation_id: UUID | None = None
+    create_obligation: bool = False
     document_number: str | None = Field(default=None, max_length=128)
     document_date: date | None = None
+    payment_due_date: date | None = None
     comment: str | None = Field(default=None, max_length=2000)
     model_config = ConfigDict(extra="forbid")
 
@@ -136,8 +152,11 @@ class SupplySupplierDocumentLineRead(BaseModel):
 class SupplySupplierDocumentSummary(BaseModel):
     id: UUID
     document_type: SupplySupplierDocumentType
+    financial_role: SupplySupplierDocumentFinancialRole
+    obligation_id: UUID | None
     document_number: str | None
     document_date: date | None
+    payment_due_date: date | None
     status: SupplySupplierDocumentStatus
     total_amount: Decimal
     currency: str
@@ -158,6 +177,12 @@ class SupplySupplierDocumentRead(SupplySupplierDocumentSummary):
     created_by_user_id: int
     recorded_by_user_id: int | None
     updated_at: datetime
+    document_total_amount: Decimal
+    recorded_payments_amount: Decimal
+    remaining_to_pay: Decimal
+    payment_state: str
+    overdue_state: str
+    payments: list[SupplySupplierPaymentRead]
     lines: list[SupplySupplierDocumentLineRead]
 
 

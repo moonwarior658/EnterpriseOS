@@ -389,6 +389,7 @@ export type SupplySupplierConfirmation = SupplySupplierConfirmationSummary & {
 export type SupplySupplierDocumentType = 'INVOICE' | 'DELIVERY_NOTE' | 'UPD'
 export type SupplySupplierDocumentStatus = 'DRAFT' | 'RECORDED' | 'CANCELLED'
 export type SupplySupplierDocumentPricingBasis = 'PACKAGE' | 'UNIT' | 'FIXED_AMOUNT'
+export type SupplySupplierDocumentFinancialRole = 'PAYABLE' | 'SUPPORTING' | 'NON_FINANCIAL'
 
 export type SupplySupplierDocumentLine = {
   id: string
@@ -415,8 +416,11 @@ export type SupplySupplierDocumentLine = {
 export type SupplySupplierDocumentSummary = {
   id: string
   document_type: SupplySupplierDocumentType
+  financial_role: SupplySupplierDocumentFinancialRole
+  obligation_id: string | null
   document_number: string | null
   document_date: string | null
+  payment_due_date: string | null
   status: SupplySupplierDocumentStatus
   total_amount: string
   currency: 'RUB'
@@ -437,7 +441,74 @@ export type SupplySupplierDocument = SupplySupplierDocumentSummary & {
   created_by_user_id: number
   recorded_by_user_id: number | null
   updated_at: string
+  document_total_amount: string
+  recorded_payments_amount: string
+  remaining_to_pay: string
+  payment_state: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID'
+  overdue_state: 'UNKNOWN' | 'NOT_DUE' | 'OVERDUE' | 'SETTLED'
+  payments: SupplySupplierPayment[]
   lines: SupplySupplierDocumentLine[]
+}
+
+export type SupplySupplierPaymentType = 'PREPAYMENT' | 'POSTPAYMENT'
+export type SupplySupplierPaymentStatus = 'DRAFT' | 'RECORDED' | 'CANCELLED'
+export type SupplySupplierPayment = {
+  id: string
+  supplier_id: string
+  supplier_display_name: string
+  supplier_document_id: string | null
+  supplier_document_number: string | null
+  supplier_order_id: string | null
+  supplier_order_number: string | null
+  payment_type: SupplySupplierPaymentType
+  status: SupplySupplierPaymentStatus
+  payment_date: string
+  amount: string
+  refunded_amount: string
+  effective_payment_amount: string
+  allocated_amount: string
+  available_amount: string
+  allocation_state: 'UNALLOCATED' | 'PARTIALLY_ALLOCATED' | 'FULLY_ALLOCATED'
+  currency: 'RUB'
+  payment_order_number: string | null
+  payment_order_date: string | null
+  comment: string | null
+  recorded_by_user_id: number | null
+  recorded_by_display_name: string | null
+  recorded_at: string | null
+  created_by_user_id: number
+  created_at: string
+  updated_at: string
+}
+
+export type SupplySupplierPaymentPage = {
+  items: SupplySupplierPayment[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type SupplySupplierObligation = {
+  id: string; supplier_id: string; supplier_order_id: string; status: 'ACTIVE' | 'CLOSED'
+  created_at: string; updated_at: string
+}
+export type SupplySupplierPaymentAllocation = {
+  id: string; supplier_id: string; payment_id: string; supplier_document_id: string
+  obligation_id: string; amount: string; status: 'ACTIVE' | 'REVERSED'
+  created_by_user_id: number | null; created_at: string; reversed_amount: string | null
+  reversed_by_user_id: number | null
+  reversed_at: string | null; reverse_reason: string | null
+}
+export type SupplySupplierSettlementSummary = {
+  supplier_id: string; documented_amount: string; recorded_payment_amount: string
+  allocated_payment_amount: string; unallocated_prepayment_amount: string
+  refund_amount: string; adjustment_amount: string; running_balance: string
+  current_debt: string; overdue_debt: string; overpayment: string
+  payment_without_supply: boolean; supply_without_payment: boolean
+}
+export type SupplySupplierSettlementStatement = {
+  supplier_id: string; date_from: string; date_to: string; opening_balance: string; closing_balance: string
+  movements: Array<{ date: string; created_at: string; type: string; reference: string; debit: string; credit: string; balance_delta: string; running_balance: string }>
 }
 
 export type SupplySupplierDocumentsSummary = {
@@ -526,6 +597,11 @@ export type SupplySupplierOrder = {
   open_required_deviations_count?: number
   supplier_documents_summary?: SupplySupplierDocumentsSummary
   acceptance_summary?: SupplySupplierAcceptanceSummary
+  prepayment_summary?: {
+    prepayment_total: string
+    unallocated_prepayment_count: number
+    unallocated_prepayment_amount: string
+  }
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1399,7 +1475,7 @@ export function decideSupplySupplierConfirmationDeviation(
 
 export function createSupplySupplierDocument(
   orderId: string,
-  input: { document_type: SupplySupplierDocumentType; document_number?: string | null; document_date?: string | null; comment?: string | null },
+  input: { document_type: SupplySupplierDocumentType; financial_role?: SupplySupplierDocumentFinancialRole; obligation_id?: string | null; create_obligation?: boolean; document_number?: string | null; document_date?: string | null; payment_due_date?: string | null; comment?: string | null },
 ): Promise<SupplySupplierDocument> {
   return request(`/supply/supplier-orders/${orderId}/documents`, {
     method: 'POST', body: JSON.stringify(input),
@@ -1412,7 +1488,7 @@ export function getSupplySupplierDocuments(orderId: string): Promise<SupplySuppl
 
 export function updateSupplySupplierDocument(
   documentId: string,
-  input: Partial<Pick<SupplySupplierDocument, 'document_type' | 'document_number' | 'document_date' | 'comment'>>,
+  input: Partial<Pick<SupplySupplierDocument, 'document_type' | 'financial_role' | 'obligation_id' | 'document_number' | 'document_date' | 'payment_due_date' | 'comment'>> & { create_obligation?: boolean },
 ): Promise<SupplySupplierDocument> {
   return request(`/supply/supplier-documents/${documentId}`, {
     method: 'PATCH', body: JSON.stringify(input),
@@ -1463,6 +1539,70 @@ export function recordSupplySupplierDocument(documentId: string): Promise<Supply
 
 export function cancelSupplySupplierDocument(documentId: string): Promise<SupplySupplierDocument> {
   return request(`/supply/supplier-documents/${documentId}/cancel`, { method: 'POST' })
+}
+
+export type SupplySupplierPaymentInput = {
+  supplier_id: string
+  supplier_document_id?: string | null
+  supplier_order_id?: string | null
+  payment_type: SupplySupplierPaymentType
+  payment_date: string
+  amount: string
+  payment_order_number?: string | null
+  payment_order_date?: string | null
+  comment?: string | null
+}
+
+export function getSupplySupplierPayments(filters: {
+  supplier_id?: string; status?: SupplySupplierPaymentStatus | ''; payment_type?: SupplySupplierPaymentType | ''
+  date_from?: string; date_to?: string; payment_order_number?: string
+} = {}, signal?: AbortSignal): Promise<SupplySupplierPaymentPage> {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value) })
+  return request(`/supply/supplier-payments${params.size ? `?${params}` : ''}`, { signal })
+}
+
+export function createSupplySupplierPayment(input: SupplySupplierPaymentInput): Promise<SupplySupplierPayment> {
+  return request('/supply/supplier-payments', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateSupplySupplierPayment(
+  paymentId: string, input: Partial<Omit<SupplySupplierPaymentInput, 'supplier_id' | 'payment_type'>>,
+): Promise<SupplySupplierPayment> {
+  return request(`/supply/supplier-payments/${paymentId}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function recordSupplySupplierPayment(paymentId: string): Promise<SupplySupplierPayment> {
+  return request(`/supply/supplier-payments/${paymentId}/record`, { method: 'POST' })
+}
+
+export function cancelSupplySupplierPayment(paymentId: string): Promise<SupplySupplierPayment> {
+  return request(`/supply/supplier-payments/${paymentId}/cancel`, { method: 'POST' })
+}
+
+export function getSupplySupplierObligations(orderId: string): Promise<SupplySupplierObligation[]> {
+  return request(`/supply/supplier-orders/${orderId}/obligations`)
+}
+export function createSupplySupplierObligation(orderId: string, supplierId: string): Promise<SupplySupplierObligation> {
+  return request(`/supply/supplier-orders/${orderId}/obligations`, { method: 'POST', body: JSON.stringify({ supplier_id: supplierId }) })
+}
+export function createSupplySupplierPaymentAllocation(input: { payment_id: string; supplier_document_id: string; amount: string }): Promise<SupplySupplierPaymentAllocation> {
+  return request('/supply/supplier-payment-allocations', { method: 'POST', body: JSON.stringify(input) })
+}
+export function reverseSupplySupplierPaymentAllocation(allocationId: string, reason: string, amount?: string): Promise<SupplySupplierPaymentAllocation> {
+  return request(`/supply/supplier-payment-allocations/${allocationId}/reverse`, { method: 'POST', body: JSON.stringify({ reason, amount }) })
+}
+export function getSupplySupplierPaymentSettlement(paymentId: string): Promise<{ payment_id: string; amount: string; refunded_amount: string; effective_payment_amount: string; allocated_amount: string; available_amount: string; allocation_state: string; allocations: SupplySupplierPaymentAllocation[] }> {
+  return request(`/supply/supplier-payments/${paymentId}/settlement`)
+}
+export function getSupplySupplierSettlement(supplierId: string): Promise<SupplySupplierSettlementSummary> {
+  return request(`/supply/suppliers/${supplierId}/settlement`)
+}
+export function getSupplySupplierSettlementStatement(supplierId: string, dateFrom: string, dateTo: string): Promise<SupplySupplierSettlementStatement> {
+  return request(`/supply/suppliers/${supplierId}/settlement/statement?date_from=${dateFrom}&date_to=${dateTo}`)
+}
+export function createSupplySupplierSettlementAdjustment(input: { supplier_id: string; supplier_payment_id?: string | null; type: 'SUPPLIER_REFUND' | 'MANUAL_CORRECTION'; direction?: 'INCREASE_DEBT' | 'DECREASE_DEBT' | null; amount: string; effective_date: string; comment?: string | null }) {
+  return request('/supply/supplier-settlement-adjustments', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function createSupplySupplierAcceptance(orderId: string, input: { supplier_document_id?: string | null; destination_mapping_id?: string | null; received_at?: string | null; comment?: string | null }): Promise<SupplySupplierAcceptance> {

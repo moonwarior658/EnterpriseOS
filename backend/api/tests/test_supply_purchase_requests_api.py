@@ -31,6 +31,10 @@ from app.models.supply import (
     SupplySupplierConfirmationDeviation,
     SupplySupplierDocument,
     SupplySupplierDocumentLine,
+    SupplySupplierObligation,
+    SupplySupplierPayment,
+    SupplySupplierPaymentAllocation,
+    SupplySupplierSettlementAdjustment,
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
     SupplyAcceptanceResolution,
@@ -91,7 +95,11 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
             SupplySupplierConfirmationDeviation.__table__,
+            SupplySupplierObligation.__table__,
             SupplySupplierDocument.__table__, SupplySupplierDocumentLine.__table__,
+            SupplySupplierPayment.__table__,
+            SupplySupplierPaymentAllocation.__table__,
+            SupplySupplierSettlementAdjustment.__table__,
             SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
             SupplyAcceptanceResolution.__table__,
         ):
@@ -1076,6 +1084,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
                 "document_type": document_type,
                 "document_number": number or f"DOC-{uuid4().hex[:8]}",
                 "document_date": "2026-09-17",
+                "create_obligation": document_type in ("INVOICE", "UPD"),
             },
         )
         self.assertEqual(response.status_code, 201, response.text)
@@ -1426,6 +1435,71 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(summary["delivery_notes_count"], 1)
         self.assertEqual(summary["upd_count"], 1)
         self.assertEqual(summary["recorded_documents_count"], 1)
+
+    def test_supplier_payment_api_partial_overpayment_draft_and_filters(self) -> None:
+        order = self._sent_order()
+        document = self._create_supplier_document(order, number="INV-PAYMENT-API")
+        patched = self.client.patch(
+            f"/supply/supplier-documents/{document['id']}",
+            json={"payment_due_date": "2026-09-16"},
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        recorded_document = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/record"
+        )
+        self.assertEqual(recorded_document.status_code, 200, recorded_document.text)
+
+        created = self.client.post("/supply/supplier-payments", json={
+            "supplier_id": order["supplier_id"],
+            "supplier_document_id": document["id"],
+            "supplier_order_id": order["id"],
+            "payment_type": "POSTPAYMENT",
+            "payment_date": "2026-09-17",
+            "amount": "3000.000001",
+            "payment_order_number": "PAY-API-1",
+            "payment_order_date": "2026-09-17",
+            "comment": "Первый платёж",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        draft = created.json()
+        self.assertEqual(draft["status"], "DRAFT")
+        changed = self.client.patch(
+            f"/supply/supplier-payments/{draft['id']}", json={"amount": "3000.500001"}
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        recorded = self.client.post(f"/supply/supplier-payments/{draft['id']}/record")
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        self.assertEqual(recorded.json()["recorded_by_display_name"], "Admin")
+        self.assertEqual(self.client.patch(
+            f"/supply/supplier-payments/{draft['id']}", json={"amount": "1"}
+        ).status_code, 409)
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-payments/{draft['id']}/cancel"
+        ).status_code, 409)
+
+        detail = self.client.get(f"/supply/supplier-documents/{document['id']}").json()
+        self.assertEqual(detail["payment_state"], "PARTIALLY_PAID")
+        self.assertEqual(detail["recorded_payments_amount"], "3000.500001")
+        self.assertEqual(detail["overdue_state"], "OVERDUE")
+        payment_list = self.client.get(
+            "/supply/supplier-payments",
+            params={"supplier_id": order["supplier_id"], "status": "RECORDED", "payment_order_number": "PAY-API"},
+        )
+        self.assertEqual(payment_list.status_code, 200, payment_list.text)
+        self.assertEqual(payment_list.json()["total"], 1)
+
+        duplicate = self.client.post("/supply/supplier-payments", json={
+            "supplier_id": order["supplier_id"],
+            "supplier_document_id": document["id"],
+            "supplier_order_id": order["id"],
+            "payment_type": "POSTPAYMENT",
+            "payment_date": "2026-09-17",
+            "amount": "3000.500001",
+            "payment_order_number": "PAY-API-1",
+            "payment_order_date": "2026-09-17",
+        })
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertEqual(duplicate.json()["detail"], "Платёжное поручение уже зарегистрировано")
 
     def test_supplier_document_defaults_follow_confirmation_fact_not_decision(self) -> None:
         cases = (

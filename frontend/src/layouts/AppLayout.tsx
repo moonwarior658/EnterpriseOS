@@ -174,6 +174,17 @@ function AppLayout() {
               </NavLink>
 
               <NavLink
+                to="/supply/supplier-payments"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Оплаты поставщикам</span>
+                <span>→</span>
+              </NavLink>
+
+              <NavLink
                 to="/integrations/iiko/mappings"
                 onClick={closeMenu}
                 className={({ isActive }) =>

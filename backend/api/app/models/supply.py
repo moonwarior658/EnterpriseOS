@@ -161,6 +161,43 @@ class SupplySupplierDocumentPricingBasis(StrEnum):
     FIXED_AMOUNT = "FIXED_AMOUNT"
 
 
+class SupplySupplierDocumentFinancialRole(StrEnum):
+    PAYABLE = "PAYABLE"
+    SUPPORTING = "SUPPORTING"
+    NON_FINANCIAL = "NON_FINANCIAL"
+
+
+class SupplySupplierObligationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+
+
+class SupplySupplierPaymentType(StrEnum):
+    PREPAYMENT = "PREPAYMENT"
+    POSTPAYMENT = "POSTPAYMENT"
+
+
+class SupplySupplierPaymentStatus(StrEnum):
+    DRAFT = "DRAFT"
+    RECORDED = "RECORDED"
+    CANCELLED = "CANCELLED"
+
+
+class SupplySupplierPaymentAllocationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    REVERSED = "REVERSED"
+
+
+class SupplySupplierSettlementAdjustmentType(StrEnum):
+    SUPPLIER_REFUND = "SUPPLIER_REFUND"
+    MANUAL_CORRECTION = "MANUAL_CORRECTION"
+
+
+class SupplySupplierSettlementCorrectionDirection(StrEnum):
+    INCREASE_DEBT = "INCREASE_DEBT"
+    DECREASE_DEBT = "DECREASE_DEBT"
+
+
 class SupplySupplierAcceptanceStatus(StrEnum):
     DRAFT = "DRAFT"
     RECORDED = "RECORDED"
@@ -1188,6 +1225,10 @@ class SupplySupplierOrder(Base):
     __tablename__ = "supply_supplier_orders"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_orders_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_id",
+            name="uq_supply_supplier_orders_tenant_id_supplier",
+        ),
         UniqueConstraint("tenant_id", "number", name="uq_supply_supplier_orders_tenant_number"),
         ForeignKeyConstraint(
             ["tenant_id", "supplier_id"],
@@ -1265,6 +1306,10 @@ class SupplySupplierOrder(Base):
     supplier_documents: Mapped[list["SupplySupplierDocument"]] = relationship(
         passive_deletes=True, order_by="SupplySupplierDocument.created_at",
         foreign_keys="SupplySupplierDocument.supplier_order_id",
+    )
+    supplier_payments: Mapped[list["SupplySupplierPayment"]] = relationship(
+        passive_deletes=True, order_by="SupplySupplierPayment.created_at",
+        foreign_keys="SupplySupplierPayment.supplier_order_id",
     )
     acceptances: Mapped[list["SupplySupplierAcceptance"]] = relationship(
         back_populates="supplier_order", passive_deletes=True,
@@ -1643,10 +1688,50 @@ class SupplySupplierConfirmationDeviation(Base):
     confirmation: Mapped[SupplySupplierConfirmation] = relationship(back_populates="deviations")
 
 
+class SupplySupplierObligation(Base):
+    __tablename__ = "supply_supplier_obligations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_obligations_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_id",
+            name="uq_supply_supplier_obligations_tenant_supplier",
+        ),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_id", "supplier_order_id",
+            name="uq_supply_supplier_obligations_tenant_links",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"],
+            ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_supply_supplier_obligations_supplier_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_id", "supplier_id"],
+            ["supply_supplier_orders.tenant_id", "supply_supplier_orders.id", "supply_supplier_orders.supplier_id"],
+            name="fk_supply_supplier_obligations_order_supplier_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("status IN ('ACTIVE', 'CLOSED')", name="ck_supply_supplier_obligations_status"),
+        Index("ix_supply_supplier_obligations_order", "tenant_id", "supplier_order_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE", server_default="ACTIVE", nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class SupplySupplierDocument(Base):
     __tablename__ = "supply_supplier_documents"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_documents_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_id",
+            name="uq_supply_supplier_documents_tenant_id_supplier",
+        ),
         UniqueConstraint(
             "tenant_id", "id", "supplier_order_id",
             name="uq_supply_supplier_documents_tenant_id_order",
@@ -1670,6 +1755,14 @@ class SupplySupplierDocument(Base):
             ["supply_suppliers.tenant_id", "supply_suppliers.id"],
             name="fk_supply_supplier_documents_supplier_tenant", ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "obligation_id", "supplier_id", "supplier_order_id"],
+            [
+                "supply_supplier_obligations.tenant_id", "supply_supplier_obligations.id",
+                "supply_supplier_obligations.supplier_id", "supply_supplier_obligations.supplier_order_id",
+            ],
+            name="fk_supply_supplier_documents_obligation_links", ondelete="RESTRICT",
+        ),
         CheckConstraint(
             "document_type IN ('INVOICE', 'DELIVERY_NOTE', 'UPD')",
             name="ck_supply_supplier_documents_type",
@@ -1677,6 +1770,14 @@ class SupplySupplierDocument(Base):
         CheckConstraint(
             "status IN ('DRAFT', 'RECORDED', 'CANCELLED')",
             name="ck_supply_supplier_documents_status",
+        ),
+        CheckConstraint(
+            "financial_role IN ('PAYABLE', 'SUPPORTING', 'NON_FINANCIAL')",
+            name="ck_supply_supplier_documents_financial_role",
+        ),
+        CheckConstraint(
+            "status <> 'RECORDED' OR financial_role <> 'PAYABLE' OR obligation_id IS NOT NULL",
+            name="ck_supply_supplier_documents_payable_obligation",
         ),
         CheckConstraint("currency = 'RUB'", name="ck_supply_supplier_documents_currency"),
         CheckConstraint("total_amount >= 0", name="ck_supply_supplier_documents_total_nonnegative"),
@@ -1694,6 +1795,12 @@ class SupplySupplierDocument(Base):
             sqlite_where=text("document_number IS NOT NULL AND document_date IS NOT NULL AND status <> 'CANCELLED'"),
         ),
         Index("ix_supply_supplier_documents_order", "tenant_id", "supplier_order_id", "created_at"),
+        Index(
+            "uq_supply_supplier_documents_active_payable_obligation",
+            "tenant_id", "obligation_id", unique=True,
+            postgresql_where=text("status = 'RECORDED' AND financial_role = 'PAYABLE'"),
+            sqlite_where=text("status = 'RECORDED' AND financial_role = 'PAYABLE'"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -1701,9 +1808,12 @@ class SupplySupplierDocument(Base):
     supplier_order_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     supplier_confirmation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    obligation_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     document_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    financial_role: Mapped[str] = mapped_column(String(24), nullable=False)
     document_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     document_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
     supplier_display_name_snapshot: Mapped[str] = mapped_column(String(240), nullable=False)
     supplier_inn_snapshot: Mapped[str | None] = mapped_column(String(12), nullable=True)
@@ -1724,6 +1834,14 @@ class SupplySupplierDocument(Base):
             "and_(SupplySupplierDocument.id == foreign(SupplySupplierDocumentLine.supplier_document_id), "
             "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentLine.tenant_id))"
         ),
+    )
+    payments: Mapped[list["SupplySupplierPayment"]] = relationship(
+        passive_deletes=True, order_by="SupplySupplierPayment.payment_date",
+        foreign_keys="SupplySupplierPayment.supplier_document_id",
+    )
+    allocations: Mapped[list["SupplySupplierPaymentAllocation"]] = relationship(
+        passive_deletes=True, order_by="SupplySupplierPaymentAllocation.created_at",
+        foreign_keys="SupplySupplierPaymentAllocation.supplier_document_id",
     )
 
 
@@ -1821,6 +1939,212 @@ class SupplySupplierDocumentLine(Base):
             "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentLine.tenant_id))"
         ),
     )
+
+
+class SupplySupplierPayment(Base):
+    __tablename__ = "supply_supplier_payments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_payments_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "id", "supplier_id",
+            name="uq_supply_supplier_payments_tenant_id_supplier",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"],
+            ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_supply_supplier_payments_supplier_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_id", "supplier_id"],
+            [
+                "supply_supplier_documents.tenant_id",
+                "supply_supplier_documents.id",
+                "supply_supplier_documents.supplier_id",
+            ],
+            name="fk_supply_supplier_payments_document_supplier_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_id", "supplier_id"],
+            [
+                "supply_supplier_orders.tenant_id",
+                "supply_supplier_orders.id",
+                "supply_supplier_orders.supplier_id",
+            ],
+            name="fk_supply_supplier_payments_order_supplier_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "payment_type IN ('PREPAYMENT', 'POSTPAYMENT')",
+            name="ck_supply_supplier_payments_type",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'RECORDED', 'CANCELLED')",
+            name="ck_supply_supplier_payments_status",
+        ),
+        CheckConstraint("amount > 0", name="ck_supply_supplier_payments_amount"),
+        CheckConstraint("currency = 'RUB'", name="ck_supply_supplier_payments_currency"),
+        CheckConstraint(
+            "(payment_order_number IS NULL AND payment_order_date IS NULL) OR "
+            "(payment_order_number IS NOT NULL AND payment_order_date IS NOT NULL)",
+            name="ck_supply_supplier_payments_order_fields",
+        ),
+        CheckConstraint(
+            "payment_type = 'PREPAYMENT' OR supplier_document_id IS NOT NULL",
+            name="ck_supply_supplier_payments_postpayment_document",
+        ),
+        CheckConstraint(
+            "supplier_document_id IS NULL OR supplier_order_id IS NOT NULL",
+            name="ck_supply_supplier_payments_document_order",
+        ),
+        CheckConstraint(
+            "(status = 'RECORDED' AND recorded_by_user_id IS NOT NULL AND recorded_at IS NOT NULL) OR "
+            "(status IN ('DRAFT', 'CANCELLED') AND recorded_by_user_id IS NULL AND recorded_at IS NULL)",
+            name="ck_supply_supplier_payments_recorded",
+        ),
+        Index(
+            "uq_supply_supplier_payments_order_identity",
+            "tenant_id", "supplier_id", "payment_date", "amount", "payment_order_number",
+            unique=True,
+            postgresql_where=text("payment_order_number IS NOT NULL AND status <> 'CANCELLED'"),
+            sqlite_where=text("payment_order_number IS NOT NULL AND status <> 'CANCELLED'"),
+        ),
+        Index(
+            "ix_supply_supplier_payments_list",
+            "tenant_id", "payment_date", "status",
+        ),
+        Index(
+            "ix_supply_supplier_payments_document",
+            "tenant_id", "supplier_document_id", "status",
+        ),
+        Index(
+            "ix_supply_supplier_payments_order",
+            "tenant_id", "supplier_order_id", "status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_document_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_order_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    payment_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="RUB", server_default="RUB", nullable=False)
+    payment_order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payment_order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    supplier: Mapped[SupplySupplier] = relationship(foreign_keys=[supplier_id])
+    supplier_document: Mapped[SupplySupplierDocument | None] = relationship(
+        foreign_keys=[supplier_document_id], overlaps="payments",
+    )
+    supplier_order: Mapped[SupplySupplierOrder | None] = relationship(
+        foreign_keys=[supplier_order_id], overlaps="supplier_payments",
+    )
+    allocations: Mapped[list["SupplySupplierPaymentAllocation"]] = relationship(
+        passive_deletes=True, order_by="SupplySupplierPaymentAllocation.created_at",
+        foreign_keys="SupplySupplierPaymentAllocation.payment_id",
+    )
+    adjustments: Mapped[list["SupplySupplierSettlementAdjustment"]] = relationship(
+        passive_deletes=True, order_by="SupplySupplierSettlementAdjustment.created_at",
+        foreign_keys="SupplySupplierSettlementAdjustment.supplier_payment_id",
+    )
+
+
+class SupplySupplierPaymentAllocation(Base):
+    __tablename__ = "supply_supplier_payment_allocations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_payment_allocations_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "payment_id", "supplier_id"],
+            ["supply_supplier_payments.tenant_id", "supply_supplier_payments.id", "supply_supplier_payments.supplier_id"],
+            name="fk_supply_payment_allocations_payment_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_id", "supplier_id"],
+            ["supply_supplier_documents.tenant_id", "supply_supplier_documents.id", "supply_supplier_documents.supplier_id"],
+            name="fk_supply_payment_allocations_document_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "obligation_id", "supplier_id"],
+            ["supply_supplier_obligations.tenant_id", "supply_supplier_obligations.id", "supply_supplier_obligations.supplier_id"],
+            name="fk_supply_payment_allocations_obligation_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("amount > 0", name="ck_supply_payment_allocations_amount"),
+        CheckConstraint("status IN ('ACTIVE', 'REVERSED')", name="ck_supply_payment_allocations_status"),
+        CheckConstraint(
+            "(status = 'ACTIVE' AND reversed_amount IS NULL AND reversed_by_user_id IS NULL AND reversed_at IS NULL AND reverse_reason IS NULL) OR "
+            "(status = 'REVERSED' AND reversed_amount > 0 AND reversed_amount <= amount AND reversed_by_user_id IS NOT NULL AND reversed_at IS NOT NULL AND reverse_reason IS NOT NULL)",
+            name="ck_supply_payment_allocations_reversal",
+        ),
+        Index("ix_supply_payment_allocations_payment", "tenant_id", "payment_id", "status"),
+        Index("ix_supply_payment_allocations_document", "tenant_id", "supplier_document_id", "status"),
+        Index(
+            "uq_supply_payment_allocations_active_pair", "tenant_id", "payment_id", "supplier_document_id",
+            unique=True, postgresql_where=text("status = 'ACTIVE'"), sqlite_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    payment_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_document_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    obligation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE", server_default="ACTIVE", nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reversed_amount: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    reversed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverse_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SupplySupplierSettlementAdjustment(Base):
+    __tablename__ = "supply_supplier_settlement_adjustments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_settlement_adjustments_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"], ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_supply_settlement_adjustments_supplier_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_payment_id", "supplier_id"],
+            ["supply_supplier_payments.tenant_id", "supply_supplier_payments.id", "supply_supplier_payments.supplier_id"],
+            name="fk_supply_settlement_adjustments_payment_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint("type IN ('SUPPLIER_REFUND', 'MANUAL_CORRECTION')", name="ck_supply_settlement_adjustments_type"),
+        CheckConstraint("direction IS NULL OR direction IN ('INCREASE_DEBT', 'DECREASE_DEBT')", name="ck_supply_settlement_adjustments_direction"),
+        CheckConstraint("amount > 0", name="ck_supply_settlement_adjustments_amount"),
+        CheckConstraint("status = 'RECORDED'", name="ck_supply_settlement_adjustments_status"),
+        CheckConstraint(
+            "(type = 'SUPPLIER_REFUND' AND supplier_payment_id IS NOT NULL AND direction IS NULL) OR "
+            "(type = 'MANUAL_CORRECTION' AND supplier_payment_id IS NULL AND direction IS NOT NULL AND comment IS NOT NULL AND trim(comment) <> '')",
+            name="ck_supply_settlement_adjustments_semantics",
+        ),
+        Index("ix_supply_settlement_adjustments_supplier_date", "tenant_id", "supplier_id", "effective_date"),
+        Index("ix_supply_settlement_adjustments_payment", "tenant_id", "supplier_payment_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_payment_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    type: Mapped[str] = mapped_column(String(24), nullable=False)
+    direction: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="RECORDED", server_default="RECORDED", nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class SupplySupplierAcceptance(Base):

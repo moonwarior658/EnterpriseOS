@@ -48,7 +48,10 @@ def _error(error: Exception) -> HTTPException:
     if isinstance(error, SupplierDocumentConflictError):
         return HTTPException(
             status_code=409,
-            detail="Документ с таким номером и датой уже зарегистрирован",
+            detail=(
+                "Документ с таким номером уже существует или в обязательстве уже есть "
+                "финансовое основание"
+            ),
         )
     if isinstance(error, SupplierDocumentLinkError):
         return HTTPException(
@@ -80,7 +83,7 @@ def create_supplier_document(
         )
     except (
         SupplierDocumentNotFoundError, SupplierDocumentStateError,
-        SupplierDocumentConflictError, SupplierDocumentValidationError,
+        SupplierDocumentConflictError, SupplierDocumentValidationError, SupplierDocumentLinkError,
     ) as error:
         raise _error(error) from error
 
@@ -116,7 +119,7 @@ def patch_supplier_document(
         return update_document(db, document_id, payload, tenant_id=admin.tenant_id)
     except (
         SupplierDocumentNotFoundError, SupplierDocumentStateError,
-        SupplierDocumentConflictError, SupplierDocumentValidationError,
+        SupplierDocumentConflictError, SupplierDocumentValidationError, SupplierDocumentLinkError,
     ) as error:
         raise _error(error) from error
 
@@ -176,7 +179,7 @@ def record_supplier_document(
     except (
         SupplierDocumentNotFoundError, SupplierDocumentStateError,
         SupplierDocumentValidationError, SupplierDocumentReviewError,
-        SupplierDocumentConflictError,
+        SupplierDocumentConflictError, SupplierDocumentLinkError,
     ) as error:
         raise _error(error) from error
 

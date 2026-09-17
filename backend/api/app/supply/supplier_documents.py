@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,8 +11,10 @@ from app.models.supply import (
     SupplySupplierConfirmationLine,
     SupplySupplierDocument,
     SupplySupplierDocumentLine,
+    SupplySupplierObligation,
     SupplySupplierOrder,
     SupplySupplierOrderLine,
+    SupplySupplierPayment,
     SupplyUnit,
 )
 from app.schemas.supplier_document import (
@@ -57,7 +59,12 @@ PRICE_QUANTUM = Decimal("0.01")
 
 
 def _document_options():
-    return (selectinload(SupplySupplierDocument.lines),)
+    return (
+        selectinload(SupplySupplierDocument.lines),
+        selectinload(SupplySupplierDocument.allocations),
+        selectinload(SupplySupplierDocument.payments).joinedload(SupplySupplierPayment.supplier),
+        selectinload(SupplySupplierDocument.payments).joinedload(SupplySupplierPayment.supplier_order),
+    )
 
 
 def _confirmation_options():
@@ -144,8 +151,11 @@ def _summary(
     return SupplySupplierDocumentSummary(
         id=document.id,
         document_type=document.document_type,
+        financial_role=document.financial_role,
+        obligation_id=document.obligation_id,
         document_number=document.document_number,
         document_date=document.document_date,
+        payment_due_date=document.payment_due_date,
         status=document.status,
         total_amount=document.total_amount,
         currency=document.currency,
@@ -156,6 +166,8 @@ def _summary(
 
 
 def _read(session: Session, document: SupplySupplierDocument) -> SupplySupplierDocumentRead:
+    from app.supply.supplier_payments import payment_read
+
     order_number = session.scalar(select(SupplySupplierOrder.number).where(
         SupplySupplierOrder.id == document.supplier_order_id,
         SupplySupplierOrder.tenant_id == document.tenant_id,
@@ -163,6 +175,27 @@ def _read(session: Session, document: SupplySupplierDocument) -> SupplySupplierD
     if order_number is None:
         raise SupplierDocumentNotFoundError
     summary = _summary(session, document)
+    active_allocations = [item for item in document.allocations if item.status == "ACTIVE"]
+    recorded_amount = sum(
+        (Decimal(item.amount) for item in active_allocations), Decimal("0")
+    ).quantize(MONEY_QUANTUM)
+    remaining = (Decimal(document.total_amount) - recorded_amount).quantize(MONEY_QUANTUM)
+    if recorded_amount == 0:
+        payment_state = "UNPAID"
+    elif remaining > 0:
+        payment_state = "PARTIALLY_PAID"
+    elif remaining == 0:
+        payment_state = "PAID"
+    else:
+        payment_state = "OVERPAID"
+    if remaining <= 0:
+        overdue_state = "SETTLED"
+    elif document.payment_due_date is None:
+        overdue_state = "UNKNOWN"
+    elif date.today() > document.payment_due_date:
+        overdue_state = "OVERDUE"
+    else:
+        overdue_state = "NOT_DUE"
     return SupplySupplierDocumentRead(
         **summary.model_dump(),
         supplier_order_id=document.supplier_order_id,
@@ -176,6 +209,12 @@ def _read(session: Session, document: SupplySupplierDocument) -> SupplySupplierD
         created_by_user_id=document.created_by_user_id,
         recorded_by_user_id=document.recorded_by_user_id,
         updated_at=document.updated_at,
+        document_total_amount=document.total_amount,
+        recorded_payments_amount=recorded_amount,
+        remaining_to_pay=remaining,
+        payment_state=payment_state,
+        overdue_state=overdue_state,
+        payments=[payment_read(session, item) for item in document.payments],
         lines=[_line_read(line) for line in document.lines],
     )
 
@@ -288,14 +327,42 @@ def create_document(
         ),
     ).execution_options(populate_existing=True))
     confirmation = _latest_confirmation(session, order_id, tenant_id=tenant_id)
+    financial_role = (
+        payload.financial_role.value if payload.financial_role
+        else {"INVOICE": "PAYABLE", "DELIVERY_NOTE": "SUPPORTING", "UPD": "PAYABLE"}[payload.document_type.value]
+    )
+    obligation_id = payload.obligation_id
+    if payload.create_obligation:
+        if obligation_id is not None:
+            raise SupplierDocumentValidationError
+        obligation = SupplySupplierObligation(
+            tenant_id=tenant_id, supplier_id=order.supplier_id,
+            supplier_order_id=order.id, status="ACTIVE", created_by_user_id=user_id,
+        )
+        session.add(obligation)
+        session.flush()
+        obligation_id = obligation.id
+    elif obligation_id is not None:
+        obligation = session.scalar(select(SupplySupplierObligation).where(
+            SupplySupplierObligation.id == obligation_id,
+            SupplySupplierObligation.tenant_id == tenant_id,
+            SupplySupplierObligation.supplier_id == order.supplier_id,
+            SupplySupplierObligation.supplier_order_id == order.id,
+            SupplySupplierObligation.status == "ACTIVE",
+        ))
+        if obligation is None:
+            raise SupplierDocumentLinkError
     document = SupplySupplierDocument(
         tenant_id=tenant_id,
         supplier_order_id=order.id,
         supplier_confirmation_id=confirmation.id if confirmation else None,
         supplier_id=order.supplier_id,
+        obligation_id=obligation_id,
         document_type=payload.document_type.value,
+        financial_role=financial_role,
         document_number=payload.document_number,
         document_date=payload.document_date,
+        payment_due_date=payload.payment_due_date,
         status="DRAFT",
         supplier_display_name_snapshot=order.supplier.display_name,
         supplier_inn_snapshot=order.supplier.inn,
@@ -334,11 +401,33 @@ def update_document(
     document = _get_document(session, document_id, tenant_id=tenant_id, lock=True)
     if document.status != "DRAFT":
         raise SupplierDocumentStateError
-    for field in payload.model_fields_set:
-        value = getattr(payload, field)
+    values = payload.model_dump(exclude_unset=True)
+    create_obligation = values.pop("create_obligation", False)
+    if create_obligation:
+        if values.get("obligation_id") is not None:
+            raise SupplierDocumentValidationError
+        obligation = SupplySupplierObligation(
+            tenant_id=tenant_id, supplier_id=document.supplier_id,
+            supplier_order_id=document.supplier_order_id, status="ACTIVE",
+            created_by_user_id=document.created_by_user_id,
+        )
+        session.add(obligation)
+        session.flush()
+        values["obligation_id"] = obligation.id
+    if "obligation_id" in values and values["obligation_id"] is not None:
+        obligation = session.scalar(select(SupplySupplierObligation).where(
+            SupplySupplierObligation.id == values["obligation_id"],
+            SupplySupplierObligation.tenant_id == tenant_id,
+            SupplySupplierObligation.supplier_id == document.supplier_id,
+            SupplySupplierObligation.supplier_order_id == document.supplier_order_id,
+            SupplySupplierObligation.status == "ACTIVE",
+        ))
+        if obligation is None:
+            raise SupplierDocumentLinkError
+    for field, value in values.items():
         if field == "document_type" and value is None:
             raise SupplierDocumentValidationError
-        setattr(document, field, value.value if field == "document_type" and value else value)
+        setattr(document, field, value.value if hasattr(value, "value") else value)
     try:
         session.commit()
     except IntegrityError as error:
@@ -558,6 +647,18 @@ def record_document(
         or not document.lines or document.total_amount <= 0
     ):
         raise SupplierDocumentValidationError
+    if document.financial_role == "PAYABLE":
+        if document.obligation_id is None:
+            raise SupplierDocumentValidationError
+        obligation = session.scalar(select(SupplySupplierObligation).where(
+            SupplySupplierObligation.id == document.obligation_id,
+            SupplySupplierObligation.tenant_id == tenant_id,
+            SupplySupplierObligation.supplier_id == document.supplier_id,
+            SupplySupplierObligation.supplier_order_id == document.supplier_order_id,
+            SupplySupplierObligation.status == "ACTIVE",
+        ).with_for_update(of=SupplySupplierObligation))
+        if obligation is None:
+            raise SupplierDocumentLinkError
     document.status = "RECORDED"
     document.recorded_by_user_id = user_id
     document.recorded_at = datetime.now(timezone.utc)
