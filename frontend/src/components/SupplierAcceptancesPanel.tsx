@@ -7,10 +7,13 @@ import {
 import {
   addSupplySupplierAcceptanceLine, cancelSupplySupplierAcceptance, createSupplySupplierAcceptance, getSupplySupplierAcceptances,
   getSupplySupplierDocuments, recordSupplySupplierAcceptance, updateSupplySupplierAcceptance,
+  getSupplyIikoIncomingReceiptForAcceptance, prepareSupplyIikoIncomingReceipt,
   resolveSupplyAcceptanceResolution, updateSupplySupplierAcceptanceLine, SupplyApiError,
+  transitionSupplyIikoIncomingReceipt,
   updateSupplySupplierAcceptanceLineSources,
   type SupplyAcceptanceResolution, type SupplyAcceptanceResolutionType,
   type SupplySupplierAcceptance, type SupplySupplierAcceptanceLine,
+  type SupplyIikoIncomingReceipt,
   type SupplySupplierAcceptanceRejectionReason, type SupplySupplierDocument, type SupplySupplierOrder,
 } from '../services/supplyAdmin'
 
@@ -43,19 +46,34 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
   const [needDates, setNeedDates] = useState<Record<string, string>>({})
   const [resolutionComments, setResolutionComments] = useState<Record<string, string>>({})
   const [sourceValues, setSourceValues] = useState<Record<string, string>>({})
+  const [receipts, setReceipts] = useState<Record<string, SupplyIikoIncomingReceipt>>({})
+
+  async function loadReceipts(acceptances: SupplySupplierAcceptance[]) {
+    const recorded = acceptances.filter((item) => item.status === 'RECORDED')
+    const pairs = await Promise.all(recorded.map(async (item) => {
+      try { return [item.id, await getSupplyIikoIncomingReceiptForAcceptance(item.id)] as const }
+      catch (error) {
+        if (error instanceof SupplyApiError && error.status === 404) return null
+        throw error
+      }
+    }))
+    setReceipts(Object.fromEntries(pairs.filter((item): item is readonly [string, SupplyIikoIncomingReceipt] => item !== null)))
+  }
 
   async function load() {
     const [acceptances, docs] = await Promise.all([getSupplySupplierAcceptances(order.id), getSupplySupplierDocuments(order.id)])
     setItems(acceptances); setDraft(acceptances.find((item) => item.status === 'DRAFT') ?? null)
     setDocuments(docs.filter((item) => item.status === 'RECORDED'))
+    await loadReceipts(acceptances)
   }
   useEffect(() => {
     let active = true
-    Promise.all([getSupplySupplierAcceptances(order.id), getSupplySupplierDocuments(order.id), getConfirmedDestinationWarehouseMappings()]).then(([acceptances, docs, mappings]) => {
+    Promise.all([getSupplySupplierAcceptances(order.id), getSupplySupplierDocuments(order.id), getConfirmedDestinationWarehouseMappings()]).then(async ([acceptances, docs, mappings]) => {
       if (!active) return
       setItems(acceptances); setDraft(acceptances.find((item) => item.status === 'DRAFT') ?? null)
       setDocuments(docs.filter((item) => item.status === 'RECORDED'))
       setDestinations(mappings)
+      await loadReceipts(acceptances)
     }).catch(() => { if (active) setMessage('Не удалось загрузить приёмки') })
     return () => { active = false }
   }, [order.id])
@@ -77,6 +95,20 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
     } catch (error) {
       setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось зафиксировать решение')
     } finally { setBusy(false) }
+  }
+  async function runReceipt(acceptanceId: string, action: () => Promise<SupplyIikoIncomingReceipt>, success: string) {
+    setBusy(true); setMessage('')
+    try {
+      const receipt = await action()
+      setReceipts((current) => ({ ...current, [acceptanceId]: receipt }))
+      await load(); onOrderRefresh(); setMessage(success)
+    } catch (error) {
+      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось изменить приход iiko')
+    } finally { setBusy(false) }
+  }
+  function createSummary(receipt: SupplyIikoIncomingReceipt) {
+    const lines = receipt.lines.map((line) => `${line.line_no}. ${line.product_name}: ${line.quantity} ${line.unit_name} × ${line.historical_unit_price} = ${line.allocated_sum} ₽`).join('\n')
+    return `Поставщик: ${receipt.supplier_name}\nСклад: ${receipt.destination_name}\nДокумент: ${receipt.eos_document_number}\n\n${lines}\n\nИтого: ${receipt.total_sum} ₽\n\nСоздать документ NEW в iiko?`
   }
   function patchLocal(lineId: string, changes: Partial<SupplySupplierAcceptanceLine>) {
     if (draft) setDraft({ ...draft, lines: draft.lines.map((line) => line.id === lineId ? { ...line, ...changes } : line) })
@@ -129,7 +161,28 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
       <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy || !draft.destination_mapping_id || draft.lines.some((line) => line.supplier_order_line_id && line.traceability_status !== 'TRACEABLE')} onClick={() => window.confirm('Зафиксировать факт приёмки?') && run(() => recordSupplySupplierAcceptance(draft.id), 'Приёмка зафиксирована')}>Зафиксировать приёмку</button><button type="button" className="danger-action" disabled={busy} onClick={() => window.confirm('Отменить черновик приёмки?') && run(() => cancelSupplySupplierAcceptance(draft.id))}>Отменить</button></div>
     </div>}
     {(order.acceptance_summary?.cumulative_lines.length ?? 0) > 0 && <div className="supplier-table-wrap"><h3>Накопительный факт приёмки</h3><table className="supplier-table"><thead><tr><th>Позиция</th><th>Источник</th><th>Приехало всего</th><th>Принято всего</th><th>Отклонено всего</th><th>Остаток</th><th>Для будущего прихода</th></tr></thead><tbody>{order.acceptance_summary?.cumulative_lines.map((line, index) => <tr key={`${line.source_type}-${line.source_line_id || index}`}><td>{line.product_name}</td><td>{line.source_type === 'DOCUMENT' ? 'Накладная' : line.source_type === 'CONFIRMATION' ? 'Подтверждение' : line.source_type === 'ORDER' ? 'Заказ' : 'Вне документа'}</td><td>{line.total_received} {line.unit_name || ''}</td><td>{line.total_accepted} {line.unit_name || ''}</td><td>{line.total_rejected} {line.unit_name || ''}</td><td>{line.remaining_quantity ?? '—'} {line.unit_name || ''}</td><td>{line.receipt_eligible_quantity === null ? 'Требуется решение по излишку' : `${line.receipt_eligible_quantity} ${line.unit_name || ''}`}</td></tr>)}</tbody></table></div>}
-    {items.length > 0 && <div className="supplier-table-wrap"><h3>История приёмок</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Склад приёмки</th><th>Источник</th><th>Статус</th><th>Результат</th><th>План / факт</th><th>Комментарий</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td>{new Date(item.recorded_at || item.created_at).toLocaleString('ru-RU')}</td><td>{item.destination ? `${item.destination.department_name} · ${roles[item.destination.role] || item.destination.role} · ${item.destination.iiko_store_name}` : 'Не выбран'}</td><td>{item.source === 'DOCUMENT' ? 'Документ' : item.source === 'CONFIRMATION' ? 'Ответ поставщика' : 'Заказ'}</td><td>{item.status === 'RECORDED' ? 'Зафиксирована' : item.status === 'DRAFT' ? 'Черновик' : 'Отменена'}{item.open_issues_count > 0 && <small>Открытых расхождений: {item.open_issues_count}</small>}</td><td>{results[item.result]}</td><td>{item.lines.map((line) => <div key={line.id}><strong>{line.product_name_snapshot}</strong>{planFact(line)}</div>)}</td><td>{item.comment || '—'}</td></tr>)}</tbody></table></div>}
+    {items.length > 0 && <div className="supplier-table-wrap"><h3>История приёмок</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Склад приёмки</th><th>Источник</th><th>Статус</th><th>Результат</th><th>План / факт</th><th>Комментарий</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td>{new Date(item.recorded_at || item.created_at).toLocaleString('ru-RU')}</td><td>{item.destination ? `${item.destination.department_name} · ${roles[item.destination.role] || item.destination.role} · ${item.destination.iiko_store_name}` : 'Не выбран'}</td><td>{item.source === 'DOCUMENT' ? 'Документ' : item.source === 'CONFIRMATION' ? 'Ответ поставщика' : 'Заказ'}</td><td>{item.status === 'RECORDED' ? 'Зафиксирована' : item.status === 'DRAFT' ? 'Черновик' : 'Отменена'}{item.open_issues_count > 0 && <small>Открытых расхождений: {item.open_issues_count}</small>}</td><td>{results[item.result]}</td><td>{item.lines.map((line) => <div key={line.id}><strong>{line.product_name_snapshot}</strong>{planFact(line)}{item.status === 'RECORDED' && <small>Принято к учёту: {line.accounted_quantity} {line.unit_name_snapshot || ''}; сумма {line.accounted_sum} ₽</small>}</div>)}</td><td>{item.comment || '—'}</td></tr>)}</tbody></table></div>}
+    {items.filter((item) => item.status === 'RECORDED').map((item) => {
+      const receipt = receipts[item.id]
+      return <div key={`receipt-${item.id}`} className="supplier-document-editor">
+        <h3>Приход в iiko</h3>
+        {!receipt ? <><p>Приход ещё не подготовлен. Readiness будет проверен без отправки в iiko.</p><button type="button" className="primary-action" disabled={busy} onClick={() => runReceipt(item.id, () => prepareSupplyIikoIncomingReceipt(item.id), 'Приход подготовлен')}>Подготовить</button></> : <>
+          <p><strong>{receipt.eos_document_number}</strong> · {receipt.supplier_name} · {receipt.destination_name}</p>
+          <p>Статус: {receipt.status}. Readiness: {receipt.readiness_status}</p>
+          <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Позиция</th><th>Количество</th><th>Цена</th><th>Сумма</th><th>Принято к учёту</th></tr></thead><tbody>{receipt.lines.map((line) => <tr key={line.id}><td>{line.product_name}</td><td>{line.quantity} {line.unit_name}</td><td>{line.historical_unit_price} ₽</td><td>{line.allocated_sum} ₽</td><td>{line.accounted_quantity} {line.unit_name} / {line.accounted_sum} ₽</td></tr>)}</tbody></table></div>
+          <p>Итого: {receipt.total_sum} ₽</p>
+          {(receipt.iiko_document_number || receipt.iiko_document_id) && <p>iiko: {receipt.iiko_document_number || 'без номера'} · UUID {receipt.iiko_document_id || 'ещё не определён'}</p>}
+          {receipt.last_error_code && <p className="request-message">{receipt.last_error_code}: {receipt.last_error_message}</p>}
+          <div className="purchase-actions">
+            {receipt.status === 'DRAFT' && <button type="button" className="primary-action" disabled={busy} onClick={() => runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'ready'), 'Snapshot прихода зафиксирован')}>Зафиксировать</button>}
+            {receipt.status === 'READY' && <button type="button" className="primary-action" disabled={busy} onClick={() => window.confirm(createSummary(receipt)) && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'create'), 'Создание в iiko проверено')}>Создать в iiko</button>}
+            {receipt.status === 'CREATED' && <button type="button" className="primary-action" disabled={busy} onClick={() => window.confirm('Провести приход в iiko?') && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'process'), 'Проведение в iiko проверено')}>Провести</button>}
+            {['CREATING', 'PROCESSING', 'FAILED'].includes(receipt.status) && <button type="button" className="secondary-action" disabled={busy} onClick={() => runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'retry'), 'Состояние сверено с iiko')}>Повторить проверку</button>}
+            {['DRAFT', 'READY'].includes(receipt.status) && receipt.create_attempt_count === 0 && <button type="button" className="danger-action" disabled={busy} onClick={() => window.confirm('Отменить подготовленный приход?') && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'cancel'), 'Приход отменён')}>Отменить</button>}
+          </div>
+        </>}
+      </div>
+    })}
     {items.filter((item) => item.status === 'RECORDED').map((item) => <div key={`issues-${item.id}`} className="supplier-document-editor">
       <h3>Расхождения при приёмке</h3>
       {item.resolution_state === 'CLEAN' && <p>Расхождений нет</p>}

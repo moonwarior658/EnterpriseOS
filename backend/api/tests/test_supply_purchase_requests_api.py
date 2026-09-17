@@ -40,6 +40,8 @@ from app.models.supply import (
     SupplySupplierAcceptance,
     SupplySupplierAcceptanceLine,
     SupplySupplierAcceptanceLineSource,
+    SupplyIikoIncomingReceipt,
+    SupplyIikoIncomingReceiptLine,
     SupplyAcceptanceResolution,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
@@ -108,6 +110,8 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
             SupplySupplierAcceptanceLineSource.__table__,
             SupplyAcceptanceResolution.__table__,
+            SupplyIikoIncomingReceipt.__table__,
+            SupplyIikoIncomingReceiptLine.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:

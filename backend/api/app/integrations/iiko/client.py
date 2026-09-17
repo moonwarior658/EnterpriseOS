@@ -51,6 +51,7 @@ from app.integrations.iiko.schemas import (
     IikoDocumentValidationResultDto,
     IikoIncomingInvoiceDto,
     IikoIncomingInvoiceItemDto,
+    IikoIncomingInvoicePreviewDto,
     IikoIncomingInvoiceStatus,
     InternalTransferDto,
     InternalTransferItemDto,
@@ -77,6 +78,7 @@ logger = logging.getLogger(__name__)
 
 _BALANCE_STORES_PATH = "/api/v2/reports/balance/stores"
 _INCOMING_INVOICE_EXPORT_PATH = "/api/documents/export/incomingInvoice"
+_INCOMING_INVOICE_IMPORT_PATH = "/api/documents/import/incomingInvoice"
 _OUTGOING_INVOICE_EXPORT_PATH = "/api/documents/export/outgoingInvoice"
 _OUTGOING_INVOICE_IMPORT_PATH = "/api/documents/import/outgoingInvoice"
 _INTERNAL_TRANSFER_PATH = "/api/v2/documents/internalTransfer"
@@ -711,6 +713,9 @@ class IikoServerClient(IikoProvider):
                 valid=bool_values["valid"],
                 warning=bool_values["warning"],
                 document_number=optional_text(element, "documentNumber"),
+                other_suggested_number=optional_text(
+                    element, "otherSuggestedNumber"
+                ),
                 error_message=optional_text(element, "errorMessage"),
                 additional_info=optional_text(element, "additionalInfo"),
             ))
@@ -1623,6 +1628,126 @@ class IikoServerClient(IikoProvider):
         if len(matches) > 1:
             raise IikoContractError("IIKO_INCOMING_INVOICE_ID_AMBIGUOUS")
         return matches[0] if matches else None
+
+    async def create_incoming_invoice(
+        self,
+        document: IikoIncomingInvoicePreviewDto,
+    ) -> IikoDocumentValidationResultDto:
+        if document.status != "NEW":
+            raise IikoContractError("IIKO_INCOMING_INVOICE_STATUS_INVALID")
+        await self.authenticate()
+        response = await self._raw_request(
+            "POST",
+            _INCOMING_INVOICE_IMPORT_PATH,
+            content=document.to_iiko_xml(),
+            headers={
+                "Accept": "application/xml, text/plain",
+                "Content-Type": "application/xml",
+            },
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        results = self._validation_results(self._parse_xml_response(response))
+        if len(results) != 1:
+            raise IikoContractError("IIKO_INCOMING_INVOICE_RESPONSE_INVALID")
+        return results[0]
+
+    async def process_incoming_invoice(
+        self,
+        document_id: UUID,
+    ) -> IikoDocumentValidationResultDto:
+        call_id = uuid4()
+        args = ET.Element("args")
+        for name, value in (
+            ("entities-version", str(_RPC_FUTURE_REVISION_CURSOR)),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true"),
+            ("client-call-id", str(call_id)),
+            ("use-raw-entities", "true"),
+            ("id", str(document_id)),
+        ):
+            ET.SubElement(args, name).text = value
+        abstract = await self._post_legacy_document_rpc(
+            _DOCUMENT_SERVICE_PATH,
+            params=(("methodName", "getAbstractDocument"),),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                args, encoding="utf-8", xml_declaration=True
+            ),
+            stage="incoming getAbstractDocument",
+            call_id=call_id,
+        )
+
+        def local_name(element: ET.Element) -> str:
+            return element.tag.rsplit("}", 1)[-1]
+
+        documents = [
+            element for element in abstract.iter()
+            if local_name(element) == "returnValue"
+            and element.attrib.get("cls") == "IncomingInvoice"
+        ]
+        entities_update = next(
+            (
+                element for element in abstract.iter()
+                if local_name(element) == "entitiesUpdate"
+            ),
+            None,
+        )
+        if (
+            self._rpc_direct_text(abstract, "success") != "true"
+            or self._rpc_direct_text(abstract, "resultStatus") != "SUCCESS"
+            or len(documents) != 1
+            or entities_update is None
+        ):
+            raise IikoContractError("IIKO_INCOMING_INVOICE_RPC_READ_INVALID")
+        document = documents[0]
+        external_id = (
+            self._rpc_direct_text(document, "id")
+            or document.attrib.get("eid")
+        )
+        status = self._rpc_direct_text(document, "status")
+        entities_version = self._rpc_direct_text(entities_update, "revision")
+        full_update = self._rpc_direct_text(entities_update, "fullUpdate")
+        try:
+            if UUID(external_id or "") != document_id or status != "NEW":
+                raise ValueError
+            parsed_entities_version = int(entities_version or "")
+        except (TypeError, ValueError) as error:
+            raise IikoContractError(
+                "IIKO_INCOMING_INVOICE_RPC_READ_INVALID"
+            ) from error
+        if full_update != "false":
+            raise IikoContractError("IIKO_RPC_FULL_SYNC_REQUIRED")
+
+        process_call_id = uuid4()
+        process_args = ET.Element("args")
+        for name, value in (
+            ("entities-version", str(parsed_entities_version)),
+            ("client-type", "BACK"),
+            ("enable-warnings", "true"),
+            ("client-call-id", str(process_call_id)),
+            ("use-raw-entities", "true"),
+        ):
+            ET.SubElement(process_args, name).text = value
+        dictionary = ET.SubElement(process_args, "documentIds")
+        ET.SubElement(dictionary, "k").text = str(document_id)
+        ET.SubElement(dictionary, "v").text = "INCOMING_INVOICE"
+        response = await self._post_legacy_document_rpc(
+            _DOCUMENT_GROUP_OPERATION_PATH,
+            params=(("methodName", "processDocuments"),),
+            content=b"\xef\xbb\xbf" + ET.tostring(
+                process_args, encoding="utf-8", xml_declaration=True
+            ),
+            stage="processIncomingInvoice warnings=true",
+            call_id=process_call_id,
+        )
+        results = self._validation_results(response)
+        if len(results) != 1:
+            raise IikoContractError("IIKO_DOCUMENT_VALIDATION_RESPONSE_INVALID")
+        return results[0]
 
     async def _corporation_payloads(self) -> list[dict[str, Any]]:
         payloads = await self._get_json_list(

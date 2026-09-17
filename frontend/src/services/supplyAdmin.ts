@@ -646,6 +646,7 @@ export type SupplySupplierAcceptanceLine = {
   documented_vs_received: string | null; received_vs_accepted: string
   accepted_excess_quantity: string; downstream_accepted_quantity: string
   receipt_eligible_quantity: string | null
+  accounted_quantity: string; accounted_sum: string
   documented_unit_price: string | null; accepted_unit_price: string | null; accepted_amount: string | null
   currency: 'RUB'; rejection_reason: SupplySupplierAcceptanceRejectionReason | null; comment: string | null
   is_unmatched: boolean
@@ -682,6 +683,29 @@ export type SupplySupplierAcceptanceSummary = {
   quantities_by_unit: Record<string, { documented: string; received: string; accepted: string; rejected: string; remaining: string }>
   cumulative_lines: SupplySupplierAcceptanceCumulativeLine[]; open_issues_count: number
   has_shortage: boolean; has_excess: boolean
+}
+
+export type SupplyIikoIncomingReceiptStatus = 'DRAFT' | 'READY' | 'CREATING' | 'CREATED' | 'PROCESSING' | 'POSTED' | 'FAILED' | 'CANCELLED'
+export type SupplyIikoIncomingReceipt = {
+  id: string; supplier_acceptance_id: string; supplier_id: string; supplier_name: string
+  destination_mapping_id: string; destination_name: string
+  iiko_supplier_mapping_id: string; iiko_supplier_id: string
+  status: SupplyIikoIncomingReceiptStatus; readiness_status: string; readiness_reasons: string[]
+  eos_document_number: string; date_incoming: string; incoming_date: string
+  iiko_document_id: string | null; iiko_document_number: string | null; iiko_status: string | null
+  payload_hash: string | null; payload_xml: string | null
+  create_attempt_count: number; process_attempt_count: number
+  last_error_code: string | null; last_error_message: string | null
+  create_started_at: string | null; created_in_iiko_at: string | null
+  process_started_at: string | null; posted_at: string | null
+  total_sum: string; created_by_user_id: number; created_at: string; updated_at: string
+  lines: Array<{
+    id: string; acceptance_line_id: string; supplier_document_line_id: string
+    product_id: string; product_name: string; unit_id: string; unit_name: string
+    iiko_product_id: string; iiko_amount_unit_id: string; iiko_store_id: string
+    quantity: string; historical_unit_price: string; allocated_sum: string; line_no: number
+    accounted_quantity: string; accounted_sum: string
+  }>
 }
 
 export type SupplySupplierOrder = {
@@ -1812,6 +1836,15 @@ export function recordSupplySupplierAcceptance(acceptanceId: string): Promise<Su
 }
 export function cancelSupplySupplierAcceptance(acceptanceId: string): Promise<SupplySupplierAcceptance> {
   return request(`/supply/supplier-acceptances/${acceptanceId}/cancel`, { method: 'POST' })
+}
+export function prepareSupplyIikoIncomingReceipt(acceptanceId: string): Promise<SupplyIikoIncomingReceipt> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/iiko-receipt`, { method: 'POST' })
+}
+export function getSupplyIikoIncomingReceiptForAcceptance(acceptanceId: string): Promise<SupplyIikoIncomingReceipt> {
+  return request(`/supply/supplier-acceptances/${acceptanceId}/iiko-receipt`)
+}
+export function transitionSupplyIikoIncomingReceipt(receiptId: string, action: 'ready' | 'create' | 'process' | 'retry' | 'cancel'): Promise<SupplyIikoIncomingReceipt> {
+  return request(`/supply/iiko-incoming-receipts/${receiptId}/${action}`, { method: 'POST' })
 }
 export function getSupplyAcceptanceResolutions(acceptanceId: string): Promise<SupplyAcceptanceResolution[]> {
   return request(`/supply/supplier-acceptances/${acceptanceId}/resolutions`)

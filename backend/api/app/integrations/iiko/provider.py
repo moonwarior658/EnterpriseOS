@@ -8,6 +8,7 @@ from app.integrations.iiko.exceptions import IikoContractError
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoIncomingInvoiceDto,
+    IikoIncomingInvoicePreviewDto,
     InternalTransferDto,
     IikoDocumentValidationResultDto,
     IikoOutgoingInvoiceCreateDto,
@@ -137,6 +138,20 @@ class IikoProvider(ABC):
         if len(matches) > 1:
             raise IikoContractError("IIKO_INCOMING_INVOICE_ID_AMBIGUOUS")
         return matches[0] if matches else None
+
+    async def create_incoming_invoice(
+        self,
+        document: IikoIncomingInvoicePreviewDto,
+    ) -> IikoDocumentValidationResultDto:
+        """Submit one controlled NEW incoming invoice without assuming UUID."""
+        raise NotImplementedError
+
+    async def process_incoming_invoice(
+        self,
+        document_id: UUID,
+    ) -> IikoDocumentValidationResultDto:
+        """Process one authoritative NEW incoming invoice through BackOffice RPC."""
+        raise NotImplementedError
 
     async def get_outgoing_invoices(
         self,

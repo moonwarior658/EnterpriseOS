@@ -129,6 +129,8 @@ class SupplySupplierAcceptanceLineRead(BaseModel):
     accepted_excess_quantity: Decimal
     downstream_accepted_quantity: Decimal
     receipt_eligible_quantity: Decimal | None
+    accounted_quantity: Decimal
+    accounted_sum: Decimal
     documented_unit_price: Decimal | None
     accepted_unit_price: Decimal | None
     accepted_amount: Decimal | None

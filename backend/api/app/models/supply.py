@@ -204,6 +204,17 @@ class SupplySupplierAcceptanceStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class SupplyIikoIncomingReceiptStatus(StrEnum):
+    DRAFT = "DRAFT"
+    READY = "READY"
+    CREATING = "CREATING"
+    CREATED = "CREATED"
+    PROCESSING = "PROCESSING"
+    POSTED = "POSTED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
 class SupplySupplierAcceptanceRejectionReason(StrEnum):
     DAMAGED = "DAMAGED"
     QUALITY_MISMATCH = "QUALITY_MISMATCH"
@@ -2463,6 +2474,182 @@ class SupplySupplierAcceptanceLineSource(Base):
     order_line_source: Mapped[SupplySupplierOrderLineSource] = relationship(
         back_populates="acceptance_sources", overlaps="acceptance_line,sources"
     )
+
+
+class SupplyIikoIncomingReceipt(Base):
+    __tablename__ = "supply_iiko_incoming_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_iiko_incoming_receipts_tenant_id"
+        ),
+        UniqueConstraint(
+            "tenant_id", "eos_document_number",
+            name="uq_supply_iiko_incoming_receipts_document_number",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_acceptance_id"],
+            ["supply_supplier_acceptances.tenant_id", "supply_supplier_acceptances.id"],
+            name="fk_supply_iiko_incoming_receipts_acceptance_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_id"],
+            ["supply_suppliers.tenant_id", "supply_suppliers.id"],
+            name="fk_supply_iiko_incoming_receipts_supplier_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "destination_mapping_id"],
+            ["iiko_warehouse_mappings.tenant_id", "iiko_warehouse_mappings.id"],
+            name="fk_supply_iiko_incoming_receipts_destination_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "iiko_supplier_mapping_id"],
+            ["iiko_supplier_mappings.tenant_id", "iiko_supplier_mappings.id"],
+            name="fk_supply_iiko_incoming_receipts_supplier_mapping_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT','READY','CREATING','CREATED','PROCESSING','POSTED','FAILED','CANCELLED')",
+            name="ck_supply_iiko_incoming_receipts_status",
+        ),
+        CheckConstraint(
+            "create_attempt_count >= 0 AND process_attempt_count >= 0",
+            name="ck_supply_iiko_incoming_receipts_attempts",
+        ),
+        Index(
+            "uq_supply_iiko_incoming_receipts_active_acceptance",
+            "tenant_id", "supplier_acceptance_id", unique=True,
+            postgresql_where=text("status <> 'CANCELLED'"),
+            sqlite_where=text("status <> 'CANCELLED'"),
+        ),
+        Index(
+            "uq_supply_iiko_incoming_receipts_iiko_document",
+            "tenant_id", "iiko_document_id", unique=True,
+            postgresql_where=text("iiko_document_id IS NOT NULL"),
+            sqlite_where=text("iiko_document_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_supply_iiko_incoming_receipts_status",
+            "tenant_id", "status", "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_acceptance_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    destination_mapping_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    iiko_supplier_mapping_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="DRAFT", server_default="DRAFT", nullable=False)
+    eos_document_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    date_incoming: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    incoming_date: Mapped[date] = mapped_column(Date, nullable=False)
+    iiko_document_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    iiko_document_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    iiko_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    create_attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    process_attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    create_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_in_iiko_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    process_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    acceptance: Mapped[SupplySupplierAcceptance] = relationship()
+    lines: Mapped[list["SupplyIikoIncomingReceiptLine"]] = relationship(
+        back_populates="receipt", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="SupplyIikoIncomingReceiptLine.line_no",
+    )
+
+
+class SupplyIikoIncomingReceiptLine(Base):
+    __tablename__ = "supply_iiko_incoming_receipt_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="uq_supply_iiko_incoming_receipt_lines_tenant_id"
+        ),
+        UniqueConstraint(
+            "tenant_id", "receipt_id", "line_no",
+            name="uq_supply_iiko_incoming_receipt_lines_number",
+        ),
+        UniqueConstraint(
+            "tenant_id", "receipt_id", "acceptance_line_id",
+            name="uq_supply_iiko_incoming_receipt_lines_acceptance_line",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "receipt_id"],
+            ["supply_iiko_incoming_receipts.tenant_id", "supply_iiko_incoming_receipts.id"],
+            name="fk_supply_iiko_incoming_receipt_lines_receipt_tenant",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "acceptance_line_id"],
+            ["supply_supplier_acceptance_lines.tenant_id", "supply_supplier_acceptance_lines.id"],
+            name="fk_supply_iiko_incoming_receipt_lines_acceptance_line_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_line_id"],
+            ["supply_supplier_document_lines.tenant_id", "supply_supplier_document_lines.id"],
+            name="fk_supply_iiko_incoming_receipt_lines_document_line_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "product_id"],
+            ["supply_products.tenant_id", "supply_products.id"],
+            name="fk_supply_iiko_incoming_receipt_lines_product_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "unit_id"],
+            ["supply_units.tenant_id", "supply_units.id"],
+            name="fk_supply_iiko_incoming_receipt_lines_unit_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("line_no > 0", name="ck_supply_iiko_incoming_receipt_lines_number"),
+        CheckConstraint("quantity > 0", name="ck_supply_iiko_incoming_receipt_lines_quantity"),
+        CheckConstraint("historical_unit_price > 0", name="ck_supply_iiko_incoming_receipt_lines_price"),
+        CheckConstraint("allocated_sum >= 0", name="ck_supply_iiko_incoming_receipt_lines_sum"),
+        CheckConstraint(
+            "accounted_quantity >= 0 AND accounted_quantity <= quantity",
+            name="ck_supply_iiko_incoming_receipt_lines_accounted_quantity",
+        ),
+        CheckConstraint(
+            "accounted_sum >= 0 AND accounted_sum <= allocated_sum",
+            name="ck_supply_iiko_incoming_receipt_lines_accounted_sum",
+        ),
+        Index(
+            "ix_supply_iiko_incoming_receipt_lines_document_line",
+            "tenant_id", "supplier_document_line_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    receipt_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    acceptance_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    supplier_document_line_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    iiko_product_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    iiko_amount_unit_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    iiko_store_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    historical_unit_price: Mapped[Decimal] = mapped_column(Numeric(30, 9), nullable=False)
+    allocated_sum: Mapped[Decimal] = mapped_column(Numeric(30, 6), nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    accounted_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 6), default=Decimal("0"), server_default="0", nullable=False)
+    accounted_sum: Mapped[Decimal] = mapped_column(Numeric(30, 6), default=Decimal("0"), server_default="0", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    receipt: Mapped[SupplyIikoIncomingReceipt] = relationship(back_populates="lines")
 
 
 class SupplyAcceptanceResolution(Base):

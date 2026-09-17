@@ -103,6 +103,7 @@ class IikoDocumentValidationResultDto(IikoDto):
     valid: bool
     warning: bool
     document_number: str | None = None
+    other_suggested_number: str | None = None
     error_message: str | None = None
     additional_info: str | None = None
 

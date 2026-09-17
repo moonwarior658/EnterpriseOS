@@ -7,6 +7,10 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.iiko import router as iiko_router
 from app.api.routes.iiko_mapping import router as iiko_mapping_router
 from app.api.routes.iiko_supplier_mapping import router as iiko_supplier_mapping_router
+from app.api.routes.iiko_incoming_receipts import (
+    acceptance_router as iiko_receipt_acceptance_router,
+    receipt_router as iiko_incoming_receipts_router,
+)
 from app.api.routes.public_requests import router as public_requests_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.purchase_requests import router as purchase_requests_router
@@ -55,6 +59,8 @@ app.include_router(supplier_settlements_router)
 app.include_router(supplier_order_acceptances_router)
 app.include_router(supplier_acceptances_router)
 app.include_router(supplier_acceptance_resolutions_router)
+app.include_router(iiko_receipt_acceptance_router)
+app.include_router(iiko_incoming_receipts_router)
 app.include_router(supplier_order_confirmations_router)
 app.include_router(supplier_confirmations_router)
 app.include_router(supplier_confirmation_deviations_router)

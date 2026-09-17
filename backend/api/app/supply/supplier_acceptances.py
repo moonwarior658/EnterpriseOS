@@ -18,6 +18,8 @@ from app.models.supply import (
     SupplyProcurementNeedReason,
     SupplyProcurementNeedSourceType,
     SupplyProcurementNeedStatus,
+    SupplyIikoIncomingReceipt,
+    SupplyIikoIncomingReceiptLine,
     SupplyProduct,
     SupplyPurchaseRequest,
     SupplySupplierAcceptance,
@@ -343,6 +345,21 @@ def _line_read(
         if documented is not None else Decimal("0")
     )
     downstream, receipt_eligible = _downstream_quantities(line, resolutions)
+    accounted_quantity, accounted_sum = session.execute(
+        select(
+            func.coalesce(func.sum(SupplyIikoIncomingReceiptLine.quantity), 0),
+            func.coalesce(func.sum(SupplyIikoIncomingReceiptLine.allocated_sum), 0),
+        )
+        .join(
+            SupplyIikoIncomingReceipt,
+            SupplyIikoIncomingReceipt.id == SupplyIikoIncomingReceiptLine.receipt_id,
+        )
+        .where(
+            SupplyIikoIncomingReceiptLine.tenant_id == line.tenant_id,
+            SupplyIikoIncomingReceiptLine.acceptance_line_id == line.id,
+            SupplyIikoIncomingReceipt.status == "POSTED",
+        )
+    ).one()
     source_reads: list[SupplySupplierAcceptanceLineSourceRead] = []
     if line.supplier_order_line_id:
         order_sources = list(session.scalars(
@@ -389,6 +406,8 @@ def _line_read(
         accepted_excess_quantity=accepted_excess,
         downstream_accepted_quantity=downstream,
         receipt_eligible_quantity=receipt_eligible,
+        accounted_quantity=Decimal(accounted_quantity),
+        accounted_sum=Decimal(accounted_sum),
         documented_unit_price=line.documented_unit_price,
         accepted_unit_price=line.accepted_unit_price, accepted_amount=line.accepted_amount,
         currency=line.currency, rejection_reason=line.rejection_reason,
