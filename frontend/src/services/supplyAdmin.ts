@@ -386,6 +386,69 @@ export type SupplySupplierConfirmation = SupplySupplierConfirmationSummary & {
   lines: SupplySupplierConfirmationLine[]
 }
 
+export type SupplySupplierDocumentType = 'INVOICE' | 'DELIVERY_NOTE' | 'UPD'
+export type SupplySupplierDocumentStatus = 'DRAFT' | 'RECORDED' | 'CANCELLED'
+export type SupplySupplierDocumentPricingBasis = 'PACKAGE' | 'UNIT' | 'FIXED_AMOUNT'
+
+export type SupplySupplierDocumentLine = {
+  id: string
+  supplier_order_line_id: string | null
+  supplier_confirmation_line_id: string | null
+  product_name_snapshot: string
+  pricing_basis: SupplySupplierDocumentPricingBasis
+  package_quantity_snapshot: string | null
+  package_unit_id_snapshot: string | null
+  unit_name_snapshot: string | null
+  packages_count: number | null
+  quantity_base: string | null
+  price_per_package: string | null
+  unit_price: string | null
+  line_amount: string
+  currency: 'RUB'
+  supplier_line_reference: string | null
+  comment: string | null
+  is_extra_line: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type SupplySupplierDocumentSummary = {
+  id: string
+  document_type: SupplySupplierDocumentType
+  document_number: string | null
+  document_date: string | null
+  status: SupplySupplierDocumentStatus
+  total_amount: string
+  currency: 'RUB'
+  supplier_confirmation_revision: number | null
+  created_at: string
+  recorded_at: string | null
+}
+
+export type SupplySupplierDocument = SupplySupplierDocumentSummary & {
+  supplier_order_id: string
+  supplier_order_number: string
+  supplier_confirmation_id: string | null
+  supplier_id: string
+  supplier_display_name_snapshot: string
+  supplier_inn_snapshot: string | null
+  supplier_kpp_snapshot: string | null
+  comment: string | null
+  created_by_user_id: number
+  recorded_by_user_id: number | null
+  updated_at: string
+  lines: SupplySupplierDocumentLine[]
+}
+
+export type SupplySupplierDocumentsSummary = {
+  total_documents: number
+  invoices_count: number
+  delivery_notes_count: number
+  upd_count: number
+  recorded_documents_count: number
+  latest_document: SupplySupplierDocumentSummary | null
+}
+
 export type SupplySupplierOrder = {
   id: string
   number: string
@@ -420,6 +483,7 @@ export type SupplySupplierOrder = {
   confirmation_history_count?: number
   supplier_confirmation_review_state?: SupplySupplierConfirmationReviewState
   open_required_deviations_count?: number
+  supplier_documents_summary?: SupplySupplierDocumentsSummary
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1289,6 +1353,74 @@ export function decideSupplySupplierConfirmationDeviation(
   return request(`/supply/supplier-confirmation-deviations/${deviationId}/decision`, {
     method: 'POST', body: JSON.stringify({ decision, comment: comment || null }),
   })
+}
+
+export function createSupplySupplierDocument(
+  orderId: string,
+  input: { document_type: SupplySupplierDocumentType; document_number?: string | null; document_date?: string | null; comment?: string | null },
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-orders/${orderId}/documents`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function getSupplySupplierDocuments(orderId: string): Promise<SupplySupplierDocument[]> {
+  return request(`/supply/supplier-orders/${orderId}/documents`)
+}
+
+export function updateSupplySupplierDocument(
+  documentId: string,
+  input: Partial<Pick<SupplySupplierDocument, 'document_type' | 'document_number' | 'document_date' | 'comment'>>,
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}`, {
+    method: 'PATCH', body: JSON.stringify(input),
+  })
+}
+
+export type SupplySupplierDocumentLineInput = {
+  supplier_order_line_id?: string | null
+  supplier_confirmation_line_id?: string | null
+  product_name_snapshot: string
+  pricing_basis: SupplySupplierDocumentPricingBasis
+  package_quantity_snapshot?: string | null
+  package_unit_id_snapshot?: string | null
+  packages_count?: number | null
+  quantity_base?: string | null
+  price_per_package?: string | null
+  unit_price?: string | null
+  line_amount?: string | null
+  supplier_line_reference?: string | null
+  comment?: string | null
+}
+
+export function addSupplySupplierDocumentLine(
+  documentId: string, input: SupplySupplierDocumentLineInput,
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/lines`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function updateSupplySupplierDocumentLine(
+  documentId: string, lineId: string, input: Partial<SupplySupplierDocumentLineInput>,
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/lines/${lineId}`, {
+    method: 'PATCH', body: JSON.stringify(input),
+  })
+}
+
+export function deleteSupplySupplierDocumentLine(
+  documentId: string, lineId: string,
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/lines/${lineId}`, { method: 'DELETE' })
+}
+
+export function recordSupplySupplierDocument(documentId: string): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/record`, { method: 'POST' })
+}
+
+export function cancelSupplySupplierDocument(documentId: string): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/cancel`, { method: 'POST' })
 }
 
 export function disableSupplyAlias(

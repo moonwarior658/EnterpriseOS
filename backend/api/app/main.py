@@ -10,6 +10,10 @@ from app.api.routes.public_requests import router as public_requests_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.purchase_requests import router as purchase_requests_router
 from app.api.routes.supplier_orders import router as supplier_orders_router
+from app.api.routes.supplier_documents import (
+    document_router as supplier_documents_router,
+    order_router as supplier_order_documents_router,
+)
 from app.api.routes.supplier_confirmations import (
     confirmation_router as supplier_confirmations_router,
     deviation_router as supplier_confirmation_deviations_router,
@@ -34,6 +38,8 @@ app.include_router(requests_router)
 app.include_router(supply_router)
 app.include_router(purchase_requests_router)
 app.include_router(supplier_orders_router)
+app.include_router(supplier_order_documents_router)
+app.include_router(supplier_documents_router)
 app.include_router(supplier_order_confirmations_router)
 app.include_router(supplier_confirmations_router)
 app.include_router(supplier_confirmation_deviations_router)

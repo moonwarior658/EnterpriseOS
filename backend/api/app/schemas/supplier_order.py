@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.supply import SupplyUnitRead
 from app.schemas.supplier_confirmation import SupplySupplierConfirmationSummary
+from app.schemas.supplier_document import SupplySupplierDocumentsSummary
 
 
 class SupplySupplierOrderStatus(StrEnum):
@@ -107,6 +108,7 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     confirmation_history_count: int
     supplier_confirmation_review_state: str
     open_required_deviations_count: int
+    supplier_documents_summary: SupplySupplierDocumentsSummary
 
 
 class SupplySupplierOrderDeliveryAttemptRead(BaseModel):

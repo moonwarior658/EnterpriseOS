@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 
 from app.models.supply import (
     SupplyProductSupplier,
@@ -77,6 +77,7 @@ def _options():
         selectinload(SupplySupplierOrder.confirmations).selectinload(
             SupplySupplierConfirmation.deviations
         ),
+        selectinload(SupplySupplierOrder.supplier_documents),
     )
 
 
@@ -95,6 +96,7 @@ def _minimum(order: SupplySupplierOrder):
 def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     from app.supply.supplier_order_delivery import delivery_attempt_read
     from app.supply.supplier_confirmations import confirmation_summary
+    from app.supply.supplier_documents import documents_summary
 
     minimum_status, shortfall = _minimum(order)
     history = [delivery_attempt_read(item) for item in order.delivery_attempts]
@@ -141,6 +143,9 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         ),
         open_required_deviations_count=(
             latest_summary.open_required_deviations_count if latest_summary else 0
+        ),
+        supplier_documents_summary=documents_summary(
+            object_session(order), order.supplier_documents,
         ),
     )
 

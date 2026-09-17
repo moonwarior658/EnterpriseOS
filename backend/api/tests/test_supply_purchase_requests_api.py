@@ -29,6 +29,8 @@ from app.models.supply import (
     SupplySupplierOrderLine,
     SupplySupplierConfirmation,
     SupplySupplierConfirmationDeviation,
+    SupplySupplierDocument,
+    SupplySupplierDocumentLine,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
@@ -85,6 +87,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
             SupplySupplierConfirmationDeviation.__table__,
+            SupplySupplierDocument.__table__, SupplySupplierDocumentLine.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:
@@ -1049,6 +1052,20 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             stored.sent_at = datetime.now(timezone.utc)
         return self.client.get(f"/supply/supplier-orders/{order['id']}").json()
 
+    def _create_supplier_document(
+        self, order: dict, *, document_type="INVOICE", number=None,
+    ) -> dict:
+        response = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/documents",
+            json={
+                "document_type": document_type,
+                "document_number": number or f"DOC-{uuid4().hex[:8]}",
+                "document_date": "2026-09-17",
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
     def test_supplier_confirmation_revision_defaults_record_history_and_immutability(self) -> None:
         order = self._sent_order()
         created = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
@@ -1273,6 +1290,261 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(date_deviation["deviation_type"], "DELIVERY_DATE_CHANGED")
         self.assertEqual(date_deviation["delivery_delta_days"], 2)
         self.assertTrue(date_deviation["requires_decision"])
+
+    def test_supplier_document_crud_pricing_total_record_cancel_and_duplicate(self) -> None:
+        ready = self.create_supplier_order()
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-orders/{ready['id']}/documents",
+            json={"document_type": "INVOICE"},
+        ).status_code, 409)
+
+        order = self._sent_order()
+        document = self._create_supplier_document(order, number="INV-FOUNDATION")
+        self.assertEqual(document["status"], "DRAFT")
+        self.assertIsNone(document["supplier_confirmation_id"])
+        self.assertEqual(len(document["lines"]), 1)
+        self.assertEqual(document["lines"][0]["pricing_basis"], "PACKAGE")
+        self.assertEqual(document["lines"][0]["packages_count"], 2)
+        self.assertEqual(document["lines"][0]["price_per_package"], "4956.00")
+        self.assertEqual(document["total_amount"], "9912.000000")
+
+        duplicate = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/documents",
+            json={
+                "document_type": "INVOICE", "document_number": "INV-FOUNDATION",
+                "document_date": "2026-09-17",
+            },
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertIn("таким номером", duplicate.json()["detail"])
+
+        fixed = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/lines",
+            json={
+                "product_name_snapshot": "Доставка",
+                "pricing_basis": "FIXED_AMOUNT", "line_amount": "500.123456",
+            },
+        )
+        self.assertEqual(fixed.status_code, 200, fixed.text)
+        self.assertTrue(fixed.json()["lines"][-1]["is_extra_line"])
+        unit_line = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/lines",
+            json={
+                "product_name_snapshot": "Дополнительная услуга",
+                "pricing_basis": "UNIT", "quantity_base": "1.234567",
+                "package_unit_id_snapshot": str(self.unit.id), "unit_price": "2.345678",
+            },
+        )
+        self.assertEqual(unit_line.status_code, 200, unit_line.text)
+        unit = unit_line.json()["lines"][-1]
+        self.assertEqual(unit["line_amount"], "2.895897")
+        self.assertEqual(unit_line.json()["total_amount"], "10415.019353")
+
+        fixed_line = next(
+            item for item in unit_line.json()["lines"]
+            if item["product_name_snapshot"] == "Доставка"
+        )
+        patched = self.client.patch(
+            f"/supply/supplier-documents/{document['id']}/lines/{fixed_line['id']}",
+            json={"line_amount": "550.00"},
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        deleted = self.client.delete(
+            f"/supply/supplier-documents/{document['id']}/lines/{unit['id']}"
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json()["total_amount"], "10462.000000")
+
+        recorded = self.client.post(f"/supply/supplier-documents/{document['id']}/record")
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        self.assertEqual(recorded.json()["status"], "RECORDED")
+        self.assertEqual(self.client.patch(
+            f"/supply/supplier-documents/{document['id']}", json={"comment": "Поздно"},
+        ).status_code, 409)
+        self.assertEqual(self.client.delete(
+            f"/supply/supplier-documents/{document['id']}/lines/{fixed_line['id']}"
+        ).status_code, 409)
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-documents/{document['id']}/cancel"
+        ).status_code, 409)
+
+        for document_type in ("DELIVERY_NOTE", "UPD"):
+            created = self._create_supplier_document(order, document_type=document_type)
+            cancelled = self.client.post(
+                f"/supply/supplier-documents/{created['id']}/cancel"
+            )
+            self.assertEqual(cancelled.status_code, 200, cancelled.text)
+            self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        detail = self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+        summary = detail["supplier_documents_summary"]
+        self.assertEqual(summary["total_documents"], 3)
+        self.assertEqual(summary["invoices_count"], 1)
+        self.assertEqual(summary["delivery_notes_count"], 1)
+        self.assertEqual(summary["upd_count"], 1)
+        self.assertEqual(summary["recorded_documents_count"], 1)
+
+    def test_supplier_document_defaults_follow_confirmation_fact_not_decision(self) -> None:
+        cases = (
+            ("LINE_REJECTED", "ACCEPT"), ("LINE_REJECTED", "REJECT"),
+            ("QUANTITY_CHANGED", "ACCEPT"), ("QUANTITY_CHANGED", "REJECT"),
+            ("PRICE_CHANGED", "ACCEPT"), ("PRICE_CHANGED", "REJECT"),
+        )
+        for deviation_type, decision in cases:
+            with self.subTest(deviation_type=deviation_type, decision=decision):
+                order = self._sent_order()
+                draft = self.client.post(
+                    f"/supply/supplier-orders/{order['id']}/confirmations"
+                ).json()
+                line = draft["lines"][0]
+                if deviation_type == "LINE_REJECTED":
+                    changes = {"response_status": "REJECTED"}
+                elif deviation_type == "QUANTITY_CHANGED":
+                    changes = {"response_status": "CHANGED", "confirmed_packages_count": 1}
+                else:
+                    changes = {
+                        "response_status": "CHANGED",
+                        "confirmed_price_per_package": "6000.00",
+                    }
+                changed = self.client.patch(
+                    f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+                    json=changes,
+                )
+                self.assertEqual(changed.status_code, 200, changed.text)
+                recorded = self.client.post(
+                    f"/supply/supplier-confirmations/{draft['id']}/record"
+                ).json()
+                deviation = next(
+                    item for item in recorded["deviations"]
+                    if item["deviation_type"] == deviation_type
+                )
+                order_before = self.client.get(
+                    f"/supply/supplier-orders/{order['id']}"
+                ).json()
+                confirmation_before = self.client.get(
+                    f"/supply/supplier-confirmations/{draft['id']}"
+                ).json()
+                decided = self.client.post(
+                    f"/supply/supplier-confirmation-deviations/{deviation['id']}/decision",
+                    json={"decision": decision},
+                )
+                self.assertEqual(decided.status_code, 200, decided.text)
+                order_after = self.client.get(
+                    f"/supply/supplier-orders/{order['id']}"
+                ).json()
+                confirmation_after = self.client.get(
+                    f"/supply/supplier-confirmations/{draft['id']}"
+                ).json()
+                self.assertEqual(order_after["lines"], order_before["lines"])
+                confirmation_snapshot_fields = (
+                    "response_status", "confirmed_packages_count",
+                    "confirmed_package_quantity", "confirmed_package_unit_id",
+                    "confirmed_quantity_base", "confirmed_price_per_package",
+                    "confirmed_planned_amount", "supplier_line_comment",
+                )
+                self.assertEqual(
+                    {
+                        field: confirmation_after["lines"][0][field]
+                        for field in confirmation_snapshot_fields
+                    },
+                    {
+                        field: confirmation_before["lines"][0][field]
+                        for field in confirmation_snapshot_fields
+                    },
+                )
+
+                document = self._create_supplier_document(order)
+                self.assertEqual(document["supplier_confirmation_id"], draft["id"])
+                self.assertEqual(document["supplier_confirmation_revision"], 1)
+                if deviation_type == "LINE_REJECTED":
+                    self.assertEqual(document["lines"], [])
+                    if decision == "ACCEPT":
+                        manually_added = self.client.post(
+                            f"/supply/supplier-documents/{document['id']}/lines",
+                            json={
+                                "supplier_order_line_id": line["supplier_order_line_id"],
+                                "product_name_snapshot": "Сахар по внешнему документу",
+                                "pricing_basis": "PACKAGE", "packages_count": 1,
+                                "package_quantity_snapshot": "12.000",
+                                "package_unit_id_snapshot": str(self.unit.id),
+                                "price_per_package": "5100.00",
+                            },
+                        )
+                        self.assertEqual(manually_added.status_code, 200, manually_added.text)
+                        self.assertEqual(manually_added.json()["lines"][0]["line_amount"], "5100.000000")
+                        fixed = self.client.post(
+                            f"/supply/supplier-documents/{document['id']}/record"
+                        )
+                        self.assertEqual(fixed.status_code, 200, fixed.text)
+                elif deviation_type == "QUANTITY_CHANGED":
+                    self.assertEqual(document["lines"][0]["packages_count"], 1)
+                    self.assertEqual(document["lines"][0]["quantity_base"], "12.000000")
+                    self.assertEqual(
+                        document["lines"][0]["supplier_confirmation_line_id"], line["id"],
+                    )
+                else:
+                    self.assertEqual(document["lines"][0]["price_per_package"], "6000.00")
+
+    def test_supplier_document_unresolved_review_and_link_guards(self) -> None:
+        order = self._sent_order()
+        draft = self.client.post(
+            f"/supply/supplier-orders/{order['id']}/confirmations"
+        ).json()
+        line = draft["lines"][0]
+        self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={"response_status": "CHANGED", "confirmed_packages_count": 1},
+        )
+        recorded = self.client.post(
+            f"/supply/supplier-confirmations/{draft['id']}/record"
+        ).json()
+        document = self._create_supplier_document(order)
+        self.assertEqual(document["lines"], [])
+        added = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/lines",
+            json={
+                "product_name_snapshot": "Доставка", "pricing_basis": "FIXED_AMOUNT",
+                "line_amount": "100.00",
+            },
+        )
+        self.assertEqual(added.status_code, 200, added.text)
+        blocked = self.client.post(
+            f"/supply/supplier-documents/{document['id']}/record"
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+        self.assertIn("обязательным отклонениям", blocked.json()["detail"])
+
+        quantity = next(
+            item for item in recorded["deviations"]
+            if item["deviation_type"] == "QUANTITY_CHANGED"
+        )
+        self.client.post(
+            f"/supply/supplier-confirmation-deviations/{quantity['id']}/decision",
+            json={"decision": "REJECT"},
+        )
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-documents/{document['id']}/record"
+        ).status_code, 200)
+
+        other_order = self._sent_order()
+        other_document = self._create_supplier_document(other_order)
+        foreign_line = self.client.post(
+            f"/supply/supplier-documents/{other_document['id']}/lines",
+            json={
+                "supplier_order_line_id": line["supplier_order_line_id"],
+                "product_name_snapshot": "Чужая строка", "pricing_basis": "PACKAGE",
+                "packages_count": 1, "price_per_package": "1.00",
+            },
+        )
+        self.assertEqual(foreign_line.status_code, 409, foreign_line.text)
+        foreign_unit = self.client.post(
+            f"/supply/supplier-documents/{other_document['id']}/lines",
+            json={
+                "product_name_snapshot": "Чужая единица", "pricing_basis": "UNIT",
+                "quantity_base": "1", "unit_price": "1",
+                "package_unit_id_snapshot": str(self.other_unit.id),
+            },
+        )
+        self.assertEqual(foreign_unit.status_code, 409, foreign_unit.text)
 
 
 if __name__ == "__main__":

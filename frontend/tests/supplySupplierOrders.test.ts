@@ -10,6 +10,10 @@ import {
   decideSupplySupplierConfirmationDeviation,
   getSupplySupplierConfirmations, recordSupplySupplierConfirmation,
   updateSupplySupplierConfirmation, updateSupplySupplierConfirmationLine,
+  addSupplySupplierDocumentLine, cancelSupplySupplierDocument,
+  createSupplySupplierDocument, deleteSupplySupplierDocumentLine,
+  getSupplySupplierDocuments, recordSupplySupplierDocument,
+  updateSupplySupplierDocument, updateSupplySupplierDocumentLine,
 } from '../src/services/supplyAdmin.ts'
 
 
@@ -20,6 +24,7 @@ test('подключает admin-only список, карточку и форм
   const list = readFileSync(new URL('../src/pages/SupplySupplierOrdersPage.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/SupplySupplierOrderDetailPage.tsx', import.meta.url), 'utf8')
   const confirmation = readFileSync(new URL('../src/components/SupplierConfirmationPanel.tsx', import.meta.url), 'utf8')
+  const documents = readFileSync(new URL('../src/components/SupplierDocumentsPanel.tsx', import.meta.url), 'utf8')
   assert.match(app, /path="\/supply\/supplier-orders"/)
   assert.match(app, /path="\/supply\/supplier-orders\/:orderId"/)
   assert.match(layout, /Заказы поставщикам/)
@@ -58,6 +63,19 @@ test('подключает admin-only список, карточку и форм
   assert.match(confirmation, />Принять</)
   assert.match(confirmation, />Отклонить</)
   assert.match(detail, /open_required_deviations_count/)
+  assert.match(detail, /SupplierDocumentsPanel/)
+  assert.match(documents, /Документы поставщика/i)
+  assert.match(documents, /Счёт/)
+  assert.match(documents, /Накладная/)
+  assert.match(documents, /УПД/)
+  assert.match(documents, /Дополнительная строка документа/)
+  assert.match(documents, /Итого по документу/)
+  assert.match(documents, /Зафиксировать документ/)
+  assert.match(documents, /Документ зафиксирован/)
+  assert.match(documents, /Отменить черновик/)
+  assert.match(documents, /supplier_confirmation_review_state === 'REQUIRES_DECISION'/)
+  assert.match(documents, /не факт приёмки товара/)
+  assert.doesNotMatch(documents, /Поставка принята/)
 })
 
 
@@ -91,6 +109,14 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await recordSupplySupplierConfirmation('confirmation')
     await cancelSupplySupplierConfirmation('confirmation')
     await decideSupplySupplierConfirmationDeviation('deviation', 'ACCEPT', 'Согласовано')
+    await createSupplySupplierDocument('order', { document_type: 'INVOICE' })
+    await getSupplySupplierDocuments('order')
+    await updateSupplySupplierDocument('document', { document_number: 'INV-1' })
+    await addSupplySupplierDocumentLine('document', { product_name_snapshot: 'Доставка', pricing_basis: 'FIXED_AMOUNT', line_amount: '500' })
+    await updateSupplySupplierDocumentLine('document', 'line', { line_amount: '550' })
+    await deleteSupplySupplierDocumentLine('document', 'line')
+    await recordSupplySupplierDocument('document')
+    await cancelSupplySupplierDocument('document')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -119,4 +145,15 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.match(calls[15].url, /supplier-confirmation-deviations\/deviation\/decision$/)
   assert.equal(calls[15].options.method, 'POST')
   assert.equal(calls[15].options.body, JSON.stringify({ decision: 'ACCEPT', comment: 'Согласовано' }))
+  assert.match(calls[16].url, /supplier-orders\/order\/documents$/)
+  assert.equal(calls[16].options.method, 'POST')
+  assert.match(calls[17].url, /supplier-orders\/order\/documents$/)
+  assert.match(calls[18].url, /supplier-documents\/document$/)
+  assert.equal(calls[18].options.method, 'PATCH')
+  assert.match(calls[19].url, /supplier-documents\/document\/lines$/)
+  assert.match(calls[20].url, /supplier-documents\/document\/lines\/line$/)
+  assert.equal(calls[20].options.method, 'PATCH')
+  assert.equal(calls[21].options.method, 'DELETE')
+  assert.match(calls[22].url, /supplier-documents\/document\/record$/)
+  assert.match(calls[23].url, /supplier-documents\/document\/cancel$/)
 })
