@@ -8,17 +8,22 @@ from app.api.dependencies import get_current_admin
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_confirmation import (
+    SupplySupplierConfirmationDecisionCreate,
     SupplySupplierConfirmationLineUpdate,
     SupplySupplierConfirmationRead,
     SupplySupplierConfirmationUpdate,
 )
 from app.supply.supplier_confirmations import (
+    SupplierConfirmationBasisError,
     SupplierConfirmationConflictError,
+    SupplierConfirmationDecisionError,
+    SupplierConfirmationDecisionConflictError,
     SupplierConfirmationNotFoundError,
     SupplierConfirmationStateError,
     SupplierConfirmationValidationError,
     cancel_confirmation,
     create_confirmation,
+    decide_deviation,
     list_confirmations,
     read_confirmation,
     record_confirmation,
@@ -29,6 +34,7 @@ from app.supply.supplier_confirmations import (
 
 order_router = APIRouter(prefix="/supply/supplier-orders", tags=["supply"])
 confirmation_router = APIRouter(prefix="/supply/supplier-confirmations", tags=["supply"])
+deviation_router = APIRouter(prefix="/supply/supplier-confirmation-deviations", tags=["supply"])
 
 
 def _error(error: Exception) -> HTTPException:
@@ -36,6 +42,24 @@ def _error(error: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail="Подтверждение поставщика не найдено")
     if isinstance(error, SupplierConfirmationValidationError):
         return HTTPException(status_code=409, detail="Заполните подтверждение по всем строкам заказа")
+    if isinstance(error, SupplierConfirmationBasisError):
+        return HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя зафиксировать ответ: поставщик изменил единицу или размер упаковки. "
+                "Такое изменение требует отдельного процесса согласования"
+            ),
+        )
+    if isinstance(error, SupplierConfirmationDecisionError):
+        return HTTPException(
+            status_code=409,
+            detail="Решение доступно только для обязательного отклонения текущей ревизии",
+        )
+    if isinstance(error, SupplierConfirmationDecisionConflictError):
+        return HTTPException(
+            status_code=409,
+            detail="Решение по отклонению уже зафиксировано другим пользователем",
+        )
     if isinstance(error, SupplierConfirmationConflictError):
         return HTTPException(status_code=409, detail="Подтверждение уже изменено другим пользователем")
     return HTTPException(status_code=409, detail="Действие доступно только для черновика ответа по отправленному заказу")
@@ -109,7 +133,7 @@ def record_supplier_confirmation(
 ) -> SupplySupplierConfirmationRead:
     try:
         return record_confirmation(db, confirmation_id, tenant_id=admin.tenant_id, user_id=admin.id)
-    except (SupplierConfirmationNotFoundError, SupplierConfirmationStateError, SupplierConfirmationValidationError, SupplierConfirmationConflictError) as error:
+    except (SupplierConfirmationNotFoundError, SupplierConfirmationStateError, SupplierConfirmationValidationError, SupplierConfirmationBasisError, SupplierConfirmationConflictError) as error:
         raise _error(error) from error
 
 
@@ -121,4 +145,20 @@ def cancel_supplier_confirmation(
     try:
         return cancel_confirmation(db, confirmation_id, tenant_id=admin.tenant_id)
     except (SupplierConfirmationNotFoundError, SupplierConfirmationStateError) as error:
+        raise _error(error) from error
+
+
+@deviation_router.post("/{deviation_id}/decision", response_model=SupplySupplierConfirmationRead)
+def create_supplier_confirmation_deviation_decision(
+    deviation_id: UUID, payload: SupplySupplierConfirmationDecisionCreate,
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+) -> SupplySupplierConfirmationRead:
+    try:
+        return decide_deviation(
+            db, deviation_id, payload, tenant_id=admin.tenant_id, user_id=admin.id,
+        )
+    except (
+        SupplierConfirmationNotFoundError, SupplierConfirmationDecisionError,
+        SupplierConfirmationDecisionConflictError,
+    ) as error:
         raise _error(error) from error

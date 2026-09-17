@@ -126,6 +126,23 @@ class SupplySupplierConfirmationLineStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class SupplySupplierConfirmationDeviationType(StrEnum):
+    LINE_REJECTED = "LINE_REJECTED"
+    QUANTITY_CHANGED = "QUANTITY_CHANGED"
+    PRICE_CHANGED = "PRICE_CHANGED"
+    DELIVERY_DATE_CHANGED = "DELIVERY_DATE_CHANGED"
+
+
+class SupplySupplierConfirmationDeviationStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+
+
+class SupplySupplierConfirmationDecisionType(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+
+
 class SupplyProcurementNeedSourceType(StrEnum):
     REQUEST_LINE = "REQUEST_LINE"
     DEPARTMENT_DEBT = "DEPARTMENT_DEBT"
@@ -1382,6 +1399,10 @@ class SupplySupplierConfirmation(Base):
         back_populates="confirmation", cascade="all, delete-orphan", passive_deletes=True,
         order_by="SupplySupplierConfirmationLine.created_at",
     )
+    deviations: Mapped[list["SupplySupplierConfirmationDeviation"]] = relationship(
+        back_populates="confirmation", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="SupplySupplierConfirmationDeviation.created_at",
+    )
 
 
 class SupplySupplierConfirmationLine(Base):
@@ -1444,6 +1465,104 @@ class SupplySupplierConfirmationLine(Base):
     confirmed_package_unit: Mapped[SupplyUnit | None] = relationship(
         overlaps="confirmation,lines,supplier_order_line"
     )
+
+
+class SupplySupplierConfirmationDeviation(Base):
+    __tablename__ = "supply_supplier_confirmation_deviations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_supply_supplier_confirmation_deviations_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "confirmation_id"],
+            ["supply_supplier_confirmations.tenant_id", "supply_supplier_confirmations.id"],
+            name="fk_supply_confirmation_deviations_confirmation_tenant", ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "confirmation_line_id"],
+            ["supply_supplier_confirmation_lines.tenant_id", "supply_supplier_confirmation_lines.id"],
+            name="fk_supply_confirmation_deviations_line_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_order_line_id"],
+            ["supply_supplier_order_lines.tenant_id", "supply_supplier_order_lines.id"],
+            name="fk_supply_confirmation_deviations_order_line_tenant", ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "deviation_type IN ('LINE_REJECTED', 'QUANTITY_CHANGED', 'PRICE_CHANGED', 'DELIVERY_DATE_CHANGED')",
+            name="ck_supply_confirmation_deviations_type",
+        ),
+        CheckConstraint("status IN ('OPEN', 'RESOLVED')", name="ck_supply_confirmation_deviations_status"),
+        CheckConstraint(
+            "direction IS NULL OR direction IN ('INCREASED', 'DECREASED')",
+            name="ck_supply_confirmation_deviations_direction",
+        ),
+        CheckConstraint(
+            "decision_type IS NULL OR decision_type IN ('ACCEPT', 'REJECT')",
+            name="ck_supply_confirmation_deviations_decision_type",
+        ),
+        CheckConstraint(
+            "(status = 'OPEN' AND decision_type IS NULL AND decision_comment IS NULL "
+            "AND decided_by_user_id IS NULL AND decided_at IS NULL) OR "
+            "(status = 'RESOLVED' AND requires_decision = true AND decision_type IS NOT NULL "
+            "AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL)",
+            name="ck_supply_confirmation_deviations_decision_consistency",
+        ),
+        Index(
+            "uq_supply_confirmation_deviations_line_type",
+            "tenant_id", "confirmation_id", "confirmation_line_id", "deviation_type",
+            unique=True,
+            postgresql_where=text("confirmation_line_id IS NOT NULL"),
+            sqlite_where=text("confirmation_line_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_supply_confirmation_deviations_header_type",
+            "tenant_id", "confirmation_id", "deviation_type",
+            unique=True,
+            postgresql_where=text("confirmation_line_id IS NULL"),
+            sqlite_where=text("confirmation_line_id IS NULL"),
+        ),
+        Index(
+            "ix_supply_confirmation_deviations_review",
+            "tenant_id", "confirmation_id", "requires_decision", "status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    confirmation_line_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    supplier_order_line_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    deviation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    requires_decision: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="OPEN", server_default="OPEN", nullable=False)
+    direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    product_name_snapshot: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    baseline_packages_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confirmed_packages_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    baseline_package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 3), nullable=True)
+    confirmed_package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 3), nullable=True)
+    baseline_package_unit_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    confirmed_package_unit_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    package_unit_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    baseline_quantity: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    confirmed_quantity: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    quantity_delta: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    baseline_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    confirmed_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    price_delta: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    price_delta_percent: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    baseline_amount: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    confirmed_amount: Mapped[Decimal | None] = mapped_column(Numeric(30, 6), nullable=True)
+    baseline_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    confirmed_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    delivery_delta_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decision_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    confirmation: Mapped[SupplySupplierConfirmation] = relationship(back_populates="deviations")
 
 
 class SupplyPurchaseRequestLineSource(Base):

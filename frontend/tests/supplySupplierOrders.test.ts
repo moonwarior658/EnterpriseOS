@@ -7,6 +7,7 @@ import {
   readySupplySupplierOrder, retrySupplySupplierOrderSend,
   sendSupplySupplierOrder, updateSupplySupplierOrder,
   cancelSupplySupplierConfirmation, createSupplySupplierConfirmation,
+  decideSupplySupplierConfirmationDeviation,
   getSupplySupplierConfirmations, recordSupplySupplierConfirmation,
   updateSupplySupplierConfirmation, updateSupplySupplierConfirmationLine,
 } from '../src/services/supplyAdmin.ts'
@@ -50,6 +51,13 @@ test('подключает admin-only список, карточку и форм
   assert.match(confirmation, /История ответов/)
   assert.match(confirmation, /Отменить черновик/)
   assert.match(confirmation, /ordered_packages_count !== line\.confirmed_packages_count/)
+  assert.match(confirmation, /ОТКЛОНЕНИЯ · РЕВИЗИЯ/)
+  assert.match(confirmation, /Требует решения/)
+  assert.match(confirmation, /Информационно/)
+  assert.match(confirmation, /decideSupplySupplierConfirmationDeviation/)
+  assert.match(confirmation, />Принять</)
+  assert.match(confirmation, />Отклонить</)
+  assert.match(detail, /open_required_deviations_count/)
 })
 
 
@@ -82,6 +90,7 @@ test('API-клиент покрывает create, list, detail, draft edit, read
     await updateSupplySupplierConfirmationLine('confirmation', 'line', { response_status: 'REJECTED' })
     await recordSupplySupplierConfirmation('confirmation')
     await cancelSupplySupplierConfirmation('confirmation')
+    await decideSupplySupplierConfirmationDeviation('deviation', 'ACCEPT', 'Согласовано')
   } finally { globalThis.fetch = originalFetch }
   assert.match(calls[0].url, /purchase-requests\/request\/supplier-orders$/)
   assert.equal(calls[0].options.method, 'POST')
@@ -107,4 +116,7 @@ test('API-клиент покрывает create, list, detail, draft edit, read
   assert.match(calls[12].url, /supplier-confirmations\/confirmation\/lines\/line$/)
   assert.match(calls[13].url, /supplier-confirmations\/confirmation\/record$/)
   assert.match(calls[14].url, /supplier-confirmations\/confirmation\/cancel$/)
+  assert.match(calls[15].url, /supplier-confirmation-deviations\/deviation\/decision$/)
+  assert.equal(calls[15].options.method, 'POST')
+  assert.equal(calls[15].options.body, JSON.stringify({ decision: 'ACCEPT', comment: 'Согласовано' }))
 })

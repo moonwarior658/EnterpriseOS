@@ -25,6 +25,29 @@ class SupplySupplierConfirmationLineStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class SupplySupplierConfirmationDeviationType(StrEnum):
+    LINE_REJECTED = "LINE_REJECTED"
+    QUANTITY_CHANGED = "QUANTITY_CHANGED"
+    PRICE_CHANGED = "PRICE_CHANGED"
+    DELIVERY_DATE_CHANGED = "DELIVERY_DATE_CHANGED"
+
+
+class SupplySupplierConfirmationDeviationStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+
+
+class SupplySupplierConfirmationDecisionType(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+
+
+class SupplySupplierConfirmationReviewState(StrEnum):
+    CLEAN = "CLEAN"
+    REQUIRES_DECISION = "REQUIRES_DECISION"
+    RESOLVED = "RESOLVED"
+
+
 def _clean(value: str | None) -> str | None:
     return value.strip() or None if value is not None else None
 
@@ -64,6 +87,54 @@ class SupplySupplierConfirmationLineUpdate(BaseModel):
     def normalize_comment(cls, value: str | None) -> str | None:
         return _clean(value)
 
+
+class SupplySupplierConfirmationDecisionCreate(BaseModel):
+    decision: SupplySupplierConfirmationDecisionType
+    comment: str | None = Field(default=None, max_length=2000)
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        return _clean(value)
+
+
+class SupplySupplierConfirmationDeviationRead(BaseModel):
+    id: UUID
+    confirmation_id: UUID
+    confirmation_line_id: UUID | None
+    supplier_order_line_id: UUID | None
+    deviation_type: SupplySupplierConfirmationDeviationType
+    requires_decision: bool
+    status: SupplySupplierConfirmationDeviationStatus
+    direction: str | None
+    product_name_snapshot: str | None
+    baseline_packages_count: int | None
+    confirmed_packages_count: int | None
+    baseline_package_quantity: Decimal | None
+    confirmed_package_quantity: Decimal | None
+    baseline_package_unit_id: UUID | None
+    confirmed_package_unit_id: UUID | None
+    package_unit_snapshot: str | None
+    baseline_quantity: Decimal | None
+    confirmed_quantity: Decimal | None
+    quantity_delta: Decimal | None
+    baseline_price: Decimal | None
+    confirmed_price: Decimal | None
+    price_delta: Decimal | None
+    price_delta_percent: Decimal | None
+    baseline_amount: Decimal | None
+    confirmed_amount: Decimal | None
+    baseline_delivery_date: date | None
+    confirmed_delivery_date: date | None
+    delivery_delta_days: int | None
+    decision_type: SupplySupplierConfirmationDecisionType | None
+    decision_comment: str | None
+    decided_by_user_id: int | None
+    decided_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
 class SupplySupplierConfirmationLineRead(BaseModel):
     id: UUID
     supplier_order_line_id: UUID
@@ -85,6 +156,7 @@ class SupplySupplierConfirmationLineRead(BaseModel):
     confirmed_planned_amount: Decimal | None
     currency: str
     supplier_line_comment: str | None
+    deviations: list[SupplySupplierConfirmationDeviationRead]
     created_at: datetime
     updated_at: datetime
 
@@ -109,6 +181,9 @@ class SupplySupplierConfirmationRead(BaseModel):
     ordered_total_amount: Decimal
     confirmed_total_amount: Decimal
     currency: str
+    supplier_confirmation_review_state: SupplySupplierConfirmationReviewState
+    open_required_deviations_count: int
+    deviations: list[SupplySupplierConfirmationDeviationRead]
     lines: list[SupplySupplierConfirmationLineRead]
 
 
@@ -121,3 +196,6 @@ class SupplySupplierConfirmationSummary(BaseModel):
     responded_at: datetime | None
     recorded_at: datetime | None
     confirmed_total_amount: Decimal
+    deviation_count: int
+    open_required_deviations_count: int
+    supplier_confirmation_review_state: SupplySupplierConfirmationReviewState

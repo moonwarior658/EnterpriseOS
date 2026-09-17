@@ -74,6 +74,9 @@ def _options():
         selectinload(SupplySupplierOrder.confirmations).selectinload(
             SupplySupplierConfirmation.lines
         ),
+        selectinload(SupplySupplierOrder.confirmations).selectinload(
+            SupplySupplierConfirmation.deviations
+        ),
     )
 
 
@@ -98,6 +101,7 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     recorded = [item for item in order.confirmations if item.status == "RECORDED"]
     draft = next((item for item in order.confirmations if item.status == "DRAFT"), None)
     latest = max(recorded, key=lambda item: item.revision_number) if recorded else None
+    latest_summary = confirmation_summary(latest) if latest else None
     return SupplySupplierOrderRead(
         id=order.id, number=order.number, supplier_id=order.supplier_id,
         supplier_display_name=order.supplier.display_name,
@@ -129,9 +133,15 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
         latest_delivery_attempt=history[-1] if history else None,
         delivery_history=history,
         supplier_confirmation_state=latest.response_type if latest else "NONE",
-        latest_confirmation=confirmation_summary(latest) if latest else None,
+        latest_confirmation=latest_summary,
         draft_confirmation=confirmation_summary(draft) if draft else None,
         confirmation_history_count=len(order.confirmations),
+        supplier_confirmation_review_state=(
+            latest_summary.supplier_confirmation_review_state if latest_summary else "CLEAN"
+        ),
+        open_required_deviations_count=(
+            latest_summary.open_required_deviations_count if latest_summary else 0
+        ),
     )
 
 

@@ -8,12 +8,15 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.supply import (
     SupplySupplierConfirmation,
+    SupplySupplierConfirmationDeviation,
     SupplySupplierConfirmationLine,
     SupplySupplierOrder,
     SupplySupplierOrderLine,
     SupplyUnit,
 )
 from app.schemas.supplier_confirmation import (
+    SupplySupplierConfirmationDecisionCreate,
+    SupplySupplierConfirmationDeviationRead,
     SupplySupplierConfirmationLineRead,
     SupplySupplierConfirmationLineUpdate,
     SupplySupplierConfirmationRead,
@@ -38,6 +41,18 @@ class SupplierConfirmationValidationError(ValueError):
     pass
 
 
+class SupplierConfirmationBasisError(ValueError):
+    pass
+
+
+class SupplierConfirmationDecisionError(ValueError):
+    pass
+
+
+class SupplierConfirmationDecisionConflictError(ValueError):
+    pass
+
+
 def _options():
     return (
         joinedload(SupplySupplierConfirmation.supplier_order).joinedload(SupplySupplierOrder.supplier),
@@ -47,6 +62,25 @@ def _options():
         selectinload(SupplySupplierConfirmation.lines).joinedload(
             SupplySupplierConfirmationLine.confirmed_package_unit
         ),
+        selectinload(SupplySupplierConfirmation.deviations),
+    )
+
+
+def _review_state(deviations: list[SupplySupplierConfirmationDeviation]) -> tuple[str, int]:
+    required = [item for item in deviations if item.requires_decision]
+    open_count = sum(item.status == "OPEN" for item in required)
+    if open_count:
+        return "REQUIRES_DECISION", open_count
+    if required:
+        return "RESOLVED", 0
+    return "CLEAN", 0
+
+
+def _deviation_read(
+    deviation: SupplySupplierConfirmationDeviation,
+) -> SupplySupplierConfirmationDeviationRead:
+    return SupplySupplierConfirmationDeviationRead.model_validate(
+        deviation, from_attributes=True
     )
 
 
@@ -66,6 +100,7 @@ def get_confirmation(
 
 
 def _summary(confirmation: SupplySupplierConfirmation) -> SupplySupplierConfirmationSummary:
+    review_state, open_count = _review_state(confirmation.deviations)
     return SupplySupplierConfirmationSummary(
         id=confirmation.id, revision_number=confirmation.revision_number,
         status=confirmation.status, response_type=confirmation.response_type,
@@ -76,6 +111,9 @@ def _summary(confirmation: SupplySupplierConfirmation) -> SupplySupplierConfirma
              if line.response_status != "REJECTED" and line.confirmed_planned_amount is not None),
             Decimal("0"),
         ),
+        deviation_count=len(confirmation.deviations),
+        open_required_deviations_count=open_count,
+        supplier_confirmation_review_state=review_state,
     )
 
 
@@ -87,6 +125,11 @@ def read_confirmation_model(confirmation: SupplySupplierConfirmation) -> SupplyS
     order = confirmation.supplier_order
     confirmed_total = Decimal("0")
     lines = []
+    deviations = [_deviation_read(item) for item in confirmation.deviations]
+    deviations_by_line: dict[UUID, list[SupplySupplierConfirmationDeviationRead]] = {}
+    for deviation in deviations:
+        if deviation.confirmation_line_id is not None:
+            deviations_by_line.setdefault(deviation.confirmation_line_id, []).append(deviation)
     for line in confirmation.lines:
         ordered = line.supplier_order_line
         if line.response_status != "REJECTED" and line.confirmed_planned_amount is not None:
@@ -109,8 +152,10 @@ def read_confirmation_model(confirmation: SupplySupplierConfirmation) -> SupplyS
             confirmed_price_per_package=line.confirmed_price_per_package,
             confirmed_planned_amount=line.confirmed_planned_amount,
             currency=line.currency, supplier_line_comment=line.supplier_line_comment,
+            deviations=deviations_by_line.get(line.id, []),
             created_at=line.created_at, updated_at=line.updated_at,
         ))
+    review_state, open_count = _review_state(confirmation.deviations)
     return SupplySupplierConfirmationRead(
         id=confirmation.id, supplier_order_id=confirmation.supplier_order_id,
         revision_number=confirmation.revision_number, status=confirmation.status,
@@ -123,7 +168,10 @@ def read_confirmation_model(confirmation: SupplySupplierConfirmation) -> SupplyS
         responded_at=confirmation.responded_at, recorded_at=confirmation.recorded_at,
         created_at=confirmation.created_at, updated_at=confirmation.updated_at,
         ordered_total_amount=order.total_amount, confirmed_total_amount=confirmed_total,
-        currency=order.currency, lines=lines,
+        currency=order.currency,
+        supplier_confirmation_review_state=review_state,
+        open_required_deviations_count=open_count,
+        deviations=deviations, lines=lines,
     )
 
 
@@ -280,7 +328,21 @@ def update_confirmation_line(
     except IntegrityError as error:
         session.rollback()
         raise SupplierConfirmationConflictError from error
+    except Exception:
+        session.rollback()
+        raise
     return read_confirmation(session, confirmation_id, tenant_id=tenant_id)
+
+
+def _validate_commercial_basis(
+    line: SupplySupplierConfirmationLine, ordered: SupplySupplierOrderLine,
+) -> None:
+    if line.response_status == "REJECTED":
+        return
+    if line.confirmed_package_unit_id != ordered.package_unit_id_snapshot:
+        raise SupplierConfirmationBasisError("package_unit")
+    if Decimal(line.confirmed_package_quantity) != Decimal(ordered.package_quantity_snapshot):
+        raise SupplierConfirmationBasisError("package_quantity")
 
 
 def _validate_record(confirmation: SupplySupplierConfirmation) -> str:
@@ -298,12 +360,116 @@ def _validate_record(confirmation: SupplySupplierConfirmation) -> str:
             line.confirmed_price_per_package, line.confirmed_planned_amount,
         )):
             raise SupplierConfirmationValidationError
+        _validate_commercial_basis(line, ordered)
     statuses = {line.response_status for line in confirmation.lines}
     if statuses == {"REJECTED"}:
         return "REJECTED"
     if statuses == {"CONFIRMED"}:
         return "CONFIRMED"
     return "PARTIALLY_CONFIRMED"
+
+
+def _line_deviation_values(
+    confirmation: SupplySupplierConfirmation,
+    line: SupplySupplierConfirmationLine,
+    ordered: SupplySupplierOrderLine,
+) -> dict:
+    return {
+        "tenant_id": confirmation.tenant_id,
+        "confirmation_id": confirmation.id,
+        "confirmation_line_id": line.id,
+        "supplier_order_line_id": ordered.id,
+        "status": "OPEN",
+        "product_name_snapshot": ordered.product_name_snapshot,
+        "baseline_packages_count": ordered.packages_count,
+        "confirmed_packages_count": line.confirmed_packages_count,
+        "baseline_package_quantity": ordered.package_quantity_snapshot,
+        "confirmed_package_quantity": line.confirmed_package_quantity,
+        "baseline_package_unit_id": ordered.package_unit_id_snapshot,
+        "confirmed_package_unit_id": line.confirmed_package_unit_id,
+        "package_unit_snapshot": ordered.package_unit_snapshot.short_name_ru,
+        "baseline_quantity": ordered.quantity_base,
+        "confirmed_quantity": line.confirmed_quantity_base,
+        "baseline_price": ordered.price_per_package_snapshot,
+        "confirmed_price": line.confirmed_price_per_package,
+        "baseline_amount": ordered.planned_amount,
+        "confirmed_amount": line.confirmed_planned_amount,
+    }
+
+
+def generate_deviations(
+    session: Session, confirmation: SupplySupplierConfirmation,
+) -> None:
+    """Create the immutable deviation snapshot for one confirmation revision."""
+    existing = {
+        (item.confirmation_line_id, item.deviation_type)
+        for item in confirmation.deviations
+    }
+    order_lines = {line.id: line for line in confirmation.supplier_order.lines}
+    for line in confirmation.lines:
+        ordered = order_lines[line.supplier_order_line_id]
+        base = _line_deviation_values(confirmation, line, ordered)
+        if line.response_status == "REJECTED":
+            key = (line.id, "LINE_REJECTED")
+            if key not in existing:
+                session.add(SupplySupplierConfirmationDeviation(
+                    **base, deviation_type="LINE_REJECTED", requires_decision=True,
+                ))
+            continue
+
+        confirmed_quantity = Decimal(line.confirmed_quantity_base)
+        ordered_quantity = Decimal(ordered.quantity_base)
+        if confirmed_quantity != ordered_quantity:
+            key = (line.id, "QUANTITY_CHANGED")
+            if key not in existing:
+                session.add(SupplySupplierConfirmationDeviation(
+                    **base, deviation_type="QUANTITY_CHANGED", requires_decision=True,
+                    direction="INCREASED" if confirmed_quantity > ordered_quantity else "DECREASED",
+                    quantity_delta=confirmed_quantity - ordered_quantity,
+                ))
+
+        confirmed_price = Decimal(line.confirmed_price_per_package)
+        ordered_price = Decimal(ordered.price_per_package_snapshot)
+        if confirmed_price != ordered_price:
+            delta = confirmed_price - ordered_price
+            percent = (abs(delta) / ordered_price * Decimal("100")).quantize(Decimal("0.000001"))
+            key = (line.id, "PRICE_CHANGED")
+            if key not in existing:
+                session.add(SupplySupplierConfirmationDeviation(
+                    **base, deviation_type="PRICE_CHANGED",
+                    requires_decision=delta > 0 and percent > Decimal("10"),
+                    direction="INCREASED" if delta > 0 else "DECREASED",
+                    price_delta=delta, price_delta_percent=percent,
+                ))
+
+    planned_date = confirmation.supplier_order.planned_delivery_date
+    confirmed_date = confirmation.confirmed_delivery_date
+    if planned_date != confirmed_date and (planned_date is not None or confirmed_date is not None):
+        key = (None, "DELIVERY_DATE_CHANGED")
+        if key not in existing:
+            delta_days = (
+                (confirmed_date - planned_date).days
+                if planned_date is not None and confirmed_date is not None else None
+            )
+            session.add(SupplySupplierConfirmationDeviation(
+                tenant_id=confirmation.tenant_id,
+                confirmation_id=confirmation.id,
+                confirmation_line_id=None,
+                supplier_order_line_id=None,
+                deviation_type="DELIVERY_DATE_CHANGED",
+                requires_decision=planned_date is not None,
+                status="OPEN",
+                direction=(
+                    "INCREASED" if delta_days is not None and delta_days > 0
+                    else "DECREASED" if delta_days is not None and delta_days < 0
+                    else None
+                ),
+                baseline_delivery_date=planned_date,
+                confirmed_delivery_date=confirmed_date,
+                delivery_delta_days=delta_days,
+            ))
+    session.flush()
+    session.expire(confirmation, ["deviations"])
 
 
 def record_confirmation(
@@ -334,19 +500,53 @@ def record_confirmation(
         SupplySupplierConfirmation.supplier_order_id == order.id,
         SupplySupplierConfirmation.status == "RECORDED",
     ).with_for_update(of=SupplySupplierConfirmation))
-    if previous is not None:
-        previous.status = "SUPERSEDED"
-        session.flush()
-    confirmation.status = "RECORDED"
-    confirmation.response_type = response_type
-    confirmation.recorded_at = datetime.now(timezone.utc)
-    confirmation.recorded_by_user_id = user_id
     try:
+        if previous is not None:
+            previous.status = "SUPERSEDED"
+            session.flush()
+        confirmation.status = "RECORDED"
+        confirmation.response_type = response_type
+        confirmation.recorded_at = datetime.now(timezone.utc)
+        confirmation.recorded_by_user_id = user_id
+        generate_deviations(session, confirmation)
         session.commit()
     except IntegrityError as error:
         session.rollback()
         raise SupplierConfirmationConflictError from error
+    except Exception:
+        session.rollback()
+        raise
     return read_confirmation(session, confirmation_id, tenant_id=tenant_id)
+
+
+def decide_deviation(
+    session: Session, deviation_id: UUID, payload: SupplySupplierConfirmationDecisionCreate,
+    *, tenant_id: str, user_id: int,
+) -> SupplySupplierConfirmationRead:
+    deviation = session.scalar(select(SupplySupplierConfirmationDeviation).where(
+        SupplySupplierConfirmationDeviation.id == deviation_id,
+        SupplySupplierConfirmationDeviation.tenant_id == tenant_id,
+    ).with_for_update(of=SupplySupplierConfirmationDeviation).execution_options(populate_existing=True))
+    if deviation is None:
+        raise SupplierConfirmationNotFoundError
+    confirmation = get_confirmation(
+        session, deviation.confirmation_id, tenant_id=tenant_id,
+    )
+    if confirmation.status != "RECORDED" or not deviation.requires_decision:
+        raise SupplierConfirmationDecisionError
+    if deviation.status != "OPEN":
+        raise SupplierConfirmationDecisionConflictError
+    deviation.status = "RESOLVED"
+    deviation.decision_type = payload.decision.value
+    deviation.decision_comment = payload.comment
+    deviation.decided_by_user_id = user_id
+    deviation.decided_at = datetime.now(timezone.utc)
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise SupplierConfirmationDecisionConflictError from error
+    return read_confirmation(session, confirmation.id, tenant_id=tenant_id)
 
 
 def cancel_confirmation(session: Session, confirmation_id: UUID, *, tenant_id: str) -> SupplySupplierConfirmationRead:

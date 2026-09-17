@@ -105,6 +105,8 @@ class SupplySupplierOrderRead(SupplySupplierOrderListItem):
     latest_confirmation: SupplySupplierConfirmationSummary | None
     draft_confirmation: SupplySupplierConfirmationSummary | None
     confirmation_history_count: int
+    supplier_confirmation_review_state: str
+    open_required_deviations_count: int
 
 
 class SupplySupplierOrderDeliveryAttemptRead(BaseModel):

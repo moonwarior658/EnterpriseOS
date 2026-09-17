@@ -3,12 +3,15 @@ import { EosDateField, EosSelect } from './EosFormControls'
 import {
   cancelSupplySupplierConfirmation,
   createSupplySupplierConfirmation,
+  decideSupplySupplierConfirmationDeviation,
   getSupplySupplierConfirmations,
   recordSupplySupplierConfirmation,
   updateSupplySupplierConfirmation,
   updateSupplySupplierConfirmationLine,
   type SupplySupplierConfirmation,
   type SupplySupplierConfirmationLine,
+  type SupplySupplierConfirmationDecisionType,
+  type SupplySupplierConfirmationDeviation,
   type SupplySupplierOrder,
   SupplyApiError,
 } from '../services/supplyAdmin'
@@ -18,6 +21,13 @@ const responseLabels = {
   CONFIRMED: 'Подтверждено', PARTIALLY_CONFIRMED: 'Подтверждено частично', REJECTED: 'Отклонено',
 } as const
 const statusLabels = { DRAFT: 'Черновик', RECORDED: 'Зафиксировано', SUPERSEDED: 'Заменено новой ревизией', CANCELLED: 'Отменено' } as const
+const reviewLabels = { CLEAN: 'Без обязательных решений', REQUIRES_DECISION: 'Требует решения', RESOLVED: 'Решения приняты' } as const
+const deviationLabels = {
+  LINE_REJECTED: 'Поставщик отклонил строку',
+  QUANTITY_CHANGED: 'Изменено количество',
+  PRICE_CHANGED: 'Изменена цена',
+  DELIVERY_DATE_CHANGED: 'Изменена дата поставки',
+} as const
 
 type Props = { order: SupplySupplierOrder; onOrderRefresh: () => void }
 
@@ -26,6 +36,7 @@ export default function SupplierConfirmationPanel({ order, onOrderRefresh }: Pro
   const [draft, setDraft] = useState<SupplySupplierConfirmation | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [decisionComments, setDecisionComments] = useState<Record<string, string>>({})
 
   async function load() {
     const items = await getSupplySupplierConfirmations(order.id)
@@ -81,6 +92,24 @@ export default function SupplierConfirmationPanel({ order, onOrderRefresh }: Pro
     catch (error) { setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось отменить черновик') }
     finally { setBusy(false) }
   }
+  async function decide(deviation: SupplySupplierConfirmationDeviation, decision: SupplySupplierConfirmationDecisionType) {
+    setBusy(true); setMessage('')
+    try {
+      await decideSupplySupplierConfirmationDeviation(deviation.id, decision, decisionComments[deviation.id] ?? null)
+      await load(); onOrderRefresh()
+      setMessage(decision === 'ACCEPT' ? 'Отклонение принято' : 'Отклонение отклонено')
+    } catch (error) {
+      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось сохранить решение')
+      await load()
+    } finally { setBusy(false) }
+  }
+
+  function deviationText(deviation: SupplySupplierConfirmationDeviation) {
+    if (deviation.deviation_type === 'LINE_REJECTED') return `Заказано: ${deviation.baseline_quantity ?? '—'} ${deviation.package_unit_snapshot ?? ''}, ${money.format(Number(deviation.baseline_amount ?? 0))}`
+    if (deviation.deviation_type === 'QUANTITY_CHANGED') return `${deviation.baseline_packages_count} уп. / ${deviation.baseline_quantity} ${deviation.package_unit_snapshot ?? ''} → ${deviation.confirmed_packages_count} уп. / ${deviation.confirmed_quantity} ${deviation.package_unit_snapshot ?? ''} (${Number(deviation.quantity_delta) > 0 ? '+' : ''}${deviation.quantity_delta} ${deviation.package_unit_snapshot ?? ''})`
+    if (deviation.deviation_type === 'PRICE_CHANGED') return `${money.format(Number(deviation.baseline_price))} → ${money.format(Number(deviation.confirmed_price))} (${Number(deviation.price_delta_percent) > 0 ? (deviation.direction === 'DECREASED' ? '−' : '+') : ''}${deviation.price_delta_percent}%)`
+    return `${deviation.baseline_delivery_date ?? 'не указана'} → ${deviation.confirmed_delivery_date ?? 'не указана'}${deviation.delivery_delta_days == null ? '' : ` (${deviation.delivery_delta_days > 0 ? '+' : ''}${deviation.delivery_delta_days} дн.)`}`
+  }
 
   return <section className="supplier-message-panel supplier-confirmation-panel">
     <div className="supplier-message-heading"><div><span className="field-label">ОТВЕТ ПОСТАВЩИКА</span><h2>{draft ? `Ревизия ${draft.revision_number}` : 'Подтверждение заказа'}</h2></div><span>{order.supplier_display_name}</span></div>
@@ -103,6 +132,16 @@ export default function SupplierConfirmationPanel({ order, onOrderRefresh }: Pro
       <div className="allocation-summary"><div><span>Заказано</span><strong>{money.format(Number(draft.ordered_total_amount))}</strong></div><div><span>Подтверждено</span><strong>{money.format(Number(draft.confirmed_total_amount))}</strong></div></div>
       <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={() => saveHeader().then(() => setMessage('Черновик сохранён')).catch((error) => setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось сохранить черновик'))}>Сохранить</button><button type="button" className="primary-action" disabled={busy} onClick={record}>Зафиксировать ответ</button><button type="button" className="danger-action" disabled={busy} onClick={cancel}>Отменить черновик</button></div>
     </>}
-    {history.length > 0 && <div className="supplier-table-wrap"><h3>История ответов</h3><table className="supplier-table"><thead><tr><th>Ревизия</th><th>Статус</th><th>Ответ</th><th>Дата поставки</th><th>Сумма</th><th>Зафиксировано</th></tr></thead><tbody>{history.map((item) => <tr key={item.id}><td>№{item.revision_number}</td><td>{statusLabels[item.status]}</td><td>{item.response_type ? responseLabels[item.response_type] : '—'}</td><td>{item.confirmed_delivery_date ?? '—'}</td><td>{money.format(Number(item.confirmed_total_amount))}</td><td>{item.recorded_at ? new Date(item.recorded_at).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div>}
+    {history.length > 0 && <div className="supplier-table-wrap"><h3>История ответов</h3><table className="supplier-table"><thead><tr><th>Ревизия</th><th>Статус</th><th>Ответ</th><th>Отклонения</th><th>Проверка</th><th>Зафиксировано</th></tr></thead><tbody>{history.map((item) => <tr key={item.id}><td>№{item.revision_number}</td><td>{statusLabels[item.status]}</td><td>{item.response_type ? responseLabels[item.response_type] : '—'}</td><td>{item.deviation_count}</td><td>{reviewLabels[item.supplier_confirmation_review_state]}</td><td>{item.recorded_at ? new Date(item.recorded_at).toLocaleString('ru-RU') : '—'}</td></tr>)}</tbody></table></div>}
+    {history.filter((item) => item.status === 'RECORDED' || item.status === 'SUPERSEDED').map((item) => <section className="confirmation-review" key={`review-${item.id}`}>
+      <div className="supplier-message-heading"><div><span className="field-label">ОТКЛОНЕНИЯ · РЕВИЗИЯ {item.revision_number}</span><h3>{reviewLabels[item.supplier_confirmation_review_state]}</h3></div><span>{item.deviations.length} отклонений · требуют решения: {item.open_required_deviations_count}</span></div>
+      {item.deviations.length === 0 && <p className="confirmation-clean">Ответ полностью совпадает с заказом.</p>}
+      {item.deviations.map((deviation) => <article className={`confirmation-deviation ${deviation.requires_decision ? 'confirmation-deviation-required' : ''}`} key={deviation.id}>
+        <div><strong>{deviation.product_name_snapshot ?? 'Дата поставки'}</strong><span>{deviationLabels[deviation.deviation_type]}</span><p>{deviationText(deviation)}</p></div>
+        <div className="confirmation-deviation-state"><span>{deviation.requires_decision ? 'Требует решения' : 'Информационно'}</span>{deviation.status === 'RESOLVED' && <strong>{deviation.decision_type === 'ACCEPT' ? 'Принято' : 'Отклонено'}</strong>}</div>
+        {deviation.decision_comment && <p>Комментарий: {deviation.decision_comment}</p>}
+        {item.status === 'RECORDED' && deviation.requires_decision && deviation.status === 'OPEN' && <div className="confirmation-decision"><label className="eos-field"><span>Комментарий к решению</span><input disabled={busy} value={decisionComments[deviation.id] ?? ''} onChange={(event) => setDecisionComments({ ...decisionComments, [deviation.id]: event.target.value })} /></label><div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={() => decide(deviation, 'ACCEPT')}>Принять</button><button type="button" className="danger-action" disabled={busy} onClick={() => decide(deviation, 'REJECT')}>Отклонить</button></div></div>}
+      </article>)}
+    </section>)}
   </section>
 }

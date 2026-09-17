@@ -28,6 +28,7 @@ from app.models.supply import (
     SupplySupplierOrderDeliveryAttempt,
     SupplySupplierOrderLine,
     SupplySupplierConfirmation,
+    SupplySupplierConfirmationDeviation,
     SupplySupplierConfirmationLine,
     SupplyProductCategory,
     SupplyPurchaseRequest,
@@ -83,6 +84,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplyPurchaseAllocation.__table__,
             SupplySupplierOrder.__table__, SupplySupplierOrderLine.__table__,
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
+            SupplySupplierConfirmationDeviation.__table__,
         ):
             table.create(self.engine)
         with self.engine.begin() as connection:
@@ -1078,6 +1080,28 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(recorded.status_code, 200, recorded.text)
         self.assertEqual(recorded.json()["status"], "RECORDED")
         self.assertEqual(recorded.json()["response_type"], "PARTIALLY_CONFIRMED")
+        self.assertEqual(recorded.json()["supplier_confirmation_review_state"], "REQUIRES_DECISION")
+        self.assertEqual(
+            {item["deviation_type"] for item in recorded.json()["deviations"]},
+            {"QUANTITY_CHANGED", "PRICE_CHANGED", "DELIVERY_DATE_CHANGED"},
+        )
+        quantity_deviation = next(
+            item for item in recorded.json()["deviations"]
+            if item["deviation_type"] == "QUANTITY_CHANGED"
+        )
+        accepted = self.client.post(
+            f"/supply/supplier-confirmation-deviations/{quantity_deviation['id']}/decision",
+            json={"decision": "ACCEPT", "comment": "Принимаем одну упаковку"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(
+            next(item for item in accepted.json()["deviations"] if item["id"] == quantity_deviation["id"])["status"],
+            "RESOLVED",
+        )
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-confirmation-deviations/{quantity_deviation['id']}/decision",
+            json={"decision": "REJECT"},
+        ).status_code, 409)
         self.assertEqual(self.client.patch(
             f"/supply/supplier-confirmations/{draft['id']}", json={"supplier_reference": "X"}
         ).status_code, 409)
@@ -1101,6 +1125,10 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(detail["status"], "SENT")
         self.assertEqual(detail["supplier_confirmation_state"], "REJECTED")
         self.assertEqual(detail["confirmation_history_count"], 2)
+        self.assertEqual(detail["supplier_confirmation_review_state"], "REQUIRES_DECISION")
+        first = next(item for item in history if item["revision_number"] == 1)
+        preserved = next(item for item in first["deviations"] if item["id"] == quantity_deviation["id"])
+        self.assertEqual(preserved["decision_type"], "ACCEPT")
 
     def test_supplier_confirmation_state_cancel_and_tenant_guards(self) -> None:
         ready = self.create_supplier_order()
@@ -1123,6 +1151,128 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(
             f"/supply/supplier-confirmations/{replacement.json()['id']}"
         ).status_code, 404)
+
+    def test_supplier_confirmation_basis_is_enforced_on_record(self) -> None:
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        line = draft["lines"][0]
+        changed_unit = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={"confirmed_package_unit_id": str(self.unit_two.id)},
+        )
+        self.assertEqual(changed_unit.status_code, 200, changed_unit.text)
+        rejected = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertIn("единицу или размер упаковки", rejected.json()["detail"])
+
+        restored = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={"confirmed_package_unit_id": str(self.unit.id), "confirmed_package_quantity": "10.000"},
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+        rejected = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        with self.sessions() as session:
+            stored = session.get(SupplySupplierConfirmation, UUID(draft["id"]))
+            self.assertEqual(stored.status, "DRAFT")
+            self.assertEqual(session.query(SupplySupplierConfirmationDeviation).count(), 0)
+
+    def test_supplier_confirmation_deviation_comparison_and_clean_case(self) -> None:
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        exact = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(exact.status_code, 200, exact.text)
+        self.assertEqual(exact.json()["deviations"], [])
+        self.assertEqual(exact.json()["supplier_confirmation_review_state"], "CLEAN")
+
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        line = draft["lines"][0]
+        changed = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={
+                "response_status": "CHANGED", "confirmed_packages_count": 3,
+                "confirmed_price_per_package": "5500.01",
+            },
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        recorded = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        deviations = {item["deviation_type"]: item for item in recorded.json()["deviations"]}
+        self.assertEqual(set(deviations), {"QUANTITY_CHANGED", "PRICE_CHANGED"})
+        self.assertTrue(deviations["QUANTITY_CHANGED"]["requires_decision"])
+        self.assertTrue(deviations["PRICE_CHANGED"]["requires_decision"])
+        self.assertEqual(deviations["QUANTITY_CHANGED"]["quantity_delta"], "12.000000")
+
+    def test_supplier_confirmation_price_threshold_and_decrease_policy(self) -> None:
+        cases = (
+            ("5203.80", False),
+            ("5451.60", False),
+            ("5452.10", True),
+            ("3964.80", False),
+        )
+        for confirmed_price, requires_decision in cases:
+            with self.subTest(confirmed_price=confirmed_price):
+                order = self._sent_order()
+                draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+                line = draft["lines"][0]
+                changed = self.client.patch(
+                    f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+                    json={"response_status": "CHANGED", "confirmed_price_per_package": confirmed_price},
+                )
+                self.assertEqual(changed.status_code, 200, changed.text)
+                recorded = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+                self.assertEqual(recorded.status_code, 200, recorded.text)
+                price = next(item for item in recorded.json()["deviations"] if item["deviation_type"] == "PRICE_CHANGED")
+                self.assertEqual(price["requires_decision"], requires_decision)
+                self.assertEqual(
+                    recorded.json()["supplier_confirmation_review_state"],
+                    "REQUIRES_DECISION" if requires_decision else "CLEAN",
+                )
+
+    def test_supplier_confirmation_rejection_date_decision_and_tenant_guard(self) -> None:
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        line = draft["lines"][0]
+        changed = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}/lines/{line['id']}",
+            json={"response_status": "REJECTED"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        recorded = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        self.assertEqual(recorded.status_code, 200, recorded.text)
+        self.assertEqual(
+            [item["deviation_type"] for item in recorded.json()["deviations"]],
+            ["LINE_REJECTED"],
+        )
+
+        deviation = recorded.json()["deviations"][0]
+        self.current_user_id = 3
+        self.assertEqual(self.client.post(
+            f"/supply/supplier-confirmation-deviations/{deviation['id']}/decision",
+            json={"decision": "REJECT"},
+        ).status_code, 404)
+        self.current_user_id = 2
+        decided = self.client.post(
+            f"/supply/supplier-confirmation-deviations/{deviation['id']}/decision",
+            json={"decision": "REJECT", "comment": "Не принимаем отказ поставщика"},
+        )
+        self.assertEqual(decided.status_code, 200, decided.text)
+        self.assertEqual(decided.json()["supplier_confirmation_review_state"], "RESOLVED")
+        self.assertEqual(decided.json()["open_required_deviations_count"], 0)
+
+        order = self._sent_order()
+        draft = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations").json()
+        changed = self.client.patch(
+            f"/supply/supplier-confirmations/{draft['id']}",
+            json={"confirmed_delivery_date": "2026-09-22"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        recorded = self.client.post(f"/supply/supplier-confirmations/{draft['id']}/record")
+        date_deviation = recorded.json()["deviations"][0]
+        self.assertEqual(date_deviation["deviation_type"], "DELIVERY_DATE_CHANGED")
+        self.assertEqual(date_deviation["delivery_delta_days"], 2)
+        self.assertTrue(date_deviation["requires_decision"])
 
 
 if __name__ == "__main__":

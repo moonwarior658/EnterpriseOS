@@ -289,6 +289,46 @@ export type SupplySupplierOrderLine = {
 export type SupplySupplierConfirmationStatus = 'DRAFT' | 'RECORDED' | 'SUPERSEDED' | 'CANCELLED'
 export type SupplySupplierConfirmationResponseType = 'CONFIRMED' | 'PARTIALLY_CONFIRMED' | 'REJECTED'
 export type SupplySupplierConfirmationLineStatus = 'CONFIRMED' | 'CHANGED' | 'REJECTED'
+export type SupplySupplierConfirmationReviewState = 'CLEAN' | 'REQUIRES_DECISION' | 'RESOLVED'
+export type SupplySupplierConfirmationDeviationType = 'LINE_REJECTED' | 'QUANTITY_CHANGED' | 'PRICE_CHANGED' | 'DELIVERY_DATE_CHANGED'
+export type SupplySupplierConfirmationDecisionType = 'ACCEPT' | 'REJECT'
+
+export type SupplySupplierConfirmationDeviation = {
+  id: string
+  confirmation_id: string
+  confirmation_line_id: string | null
+  supplier_order_line_id: string | null
+  deviation_type: SupplySupplierConfirmationDeviationType
+  requires_decision: boolean
+  status: 'OPEN' | 'RESOLVED'
+  direction: 'INCREASED' | 'DECREASED' | null
+  product_name_snapshot: string | null
+  baseline_packages_count: number | null
+  confirmed_packages_count: number | null
+  baseline_package_quantity: string | null
+  confirmed_package_quantity: string | null
+  baseline_package_unit_id: string | null
+  confirmed_package_unit_id: string | null
+  package_unit_snapshot: string | null
+  baseline_quantity: string | null
+  confirmed_quantity: string | null
+  quantity_delta: string | null
+  baseline_price: string | null
+  confirmed_price: string | null
+  price_delta: string | null
+  price_delta_percent: string | null
+  baseline_amount: string | null
+  confirmed_amount: string | null
+  baseline_delivery_date: string | null
+  confirmed_delivery_date: string | null
+  delivery_delta_days: number | null
+  decision_type: SupplySupplierConfirmationDecisionType | null
+  decision_comment: string | null
+  decided_by_user_id: number | null
+  decided_at: string | null
+  created_at: string
+  updated_at: string
+}
 
 export type SupplySupplierConfirmationLine = {
   id: string
@@ -311,6 +351,7 @@ export type SupplySupplierConfirmationLine = {
   confirmed_planned_amount: string | null
   currency: 'RUB'
   supplier_line_comment: string | null
+  deviations: SupplySupplierConfirmationDeviation[]
   created_at: string
   updated_at: string
 }
@@ -324,6 +365,9 @@ export type SupplySupplierConfirmationSummary = {
   responded_at: string | null
   recorded_at: string | null
   confirmed_total_amount: string
+  deviation_count: number
+  open_required_deviations_count: number
+  supplier_confirmation_review_state: SupplySupplierConfirmationReviewState
 }
 
 export type SupplySupplierConfirmation = SupplySupplierConfirmationSummary & {
@@ -338,6 +382,7 @@ export type SupplySupplierConfirmation = SupplySupplierConfirmationSummary & {
   updated_at: string
   ordered_total_amount: string
   currency: 'RUB'
+  deviations: SupplySupplierConfirmationDeviation[]
   lines: SupplySupplierConfirmationLine[]
 }
 
@@ -373,6 +418,8 @@ export type SupplySupplierOrder = {
   latest_confirmation?: SupplySupplierConfirmationSummary | null
   draft_confirmation?: SupplySupplierConfirmationSummary | null
   confirmation_history_count?: number
+  supplier_confirmation_review_state?: SupplySupplierConfirmationReviewState
+  open_required_deviations_count?: number
 }
 
 export type SupplySupplierOrderMessagePreview = {
@@ -1234,6 +1281,14 @@ export function recordSupplySupplierConfirmation(confirmationId: string): Promis
 
 export function cancelSupplySupplierConfirmation(confirmationId: string): Promise<SupplySupplierConfirmation> {
   return request(`/supply/supplier-confirmations/${confirmationId}/cancel`, { method: 'POST' })
+}
+
+export function decideSupplySupplierConfirmationDeviation(
+  deviationId: string, decision: SupplySupplierConfirmationDecisionType, comment?: string | null,
+): Promise<SupplySupplierConfirmation> {
+  return request(`/supply/supplier-confirmation-deviations/${deviationId}/decision`, {
+    method: 'POST', body: JSON.stringify({ decision, comment: comment || null }),
+  })
 }
 
 export function disableSupplyAlias(
