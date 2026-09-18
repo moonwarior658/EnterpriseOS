@@ -2,9 +2,9 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **24 августа 2026 года**
-Статус: **Stage 3.1A и Stage 3.1B завершены в принятом operational scope; `OUTGOING_INVOICE` и `INTERNAL_TRANSFER` production-verified, общий UI/PDF/print-контур и финализация actual → debt → terminal EOS state работают**
-Общий прогресс этапа 3: **Stage 3.0, Stage 3.1A и operational scope Stage 3.1B завершены; проведение `INTERNAL_TRANSFER` в iiko не входит в этот scope, документ iiko остаётся `NEW`**
+Дата обновления: **18 сентября 2026 года**
+Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational implementation DEPLOYED, реальный EOS business receipt smoke pending.**
+Общий прогресс этапа 3: **не завершён; без фиктивного процента по разному объёму пунктов.**
 
 ---
 
@@ -53,6 +53,37 @@ docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md
 
 ---
 
+## Current production snapshot — 18.09.2026
+
+- Production baseline, сообщённый владельцем: `f8ab3a355f5ec49f7468e2ff868e1b0e17364a2a`, Alembic `20260917_0056`.
+- В этом аудите локально проверено: `HEAD = main = origin/main = baseline`; до правок дерево чистое. Это локальный remote-tracking ref, не новый fetch и не live SSH-проверка production.
+- Read-only SSH-проверка 18.09.2026 предпринята дважды, но соединение завершилось `Connection timed out during banner exchange` до авторизации. На Mac ветка `main`; ветка/HEAD/рабочее дерево сервера и live Alembic пока **не проверены**, равенство веток не утверждается. Сервер не изменялся.
+- В repo подтверждена непрерывная цепочка migrations до `0056`; миграции в этом аудите не применялись. Production SHA/Alembic и deployment facts ниже опираются на предоставленный baseline, не на новый запрос к серверу.
+- В production по baseline: Supplier foundation, Product↔Supplier, price history, PurchaseRequest, ProcurementNeed, allocation/minimum order, SupplierOrder/outbound email, confirmation/deviations/decisions, documents, acceptance/destination/resolutions, payments/settlements, traceability/coverage, supplier↔iiko mapping, incoming invoice readback, base-unit/price/sum contract, receipt lifecycle/accounting facts и cash flow. «В production» относится к реализованному объёму, а не ко всем первоначальным требованиям пункта.
+- 3.1C.18: **IMPLEMENTED + DEPLOYED + PRODUCTION_READY; REAL_BUSINESS_SMOKE_PENDING**. Technical iiko contract smoke: **YES**, `EOS-CONTRACT-20260917-001`, UUID `5bf2b1c7-8c91-b774-01a0-ae4cafa53ba1`: `NEW → authoritative UUID → processDocuments → PROCESSED → stock +1`.
+- Этот технический документ **не является EOS business receipt**. При deployment production Acceptances = **0**; реальный EOS business receipt **NOT YET PERFORMED**. По остальным 3.1C capabilities deployment не приравнивается к индивидуальному business smoke: отдельные подтверждения сценариев в baseline не приложены.
+
+## Статусы и архитектурные инварианты
+
+`DONE` — реализован описанный operational scope; `DONE_DIFFERENTLY` — результат достигнут другим способом, исходный замысел и остаток сохранены; `PARTIAL` — исходный пункт покрыт частично; `DEFERRED` — явно отложен; `NOT_STARTED` — реализации не найдено; `BLOCKED_EXTERNAL` — подтверждённая внешняя зависимость препятствует работе. `DEPLOYED` и `PRODUCTION_READY` — отдельные оси, не синонимы `BUSINESS_SMOKED`.
+
+P0 — препятствие безопасной эксплуатации; P1 — необходимая проверка/ограничение для доказанного operational completion; P2 — optional/later enhancement; NONE — нет текущего блокера. Приоритет ниже относится к остатку, а не к уже выполненной функции.
+
+EOS хранит бизнес-состояние, расчёты, решения и аудит. Email/печать используют существующий `outbox → AutomationProvider → local n8n → callback`; n8n не имеет прямого доступа к EOS PostgreSQL. iiko receipt фактически вызывает `IikoProvider` из EOS service после сохранения persistent intent; отдельного n8n receipt workflow нет. Это фиксирует существующую реализацию, не меняет ADR-001 и не переносит бизнес-логику из EOS.
+
+Order ≠ confirmation ≠ document ≠ acceptance ≠ payment ≠ accounting fact. HTTP success не равен business success; неизвестный результат требует authoritative reconciliation, без blind retry. Snapshot/tenant/transaction guards сохраняются. Неоднозначные quantity sources не распределяются FIFO/pro-rata, historical iiko invoices автоматически не backfill.
+
+```text
+SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation
+→ SupplierOrder → SupplierConfirmation → SupplierDocument → SupplierAcceptance
+→ SupplyIikoIncomingReceipt → POSTED iiko accounting fact
+→ Payment / Settlement → Cash Flow / Coverage
+```
+
+Это схема прослеживаемости, не обязательная временная последовательность: предоплата возможна раньше приёмки; acceptance может начинаться от order/confirmation, но receipt требует документного ценового основания. Payment/Settlement независимы от POSTED. Coverage считает attributable acceptance, accounting facts — только POSTED. Закрытие Acceptance→iiko accounting не меняет границу `INTERNAL_TRANSFER`: он по-прежнему остаётся `NEW`.
+
+Полная доказательная матрица, аудит полей/вложений и источники: [Stage 3 audit 18.09.2026](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
+
 # Границы этапа
 
 ## Входит
@@ -91,6 +122,8 @@ docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md
 ---
 
 # Эксплуатационный MVP от 26.07.2026
+
+> Исторический snapshot и план на июль 2026; нижеследующие «следующий шаг» и незавершённые задачи не являются текущим статусом. Актуальные результаты — в production snapshot и блоках 3.0–3.4.
 
 Это ускоренный эксплуатационный MVP, позволяющий начать перевод подразделений
 на площадку до построения полноценного фундамента снабжения. Текущий
@@ -336,6 +369,8 @@ production и проверен 2 августа 2026 года. Восемь пе
 
 ## 3.1A.2. Направления заявок
 
+Статус календарных ограничений: **DONE_DIFFERENTLY** — исходный hardcode ниже заменён настраиваемыми Automation Core циклами; он не является оставшейся задачей реализации.
+
 - [x] Создать направление `MAIN — Основной`.
 - [x] Создать отдельное направление `HOUSEHOLD — Хозяйственный`.
 - [x] Использовать направления как логические направления заявки, а не как
@@ -373,8 +408,8 @@ backend-срезы вводят их поэтапно; урезанная про
 - [x] Создать справочник категорий EOS.
 - [x] Подготовить первичную классификацию товаров.
 - [x] Сделать категории редактируемыми.
-- [x] Не считать категории EOS категориями iiko и не передавать их: текущий
-      iiko-контур read-only, будущая запись требует отдельного решения.
+- [x] Не считать категории EOS категориями iiko и не передавать их: категории EOS не входят в payload
+      реализованных iiko documents.
 
 ## 3.1A.5. Зоны хранения
 
@@ -978,6 +1013,8 @@ List endpoints поддерживают `status`, `search`, `include_deleted`,
 
 ## Проверки и состояние реализации
 
+**Исторический срез 3.1B / 3.** Последующие production результаты 3.1B / 4–5 ниже заменяют ограничения этого среза; числа тестов не являются результатом текущего аудита.
+
 - [x] Профильные iiko-тесты — **36/36** успешно.
 - [x] Полный backend suite — **492** теста успешно; **5** PostgreSQL-тестов
       штатно пропущены без переменной изолированной БД.
@@ -1342,10 +1379,12 @@ Production smoke обоих document types пройден пользовател
 - [x] Сравнивать заявку с остатком.
 - [x] Автоматически рассчитывать доступное перемещение.
 - [x] Оставлять возможность ручного изменения.
-- [ ] Создавать долг по разнице.
-- [ ] Не превращать долг напрямую в объём закупки.
+- [x] Создавать долг по разнице planned − actual после успешной финализации; не по одному только stock deficit.
+- [x] Не превращать долг напрямую в объём закупки: отдельная ProcurementNeed и явный collector.
 
 ## 3.1B.5. Правила торговых предприятий
+
+**DONE_DIFFERENTLY / PARTIAL исходного scope:** production document routing использует явные подтверждённые department/flow routes; универсального resolver по импортированным предприятиям нет. Исходные требования ниже сохраняются как будущий объём.
 
 - [ ] Получить связь склад → торговое предприятие.
 - [ ] Если источник и получатель внутри одного предприятия:
@@ -1444,265 +1483,245 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 # Этап 3.1C — Поставщики и закупочный контур
 
-Прогресс: **0%**
+Статус на 18.09.2026: **operational implementation DEPLOYED; business verification pending**. Исходные требования не объявляются исполненными задним числом. Для всех недеферированных пунктов ниже реализованная часть включена в production baseline; отдельный business smoke не предполагается автоматически. Полный original/actual/prod/gap/why/priority matrix находится в [аудите](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
 
 ## 3.1C.1. Справочник поставщиков
 
-- [ ] Отображаемое название.
-- [ ] Юридическое название.
-- [ ] ИНН.
-- [ ] КПП.
-- [ ] ОГРН.
-- [ ] Адреса.
-- [ ] Банковские реквизиты.
-- [ ] Почта заказов.
-- [ ] Почта бухгалтерии.
-- [ ] Менеджер.
-- [ ] Телефон.
-- [ ] Минимальная сумма.
-- [ ] Дни заказа.
-- [ ] Дни поставки.
-- [ ] Срок поставки.
-- [ ] Активность.
+**PARTIAL** · остаток **P2**.
 
-Начальные реальные поставщики:
-
-- [ ] Новопак.
-- [ ] Рестоэксперт.
-- [ ] Девон.
-- [ ] ИП Махнев.
+- Исходный замысел: Реквизиты, контакты, календарь, минимум и начальные поставщики.
+- Факт: CRUD/archive, display/legal name, ИНН/КПП/ОГРН, адреса, банковские реквизиты, order_email, phone, comment, minimum_order_amount; supplier↔iiko mapping.
+- Остаток: Нет accounting_email, отдельного manager/contact, order/delivery weekdays, lead_time и supplier aliases. Наличие конкретных четырёх стартовых поставщиков в production не проверено.
+- Причина/граница: Foundation введён раньше расширенного supplier master; поля не обязательны для текущего ручного контура.
 
 ## 3.1C.2. Товар–поставщик
 
-- [ ] Основной поставщик.
-- [ ] Резервные поставщики.
-- [ ] Приоритет.
-- [ ] Поставщицкое название.
-- [ ] Артикул.
-- [ ] Фасовка.
-- [ ] Минимальное количество.
-- [ ] Цена.
-- [ ] Доступность.
-- [ ] Недоступен до.
-- [ ] Архивирование связи.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Основной/резервные, приоритет, название, артикул, фасовка, минимум количества, цена, доступность, архив.
+- Факт: PRIMARY/BACKUP, priority, supplier_product_name, SKU, package quantity/unit, price, availability/unavailable_until и archive; API/UI.
+- Остаток: Нет отдельного minimum quantity; supplier_product_name не является обучаемым supplier-alias workflow.
+- Причина/граница: Фасовка и число упаковок не равны отдельному минимальному количеству заказа.
 
 ## 3.1C.3. История цен
 
-- [ ] Цена упаковки.
-- [ ] Размер упаковки.
-- [ ] Цена базовой единицы.
-- [ ] Источник.
-- [ ] Период действия.
-- [ ] Поставщик.
-- [ ] История изменений.
-- [ ] Нормализация к базовой единице.
+**DONE** · остаток **NONE**.
+
+- Исходный замысел: Цена упаковки/базовой единицы, размер упаковки, источник, период, поставщик и история.
+- Факт: Append-only snapshots, effective_from, source=MANUAL, автор, нормализация цены к базовой единице; timeline API/UI.
+- Остаток: Автоимпорт прайсов и истории iiko отсутствует; это будущие интеграции.
+- Причина/граница: Источник текущей истории — ручное изменение условий; история фактических приходов хранится отдельно.
 
 ## 3.1C.4. Средневзвешенная цена
 
-- [ ] Период 6 месяцев.
-- [ ] Все поставщики.
-- [ ] Только принятые товары.
-- [ ] Только проведённые накладные.
-- [ ] Формула по фактическому количеству.
-- [ ] Коридор ±10%.
-- [ ] Выход за коридор → руководитель.
+**DEFERRED** · остаток **NONE**.
+
+- Исходный замысел: 6 месяцев, все поставщики, взвешивание по фактически принятому количеству проведённых накладных, коридор ±10%, эскалация.
+- Факт: NOT REQUIRED FOR CURRENT MVP; вычисления нет.
+- Остаток: Отложена целиком; historical iiko invoices автоматически не backfill.
+- Причина/граница: Business decision 18.09.2026: аналитика цены, а не transactional invariant; canonical source появился через POSTED receipt, нужна фактическая история.
 
 ## 3.1C.5. Закупочный запрос
 
-- [ ] Создать общую потребность на дату.
-- [ ] Добавить заявки подразделений.
-- [ ] Добавить долги.
-- [ ] Добавить будущую потребность.
-- [ ] Позднее добавить производственный план.
-- [ ] Рассчитать плановую стоимость.
-- [ ] Добавить товарный статус покрытия.
+**DONE_DIFFERENTLY** · остаток **NONE**.
+
+- Исходный замысел: Общая потребность на дату из заявок, долгов и будущего спроса, стоимость и покрытие; позднее производство.
+- Факт: SupplyProcurementNeed и collector → PurchaseRequest; явные источники, MANUAL_FUTURE, DRAFT/READY/CANCELLED; стоимость из allocation, coverage отдельным read model.
+- Остаток: Производственный план/ТТК — Stage 3.2; долг не копируется напрямую в заказ.
+- Причина/граница: Введена canonical ProcurementNeed вместо неявного агрегирования заявок и долгов.
 
 ## 3.1C.6. Распределение по поставщикам
 
-- [ ] Один заказ — один поставщик.
-- [ ] Один запрос — несколько заказов.
-- [ ] Разрешить деление одного товара.
-- [ ] Искать товар у резервных поставщиков.
-- [ ] На первом этапе отдавать выбор руководителю.
-- [ ] Учитывать:
-  - наличие;
-  - срок;
-  - минимальную сумму;
-  - цену;
-  - фасовку;
-  - надёжность.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Разделять запрос/товар между поставщиками, резервный выбор с учётом цены, фасовки, наличия, сроков, минимума и надёжности.
+- Факт: Ручной выбор eligible primary/backup, split allocation, immutable package/price snapshots, CONFIRMED и явное распределение источников.
+- Остаток: Нет reliability scoring, календарного прогноза и автоматического предложения альтернативного поставщика после отказа.
+- Причина/граница: Окончательный выбор остаётся человеку; текущие цена/фасовка/доступность и минимум видны.
 
 ## 3.1C.7. Минимальная сумма заказа
 
-- [ ] Проверять минимум.
-- [ ] Показывать недобор.
-- [ ] Предлагать будущую потребность.
-- [ ] На старте отдавать решение руководству.
-- [ ] Позднее учитывать календарь поставок.
-- [ ] Не добивать заказ случайными товарами.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Проверка минимума/недобора, предложение будущей потребности, решение руководства; позднее календарь.
+- Факт: minimum_order_amount, subtotal, MET/BELOW_MINIMUM/NOT_CONFIGURED, shortfall в allocation и SupplierOrder.
+- Остаток: Warning only: недобор не блокирует confirm/READY/send; нет автопредложения будущего спроса и календаря.
+- Причина/граница: Контроль реализован как видимый факт для ручного решения, без случайного добивания заказа и без hard enforcement.
 
 ## 3.1C.8. Заказ поставщику
 
-- [ ] UUID.
-- [ ] Читаемый номер.
-- [ ] Поставщик.
-- [ ] Строки.
-- [ ] Количество.
-- [ ] Цена.
-- [ ] Сумма.
-- [ ] Дата поставки.
-- [ ] Статусы.
-- [ ] История.
-- [ ] Связь с закупочным запросом.
+**DONE** · остаток **NONE**.
+
+- Исходный замысел: UUID, номер, поставщик, строки, количества/цены/суммы, дата, статусы, история, связь с запросом.
+- Факт: SupplierOrder из confirmed allocations, snapshots, source links, DRAFT/READY/SENT/CANCELLED, API/UI и delivery history.
+- Остаток: Отдельного обязательного хвоста foundation не найдено.
+- Причина/граница: Один заказ имеет одного поставщика; отправка и последующие документы — отдельные факты.
 
 ## 3.1C.9. Email
 
-- [ ] Шаблон письма.
-- [ ] Таблица заказа.
-- [ ] Ответственный.
-- [ ] Телефон.
-- [ ] Указание автоматического формирования.
-- [ ] Отправка через Automation Core.
-- [ ] Фиксация времени и идентификатора.
-- [ ] История переписки.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Шаблон, таблица, ответственный/телефон, автоматическое формирование, Automation Core, время/ID и переписка.
+- Факт: Immutable communication preview, outbound text template, delivery attempts, outbox → AutomationProvider → n8n → callback; SENT после success, явный retry FAILED.
+- Остаток: Нет inbound thread/history и inbox ingestion; нет доказательства получения/прочтения адресатом. Детальный outbound production smoke artifact не предоставлен.
+- Причина/граница: История отправок не равна переписке; provider success не означает supplier confirmation.
 
 ## 3.1C.10. Подтверждение поставщика
 
-- [ ] Получать входящее письмо.
-- [ ] Связывать с заказом.
-- [ ] Сохранять PDF.
-- [ ] На первом этапе отдавать PDF руководителю.
-- [ ] Добавить ручные статусы:
-  - совпадает;
-  - есть расхождения.
-- [ ] Автоматическое сравнение отложить.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Входящее письмо, связь с заказом, PDF руководителю, ручное совпадает/расхождения; сравнение PDF позднее.
+- Факт: Ручной versioned confirmation, immutable RECORDED, line response, quantity/price/date deviations, решения ACCEPT/REJECT в UI.
+- Остаток: Нет inbound ingestion и PDF attachment.
+- Причина/граница: DONE_DIFFERENTLY для domain confirmation: структурированный ручной ввод вместо обработки входящего PDF.
 
 ## 3.1C.11. Замены
 
-- [ ] Все новые замены → руководитель.
-- [ ] Хранить решение.
-- [ ] Конкретная пара товаров.
-- [ ] После 3 подтверждений допускать автоматический пропуск.
-- [ ] Всегда уведомлять.
-- [ ] Проверять по поставщику.
-- [ ] Проверять цену.
-- [ ] Приоритет:
-  1. бесперебойность;
-  2. история применения;
-  3. наличие и срок;
-  4. цена в пределах 5%;
-  5. поставщик несущественен.
+**DEFERRED** · остаток **NONE**.
+
+- Исходный замысел: Пара товаров и supplier-specific решения, auto-pass после 3 подтверждений, всегда уведомлять; приоритет бесперебойность → история → наличие/срок → цена в пределах 5% → поставщик несущественен.
+- Факт: BUSINESS RULE NOT YET REQUIRED; canonical allowed-replacement model отсутствует.
+- Остаток: Вернуться при требованиях к бренду/марке/спецификации, списку допустимых замен и approval policy.
+- Причина/граница: EOS/iiko product — конкретная номенклатура, supplier — источник. Product↔Supplier не означает замену товара; сущность заранее не строим.
 
 ## 3.1C.12. Сокращение количества
 
-- [ ] Фиксировать недопоставку.
-- [ ] Рассчитывать, хватит ли до следующей поставки.
-- [ ] Если хватает:
-  - принять с уведомлением;
-  - создать обязательный дозаказ.
-- [ ] Если не хватает:
-  - передать руководителю.
-- [ ] Искать у другого поставщика.
+**DONE_DIFFERENTLY** · остаток **P2**.
+
+- Исходный замысел: Недопоставка, прогноз до следующей поставки, обязательный дозаказ/эскалация, поиск другого поставщика.
+- Факт: QUANTITY_CHANGED/LINE_REJECTED в общей deviation model требуют решения; acceptance shortage/rejected resolution → RETURN_TO_PROCUREMENT создаёт canonical need.
+- Остаток: Нет прогноза «хватит ли», авто-дозаказа и автоматического поиска альтернативы; возврат из acceptance — явное решение, не автоматизм из confirmation.
+- Причина/граница: Обязательный контроль отклонения реализован общей моделью; прогнозный хвост остаётся PARTIAL/P2.
 
 ## 3.1C.13. Перенос даты
 
-- [ ] Всегда передавать руководителю.
-- [ ] Показывать:
-  - старую дату;
-  - новую дату;
-  - прогноз остатка;
-  - риск остановки;
-  - затронутые подразделения;
-  - альтернативного поставщика.
+**DONE_DIFFERENTLY** · остаток **P2**.
+
+- Исходный замысел: Всегда руководителю, старая/новая дата, прогноз остатка/остановки, подразделения и альтернативный supplier.
+- Факт: DELIVERY_DATE_CHANGED, baseline/confirmed date и delta, manager decision в unified deviations.
+- Остаток: Если baseline date отсутствует, requires_decision=false; нет прогноза дефицита, остановки и автоматических альтернатив.
+- Причина/граница: Сравнение с существующей датой требует решения; первое заполнение даты отличается от исходного «всегда». Аналитический хвост PARTIAL/P2.
 
 ## 3.1C.14. Накладные
 
-- [ ] Номер.
-- [ ] Дата.
-- [ ] Поставщик.
-- [ ] Сумма.
-- [ ] НДС.
-- [ ] Строки.
-- [ ] Цена.
-- [ ] Количество.
-- [ ] Файл.
-- [ ] Статус сверки.
-- [ ] Связь с заказом.
-- [ ] Поддержать несколько накладных на закупку.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Номер/дата/поставщик/сумма/НДС/строки/файл, сверка, несколько документов на закупку.
+- Факт: Domain document DONE: INVOICE/DELIVERY_NOTE/UPD, metadata, lines/pricing basis, financial_role, immutable RECORDED; order/confirmation/acceptance links, несколько документов.
+- Остаток: Нет binary attachment, отдельных VAT fields и полного статуса трёхсторонней сверки; один документ относится к одному order.
+- Причина/граница: Структурированный операционный документ не является PDF или налоговым регистром.
 
 ## 3.1C.15. Оплаты
 
-- [ ] Отдельная сущность оплаты.
-- [ ] Несколько оплат на накладную.
-- [ ] Предоплата.
-- [ ] Постоплата.
-- [ ] Частичная оплата.
-- [ ] Просрочка.
-- [ ] Цена и сумма.
-- [ ] Платёжное поручение.
-- [ ] Комментарий.
-- [ ] История.
+**PARTIAL** · остаток **P2**.
+
+- Исходный замысел: Отдельная оплата, частичные/несколько оплат, пред-/постоплата, просрочка, поручение, комментарий и история.
+- Факт: Domain payment DONE: RECORDED facts, payment amount/date, pre/postpayment, payment-order number/date, comment; explicit allocations, overdue при известном due date.
+- Остаток: Нет файла поручения/proof; даты платежа не назначаются догадкой; банковской интеграции нет.
+- Причина/граница: Метаданные поручения реализованы, binary proof — отдельное optional enhancement.
 
 ## 3.1C.16. Взаиморасчёты
 
-- [ ] Принятые накладные.
-- [ ] Оплаты.
-- [ ] Возвраты.
-- [ ] Корректировки.
-- [ ] Текущая задолженность.
-- [ ] Просроченная задолженность.
-- [ ] Движение по поставщику.
-- [ ] Подготовить внутренний аналог акта сверки.
-- [ ] Выявлять двойную оплату.
-- [ ] Выявлять оплату без поставки.
-- [ ] Выявлять поставку без оплаты.
+**DONE** · остаток **NONE**.
+
+- Исходный замысел: Документы/оплаты/возвраты/корректировки, долг/просрочка, движение и внутренний акт, финансовые исключения.
+- Факт: ACTIVE obligation + один RECORDED PAYABLE, payment allocations/reversal, refunds/corrections, statement, debt/overpayment/unallocated prepayment и exceptions.
+- Остаток: Не бухгалтерский акт/ledger; duplicate safeguards и exceptions не доказывают отсутствие любого возможного повторного банковского платежа.
+- Причина/граница: Явные связи предотвращают повторный учёт одного обязательства; никаких guessed allocations.
 
 ## 3.1C.17. Приёмка
 
-- [ ] Заказано.
-- [ ] Подтверждено.
-- [ ] В накладной.
-- [ ] Фактически принято.
-- [ ] Отклонено.
-- [ ] Принято к учёту.
-- [ ] План/факт.
-- [ ] Расхождение → исключение.
+**DONE** · остаток **P1**.
+
+- Исходный замысел: Ordered/confirmed/documented/received/rejected/accepted/accounted, план/факт и исключения.
+- Факт: Acceptance + destination mapping, shortage/rejected/excess issues и resolutions; accounted_quantity/accounted_sum из POSTED receipt.
+- Остаток: Полный business smoke с реальной EOS acceptance ещё не выполнен; данные при deployment: Acceptances=0.
+- Причина/граница: Прежний BLOCKED_BY_3_1C_18 закрыт кодом lifecycle 18F; recorded acceptance сама не является accounting fact.
 
 ## 3.1C.18. Приход iiko
 
-- [ ] Создать документ прихода.
-- [ ] Отправить через provider.
-- [ ] Получить подтверждение.
-- [ ] Обновить остатки.
-- [ ] Ошибка → Dashboard.
-- [ ] Не считать успехом отправленную команду без подтверждения iiko.
+**DONE** · остаток **P1**.
+
+- Исходный замысел: Создать приход через provider, подтвердить iiko, обновить остатки, показать ошибку; HTTP ack недостаточен.
+- Факт: IMPLEMENTED + DEPLOYED + PRODUCTION_READY: DRAFT→READY→CREATING→CREATED→PROCESSING→POSTED, reconciliation, authoritative UUID/PROCESSED, accounting facts, UI.
+- Остаток: REAL_BUSINESS_SMOKE_PENDING; общий Dashboard ошибок — Stage 3.3. Только safe base-unit contract; package conversion/сервисы/неоднозначные суммы не допускаются.
+- Причина/граница: Технический contract smoke доказан отдельно; stock refresh выполняет GET, но не сохраняет новый EOS staging snapshot.
 
 ## 3.1C.19. Товарное покрытие
 
-- [ ] `FULLY_COVERED`.
-- [ ] `PARTIALLY_COVERED`.
-- [ ] `NOT_COVERED`.
-- [ ] `COVERED_WITH_SUBSTITUTIONS`.
-- [ ] `COVERED_WITH_DELAY`.
-- [ ] Показывать количество незакрытых позиций.
-- [ ] Не считать незакупленный товар экономией.
+**DONE_DIFFERENTLY** · остаток **NONE**.
+
+- Исходный замысел: Full/partial/not covered, with substitutions/delay, незакрытые позиции; недозакупка не экономия.
+- Факт: Явные allocation/order/acceptance sources; FULLY_COVERED/PARTIALLY_COVERED/NOT_COVERED, UNKNOWN_LEGACY, MANUAL_FUTURE отдельно, has_delay и uncovered count.
+- Остаток: Нет COVERED_WITH_SUBSTITUTIONS; delay — отдельный флаг, только при полном покрытии и recorded_at позже need_date.
+- Причина/граница: Coverage основан на attributable RECORDED acceptance, не POSTED и не оплате; substitutions deferred, FIFO/pro-rata и legacy guessing запрещены.
 
 ## 3.1C.20. Денежный поток
 
-- [ ] Расчётная стоимость.
-- [ ] Сумма заказов.
-- [ ] Сумма подтверждений.
-- [ ] Сумма накладных.
-- [ ] Стоимость принятого товара.
-- [ ] Оплачено.
-- [ ] Задолженность.
-- [ ] Финансовые исключения.
-- [ ] Не скрывать потребность из-за недостатка денег.
-- [ ] Передавать неоднозначные решения руководству.
+**DONE** · остаток **NONE**.
+
+- Исходный замысел: План/заказ/подтверждение/документ/принято/оплачено/долг/исключения, видимая потребность.
+- Факт: Read model supplier/request: planned, ordered, confirmed, payable documented, accepted, gross/net paid, refunded, debt/overdue, variances и exceptions; API/UI.
+- Остаток: Не accounting ledger и не прогноз банковской ликвидности; UNAVAILABLE/null при недостаточных фактах.
+- Причина/граница: Использует snapshots и canonical settlement; не скрывает need/coverage и не называет недозакупку экономией.
+
+## Scope decision / Deferred by business decision — 18.09.2026
+
+**3.1C.4 Weighted Average — DEFERRED / NOT REQUIRED FOR CURRENT MVP.** Закупочный контур работает без средневзвешенной: это аналитика/контроль цены, а не обязательный transactional invariant. Canonical source появился через POSTED iiko receipt; к реализации возвращаемся после накопления достаточной фактической истории. Historical iiko invoices автоматически не backfill. Отсутствие расчёта не блокирует Purchase Request → Supplier Order → Acceptance → iiko Receipt → Payment/Settlement. Текущий price deviation сравнивает confirmation с order, а не с шестимесячной средней.
+
+**3.1C.11 Substitutions — DEFERRED / BUSINESS RULE NOT YET REQUIRED.** Сейчас EOS/iiko product — конкретная номенклатура, supplier — источник товара, Product↔Supplier уже существует. Отдельная canonical модель original product → allowed replacement product пока бизнесу не нужна. Триггер возврата: жёсткая привязка к бренду/марке/спецификации, список допустимых замен и approval policy. Domain entity заранее ради roadmap не строим. Отсутствие substitutions не блокирует текущую закупочную цепочку.
+
+Оба пункта сохранены как planned enhancements, а не потеряны или объявлены DONE; прежняя классификация их как обязательных P1 отменена этим решением. Остальные P2 ниже — оценка аудита optional/later scope, а не новое утверждение об отмене требований владельцем.
+
+## Stage 3 — Not in Production / Partial / Deferred
+
+| Область | Реальный остаток / статус | Operational 3.1C / приоритет |
+|---|---|---|
+| 3.0 | DONE: принят ADR-002; финальные permissions и алгоритмы в нём намеренно оставлены поздним этапам | NONE |
+| 3.1A | Admin departments/codes, unknown-unit clarification, candidate queue/approval levels, таймеры 5/10 минут и предупреждения, временный edit lock, tooltip долгов — NOT_STARTED/PARTIAL; optimistic locking уже есть | Не блокирует, P2 / 3.4 |
+| 3.1A расписания | DONE_DIFFERENTLY: жёсткие понедельник/четверг и часы obsolete как hardcode; используются настраиваемые циклы Automation Core | NONE |
+| 3.1A supplier aliases | В Product↔Supplier есть supplier name/SKU; полноценного alias ingestion/learning нет | P2 |
+| 3.1B references/stock | Нет резервного Excel import, общего импорта предприятий, отдельного stale-data UX и Supply stock-sync schedule; ручной snapshot/read-stock работает | P2 |
+| 3.1B routing | DONE_DIFFERENTLY: explicit routes по department/flow вместо общего динамического enterprise resolver; Бар/Кухня/Авто не включены | P2, расширение маршрутов отдельно |
+| 3.1B документы | Нет отдельной line-level модели связи документа со строками заявки, физической передачи/получателя, signed-return и отдельного покрытия старого долга | P2, вне закрытого operational scope |
+| 3.1B processing | INTERNAL_TRANSFER сохраняется NEW, не PROCESSED; это ограничение scope, не актуальный внешний blocker контракта incoming receipt | P2, отдельное решение |
+| 3.1B print | Ошибки и history есть в карточке; общий Dashboard print exceptions отсутствует | P2 / 3.3 |
+| 3.1C master/selection | Отсутствующие поля supplier, minimum quantity, supplier aliases, reliability metrics, quantity/date deviation statistics, прогноз дефицита и auto-alternate supplier | P2, optional enhancements |
+| 3.1C minimum | Недобор виден; hard block, future-demand suggestion и календарный подбор отсутствуют | P2, manual decision достаточен |
+| 3.1C inbound/files | Нет inbound supplier email ingestion/thread, confirmation PDF, document binary, payment proof и generic procurement attachment model | P2, optional для структурированного ручного MVP |
+| 3.1C VAT/reconciliation | Нет отдельной VAT-модели/полной трёхсторонней сверки; omission в текущем safe receipt contract не означает налоговую функциональность. Multi-order supplier document отсутствует | P2; расширенный контракт согласовывать до реализации |
+| 3.1C.4 / .11 | DEFERRED по решениям выше; в production отсутствуют | NONE, будущие enhancements |
+| 3.1C.17–.18 | Реализованы/развёрнуты, реальная EOS acceptance→receipt→POSTED не business-smoked | P1, проверка operational completion |
+| 3.1C email и остальные сценарии | Deployment заявлен baseline; индивидуальный business smoke, получение email адресатом и состав master data не подтверждены отдельными артефактами | P1 — собрать evidence сквозного сценария; отсутствие evidence не равно отсутствию feature |
+| 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot и не проверяет дельту +quantity | P2 UX/observability; бизнес-проверка остатков входит в P1 smoke |
+| 3.2 | NOT_STARTED: production plan/ТТК/chef confirmation, выпуск/списание и анализ отклонений | Later stage, P2 относительно 3.1C |
+| 3.3 | PARTIAL: базовый Dashboard заявок/mapping/debt есть; unified procurement/print exceptions, owner/deadline/severity не реализованы | Later stage, P2 |
+| 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; финальные roles, departments admin, employee/shift links, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2 |
+| Main roadmap | Min/Max, auto-order по календарю поставщиков и полная политика кратности не реализованы; package allocation уже есть | P2 / будущий согласованный scope |
+
+Локальных незадеплоенных feature commits относительно предоставленного production SHA не обнаружено; migrations в repo не опережают `0056`. Новые правки этого аудита — только локальные документы. У перечисленных отсутствующих функций нет законченного сквозного API/UI; наличие отдельных enum/полей/Repair attachments не закрывает feature. `BLOCKED_EXTERNAL` для текущего safe receipt contour не обнаружен: старый запрет из-за неизвестного incoming write contract obsolete после технического smoke. Неизвестные package/VAT/legacy контракты остаются ограничениями расширения, а не доказанным P0 текущего контура.
+
+### Next recommended work
+
+Первым шагом провести отдельно согласованный реальный бизнес-сценарий в EOS: need → allocation/order → отправка и ручное confirmation → document → acceptance с destination/source distribution → receipt NEW → POSTED → accounting facts/остатки → payment allocation/settlement и cash flow/coverage. Зафиксировать ссылки и результаты, отдельно проверить shortage/rejected/excess, unpaid/overpaid и безопасное отображение ошибки без создания искусственных финансовых фактов. Этот документационный аудит не выполняет production writes, отправку email или новый smoke.
 
 ### Критерий готовности 3.1C
 
-Каждая закупочная потребность прослеживается от источника до товара на остатке и оплаты поставщику. Незакрытые позиции, неоплаченные накладные и ошибки не теряются.
+**Operational completion — scope decision 18.09.2026.**
+
+Реализация текущего operational scope присутствует в production по baseline. **Доказанное operational completion пока не объявляется:** реальный EOS business receipt и сквозной бизнес-сценарий ещё не подтверждены. Известных P0 по проверенным источникам не найдено; отсутствие smoke не является доказательством отсутствия runtime defects.
+
+Для закрытия должны быть подтверждены на реальных фактах:
+
+- каждая потребность прослеживается до allocation/order либо явно видна как uncovered/UNKNOWN_LEGACY;
+- заказанные количества прослеживаются до acceptance, shortage/rejected/excess имеют видимое решение;
+- receipt-eligible accepted quantities прослеживаются до POSTED accounting facts; непринятое не проводится, заблокированное не теряется;
+- supplier documents, obligations, payments и allocations прослеживаются; долг, переплата, overdue/unknown due date и exceptions видны;
+- coverage и денежные факты независимы, недозакупка не скрыта как экономия;
+- ошибка/неизвестный внешний результат сохраняется и разрешается явно, не порождая blind retry;
+- реальный EOS business smoke зафиксирован отдельно от технического iiko contract smoke.
+
+Weighted Average/Substitutions — deferred enhancements, не blockers. Общий Stage 3 остаётся незавершённым из-за Stage 3.2, полного 3.3/3.4 и сохранённых остатков исходного scope; закрытие operational 3.1A/3.1B/3.1C не означает 100% всей исходной спецификации.
 
 ---
 
@@ -1729,13 +1748,13 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 # Этап 3.3 — Dashboard и исключения
 
-Прогресс: **0%**
+Статус: **PARTIAL** — базовый Dashboard работает; общий контур закупочных исключений не завершён.
 
 - [ ] Проектировать полный состав заранее.
-- [ ] Показывать блоки по мере появления функций.
-- [ ] Новые заявки.
-- [ ] Маппинг.
-- [ ] Долги.
+- [x] Показывать блоки по мере появления функций.
+- [x] Новые заявки.
+- [x] Маппинг.
+- [x] Долги.
 - [ ] Печать.
 - [ ] Подтверждения поставщиков.
 - [ ] Расхождения.
@@ -1756,7 +1775,7 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 # Этап 3.4 — Итоговая полировка
 
-Прогресс: **0%**
+Статус: **PARTIAL** — отдельные UX/аудит механизмы реализованы в предыдущих срезах; итоговая полировка и требования ниже не закрыты целиком. «Подготовка к production» означает окончательный scope этапа, а не отсутствие уже развёрнутых функций.
 
 - [ ] Управление подразделениями из админки.
 - [ ] Управление кодами подразделений.
@@ -1835,20 +1854,22 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 # Общие критерии завершения этапа 3
 
+Checkbox здесь отражает наличие функции в текущем scope; он не заменяет production/business-smoke evidence выше.
+
 - [x] Подразделения подают заявки через EOS.
-- [ ] Пользовательский ввод автоматически нормализуется.
+- [x] Пользовательский ввод парсится и нормализуется в поддержанных форматах; неизвестные единицы и candidate workflow остаются частичными.
 - [x] Маппинг обучается на реальных заявках.
 - [x] Снабжение видит запросили / отправили / долг.
 - [x] Долги не теряются между циклами.
 - [x] Остатки поступают из iiko.
 - [x] `OUTGOING_INVOICE` создаются в iiko.
 - [x] Verified документы автоматически печатаются.
-- [ ] Закупки распределяются по поставщикам.
-- [ ] Заказы отправляются через EOS.
-- [ ] Ответы и PDF поставщиков связаны с заказами.
-- [ ] Накладные, оплаты, приёмка и приход связаны.
-- [ ] Видно, закуплена ли вся потребность.
-- [ ] Видна задолженность перед поставщиками.
+- [x] Закупки распределяются по поставщикам.
+- [x] Заказы отправляются через EOS.
+- [ ] Ответы и PDF поставщиков связаны с заказами: structured manual confirmation уже связан, PDF/inbound отсутствуют.
+- [x] Накладные, оплаты, приёмка и приход связаны.
+- [x] Видно, закуплена ли вся потребность.
+- [x] Видна задолженность перед поставщиками.
 - [ ] Любая неоднозначность попадает руководителю.
 - [ ] Ошибки не исчезают без решения.
 - [ ] Система защищает товарный и денежный поток.
@@ -1856,6 +1877,15 @@ signed-return, Dashboard exception и отдельное покрытие уже
 ---
 
 # Changelog
+
+Датированные записи ниже сохраняют факты и ограничения на момент записи; последующие решения их уточняют. Старые запреты write/retry и фразы «локально» не являются текущим статусом иных типов документов.
+
+## 2026-09-18
+
+- Аудит baseline `f8ab3a3` / `0056`: исправлен устаревший 3.1C «0%», original intent отделён от actual/prod/business smoke.
+- Зафиксированы business decisions defer Weighted Average и Substitutions, границы manual confirmation, attachments, forecast и Dashboard.
+- Acceptance→POSTED accounting закрыт реализацией 18F; real EOS business receipt smoke pending.
+- Добавлен отдельный audit matrix и пересмотрены operational completion criteria без изменения истории.
 
 ## 2026-08-24
 

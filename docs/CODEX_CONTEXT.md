@@ -13,6 +13,25 @@ read-back, actual/debt/terminal EOS state, единый UI, verified PDF и фи
 печать по 2 копии через Print Agent. `INTERNAL_TRANSFER` при completion не
 проводится в iiko и остаётся `NEW`; это осознанная граница текущего scope.
 
+## Stage 3.1C — snapshot 18.09.2026
+
+По baseline владельца production: `f8ab3a355f5ec49f7468e2ff868e1b0e17364a2a`,
+Alembic `20260917_0056`; локальные HEAD/main/origin/main совпадают. Operational
+implementation закупок, документов, приёмки, платежей/settlement, coverage/cash
+flow и iiko incoming receipt lifecycle развёрнут. Acceptance→accounting gap
+закрыт через POSTED receipt facts. 3.1C.18 — IMPLEMENTED + DEPLOYED +
+PRODUCTION_READY, но REAL_BUSINESS_SMOKE_PENDING: при deployment Acceptances=0.
+Технический iiko contract smoke не является реальным EOS business receipt.
+Доказанное operational completion 3.1C пока не объявляется.
+
+Weighted Average (.4) и Substitutions (.11) deferred по business decision
+18.09.2026, не current MVP blockers. Manual confirmation есть; inbound email,
+procurement attachments, reliability/forecast и расширенный supplier master
+остаются частичными/будущими. Полная матрица:
+[Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md),
+[audit](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
+Production facts здесь — baseline владельца, не новый live audit сервера.
+
 ## Current state
 
 - Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.

@@ -5,6 +5,22 @@
 Дата фиксации: **22 июля 2026 года**  
 Статус: **концепция первого функционального блока утверждена**
 
+### Дополнение по scope — 18.09.2026
+
+Исходный конспект от 22.07 сохранён как история утверждённого замысла, а не
+свидетельство реализации. По решению владельца **Weighted Average — DEFERRED /
+NOT REQUIRED FOR CURRENT MVP**, **Substitutions — DEFERRED / BUSINESS RULE NOT
+YET REQUIRED**; обязательность этих двух пунктов для operational completion
+3.1C отменена. Возврат к средней цене — после накопления POSTED receipt facts,
+без автоматического backfill historical iiko invoices; к заменам — при наличии
+брендовых/спецификационных требований, allowed replacements и approval policy.
+
+Текущие статусы, отличия реализации и оставшийся исходный scope (включая
+файлы, inbound, forecast) находятся в
+[canonical Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md) и
+[аудите 18.09.2026](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
+Ниже исторические требования не означают, что весь исходный scope уже выполнен.
+
 ---
 
 # 1. Цель этапа

@@ -1,5 +1,5 @@
 Версия: v0.12.0
-Последнее обновление: 2026-07-22
+Последнее обновление: 2026-09-18
 Прогресс этапа 2: 100%
 
 # EnterpriseOS — Roadmap
@@ -310,25 +310,28 @@
 
 Перенести работу отдела снабжения в EnterpriseOS.
 
-Текущий укрупнённый статус: Stage 3.0 и обязательный рабочий контур Stage 3.1A
-завершены. Stage 3.1B начат: read-stock scope, authoritative document read-back
-и verified PDF подтверждены в production; текущий срез 5.5 реализует локальную
-очередь печати и Print Agent. Весь Stage 3.1B не завершён.
+Текущий укрупнённый статус на 18.09.2026: Stage 3.0 DONE; обязательный
+operational scope 3.1A/3.1B завершён и production-verified. Закупочный operational
+scope 3.1C реализован и развёрнут по baseline владельца `f8ab3a3` / Alembic
+`20260917_0056`; incoming receipt lifecycle PRODUCTION_READY, реальный EOS
+business receipt smoke ещё не выполнен. Весь Stage 3 не завершён.
+Weighted Average/Substitutions сознательно deferred, не текущие blockers.
+Детали и источники — только в [canonical Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md).
 
-- [ ] Справочник поставщиков
-- [ ] Справочник товаров
+- [x] Справочник поставщиков — foundation; расширенные поля частично
+- [x] Справочник товаров
 - [x] Заявки подразделений
-- [ ] Планирование закупок
-- [ ] Заказы поставщикам
-- [ ] Приёмка товара
-- [ ] Перемещение на склад
-- [ ] История закупок
+- [x] Планирование закупок — canonical needs/requests и ручное распределение
+- [x] Заказы поставщикам
+- [x] Приёмка товара — реализована/развёрнута, business smoke pending
+- [x] Перемещение на склад — закрытый operational scope 3.1B, INTERNAL_TRANSFER NEW
+- [x] История закупок — связанные заказы/документы/приёмки/оплаты
 - [ ] Правила Min/Max
-- [ ] Кратность поставки
-- [ ] Расчёт чистого дефицита в EnterpriseOS
-- [ ] Интеграция с iiko через провайдер автоматизации
+- [ ] Кратность поставки — package allocation есть, полная политика не закрыта
+- [x] Расчёт чистого дефицита в EnterpriseOS — stock calculation/ProcurementNeed
+- [x] Интеграция с iiko — IikoProvider; email/печать через AutomationProvider
 - [ ] Автозаказ по графику поставщиков
-- [ ] Dashboard исключений
+- [ ] Dashboard исключений — базовый есть, полный закупочный scope не завершён
 
 После завершения этапа большая часть работы начальника снабжения выполняется через EnterpriseOS.
 
