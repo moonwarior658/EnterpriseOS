@@ -560,20 +560,32 @@ def render_iiko_documents_pdf(
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         signature_table = Table(
-            [[
-                Paragraph("Отпустил __________________________", normal),
-                Paragraph("Получил ___________________________", normal),
-            ]],
+            [
+                [Paragraph("Отпустил:", normal), Paragraph("Получил:", normal)],
+                [
+                    Paragraph("ФИО: __________________________", normal),
+                    Paragraph("ФИО: __________________________", normal),
+                ],
+                [
+                    Paragraph("Подпись: ______________________", normal),
+                    Paragraph("Подпись: ______________________", normal),
+                ],
+                [Paragraph("Водитель:", normal), ""],
+                [Paragraph("ФИО: __________________________", normal), ""],
+                [Paragraph("Подпись: ______________________", normal), ""],
+            ],
             colWidths=[87 * mm, 87 * mm],
         )
         signature_table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (0, 0), 0),
-            ("RIGHTPADDING", (0, 0), (0, 0), 5 * mm),
-            ("LEFTPADDING", (1, 0), (1, 0), 5 * mm),
-            ("RIGHTPADDING", (1, 0), (1, 0), 0),
+            ("LEFTPADDING", (0, 0), (0, -1), 0),
+            ("RIGHTPADDING", (0, 0), (0, -1), 5 * mm),
+            ("LEFTPADDING", (1, 0), (1, -1), 5 * mm),
+            ("RIGHTPADDING", (1, 0), (1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 3), (-1, 3), 5 * mm),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+            ("BOTTOMPADDING", (0, -1), (-1, -1), 0),
         ]))
         story.extend([
             table,
