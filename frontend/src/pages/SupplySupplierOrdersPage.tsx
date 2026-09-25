@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EosSelect } from '../components/EosFormControls'
-import { getSupplySupplierOrders, getSupplySuppliers, type SupplySupplier, type SupplySupplierOrder, type SupplySupplierOrderStatus } from '../services/supplyAdmin'
+import { getSupplySupplierOrders, getSupplySuppliers, type SupplySupplier, type SupplySupplierOrder, type SupplySupplierOrderBusinessStatus, type SupplySupplierOrderStatus } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
+import { formatMoney } from '../utils/format'
 
-const labels = { DRAFT: 'Черновик', READY: 'Готов', SENT: 'Отправлен', CANCELLED: 'Отменён' } as const
-const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' })
+const businessLabels: Record<SupplySupplierOrderBusinessStatus, string> = {
+  DRAFT: 'Черновик', READY_TO_SEND: 'Готов к отправке', SEND_FAILED: 'Ошибка отправки',
+  AWAITING_SUPPLIER: 'Ожидает ответа поставщика', REQUIRES_DECISION: 'Требует решения',
+  AWAITING_DOCUMENT: 'Ожидает УПД', AWAITING_ACCEPTANCE: 'Ожидает приёмку',
+  RECEIPT_FAILED: 'Ошибка прихода в iiko', AWAITING_RECEIPT: 'Ожидает проведения в iiko',
+  COMPLETED: 'Завершён', CANCELLED: 'Отменён',
+}
+const businessTone: Record<SupplySupplierOrderBusinessStatus, string> = {
+  DRAFT: 'draft', READY_TO_SEND: 'ready', SEND_FAILED: 'failed', AWAITING_SUPPLIER: 'waiting',
+  REQUIRES_DECISION: 'attention', AWAITING_DOCUMENT: 'waiting', AWAITING_ACCEPTANCE: 'waiting',
+  RECEIPT_FAILED: 'failed', AWAITING_RECEIPT: 'waiting', COMPLETED: 'completed', CANCELLED: 'cancelled',
+}
+const formatDate = (value: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('ru-RU') : '—'
 
 export default function SupplySupplierOrdersPage() {
   const [items, setItems] = useState<SupplySupplierOrder[]>([])
@@ -38,7 +50,7 @@ export default function SupplySupplierOrdersPage() {
       <label className="eos-field"><span>Поставщик</span><EosSelect value={supplierId} onChange={(event) => setSupplierId(event.target.value)}><option value="">Все</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.display_name}</option>)}</EosSelect></label>
     </div>
     {message ? <p className="page-state">{message}</p> : <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Заказ</th><th>Поставщик</th><th>Закупочный запрос</th><th>Статус</th><th>Поставка</th><th>Позиций</th><th>Итого</th></tr></thead><tbody>{items.map((order) => <tr key={order.id}>
-      <td><Link to={`/supply/supplier-orders/${order.id}`}>{order.number}</Link></td><td>{order.supplier_display_name}</td><td><Link to={`/supply/purchase-requests/${order.purchase_request_id}`}>{order.purchase_request_number}</Link></td><td><span className={`purchase-status purchase-status-${order.status.toLowerCase()}`}>{labels[order.status]}</span></td><td>{order.planned_delivery_date ?? '—'}</td><td>{order.line_count}</td><td>{money.format(Number(order.total_amount))}</td>
+      <td><Link to={`/supply/supplier-orders/${order.id}`}>{order.number}</Link></td><td>{order.supplier_display_name}</td><td><Link to={`/supply/purchase-requests/${order.purchase_request_id}`}>{order.purchase_request_number}</Link></td><td><span className={`purchase-status purchase-status-${businessTone[order.business_status]}`}>{businessLabels[order.business_status]}</span></td><td>{formatDate(order.delivery_date)}</td><td>{order.line_count}</td><td>{formatMoney(order.total_amount)}</td>
     </tr>)}</tbody></table></div>}
   </div></section>
 }

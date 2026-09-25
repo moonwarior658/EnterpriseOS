@@ -9,6 +9,10 @@
 .purchase-status { display: inline-flex; margin-top: .45rem; padding: .35rem .65rem; border-radius: 999px; background: #eceef2; font-size: .82rem; font-weight: 700; }
 .purchase-status-ready { background: #ddf4e6; color: #176b39; }
 .purchase-status-cancelled { background: #f6e3e1; color: #8e312b; }
+.purchase-status-waiting { background: #eef2f8; color: #40546e; }
+.purchase-status-attention { background: #fff0d8; color: #85500f; }
+.purchase-status-failed { background: #f6e3e1; color: #8e312b; }
+.purchase-status-completed { background: #ddf4e6; color: #176b39; }
 .field-label { display: block; color: #555860; font-size: .78rem; font-weight: 650; }
 .purchase-request-table { min-width: 760px; }
 .purchase-lines-table { min-width: 900px; }
@@ -105,11 +109,26 @@
 .supplier-order-history summary { display: grid; grid-template-columns: auto 1fr auto; gap: .65rem; align-items: center; cursor: pointer; list-style: none; }
 .supplier-order-history summary span { color: #22804a; font-weight: 800; }
 .supplier-order-history time { color: #686b70; font-size: .82rem; }
+.supplier-history-detail { min-width: 0; padding: .8rem 0 .1rem 1.65rem; overflow-wrap: anywhere; }
+.supplier-history-detail p { margin: .35rem 0; }
+.supplier-history-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .65rem; margin: 0; }
+.supplier-history-facts div { display: grid; gap: .15rem; }
+.supplier-history-facts dt { color: #686b70; font-size: .76rem; }
+.supplier-history-facts dd { margin: 0; }
+.supplier-history-list { display: grid; gap: .35rem; margin: .75rem 0 0; padding-left: 1.2rem; }
+.acceptance-document-basis { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; padding: .9rem 1rem; border: 1px solid #e2e2dc; border-radius: .8rem; background: #fff; }
+.acceptance-document-basis > div:first-child { display: grid; gap: .2rem; min-width: 0; }
+.acceptance-plan-fact { display: grid; gap: .35rem; min-width: 14rem; }
+.acceptance-plan-fact > div { display: grid; grid-template-columns: minmax(6rem, 1fr) auto; gap: .2rem .6rem; align-items: baseline; }
+.acceptance-plan-fact span, .acceptance-plan-fact small { color: #686b70; font-size: .74rem; }
+.acceptance-plan-fact small { grid-column: 2; }
+.acceptance-history-line { display: grid; gap: .45rem; padding: .5rem 0; }
+.acceptance-history-line + .acceptance-history-line { border-top: 1px solid #ecece7; }
 .supplier-document-attachments { display: grid; gap: .6rem; padding: .9rem; border: 1px solid #e2e2dc; border-radius: .8rem; background: #fff; }
 .supplier-document-attachments > div, .supplier-attachment-actions > div { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .supplier-document-attachments > div > span, .supplier-attachment-actions > div > span { flex: 1 1 12rem; overflow-wrap: anywhere; }
 .supplier-attachment-actions { display: grid; gap: .45rem; min-width: 13rem; }
 .supplier-file-action { display: inline-flex; width: fit-content; cursor: pointer; }
 .supplier-file-action input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-@media (max-width: 800px) { .purchase-request-page { width: min(100% - 24px, 1480px); } .purchase-request-create, .purchase-request-header, .purchase-line-form, .supplier-document-create, .supplier-document-extra { grid-template-columns: 1fr; } .purchase-line-form-actions { grid-column: auto; } .confirmation-values { grid-template-columns: 1fr; } .receipt-heading { display: grid; } }
+@media (max-width: 800px) { .purchase-request-page { width: min(100% - 24px, 1480px); } .purchase-request-create, .purchase-request-header, .purchase-line-form, .supplier-document-create, .supplier-document-extra { grid-template-columns: 1fr; } .purchase-line-form-actions { grid-column: auto; } .confirmation-values { grid-template-columns: 1fr; } .receipt-heading, .acceptance-document-basis { display: grid; } }
 @media (max-width: 700px) { .supplier-current-step { display: grid; } .supplier-current-step strong { text-align: left; } .supplier-order-lines th:nth-child(3), .supplier-order-lines td:nth-child(3) { display: none; } .supplier-order-lines th:first-child { width: 50%; } .supplier-order-history summary { grid-template-columns: auto 1fr; } .supplier-order-history time { grid-column: 2; } }

@@ -18,6 +18,7 @@ from app.models.supply import (
     SupplySupplierOrderLineSource,
     SupplySupplierConfirmation,
     SupplySupplierAcceptance,
+    SupplyIikoIncomingReceipt,
     SupplySupplierPayment,
 )
 from app.schemas.supplier_order import (
@@ -29,6 +30,7 @@ from app.schemas.supplier_order import (
     SupplySupplierOrderLineRead,
     SupplySupplierOrderLineSourceRead,
     SupplySupplierOrderListItem,
+    SupplySupplierOrderBusinessStatus,
     SupplySupplierOrderMinimumStatus,
     SupplySupplierOrderRead,
     SupplySupplierOrderUpdate,
@@ -108,6 +110,91 @@ def _minimum(order: SupplySupplierOrder):
     )
 
 
+def _business_facts(
+    session: Session, orders: list[SupplySupplierOrder],
+) -> dict[UUID, tuple[SupplySupplierOrderBusinessStatus, date | None]]:
+    acceptance_ids = [
+        acceptance.id
+        for order in orders
+        for acceptance in order.acceptances
+        if acceptance.status == "RECORDED"
+    ]
+    receipts = list(session.scalars(select(SupplyIikoIncomingReceipt).where(
+        SupplyIikoIncomingReceipt.tenant_id.in_({order.tenant_id for order in orders}),
+        SupplyIikoIncomingReceipt.supplier_acceptance_id.in_(acceptance_ids),
+        SupplyIikoIncomingReceipt.status != "CANCELLED",
+    )).all()) if acceptance_ids else []
+    receipt_by_acceptance = {receipt.supplier_acceptance_id: receipt for receipt in receipts}
+    result: dict[UUID, tuple[SupplySupplierOrderBusinessStatus, date | None]] = {}
+    for order in orders:
+        recorded_acceptances = [
+            acceptance for acceptance in order.acceptances if acceptance.status == "RECORDED"
+        ]
+        delivery_values = [
+            acceptance.received_at or acceptance.accepted_at or acceptance.recorded_at
+            for acceptance in recorded_acceptances
+            if acceptance.received_at or acceptance.accepted_at or acceptance.recorded_at
+        ]
+        delivery_date = max(delivery_values).date() if delivery_values else order.planned_delivery_date
+        if order.status == "CANCELLED":
+            business_status = SupplySupplierOrderBusinessStatus.CANCELLED
+        elif order.status == "DRAFT":
+            business_status = SupplySupplierOrderBusinessStatus.DRAFT
+        elif order.status == "READY":
+            latest_attempt = max(
+                order.delivery_attempts, key=lambda attempt: attempt.attempt_number, default=None,
+            )
+            business_status = (
+                SupplySupplierOrderBusinessStatus.SEND_FAILED
+                if latest_attempt and latest_attempt.status == "FAILED"
+                else SupplySupplierOrderBusinessStatus.READY_TO_SEND
+            )
+        else:
+            recorded_confirmations = [
+                confirmation for confirmation in order.confirmations
+                if confirmation.status == "RECORDED"
+            ]
+            latest_confirmation = max(
+                recorded_confirmations,
+                key=lambda confirmation: confirmation.revision_number,
+                default=None,
+            )
+            if latest_confirmation is None:
+                business_status = SupplySupplierOrderBusinessStatus.AWAITING_SUPPLIER
+            else:
+                unresolved = any(
+                    deviation.requires_decision and deviation.status == "OPEN"
+                    for deviation in latest_confirmation.deviations
+                )
+                if unresolved:
+                    business_status = SupplySupplierOrderBusinessStatus.REQUIRES_DECISION
+                elif not any(document.status == "RECORDED" for document in order.supplier_documents):
+                    business_status = SupplySupplierOrderBusinessStatus.AWAITING_DOCUMENT
+                elif not recorded_acceptances:
+                    business_status = SupplySupplierOrderBusinessStatus.AWAITING_ACCEPTANCE
+                else:
+                    order_receipts = [
+                        receipt_by_acceptance.get(acceptance.id)
+                        for acceptance in recorded_acceptances
+                    ]
+                    if any(
+                        receipt is not None and receipt.status == "FAILED"
+                        for receipt in order_receipts
+                    ):
+                        business_status = SupplySupplierOrderBusinessStatus.RECEIPT_FAILED
+                    elif all(
+                        receipt is not None
+                        and receipt.status == "POSTED"
+                        and receipt.iiko_status == "PROCESSED"
+                        for receipt in order_receipts
+                    ):
+                        business_status = SupplySupplierOrderBusinessStatus.COMPLETED
+                    else:
+                        business_status = SupplySupplierOrderBusinessStatus.AWAITING_RECEIPT
+        result[order.id] = (business_status, delivery_date)
+    return result
+
+
 def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     from app.supply.supplier_order_delivery import delivery_attempt_read
     from app.supply.supplier_confirmations import confirmation_summary
@@ -121,12 +208,14 @@ def _read(order: SupplySupplierOrder) -> SupplySupplierOrderRead:
     draft = next((item for item in order.confirmations if item.status == "DRAFT"), None)
     latest = max(recorded, key=lambda item: item.revision_number) if recorded else None
     latest_summary = confirmation_summary(latest) if latest else None
+    business_status, delivery_date = _business_facts(object_session(order), [order])[order.id]
     return SupplySupplierOrderRead(
         id=order.id, number=order.number, supplier_id=order.supplier_id,
         supplier_display_name=order.supplier.display_name,
         purchase_request_id=order.purchase_request_id,
         purchase_request_number=order.purchase_request.number,
-        status=order.status, planned_delivery_date=order.planned_delivery_date,
+        status=order.status, business_status=business_status,
+        planned_delivery_date=order.planned_delivery_date, delivery_date=delivery_date,
         comment=order.comment, line_count=len(order.lines),
         total_amount=order.total_amount, currency=order.currency,
         minimum_order_amount=order.supplier.minimum_order_amount,
@@ -322,12 +411,14 @@ def list_supplier_orders(
         select(SupplySupplierOrder).where(*filters).options(*_options())
         .order_by(SupplySupplierOrder.updated_at.desc()).limit(limit).offset(offset)
     ).all())
+    facts = _business_facts(session, orders)
     return [SupplySupplierOrderListItem(
         id=order.id, number=order.number, supplier_id=order.supplier_id,
         supplier_display_name=order.supplier.display_name,
         purchase_request_id=order.purchase_request_id,
         purchase_request_number=order.purchase_request.number,
-        status=order.status, planned_delivery_date=order.planned_delivery_date,
+        status=order.status, business_status=facts[order.id][0],
+        planned_delivery_date=order.planned_delivery_date, delivery_date=facts[order.id][1],
         line_count=len(order.lines), total_amount=order.total_amount,
         currency=order.currency, updated_at=order.updated_at,
     ) for order in orders], total

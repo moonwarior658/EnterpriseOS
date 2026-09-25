@@ -19,6 +19,20 @@ class SupplySupplierOrderStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class SupplySupplierOrderBusinessStatus(StrEnum):
+    DRAFT = "DRAFT"
+    READY_TO_SEND = "READY_TO_SEND"
+    SEND_FAILED = "SEND_FAILED"
+    AWAITING_SUPPLIER = "AWAITING_SUPPLIER"
+    REQUIRES_DECISION = "REQUIRES_DECISION"
+    AWAITING_DOCUMENT = "AWAITING_DOCUMENT"
+    AWAITING_ACCEPTANCE = "AWAITING_ACCEPTANCE"
+    RECEIPT_FAILED = "RECEIPT_FAILED"
+    AWAITING_RECEIPT = "AWAITING_RECEIPT"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
 class SupplySupplierOrderDeliveryStatus(StrEnum):
     PENDING = "PENDING"
     DISPATCHED = "DISPATCHED"
@@ -93,7 +107,9 @@ class SupplySupplierOrderListItem(BaseModel):
     purchase_request_id: UUID
     purchase_request_number: str
     status: SupplySupplierOrderStatus
+    business_status: SupplySupplierOrderBusinessStatus
     planned_delivery_date: date | None
+    delivery_date: date | None
     line_count: int
     total_amount: Decimal
     currency: str

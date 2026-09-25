@@ -1007,6 +1007,10 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
 }
 
 .request-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid rgb(255 255 255 / 78%);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
@@ -1927,6 +1931,8 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
 
 .work-request-list {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 10px;
 }
 
@@ -1935,6 +1941,10 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
   align-items: center;
   justify-content: space-between;
   gap: 18px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--color-border-soft);
   border-radius: 18px;
   background: rgb(255 255 255 / 82%);
@@ -1955,9 +1965,12 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
 
 .work-request-row-main p {
   margin: 11px 0 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.work-request-row > span:last-child {
+  flex: 0 0 auto;
 }
 
 .work-request-row-main small,

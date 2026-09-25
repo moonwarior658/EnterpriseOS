@@ -338,6 +338,7 @@ export type SupplyPurchaseAllocationSupplierSubtotal = {
 }
 
 export type SupplySupplierOrderStatus = 'DRAFT' | 'READY' | 'SENT' | 'CANCELLED'
+export type SupplySupplierOrderBusinessStatus = 'DRAFT' | 'READY_TO_SEND' | 'SEND_FAILED' | 'AWAITING_SUPPLIER' | 'REQUIRES_DECISION' | 'AWAITING_DOCUMENT' | 'AWAITING_ACCEPTANCE' | 'RECEIPT_FAILED' | 'AWAITING_RECEIPT' | 'COMPLETED' | 'CANCELLED'
 
 export type SupplySupplierOrderDeliveryAttempt = {
   id: string
@@ -727,7 +728,9 @@ export type SupplySupplierOrder = {
   purchase_request_id: string
   purchase_request_number: string
   status: SupplySupplierOrderStatus
+  business_status: SupplySupplierOrderBusinessStatus
   planned_delivery_date: string | null
+  delivery_date: string | null
   comment?: string | null
   line_count: number
   total_amount: string

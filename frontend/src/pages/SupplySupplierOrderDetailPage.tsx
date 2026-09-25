@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EosDateField } from '../components/EosFormControls'
 import SupplierConfirmationPanel from '../components/SupplierConfirmationPanel'
@@ -9,14 +9,32 @@ import {
   cancelSupplySupplierOrder, getSupplySupplierOrder, readySupplySupplierOrder,
   prepareSupplySupplierOrderMessage, retrySupplySupplierOrderSend,
   sendSupplySupplierOrder, updateSupplySupplierOrder,
-  type SupplyIikoIncomingReceiptStatus,
-  type SupplySupplierOrder, type SupplySupplierOrderMessagePreview, SupplyApiError,
+  getSupplySupplierConfirmations, getSupplySupplierDocuments,
+  getSupplySupplierDocumentAttachmentUrl,
+  type SupplySupplierConfirmation, type SupplySupplierConfirmationDeviation,
+  type SupplySupplierDocument, type SupplySupplierOrder,
+  type SupplySupplierOrderMessagePreview, SupplyApiError,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
 import { formatMoney, formatQuantity } from '../utils/format'
 
-const labels = { DRAFT: 'Черновик', READY: 'Готов', SENT: 'Отправлен', CANCELLED: 'Отменён' } as const
+const businessLabels = {
+  DRAFT: 'Черновик', READY_TO_SEND: 'Готов к отправке', SEND_FAILED: 'Ошибка отправки',
+  AWAITING_SUPPLIER: 'Ожидает ответа поставщика', REQUIRES_DECISION: 'Требует решения',
+  AWAITING_DOCUMENT: 'Ожидает УПД', AWAITING_ACCEPTANCE: 'Ожидает приёмку',
+  RECEIPT_FAILED: 'Ошибка прихода в iiko', AWAITING_RECEIPT: 'Ожидает проведения в iiko',
+  COMPLETED: 'Завершён', CANCELLED: 'Отменён',
+} as const
 const dateTime = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU') : '—'
+const dateOnly = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('ru-RU') : 'не указана'
+
+function deviationText(deviation: SupplySupplierConfirmationDeviation) {
+  const decision = deviation.status === 'RESOLVED' ? ` · ${deviation.decision_type === 'ACCEPT' ? 'принято' : 'отклонено'}` : ''
+  if (deviation.deviation_type === 'LINE_REJECTED') return `${deviation.product_name_snapshot ?? 'Позиция'}: отклонена поставщиком${decision}`
+  if (deviation.deviation_type === 'QUANTITY_CHANGED') return `${deviation.product_name_snapshot ?? 'Количество'}: ${formatQuantity(deviation.baseline_quantity)} → ${formatQuantity(deviation.confirmed_quantity)} ${deviation.package_unit_snapshot ?? ''}${decision}`
+  if (deviation.deviation_type === 'PRICE_CHANGED') return `${deviation.product_name_snapshot ?? 'Цена'}: ${formatMoney(deviation.baseline_price)} → ${formatMoney(deviation.confirmed_price)}${decision}`
+  return `Дата поставки: ${dateOnly(deviation.baseline_delivery_date)} → ${dateOnly(deviation.confirmed_delivery_date)}${decision}`
+}
 
 export default function SupplySupplierOrderDetailPage() {
   const { orderId = '' } = useParams()
@@ -27,7 +45,8 @@ export default function SupplySupplierOrderDetailPage() {
   const [message, setMessage] = useState('')
   const [responsiblePhone, setResponsiblePhone] = useState('')
   const [preview, setPreview] = useState<SupplySupplierOrderMessagePreview | null>(null)
-  const [receiptStatus, setReceiptStatus] = useState<SupplyIikoIncomingReceiptStatus | null>(null)
+  const [confirmations, setConfirmations] = useState<SupplySupplierConfirmation[]>([])
+  const [documents, setDocuments] = useState<SupplySupplierDocument[]>([])
 
   const refreshOrder = useCallback(() => {
     getSupplySupplierOrder(orderId).then(setOrder).catch(() => undefined)
@@ -40,6 +59,16 @@ export default function SupplySupplierOrderDetailPage() {
     }).catch(() => { if (!controller.signal.aborted) setMessage('Не удалось загрузить заказ') })
     return () => controller.abort()
   }, [orderId])
+  useEffect(() => {
+    let active = true
+    Promise.all([getSupplySupplierConfirmations(orderId), getSupplySupplierDocuments(orderId)])
+      .then(([confirmationRows, documentRows]) => {
+        if (!active) return
+        setConfirmations(confirmationRows); setDocuments(documentRows)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [order?.updated_at, orderId])
   useEffect(() => {
     const status = order?.latest_delivery_attempt?.status
     if (status !== 'PENDING' && status !== 'DISPATCHED') return
@@ -83,6 +112,15 @@ export default function SupplySupplierOrderDetailPage() {
     try { await navigator.clipboard.writeText(value); setMessage(successMessage) }
     catch { setMessage('Не удалось скопировать текст') }
   }
+  async function openAttachment(documentId: string, attachmentId: string, filename: string, download = false) {
+    try {
+      const url = await getSupplySupplierDocumentAttachmentUrl(documentId, attachmentId)
+      const link = window.document.createElement('a'); link.href = url
+      if (download) link.download = filename
+      else { link.target = '_blank'; link.rel = 'noreferrer' }
+      link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch { setMessage('Не удалось открыть файл документа') }
+  }
   async function send(retry = false) {
     if (!order) return
     if (!window.confirm(`Кому: ${order.recipient_email_snapshot}\nЗаказ: ${order.number}\nСумма: ${formatMoney(order.total_amount)}\n\nОтправить?`)) return
@@ -104,30 +142,32 @@ export default function SupplySupplierOrderDetailPage() {
   const decisionsOpen = order.supplier_confirmation_review_state === 'REQUIRES_DECISION'
   const documentsDone = (order.supplier_documents_summary?.recorded_documents_count ?? 0) > 0
   const acceptancesDone = (order.acceptance_summary?.recorded_count ?? 0) > 0
-  const completed = receiptStatus === 'POSTED'
-  const currentStage = draft ? 'Зафиксируйте заказ'
-    : order.status === 'READY' ? 'Отправьте заказ поставщику'
-      : order.status === 'CANCELLED' ? 'Заказ отменён'
-        : !confirmationDone ? 'Зафиксируйте ответ поставщика'
-          : decisionsOpen ? 'Примите решения по изменениям'
-            : !documentsDone ? 'Добавьте УПД или счёт'
-              : !acceptancesDone ? 'Оформите фактическую приёмку'
-                : completed ? 'Заказ завершён' : 'Проведите приход в iiko'
+  const completed = order.business_status === 'COMPLETED'
+  const currentStage = {
+    DRAFT: 'Зафиксируйте заказ', READY_TO_SEND: 'Отправьте заказ поставщику',
+    SEND_FAILED: 'Повторите отправку заказа', AWAITING_SUPPLIER: 'Ожидайте ответ поставщика',
+    REQUIRES_DECISION: 'Примите решения по изменениям', AWAITING_DOCUMENT: 'Добавьте УПД или счёт',
+    AWAITING_ACCEPTANCE: 'Оформите фактическую приёмку', RECEIPT_FAILED: 'Исправьте ошибку прихода в iiko',
+    AWAITING_RECEIPT: 'Проведите приход в iiko', COMPLETED: 'Заказ завершён', CANCELLED: 'Заказ отменён',
+  }[order.business_status]
 
-  const history = [
-    { title: 'Заказ создан', value: dateTime(order.created_at) },
-    order.confirmed_at ? { title: 'Заказ зафиксирован', value: dateTime(order.confirmed_at) } : null,
-    order.sent_at ? { title: 'Отправлен поставщику', value: dateTime(order.sent_at) } : null,
-    order.latest_confirmation?.recorded_at ? { title: 'Ответ поставщика зафиксирован', value: dateTime(order.latest_confirmation.recorded_at) } : null,
-    confirmationDone && !decisionsOpen && (order.latest_confirmation?.deviation_count ?? 0) > 0 ? { title: 'Решения по изменениям приняты', value: `${order.latest_confirmation?.deviation_count} отклонений` } : null,
-    documentsDone && order.supplier_documents_summary?.latest_document ? { title: `${order.supplier_documents_summary.latest_document.document_type === 'UPD' ? 'УПД' : 'Документ'} добавлен`, value: dateTime(order.supplier_documents_summary.latest_document.recorded_at) } : null,
-    acceptancesDone ? { title: 'Приёмка оформлена', value: dateTime(order.acceptance_summary?.latest_acceptance?.recorded_at) } : null,
-    completed ? { title: 'Приход проведён в iiko', value: 'Проведён' } : null,
-  ].filter((item): item is { title: string; value: string } => item !== null)
+  const latestConfirmation = [...confirmations].filter((item) => item.status === 'RECORDED').sort((a, b) => b.revision_number - a.revision_number)[0]
+  const latestDocument = [...documents].filter((item) => item.status === 'RECORDED').sort((a, b) => String(b.recorded_at).localeCompare(String(a.recorded_at)))[0]
+  type HistoryItem = { title: string; value: string; detail: ReactNode }
+
+  const history = ([
+    { title: 'Заказ создан', value: dateTime(order.created_at), detail: <p>Поставщик: {order.supplier_display_name}. Сумма: {formatMoney(order.total_amount)}.</p> },
+    order.confirmed_at ? { title: 'Заказ зафиксирован', value: dateTime(order.confirmed_at), detail: <p>Плановая поставка: {dateOnly(order.planned_delivery_date)}.</p> } : null,
+    order.sent_at ? { title: 'Отправлен поставщику', value: dateTime(order.sent_at), detail: <dl className="supplier-history-facts"><div><dt>Получатель</dt><dd>{order.recipient_name_snapshot ?? order.supplier_display_name}</dd></div><div><dt>Email</dt><dd>{order.recipient_email_snapshot ?? 'не указан'}</dd></div><div><dt>Статус отправки</dt><dd>{order.latest_delivery_attempt?.status === 'SUCCEEDED' ? 'Доставлено' : order.latest_delivery_attempt?.status === 'FAILED' ? 'Ошибка' : 'Отправлено'}</dd></div></dl> } : null,
+    latestConfirmation ? { title: 'Ответ поставщика зафиксирован', value: dateTime(latestConfirmation.recorded_at), detail: <><dl className="supplier-history-facts"><div><dt>Дата поставки</dt><dd>{dateOnly(latestConfirmation.confirmed_delivery_date)}</dd></div><div><dt>Комментарий</dt><dd>{latestConfirmation.supplier_comment || '—'}</dd></div></dl>{latestConfirmation.deviations.length > 0 && <ul className="supplier-history-list">{latestConfirmation.deviations.map((item) => <li key={item.id}>{deviationText(item)}</li>)}</ul>}</> } : null,
+    latestDocument ? { title: `${latestDocument.document_type === 'UPD' ? `УПД №${latestDocument.document_number ?? 'без номера'}` : 'Документ поставщика'} добавлен`, value: dateTime(latestDocument.recorded_at), detail: <><dl className="supplier-history-facts"><div><dt>Дата</dt><dd>{dateOnly(latestDocument.document_date)}</dd></div><div><dt>Сумма</dt><dd>{formatMoney(latestDocument.total_amount)}</dd></div><div><dt>Оплатить до</dt><dd>{dateOnly(latestDocument.payment_due_date)}</dd></div></dl><div className="supplier-attachment-actions">{latestDocument.attachments.length ? latestDocument.attachments.map((attachment) => <div key={attachment.id}><span>{attachment.original_filename}</span><button type="button" onClick={() => openAttachment(latestDocument.id, attachment.id, attachment.original_filename)}>Открыть</button><button type="button" onClick={() => openAttachment(latestDocument.id, attachment.id, attachment.original_filename, true)}>Скачать</button></div>) : <span>Файлы не прикреплены</span>}</div></> } : null,
+    acceptancesDone ? { title: 'Приёмка оформлена', value: dateTime(order.acceptance_summary?.latest_acceptance?.recorded_at), detail: <><p>Склад: {order.acceptance_summary?.latest_acceptance?.destination?.department_name ?? 'не указан'}.</p>{order.acceptance_summary?.latest_acceptance?.lines.map((line) => <p key={line.id}>{line.product_name_snapshot}: принято {formatQuantity(line.accepted_quantity)} {line.unit_name_snapshot || ''}, отклонено {formatQuantity(line.rejected_quantity)} {line.unit_name_snapshot || ''}.</p>)}</> } : null,
+    completed ? { title: 'Приход проведён в iiko', value: 'Проведён', detail: <p>Приход подтверждён в iiko.</p> } : null,
+  ].filter((item) => item !== null)) as HistoryItem[]
 
   return <section className="request-page supply-admin-page purchase-request-page"><div className="request-panel">
     <div className="request-heading"><div><p className="eyebrow">СНАБЖЕНИЕ · ЗАКАЗ ПОСТАВЩИКУ</p><h1>Заказ {order.number}</h1></div><Link className="request-back-link" to="/supply/supplier-orders">К списку →</Link></div>
-    <div className="purchase-request-header supplier-order-header"><div><span className="field-label">Поставщик</span><strong>{order.supplier_display_name}</strong></div><div><span className="field-label">Закупочный запрос</span><Link to={`/supply/purchase-requests/${order.purchase_request_id}`}>{order.purchase_request_number}</Link></div><div><span className="field-label">Статус</span><span className={`purchase-status purchase-status-${order.status.toLowerCase()}`}>{labels[order.status]}</span></div></div>
+    <div className="purchase-request-header supplier-order-header"><div><span className="field-label">Поставщик</span><strong>{order.supplier_display_name}</strong></div><div><span className="field-label">Закупочный запрос</span><Link to={`/supply/purchase-requests/${order.purchase_request_id}`}>{order.purchase_request_number}</Link></div><div><span className="field-label">Статус</span><span className="purchase-status">{businessLabels[order.business_status]}</span></div></div>
     <div className="supplier-current-step" aria-live="polite"><span>Текущий этап</span><strong>{currentStage}</strong></div>
     {draft ? <EosDateField className="supplier-delivery-date" label="Плановая дата поставки" value={deliveryDate} disabled={busy} onChange={(event) => setDeliveryDate(event.target.value)} /> : <div className="supplier-order-fact"><span className="field-label">Плановая дата поставки</span><strong>{order.planned_delivery_date ? new Date(`${order.planned_delivery_date}T00:00:00`).toLocaleDateString('ru-RU') : 'Не указана'}</strong></div>}
     {message && <p className="request-message">{message}</p>}
@@ -147,9 +187,9 @@ export default function SupplySupplierOrderDetailPage() {
     </section>}
 
     {sent && (!confirmationDone || decisionsOpen) && <SupplierConfirmationPanel order={order} onOrderRefresh={refreshOrder} />}
-    {sent && confirmationDone && !decisionsOpen && !documentsDone && <SupplierDocumentsPanel order={order} onOrderRefresh={refreshOrder} />}
-    {sent && confirmationDone && !decisionsOpen && documentsDone && <SupplierAcceptancesPanel order={order} onOrderRefresh={refreshOrder} onReceiptStatusChange={setReceiptStatus} />}
+    {sent && confirmationDone && !decisionsOpen && <SupplierDocumentsPanel order={order} onOrderRefresh={refreshOrder} />}
+    {sent && confirmationDone && !decisionsOpen && documentsDone && <SupplierAcceptancesPanel order={order} onOrderRefresh={refreshOrder} />}
 
-    {history.length > 1 && <section className="supplier-order-history"><h2>История заказа</h2>{history.map((item, index) => <details key={`${item.title}-${index}`}><summary><span aria-hidden="true">✓</span><strong>{item.title}</strong><time>{item.value}</time></summary><p>Этап завершён. Зафиксированное значение: {item.value}.</p></details>)}</section>}
+    {history.length > 1 && <section className="supplier-order-history"><h2>История заказа</h2>{history.map((item, index) => <details key={`${item.title}-${index}`}><summary><span aria-hidden="true">✓</span><strong>{item.title}</strong><time>{item.value}</time></summary><div className="supplier-history-detail">{item.detail}</div></details>)}</section>}
   </div></section>
 }
