@@ -168,7 +168,7 @@ class IncomingInvoiceWriteContractTests(unittest.IsolatedAsyncioTestCase):
                 await client.create_incoming_invoice(preview())
         self.assertEqual(attempts, 1)
 
-    async def test_process_reads_new_then_sends_incoming_invoice_type_once(self):
+    async def test_process_supports_warning_probe_and_acknowledgement(self):
         requests: list[httpx.Request] = []
 
         async def handler(request: httpx.Request) -> httpx.Response:
@@ -199,18 +199,28 @@ class IncomingInvoiceWriteContractTests(unittest.IsolatedAsyncioTestCase):
         async with IikoServerClient(
             settings(), transport=httpx.MockTransport(handler)
         ) as client:
-            result = await client.process_incoming_invoice(DOCUMENT_ID)
+            result = await client.process_incoming_invoice(
+                DOCUMENT_ID, enable_warnings=True
+            )
+            acknowledged = await client.process_incoming_invoice(
+                DOCUMENT_ID, enable_warnings=False
+            )
 
         self.assertTrue(result.valid)
+        self.assertTrue(acknowledged.valid)
         group_requests = [
             value for value in requests
             if value.url.path.endswith("/services/documentGroupOperation")
         ]
-        self.assertEqual(len(group_requests), 1)
+        self.assertEqual(len(group_requests), 2)
         root = ET.fromstring(group_requests[0].content.lstrip(b"\xef\xbb\xbf"))
         self.assertEqual(root.findtext("enable-warnings"), "true")
         self.assertEqual(root.findtext("documentIds/k"), str(DOCUMENT_ID))
         self.assertEqual(root.findtext("documentIds/v"), "INCOMING_INVOICE")
+        acknowledged_root = ET.fromstring(
+            group_requests[1].content.lstrip(b"\xef\xbb\xbf")
+        )
+        self.assertEqual(acknowledged_root.findtext("enable-warnings"), "false")
 
 
 class IncomingInvoiceReconciliationTests(unittest.IsolatedAsyncioTestCase):

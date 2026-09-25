@@ -149,6 +149,8 @@ class IikoProvider(ABC):
     async def process_incoming_invoice(
         self,
         document_id: UUID,
+        *,
+        enable_warnings: bool,
     ) -> IikoDocumentValidationResultDto:
         """Process one authoritative NEW incoming invoice through BackOffice RPC."""
         raise NotImplementedError

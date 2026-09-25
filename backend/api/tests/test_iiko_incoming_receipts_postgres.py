@@ -28,6 +28,7 @@ from app.integrations.iiko.schemas import (
     IikoIncomingInvoiceItemDto,
     IikoIncomingInvoiceStatus,
 )
+from app.models.supply import SupplyIikoIncomingReceipt
 from app.supply.iiko_incoming_receipts import (
     IncomingReceiptStateError,
     _finalize_posted,
@@ -48,6 +49,8 @@ class FakeProvider:
         self.lock = Lock()
         self.create_calls = 0
         self.process_calls = 0
+        self.process_warning_flags = []
+        self.soft_warning = False
         self.stock_calls = 0
         self.fail_stock_refresh = False
         self.document_id = uuid4()
@@ -89,9 +92,17 @@ class FakeProvider:
     async def get_incoming_invoice_by_id(self, *_args, **_kwargs):
         return self.invoice()
 
-    async def process_incoming_invoice(self, _document_id):
+    async def process_incoming_invoice(self, _document_id, *, enable_warnings):
         with self.lock:
             self.process_calls += 1
+            self.process_warning_flags.append(enable_warnings)
+            if self.soft_warning and enable_warnings:
+                return IikoDocumentValidationResultDto(
+                    valid=False,
+                    warning=True,
+                    document_number=self.preview.document_number,
+                    error_message="Приход на отрицательные остатки.",
+                )
             self.current_status = IikoIncomingInvoiceStatus.PROCESSED
         return IikoDocumentValidationResultDto(
             valid=True, warning=False, document_number=self.preview.document_number
@@ -205,6 +216,7 @@ class IikoIncomingReceiptsPostgresTests(unittest.TestCase):
             c.execute(text("UPDATE supply_iiko_incoming_receipt_lines SET accounted_quantity=0 WHERE receipt_id=:id"), {"id": receipt_id})
 
         provider = FakeProvider()
+        provider.soft_warning = True
         def create():
             with sessions() as session:
                 try:
@@ -224,9 +236,17 @@ class IikoIncomingReceiptsPostgresTests(unittest.TestCase):
                     return "CONFLICT"
         with ThreadPoolExecutor(max_workers=2) as pool:
             process_results = [future.result(timeout=15) for future in (pool.submit(process), pool.submit(process))]
-        self.assertEqual(provider.process_calls, 1)
+        self.assertEqual(provider.process_calls, 2)
+        self.assertEqual(provider.process_warning_flags, [True, False])
         self.assertEqual(provider.stock_calls, 1)
         self.assertEqual(sorted(process_results), ["CONFLICT", "POSTED"])
+        with sessions() as session:
+            posted = session.get(SupplyIikoIncomingReceipt, receipt_id)
+            self.assertEqual(posted.last_error_code, "PROCESS_WARNING")
+            self.assertEqual(
+                posted.last_error_message,
+                "Приход на отрицательные остатки.",
+            )
         with self.engine.connect() as c:
             accounted = c.execute(text("SELECT accounted_quantity, accounted_sum FROM supply_iiko_incoming_receipt_lines WHERE receipt_id=:id"), {"id": receipt_id}).one()
             self.assertEqual(accounted.accounted_quantity, Decimal("2.000000"))

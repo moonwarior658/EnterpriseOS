@@ -16,6 +16,7 @@ import {
   type SupplyIikoIncomingReceipt,
   type SupplySupplierAcceptanceRejectionReason, type SupplySupplierDocument, type SupplySupplierOrder,
 } from '../services/supplyAdmin'
+import { formatMoney, formatQuantity } from '../utils/format'
 
 const reasons: Record<SupplySupplierAcceptanceRejectionReason, string> = { DAMAGED: 'Повреждение', QUALITY_MISMATCH: 'Несоответствие качества', WRONG_PRODUCT: 'Другой товар', WRONG_PACKAGE: 'Другая упаковка', EXPIRED: 'Истёк срок годности', OTHER: 'Другое' }
 const results = { FULLY_ACCEPTED: 'Принято полностью', PARTIALLY_ACCEPTED: 'Принято частично', REJECTED: 'Отклонено', OVER_DELIVERED: 'Поставка сверх документа', MIXED: 'Смешанный результат' } as const
@@ -38,6 +39,12 @@ const receiptReasonLabels: Record<string, string> = {
   UNRESOLVED_EXCESS: 'Сначала примите решение по излишку.',
   NO_RECEIPT_ELIGIBLE_QUANTITY: 'Нет принятого количества, доступного для прихода.',
 }
+const receiptStatusLabels: Record<string, string> = {
+  DRAFT: 'Приход подготовлен', READY: 'Готов к проведению в iiko',
+  CREATING: 'Создаётся в iiko', CREATED: 'Готов к проведению в iiko',
+  PROCESSING: 'Проводится в iiko', POSTED: 'Проведён в iiko',
+  FAILED: 'Не удалось провести приход', CANCELLED: 'Приход отменён',
+}
 
 function destinationLabel(mapping: IikoWarehouseMapping) {
   const code = mapping.source_code ? ` · ${mapping.source_code}` : ''
@@ -59,6 +66,8 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
   const [needDates, setNeedDates] = useState<Record<string, string>>({})
   const [resolutionComments, setResolutionComments] = useState<Record<string, string>>({})
   const [sourceValues, setSourceValues] = useState<Record<string, string>>({})
+  const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null)
+  const [receiptMessages, setReceiptMessages] = useState<Record<string, { text: string; error: boolean }>>({})
   const [receipts, setReceipts] = useState<Record<string, SupplyIikoIncomingReceipt>>({})
 
   const loadReceipts = useCallback(async (acceptances: SupplySupplierAcceptance[]) => {
@@ -117,20 +126,30 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
     } finally { setBusy(false) }
   }
   async function runReceipt(acceptanceId: string, action: () => Promise<SupplyIikoIncomingReceipt>, success: string) {
-    setBusy(true); setMessage('')
+    setBusy(true); setReceiptBusyId(acceptanceId)
+    setReceiptMessages((current) => ({ ...current, [acceptanceId]: { text: '', error: false } }))
     try {
       const receipt = await action()
       setReceipts((current) => ({ ...current, [acceptanceId]: receipt }))
-      await load(); onOrderRefresh(); setMessage(success)
+      setReceiptMessages((current) => ({ ...current, [acceptanceId]: { text: success, error: false } }))
+      try { await load(); onOrderRefresh() }
+      catch { setReceiptMessages((current) => ({ ...current, [acceptanceId]: { text: `${success}. Не удалось обновить связанные данные. Обновите страницу.`, error: true } })) }
     } catch (error) {
-      setMessage(error instanceof SupplyApiError && error.reasons.length
+      const text = error instanceof SupplyApiError && error.reasons.length
         ? error.reasons.map((reason) => receiptReasonLabels[reason] ?? reason).join(' ')
-        : error instanceof SupplyApiError ? error.message : 'Не удалось изменить приход iiko')
-    } finally { setBusy(false) }
+        : error instanceof SupplyApiError ? error.message : 'Не удалось изменить приход iiko. Попробуйте ещё раз.'
+      setReceiptMessages((current) => ({ ...current, [acceptanceId]: { text, error: true } }))
+    } finally { setBusy(false); setReceiptBusyId(null) }
   }
   function createSummary(receipt: SupplyIikoIncomingReceipt) {
-    const lines = receipt.lines.map((line) => `${line.line_no}. ${line.product_name}: ${line.quantity} ${line.unit_name} × ${line.historical_unit_price} = ${line.allocated_sum} ₽`).join('\n')
-    return `Поставщик: ${receipt.supplier_name}\nСклад: ${receipt.destination_name}\nДокумент: ${receipt.eos_document_number}\n\n${lines}\n\nИтого: ${receipt.total_sum} ₽\n\nСоздать документ NEW в iiko?`
+    const lines = receipt.lines.map((line) => `${line.line_no}. ${line.product_name}: ${formatQuantity(line.quantity)} ${line.unit_name} × ${formatMoney(line.historical_unit_price)} = ${formatMoney(line.allocated_sum)}`).join('\n')
+    return `Поставщик: ${receipt.supplier_name}\nСклад: ${receipt.destination_name}\n\n${lines}\n\nИтого: ${formatMoney(receipt.total_sum)}\n\nСоздать приход в iiko?`
+  }
+  function receiptMessage(receipt: SupplyIikoIncomingReceipt) {
+    if (receipt.last_error_code === 'PROCESS_WARNING' && receipt.last_error_message?.toLocaleLowerCase('ru-RU').includes('отрицатель')) {
+      return 'Приход проведён. Есть отрицательные остатки по некоторым позициям.'
+    }
+    return receipt.last_error_message
   }
   function patchLocal(lineId: string, changes: Partial<SupplySupplierAcceptanceLine>) {
     if (draft) setDraft({ ...draft, lines: draft.lines.map((line) => line.id === lineId ? { ...line, ...changes } : line) })
@@ -147,21 +166,21 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
   function difference(line: SupplySupplierAcceptanceLine) {
     if (line.documented_quantity === null) return 'Без документа'
     const delta = Number(line.received_quantity) - Number(line.documented_quantity)
-    return delta < 0 ? `Недопоставка ${Math.abs(delta)}` : delta > 0 ? `Сверх ${delta}` : 'Нет'
+    return delta < 0 ? `Недопоставка ${formatQuantity(Math.abs(delta))}` : delta > 0 ? `Сверх ${formatQuantity(delta)}` : Number(line.rejected_quantity) === 0 ? 'Принято полностью' : 'Нет расхождения'
   }
   function delta(value: string | null) {
     if (value === null) return '—'
     const numeric = Number(value)
-    return numeric > 0 ? `+${value}` : value
+    return numeric > 0 ? `+${formatQuantity(value)}` : formatQuantity(value)
   }
   function planFact(line: SupplySupplierAcceptanceLine) {
     const unit = line.unit_name_snapshot || ''
     return <div>
-      <span>Заказано {line.ordered_quantity ?? '—'} {unit}</span><br />
-      <span>Подтверждено {line.confirmed_quantity ?? '—'} {unit} ({delta(line.ordered_vs_confirmed)})</span><br />
-      <span>В документе {line.documented_quantity ?? '—'} {unit} ({delta(line.confirmed_vs_documented)})</span><br />
-      <span>Приехало {line.received_quantity} {unit} ({delta(line.documented_vs_received)})</span><br />
-      <span>Принято {line.accepted_quantity} {unit} ({delta(line.received_vs_accepted)}), отклонено {line.rejected_quantity} {unit}</span>
+      <span>Заказано {formatQuantity(line.ordered_quantity)} {unit}</span><br />
+      <span>Подтверждено {formatQuantity(line.confirmed_quantity)} {unit} ({delta(line.ordered_vs_confirmed)})</span><br />
+      <span>В документе {formatQuantity(line.documented_quantity)} {unit} ({delta(line.confirmed_vs_documented)})</span><br />
+      <span>Приехало {formatQuantity(line.received_quantity)} {unit} ({delta(line.documented_vs_received)})</span><br />
+      <span>Принято {formatQuantity(line.accepted_quantity)} {unit} ({delta(line.received_vs_accepted)}), отклонено {formatQuantity(line.rejected_quantity)} {unit}</span>
     </div>
   }
   return <section className="supplier-message-panel supplier-documents-panel">
@@ -186,21 +205,21 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
     {items.length > 0 && <div className="supplier-table-wrap"><h3>История приёмок</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Склад приёмки</th><th>Источник</th><th>Статус</th><th>Результат</th><th>План / факт</th><th>Комментарий</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td>{new Date(item.recorded_at || item.created_at).toLocaleString('ru-RU')}</td><td>{item.destination ? `${item.destination.department_name} · ${roles[item.destination.role] || item.destination.role} · ${item.destination.iiko_store_name}` : 'Не выбран'}</td><td>{item.source === 'DOCUMENT' ? 'Документ' : item.source === 'CONFIRMATION' ? 'Ответ поставщика' : 'Заказ'}</td><td>{item.status === 'RECORDED' ? 'Зафиксирована' : item.status === 'DRAFT' ? 'Черновик' : 'Отменена'}{item.open_issues_count > 0 && <small>Открытых расхождений: {item.open_issues_count}</small>}</td><td>{results[item.result]}</td><td>{item.lines.map((line) => <div key={line.id}><strong>{line.product_name_snapshot}</strong>{planFact(line)}{item.status === 'RECORDED' && <small>Принято к учёту: {line.accounted_quantity} {line.unit_name_snapshot || ''}; сумма {line.accounted_sum} ₽</small>}</div>)}</td><td>{item.comment || '—'}</td></tr>)}</tbody></table></div>}
     {items.filter((item) => item.status === 'RECORDED').map((item) => {
       const receipt = receipts[item.id]
-      return <div key={`receipt-${item.id}`} className="supplier-document-editor">
+      const receiptDate = new Date(item.recorded_at || item.created_at).toLocaleDateString('ru-RU')
+      return <div key={`receipt-${item.id}`} className="supplier-document-editor receipt-card" aria-busy={receiptBusyId === item.id}>
         <h3>Приход в iiko</h3>
-        {!receipt ? <><p>Приход ещё не подготовлен. Readiness будет проверен без отправки в iiko.</p><button type="button" className="primary-action" disabled={busy} onClick={() => runReceipt(item.id, () => prepareSupplyIikoIncomingReceipt(item.id), 'Приход подготовлен')}>Подготовить</button></> : <>
-          <p><strong>{receipt.eos_document_number}</strong> · {receipt.supplier_name} · {receipt.destination_name}</p>
-          <p>Статус: {receipt.status}. Readiness: {receipt.readiness_status}</p>
-          <div className="supplier-table-wrap"><table className="supplier-table"><thead><tr><th>Позиция</th><th>Количество</th><th>Цена</th><th>Сумма</th><th>Принято к учёту</th></tr></thead><tbody>{receipt.lines.map((line) => <tr key={line.id}><td>{line.product_name}</td><td>{line.quantity} {line.unit_name}</td><td>{line.historical_unit_price} ₽</td><td>{line.allocated_sum} ₽</td><td>{line.accounted_quantity} {line.unit_name} / {line.accounted_sum} ₽</td></tr>)}</tbody></table></div>
-          <p>Итого: {receipt.total_sum} ₽</p>
-          {(receipt.iiko_document_number || receipt.iiko_document_id) && <p>iiko: {receipt.iiko_document_number || 'без номера'} · UUID {receipt.iiko_document_id || 'ещё не определён'}</p>}
-          {receipt.last_error_code && <p className="request-message">{receipt.last_error_code}: {receipt.last_error_message}</p>}
+        {receiptMessages[item.id]?.text && <p className="request-message" role={receiptMessages[item.id].error ? 'alert' : 'status'}>{receiptMessages[item.id].text}</p>}
+        {!receipt ? <><p>Приход ещё не подготовлен. Проверим готовность без отправки в iiko.</p><button type="button" className="primary-action" disabled={busy} onClick={() => runReceipt(item.id, () => prepareSupplyIikoIncomingReceipt(item.id), 'Приход подготовлен')}>{receiptBusyId === item.id ? 'Подготавливаем…' : 'Подготовить'}</button></> : <>
+          <div className="receipt-heading"><div><strong>Приход от {receiptDate}</strong><span>{receipt.supplier_name} · {receipt.destination_name}</span></div><span className={`receipt-status receipt-status-${receipt.status.toLowerCase()}`}>{receiptStatusLabels[receipt.status] ?? 'Статус уточняется'}</span></div>
+          <div className="supplier-table-wrap receipt-table-wrap"><table className="supplier-table receipt-lines"><thead><tr><th>Позиция</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{receipt.lines.map((line) => <tr key={line.id}><td>{line.product_name}</td><td>{formatQuantity(line.quantity)} {line.unit_name}</td><td>{formatMoney(line.historical_unit_price)}</td><td>{formatMoney(line.allocated_sum)}</td></tr>)}</tbody></table></div>
+          <p className="receipt-total">Итого: <strong>{formatMoney(receipt.total_sum)}</strong></p>
+          {receipt.last_error_message && <p className={receipt.status === 'POSTED' ? 'supplier-message-warning' : 'request-message'}>{receiptMessage(receipt)}</p>}
           <div className="purchase-actions">
             {receipt.status === 'DRAFT' && <button type="button" className="primary-action" disabled={busy} onClick={() => runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'ready'), 'Snapshot прихода зафиксирован')}>Зафиксировать</button>}
             {receipt.status === 'READY' && <button type="button" className="primary-action" disabled={busy} onClick={() => window.confirm(createSummary(receipt)) && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'create'), 'Создание в iiko проверено')}>Создать в iiko</button>}
             {receipt.status === 'CREATED' && <button type="button" className="primary-action" disabled={busy} onClick={() => window.confirm('Провести приход в iiko?') && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'process'), 'Проведение в iiko проверено')}>Провести</button>}
-            {['CREATING', 'PROCESSING', 'FAILED'].includes(receipt.status) && <button type="button" className="secondary-action" disabled={busy} onClick={() => runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'retry'), 'Состояние сверено с iiko')}>Повторить проверку</button>}
-            {['DRAFT', 'READY'].includes(receipt.status) && receipt.create_attempt_count === 0 && <button type="button" className="danger-action" disabled={busy} onClick={() => window.confirm('Отменить подготовленный приход?') && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'cancel'), 'Приход отменён')}>Отменить</button>}
+            {['CREATING', 'PROCESSING', 'FAILED'].includes(receipt.status) && <button type="button" className="secondary-action" disabled={busy} onClick={() => runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'retry'), 'Состояние сверено с iiko')}>Проверить статус в iiko</button>}
+            {['DRAFT', 'READY'].includes(receipt.status) && receipt.create_attempt_count === 0 && <button type="button" className="secondary-action" disabled={busy} onClick={() => window.confirm('Отменить подготовленный приход?') && runReceipt(item.id, () => transitionSupplyIikoIncomingReceipt(receipt.id, 'cancel'), 'Приход отменён')}>Отменить</button>}
           </div>
         </>}
       </div>

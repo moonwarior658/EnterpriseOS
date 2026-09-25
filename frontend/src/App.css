@@ -252,7 +252,8 @@
 }
 
 .app-user button,
-.secondary-action {
+.secondary-action,
+.danger-action {
   border: 1px solid #dfe1e6;
   border-radius: 12px;
   background: white;
@@ -262,8 +263,18 @@
   cursor: pointer;
 }
 
+.secondary-action:hover,
+.danger-action:hover { border-color: #c9ccd3; background: #f7f8fa; }
+.secondary-action:focus-visible,
+.danger-action:focus-visible { outline: 3px solid rgb(47 111 223 / 22%); outline-offset: 2px; }
+.danger-action { color: #8e312b; }
+
+input[type="number"] { appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
+
 .page-shell {
-  width: min(1120px, calc(100% - 40px));
+  width: min(1480px, calc(100% - 40px));
   margin: 0 auto;
   padding: 48px 0;
 }
@@ -990,7 +1001,7 @@
 /* Department request MVP */
 
 .request-page {
-  width: min(860px, calc(100% - 40px));
+  width: min(1200px, calc(100% - 40px));
   margin: 0 auto;
   padding: 42px 0 64px;
 }

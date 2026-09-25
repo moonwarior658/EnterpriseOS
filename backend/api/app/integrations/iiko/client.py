@@ -1659,13 +1659,15 @@ class IikoServerClient(IikoProvider):
     async def process_incoming_invoice(
         self,
         document_id: UUID,
+        *,
+        enable_warnings: bool,
     ) -> IikoDocumentValidationResultDto:
         call_id = uuid4()
         args = ET.Element("args")
         for name, value in (
             ("entities-version", str(_RPC_FUTURE_REVISION_CURSOR)),
             ("client-type", "BACK"),
-            ("enable-warnings", "true"),
+            ("enable-warnings", "true" if enable_warnings else "false"),
             ("client-call-id", str(call_id)),
             ("use-raw-entities", "true"),
             ("id", str(document_id)),
@@ -1727,7 +1729,7 @@ class IikoServerClient(IikoProvider):
         for name, value in (
             ("entities-version", str(parsed_entities_version)),
             ("client-type", "BACK"),
-            ("enable-warnings", "true"),
+            ("enable-warnings", "true" if enable_warnings else "false"),
             ("client-call-id", str(process_call_id)),
             ("use-raw-entities", "true"),
         ):
@@ -1741,7 +1743,11 @@ class IikoServerClient(IikoProvider):
             content=b"\xef\xbb\xbf" + ET.tostring(
                 process_args, encoding="utf-8", xml_declaration=True
             ),
-            stage="processIncomingInvoice warnings=true",
+            stage=(
+                "processIncomingInvoice warnings=true"
+                if enable_warnings
+                else "processIncomingInvoice warnings=false"
+            ),
             call_id=process_call_id,
         )
         results = self._validation_results(response)

@@ -62,6 +62,7 @@ export default function SupplyPurchaseAllocationWorkspace({ requestId }: { reque
   if (!workspace) return <p className="page-state">{message || 'Загружаем поставщиков…'}</p>
 
   return <div className="allocation-workspace">
+    {!workspace.lines.some((line) => line.allocations.length > 0) && <p className="page-state">Распределение ещё не выполнено</p>}
     <div className="allocation-summary">
       <div><span>Плановая стоимость</span><strong>{money.format(Number(workspace.planned_total_amount))}</strong></div>
       {workspace.supplier_subtotals.map((subtotal) => <div

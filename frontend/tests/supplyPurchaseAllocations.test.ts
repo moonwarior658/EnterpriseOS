@@ -20,7 +20,7 @@ test('показывает allocation action только для READY и раб
   const detail = readFileSync(new URL('../src/pages/SupplyPurchaseRequestDetailPage.tsx', import.meta.url), 'utf8')
   const workspace = readFileSync(new URL('../src/pages/SupplyPurchaseAllocationWorkspace.tsx', import.meta.url), 'utf8')
   assert.match(detail, /request\.status === 'READY'/)
-  assert.match(detail, /Распределить по поставщикам/)
+  assert.match(detail, /Показать распределение/)
   assert.match(workspace, /Основной/)
   assert.match(workspace, /Резервный/)
   assert.match(workspace, /Подтвердить/)

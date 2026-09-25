@@ -13,9 +13,9 @@ import {
   type SupplySupplierOrder, type SupplySupplierOrderMessagePreview, SupplyApiError,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
+import { formatMoney, formatQuantity } from '../utils/format'
 
 const labels = { DRAFT: 'Черновик', READY: 'Готов', SENT: 'Отправлен', CANCELLED: 'Отменён' } as const
-const money = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' })
 const dateTime = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU') : '—'
 
 export default function SupplySupplierOrderDetailPage() {
@@ -85,7 +85,7 @@ export default function SupplySupplierOrderDetailPage() {
   }
   async function send(retry = false) {
     if (!order) return
-    if (!window.confirm(`Кому: ${order.recipient_email_snapshot}\nЗаказ: ${order.number}\nСумма: ${money.format(Number(order.total_amount))}\n\nОтправить?`)) return
+    if (!window.confirm(`Кому: ${order.recipient_email_snapshot}\nЗаказ: ${order.number}\nСумма: ${formatMoney(order.total_amount)}\n\nОтправить?`)) return
     setBusy(true); setMessage('')
     try {
       const attempt = retry ? await retrySupplySupplierOrderSend(orderId) : await sendSupplySupplierOrder(orderId)
@@ -122,7 +122,7 @@ export default function SupplySupplierOrderDetailPage() {
     confirmationDone && !decisionsOpen && (order.latest_confirmation?.deviation_count ?? 0) > 0 ? { title: 'Решения по изменениям приняты', value: `${order.latest_confirmation?.deviation_count} отклонений` } : null,
     documentsDone && order.supplier_documents_summary?.latest_document ? { title: `${order.supplier_documents_summary.latest_document.document_type === 'UPD' ? 'УПД' : 'Документ'} добавлен`, value: dateTime(order.supplier_documents_summary.latest_document.recorded_at) } : null,
     acceptancesDone ? { title: 'Приёмка оформлена', value: dateTime(order.acceptance_summary?.latest_acceptance?.recorded_at) } : null,
-    completed ? { title: 'Приход проведён в iiko', value: 'POSTED' } : null,
+    completed ? { title: 'Приход проведён в iiko', value: 'Проведён' } : null,
   ].filter((item): item is { title: string; value: string } => item !== null)
 
   return <section className="request-page supply-admin-page purchase-request-page"><div className="request-panel">
@@ -131,17 +131,17 @@ export default function SupplySupplierOrderDetailPage() {
     <div className="supplier-current-step" aria-live="polite"><span>Текущий этап</span><strong>{currentStage}</strong></div>
     {draft ? <EosDateField className="supplier-delivery-date" label="Плановая дата поставки" value={deliveryDate} disabled={busy} onChange={(event) => setDeliveryDate(event.target.value)} /> : <div className="supplier-order-fact"><span className="field-label">Плановая дата поставки</span><strong>{order.planned_delivery_date ? new Date(`${order.planned_delivery_date}T00:00:00`).toLocaleDateString('ru-RU') : 'Не указана'}</strong></div>}
     {message && <p className="request-message">{message}</p>}
-    <div className="supplier-table-wrap supplier-order-table-wrap"><table className="supplier-table supplier-order-lines"><thead><tr><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{order.lines?.map((line) => <tr key={line.id}><td><strong>{line.product_name}</strong><small>{line.package_quantity_snapshot} {line.package_unit.short_name_ru} × {line.packages_count} уп.</small></td><td>{line.quantity_base} {line.package_unit.short_name_ru}</td><td>{money.format(Number(line.price_per_package_snapshot))} / уп.</td><td>{money.format(Number(line.planned_amount))}</td></tr>)}</tbody></table></div>
-    <div className="supplier-order-total"><span>Итого</span><strong>{money.format(Number(order.total_amount))}</strong><small>{order.minimum_order_status === 'BELOW_MINIMUM' ? `До минимальной суммы не хватает ${money.format(Number(order.minimum_order_shortfall))}` : order.minimum_order_status === 'MET' ? 'Минимальная сумма выполнена' : 'Минимальная сумма не задана'}</small></div>
-    {draft && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={saveAndReady}>Зафиксировать заказ</button><button type="button" className="danger-action" disabled={busy} onClick={cancel}>Отменить</button></div>}
+    <div className="supplier-table-wrap supplier-order-table-wrap"><table className="supplier-table supplier-order-lines"><thead><tr><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{order.lines?.map((line) => <tr key={line.id}><td><strong>{line.product_name}</strong><small>{formatQuantity(line.package_quantity_snapshot)} {line.package_unit.short_name_ru} × {formatQuantity(line.packages_count)} уп.</small></td><td>{formatQuantity(line.quantity_base)} {line.package_unit.short_name_ru}</td><td>{formatMoney(line.price_per_package_snapshot)} / уп.</td><td>{formatMoney(line.planned_amount)}</td></tr>)}</tbody></table></div>
+    <div className="supplier-order-total"><span>Итого</span><strong>{formatMoney(order.total_amount)}</strong><small>{order.minimum_order_status === 'BELOW_MINIMUM' ? `До минимальной суммы не хватает ${formatMoney(order.minimum_order_shortfall)}` : order.minimum_order_status === 'MET' ? 'Минимальная сумма выполнена' : 'Минимальная сумма не задана'}</small></div>
+    {draft && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={saveAndReady}>Зафиксировать заказ</button><button type="button" className="secondary-action" disabled={busy} onClick={cancel}>Отменить</button></div>}
 
     {order.status === 'READY' && <section className="supplier-message-panel">
       <div className="supplier-message-heading"><div><span className="field-label">ТЕКУЩИЙ ЭТАП</span><h2>Подготовить и отправить заказ</h2></div><span>Ответственный: {order.responsible_name_snapshot ?? user?.display_name}</span></div>
       <label className="eos-field"><span>Телефон ответственного</span><input value={responsiblePhone} disabled={busy || Boolean(order.responsible_phone_snapshot)} onChange={(event) => setResponsiblePhone(event.target.value)} placeholder="+7 900 000-00-00" /></label>
       {!order.planned_delivery_date && <p className="supplier-message-warning">Дата поставки не указана</p>}
-      <button type="button" className="primary-action" disabled={busy || (!responsiblePhone.trim() && !order.responsible_phone_snapshot)} onClick={prepareMessage}>Подготовить заказ</button>
-      {preview && <div className="supplier-message-preview"><div><span className="field-label">Кому</span><strong>{preview.recipient.email}</strong></div><div><span className="field-label">Тема</span><strong>{preview.subject}</strong></div><div><span className="field-label">Текст</span><pre>{preview.body_text}</pre></div><div className="supplier-table-wrap supplier-order-table-wrap"><table className="supplier-table supplier-order-lines"><thead><tr><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{preview.lines.map((line, index) => <tr key={`${line.product_name}-${index}`}><td><strong>{line.product_name}</strong><small>{line.package_quantity} {line.package_unit} × {line.packages_count} уп.</small></td><td>{line.total_quantity} {line.package_unit}</td><td>{money.format(Number(line.price_per_package))} / уп.</td><td>{money.format(Number(line.planned_amount))}</td></tr>)}</tbody></table></div><div className="purchase-actions"><button type="button" className="secondary-action" onClick={() => copy(preview.subject, 'Тема скопирована')}>Скопировать тему</button><button type="button" className="secondary-action" onClick={() => copy(preview.body_text, 'Текст скопирован')}>Скопировать текст</button><button type="button" className="secondary-action" onClick={() => copy(`${preview.subject}\n\n${preview.body_text}`, 'Заказ скопирован')}>Скопировать полный заказ</button></div></div>}
-      {order.recipient_email_snapshot && !order.latest_delivery_attempt && <button type="button" className="primary-action" disabled={busy} onClick={() => send(false)}>Отправить поставщику</button>}
+      <div className="supplier-stage-actions"><button type="button" className="primary-action" disabled={busy || (!responsiblePhone.trim() && !order.responsible_phone_snapshot)} onClick={prepareMessage}>Подготовить заказ</button></div>
+      {preview && <div className="supplier-message-preview"><div><span className="field-label">Кому</span><strong>{preview.recipient.email}</strong></div><div><span className="field-label">Тема</span><strong>{preview.subject}</strong></div><div><span className="field-label">Текст</span><pre>{preview.body_text}</pre></div><div className="supplier-table-wrap supplier-order-table-wrap"><table className="supplier-table supplier-order-lines"><thead><tr><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{preview.lines.map((line, index) => <tr key={`${line.product_name}-${index}`}><td><strong>{line.product_name}</strong><small>{formatQuantity(line.package_quantity)} {line.package_unit} × {formatQuantity(line.packages_count)} уп.</small></td><td>{formatQuantity(line.total_quantity)} {line.package_unit}</td><td>{formatMoney(line.price_per_package)} / уп.</td><td>{formatMoney(line.planned_amount)}</td></tr>)}</tbody></table></div><div className="purchase-actions"><button type="button" className="secondary-action" onClick={() => copy(preview.subject, 'Тема скопирована')}>Скопировать тему</button><button type="button" className="secondary-action" onClick={() => copy(preview.body_text, 'Текст скопирован')}>Скопировать текст</button><button type="button" className="secondary-action" onClick={() => copy(`${preview.subject}\n\n${preview.body_text}`, 'Заказ скопирован')}>Скопировать полный заказ</button></div></div>}
+      {order.recipient_email_snapshot && !order.latest_delivery_attempt && <div className="supplier-stage-actions"><button type="button" className="primary-action" disabled={busy} onClick={() => send(false)}>Отправить поставщику</button></div>}
       {order.latest_delivery_attempt?.status === 'FAILED' && <><p className="request-message">{order.latest_delivery_attempt.error_message ?? 'Не удалось отправить заказ'}</p><button type="button" className="primary-action" disabled={busy} onClick={() => send(true)}>Повторить отправку</button></>}
       {['PENDING', 'DISPATCHED'].includes(order.latest_delivery_attempt?.status ?? '') && <p>Заказ отправляется…</p>}
     </section>}

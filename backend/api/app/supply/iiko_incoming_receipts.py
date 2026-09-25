@@ -714,6 +714,7 @@ async def _finalize_posted(
     *,
     tenant_id: str,
     invoice: IikoIncomingInvoiceDto,
+    warning_message: str | None = None,
 ):
     receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
     receipt.iiko_document_id = invoice.external_id
@@ -721,8 +722,8 @@ async def _finalize_posted(
     receipt.iiko_status = invoice.status.value
     receipt.status = "POSTED"
     receipt.posted_at = receipt.posted_at or datetime.now(timezone.utc)
-    receipt.last_error_code = None
-    receipt.last_error_message = None
+    receipt.last_error_code = "PROCESS_WARNING" if warning_message else None
+    receipt.last_error_message = warning_message
     for line in receipt.lines:
         line.accounted_quantity = line.quantity
         line.accounted_sum = line.allocated_sum
@@ -758,9 +759,17 @@ async def process_receipt(
     session.commit()
 
     validation = None
+    warning_message: str | None = None
     process_error: Exception | None = None
     try:
-        validation = await provider.process_incoming_invoice(document_id)
+        validation = await provider.process_incoming_invoice(
+            document_id, enable_warnings=True
+        )
+        if not validation.valid and validation.warning:
+            warning_message = validation.error_message or validation.additional_info
+            validation = await provider.process_incoming_invoice(
+                document_id, enable_warnings=False
+            )
     except Exception as error:
         process_error = error
     try:
@@ -773,7 +782,8 @@ async def process_receipt(
         invoice = None
     if _verify_final(invoice, preview, document_id):
         return await _finalize_posted(
-            session, provider, receipt_id, tenant_id=tenant_id, invoice=invoice
+            session, provider, receipt_id, tenant_id=tenant_id, invoice=invoice,
+            warning_message=warning_message,
         )
     receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
     if invoice is not None and not _matches(invoice, preview):

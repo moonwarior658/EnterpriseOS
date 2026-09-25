@@ -1,3 +1,4 @@
+import { incomingReceiptReadinessMessage } from './supplyIncomingReceiptErrors.ts'
 import { getStoredToken } from './auth.ts'
 
 export type SupplyStatus =
@@ -1116,10 +1117,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       detail = null
     }
     const payload = typeof detail === 'object' && detail !== null
-      ? detail as { code?: string; current_version?: number; reasons?: string[] }
+      ? detail as { code?: string; current_version?: number; reasons?: unknown }
       : null
     throw new SupplyApiError(
-      typeof detail === 'string' ? detail : 'Не удалось выполнить действие',
+      payload?.code === 'READINESS_BLOCKED'
+        ? incomingReceiptReadinessMessage(payload.reasons)
+        : typeof detail === 'string' ? detail : 'Не удалось выполнить действие',
       payload?.code ?? null,
       payload?.current_version ?? null,
       response.status,
