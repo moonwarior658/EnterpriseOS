@@ -10,7 +10,7 @@ import {
 } from '../src/services/supplyAdmin.ts'
 
 
-test('подключает admin-only реестр и payment UX в карточке заказа', () => {
+test('подключает admin-only реестр и убирает payment UX из карточки заказа', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const layout = readFileSync(new URL('../src/layouts/AppLayout.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/SupplySupplierOrderDetailPage.tsx', import.meta.url), 'utf8')
@@ -21,7 +21,7 @@ test('подключает admin-only реестр и payment UX в карточ
   assert.match(app, /path="\/supply\/supplier-payments"/)
   assert.match(app, /ProtectedRoute adminOnly/)
   assert.match(layout, /Оплаты поставщикам/)
-  assert.match(detail, /SupplierPaymentsPanel/)
+  assert.doesNotMatch(detail, /SupplierPaymentsPanel/)
   assert.match(documents, /Срок оплаты/)
   assert.match(panel, /Предоплата/)
   assert.match(panel, /Постоплата/)

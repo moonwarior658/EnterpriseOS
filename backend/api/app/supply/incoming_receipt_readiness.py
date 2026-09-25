@@ -259,10 +259,7 @@ def evaluate_receipt_line(
     else:
         classification = ReceiptLineClassification.BASE_UNIT_SAFE
 
-    if value.pricing_basis == "PACKAGE":
-        reasons.append(ReceiptReadinessReason.PACKAGE_CONVERSION_REQUIRED)
-        classification = ReceiptLineClassification.PACKAGE_CONVERSION_REQUIRED
-    elif value.pricing_basis != "UNIT":
+    if value.pricing_basis not in {"UNIT", "PACKAGE"}:
         reasons.append(ReceiptReadinessReason.HISTORICAL_PRICE_MISSING)
     elif (
         value.supplier_document_line_id is None

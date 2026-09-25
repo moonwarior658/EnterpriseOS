@@ -18,6 +18,7 @@ from app.models.supply import (
     SupplySupplier,
     SupplySupplierConfirmation,
     SupplySupplierDocument,
+    SupplySupplierDocumentAttachment,
     SupplySupplierDocumentLine,
     SupplySupplierObligation,
     SupplySupplierOrder,
@@ -54,6 +55,7 @@ class SupplySupplierPaymentsTests(unittest.TestCase):
             SupplySupplierOrder.__table__, SupplySupplierConfirmation.__table__,
             SupplySupplierObligation.__table__,
             SupplySupplierDocument.__table__,
+            SupplySupplierDocumentAttachment.__table__,
             SupplySupplierDocumentLine.__table__, SupplySupplierPayment.__table__,
             SupplySupplierPaymentAllocation.__table__, SupplySupplierSettlementAdjustment.__table__,
         ):

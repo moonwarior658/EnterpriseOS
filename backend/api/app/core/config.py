@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     print_service_token: SecretStr | None = None
     supply_print_printer_name: str = "HP LaserJet Pro MFP M125rnw"
     work_request_upload_dir: str = "/app/uploads/work-requests"
+    supplier_document_upload_dir: str = "/app/uploads/supplier-documents"
 
     model_config = SettingsConfigDict(
         case_sensitive=False,

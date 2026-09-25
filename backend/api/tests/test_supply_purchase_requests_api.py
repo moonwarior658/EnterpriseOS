@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -32,6 +33,7 @@ from app.models.supply import (
     SupplySupplierConfirmation,
     SupplySupplierConfirmationDeviation,
     SupplySupplierDocument,
+    SupplySupplierDocumentAttachment,
     SupplySupplierDocumentLine,
     SupplySupplierObligation,
     SupplySupplierPayment,
@@ -103,7 +105,8 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             SupplySupplierConfirmation.__table__, SupplySupplierConfirmationLine.__table__,
             SupplySupplierConfirmationDeviation.__table__,
             SupplySupplierObligation.__table__,
-            SupplySupplierDocument.__table__, SupplySupplierDocumentLine.__table__,
+            SupplySupplierDocument.__table__, SupplySupplierDocumentAttachment.__table__,
+            SupplySupplierDocumentLine.__table__,
             SupplySupplierPayment.__table__,
             SupplySupplierPaymentAllocation.__table__,
             SupplySupplierSettlementAdjustment.__table__,
@@ -1767,6 +1770,41 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(foreign_unit.status_code, 409, foreign_unit.text)
+
+    def test_supplier_document_attachments_upload_read_delete_and_validate(self) -> None:
+        order = self._sent_order()
+        document = self._create_supplier_document(order, document_type="UPD")
+        previous_dir = settings.supplier_document_upload_dir
+        with tempfile.TemporaryDirectory() as upload_dir:
+            settings.supplier_document_upload_dir = upload_dir
+            try:
+                uploaded = self.client.post(
+                    f"/supply/supplier-documents/{document['id']}/attachments",
+                    files={"file": ("УПД-123.pdf", b"%PDF-1.4 test", "application/pdf")},
+                )
+                self.assertEqual(uploaded.status_code, 201, uploaded.text)
+                attachment = uploaded.json()["attachments"][0]
+                self.assertEqual(attachment["original_filename"], "УПД-123.pdf")
+                opened = self.client.get(
+                    f"/supply/supplier-documents/{document['id']}/attachments/{attachment['id']}"
+                )
+                self.assertEqual(opened.status_code, 200, opened.text)
+                self.assertEqual(opened.content, b"%PDF-1.4 test")
+                self.assertEqual(opened.headers["content-type"], "application/pdf")
+
+                invalid = self.client.post(
+                    f"/supply/supplier-documents/{document['id']}/attachments",
+                    files={"file": ("script.svg", b"<svg/>", "image/svg+xml")},
+                )
+                self.assertEqual(invalid.status_code, 422, invalid.text)
+
+                deleted = self.client.delete(
+                    f"/supply/supplier-documents/{document['id']}/attachments/{attachment['id']}"
+                )
+                self.assertEqual(deleted.status_code, 200, deleted.text)
+                self.assertEqual(deleted.json()["attachments"], [])
+            finally:
+                settings.supplier_document_upload_dir = previous_dir
 
     def test_supplier_acceptance_document_defaults_partial_remaining_and_immutability(self) -> None:
         order = self._sent_order()

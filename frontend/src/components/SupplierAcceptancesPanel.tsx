@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { EosSelect } from './EosFormControls'
 import {
   getConfirmedDestinationWarehouseMappings,
@@ -25,13 +25,26 @@ const resolutionLabels: Record<SupplyAcceptanceResolutionType, string> = {
   WAIT_FOR_DELIVERY: 'Ожидается довоз', CLOSE_SHORTAGE: 'Недопоставка закрыта', RETURN_TO_PROCUREMENT: 'Возвращено в закупку',
   WAIT_FOR_REPLACEMENT: 'Ожидается замена', CLOSE_REJECTION: 'Отклонение закрыто', ACCEPT_EXCESS: 'Излишек принят', REJECT_EXCESS: 'Излишек исключён',
 }
+const receiptReasonLabels: Record<string, string> = {
+  HISTORICAL_PRICE_MISSING: 'Для прихода в iiko не хватает цены из документа поставщика. Добавьте УПД и свяжите его строки с принятыми товарами.',
+  FIXED_AMOUNT_NOT_PHYSICAL: 'Дополнительная услуга не является товарной строкой и не передаётся в приход iiko.',
+  SUPPLIER_MAPPING_MISSING: 'Не подтверждено сопоставление поставщика с iiko.',
+  SUPPLIER_MAPPING_STALE: 'Сопоставление поставщика с iiko устарело.',
+  STORE_MAPPING_MISSING: 'Не подтверждено сопоставление склада приёмки с iiko.',
+  PRODUCT_MAPPING_MISSING: 'Не все принятые товары сопоставлены с iiko.',
+  UNIT_MAPPING_MISSING: 'Не все единицы измерения сопоставлены с iiko.',
+  PRODUCT_MAIN_UNIT_MISSING: 'В iiko не определена основная единица товара.',
+  UNIT_NOT_MAIN: 'Единица документа не совпадает с основной единицей товара в iiko.',
+  UNRESOLVED_EXCESS: 'Сначала примите решение по излишку.',
+  NO_RECEIPT_ELIGIBLE_QUANTITY: 'Нет принятого количества, доступного для прихода.',
+}
 
 function destinationLabel(mapping: IikoWarehouseMapping) {
   const code = mapping.source_code ? ` · ${mapping.source_code}` : ''
   return `${mapping.eos_department_name} · ${roles[mapping.role || ''] || mapping.role} · ${mapping.source_name}${code}`
 }
 
-export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { order: SupplySupplierOrder; onOrderRefresh: () => void }) {
+export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onReceiptStatusChange }: { order: SupplySupplierOrder; onOrderRefresh: () => void; onReceiptStatusChange?: (status: SupplyIikoIncomingReceipt['status'] | null) => void }) {
   const [items, setItems] = useState<SupplySupplierAcceptance[]>([])
   const [documents, setDocuments] = useState<SupplySupplierDocument[]>([])
   const [destinations, setDestinations] = useState<IikoWarehouseMapping[]>([])
@@ -48,7 +61,7 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
   const [sourceValues, setSourceValues] = useState<Record<string, string>>({})
   const [receipts, setReceipts] = useState<Record<string, SupplyIikoIncomingReceipt>>({})
 
-  async function loadReceipts(acceptances: SupplySupplierAcceptance[]) {
+  const loadReceipts = useCallback(async (acceptances: SupplySupplierAcceptance[]) => {
     const recorded = acceptances.filter((item) => item.status === 'RECORDED')
     const pairs = await Promise.all(recorded.map(async (item) => {
       try { return [item.id, await getSupplyIikoIncomingReceiptForAcceptance(item.id)] as const }
@@ -57,13 +70,18 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
         throw error
       }
     }))
-    setReceipts(Object.fromEntries(pairs.filter((item): item is readonly [string, SupplyIikoIncomingReceipt] => item !== null)))
-  }
+    const loaded = pairs.filter((item): item is readonly [string, SupplyIikoIncomingReceipt] => item !== null)
+    setReceipts(Object.fromEntries(loaded))
+    const statuses = loaded.map(([, receipt]) => receipt.status)
+    onReceiptStatusChange?.(statuses.includes('POSTED') ? 'POSTED' : statuses.at(-1) ?? null)
+  }, [onReceiptStatusChange])
 
   async function load() {
     const [acceptances, docs] = await Promise.all([getSupplySupplierAcceptances(order.id), getSupplySupplierDocuments(order.id)])
+    const recordedDocs = docs.filter((item) => item.status === 'RECORDED')
     setItems(acceptances); setDraft(acceptances.find((item) => item.status === 'DRAFT') ?? null)
-    setDocuments(docs.filter((item) => item.status === 'RECORDED'))
+    setDocuments(recordedDocs)
+    setDocumentId((current) => current || recordedDocs[0]?.id || '')
     await loadReceipts(acceptances)
   }
   useEffect(() => {
@@ -71,12 +89,14 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
     Promise.all([getSupplySupplierAcceptances(order.id), getSupplySupplierDocuments(order.id), getConfirmedDestinationWarehouseMappings()]).then(async ([acceptances, docs, mappings]) => {
       if (!active) return
       setItems(acceptances); setDraft(acceptances.find((item) => item.status === 'DRAFT') ?? null)
-      setDocuments(docs.filter((item) => item.status === 'RECORDED'))
+      const recordedDocs = docs.filter((item) => item.status === 'RECORDED')
+      setDocuments(recordedDocs)
+      setDocumentId(recordedDocs[0]?.id ?? '')
       setDestinations(mappings)
       await loadReceipts(acceptances)
     }).catch(() => { if (active) setMessage('Не удалось загрузить приёмки') })
     return () => { active = false }
-  }, [order.id])
+  }, [loadReceipts, order.id])
   async function run(action: () => Promise<SupplySupplierAcceptance>, success?: string) {
     setBusy(true); setMessage('')
     try { const value = await action(); setDraft(value.status === 'DRAFT' ? value : null); await load(); onOrderRefresh(); if (success) setMessage(success) }
@@ -103,7 +123,9 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
       setReceipts((current) => ({ ...current, [acceptanceId]: receipt }))
       await load(); onOrderRefresh(); setMessage(success)
     } catch (error) {
-      setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось изменить приход iiko')
+      setMessage(error instanceof SupplyApiError && error.reasons.length
+        ? error.reasons.map((reason) => receiptReasonLabels[reason] ?? reason).join(' ')
+        : error instanceof SupplyApiError ? error.message : 'Не удалось изменить приход iiko')
     } finally { setBusy(false) }
   }
   function createSummary(receipt: SupplyIikoIncomingReceipt) {
@@ -137,15 +159,15 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh }: { or
     return <div>
       <span>Заказано {line.ordered_quantity ?? '—'} {unit}</span><br />
       <span>Подтверждено {line.confirmed_quantity ?? '—'} {unit} ({delta(line.ordered_vs_confirmed)})</span><br />
-      <span>В накладной {line.documented_quantity ?? '—'} {unit} ({delta(line.confirmed_vs_documented)})</span><br />
+      <span>В документе {line.documented_quantity ?? '—'} {unit} ({delta(line.confirmed_vs_documented)})</span><br />
       <span>Приехало {line.received_quantity} {unit} ({delta(line.documented_vs_received)})</span><br />
       <span>Принято {line.accepted_quantity} {unit} ({delta(line.received_vs_accepted)}), отклонено {line.rejected_quantity} {unit}</span>
     </div>
   }
   return <section className="supplier-message-panel supplier-documents-panel">
-    <div className="supplier-message-heading"><div><span className="field-label">ПРИЁМКА</span><h2>Фактическая приёмка товара</h2></div><span>Заказ, подтверждение, документ и физический факт показаны раздельно</span></div>
+    <div className="supplier-message-heading"><div><span className="field-label">ТЕКУЩИЙ ЭТАП</span><h2>{(order.acceptance_summary?.recorded_count ?? 0) > 0 ? 'Приход в iiko' : 'Фактическая приёмка товара'}</h2></div><span>Основание — зафиксированный документ поставщика</span></div>
     {message && <p className="request-message">{message}</p>}
-    {!draft && <div className="supplier-document-create"><label className="eos-field"><span>Документ-основание</span><EosSelect value={documentId} disabled={busy} onChange={(event) => setDocumentId(event.target.value)}><option value="">Без документа: ответ поставщика или заказ</option>{documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.document_number || doc.document_type} от {doc.document_date || 'без даты'}</option>)}</EosSelect></label><label className="eos-field"><span>Склад приёмки</span><EosSelect value={destinationMappingId} disabled={busy} onChange={(event) => setDestinationMappingId(event.target.value)}><option value="">Выберите склад</option>{destinations.map((mapping) => <option key={mapping.id} value={mapping.id}>{destinationLabel(mapping)}</option>)}</EosSelect></label><button type="button" className="primary-action" disabled={busy || !destinationMappingId} onClick={() => run(() => createSupplySupplierAcceptance(order.id, { supplier_document_id: documentId || null, destination_mapping_id: destinationMappingId }))}>Создать приёмку</button></div>}
+    {!draft && <div className="supplier-document-create"><label className="eos-field"><span>Документ-основание</span><EosSelect value={documentId} disabled={busy} onChange={(event) => setDocumentId(event.target.value)}><option value="">Выберите документ</option>{documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.document_type === 'UPD' ? 'УПД' : doc.document_type === 'INVOICE' ? 'Счёт' : 'Накладная'} №{doc.document_number || 'без номера'} от {doc.document_date || 'без даты'}</option>)}</EosSelect></label><label className="eos-field"><span>Склад приёмки</span><EosSelect value={destinationMappingId} disabled={busy} onChange={(event) => setDestinationMappingId(event.target.value)}><option value="">Выберите склад</option>{destinations.map((mapping) => <option key={mapping.id} value={mapping.id}>{destinationLabel(mapping)}</option>)}</EosSelect></label><button type="button" className="primary-action" disabled={busy || !documentId || !destinationMappingId} onClick={() => run(() => createSupplySupplierAcceptance(order.id, { supplier_document_id: documentId, destination_mapping_id: destinationMappingId }))}>Создать приёмку</button></div>}
     {draft && <div className="supplier-document-editor">
       <label className="eos-field"><span>Склад приёмки</span><EosSelect value={draft.destination_mapping_id ?? ''} disabled={busy} onChange={(event) => run(() => updateSupplySupplierAcceptance(draft.id, { destination_mapping_id: event.target.value || null }))}><option value="">Выберите склад</option>{destinations.map((mapping) => <option key={mapping.id} value={mapping.id}>{destinationLabel(mapping)}</option>)}</EosSelect></label>
       <label className="eos-field"><span>Комментарий по факту</span><input value={draft.comment ?? ''} disabled={busy} onChange={(event) => setDraft({ ...draft, comment: event.target.value || null })} onBlur={() => run(() => updateSupplySupplierAcceptance(draft.id, { comment: draft.comment }))} /></label>

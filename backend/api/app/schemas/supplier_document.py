@@ -149,6 +149,15 @@ class SupplySupplierDocumentLineRead(BaseModel):
     updated_at: datetime
 
 
+class SupplySupplierDocumentAttachmentRead(BaseModel):
+    id: UUID
+    original_filename: str
+    content_type: str
+    size_bytes: int
+    created_by_user_id: int
+    created_at: datetime
+
+
 class SupplySupplierDocumentSummary(BaseModel):
     id: UUID
     document_type: SupplySupplierDocumentType
@@ -184,6 +193,7 @@ class SupplySupplierDocumentRead(SupplySupplierDocumentSummary):
     overdue_state: str
     payments: list[SupplySupplierPaymentRead]
     lines: list[SupplySupplierDocumentLineRead]
+    attachments: list[SupplySupplierDocumentAttachmentRead]
 
 
 class SupplySupplierDocumentsSummary(BaseModel):

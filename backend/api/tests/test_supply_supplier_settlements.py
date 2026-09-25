@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models.supply import (
     SupplyPurchaseRequest, SupplySupplier, SupplySupplierConfirmation, SupplySupplierDocument,
+    SupplySupplierDocumentAttachment,
     SupplySupplierObligation, SupplySupplierOrder, SupplySupplierPayment,
     SupplySupplierPaymentAllocation, SupplySupplierSettlementAdjustment,
     SupplySupplierAcceptance, SupplySupplierAcceptanceLine,
@@ -39,7 +40,8 @@ class SupplySupplierSettlementsTests(unittest.TestCase):
             User.__table__, SupplySupplier.__table__, SupplyPurchaseRequest.__table__,
             SupplySupplierOrder.__table__, SupplySupplierConfirmation.__table__,
             SupplySupplierObligation.__table__,
-            SupplySupplierDocument.__table__, SupplySupplierPayment.__table__,
+            SupplySupplierDocument.__table__, SupplySupplierDocumentAttachment.__table__,
+            SupplySupplierPayment.__table__,
             SupplySupplierPaymentAllocation.__table__, SupplySupplierSettlementAdjustment.__table__,
             SupplySupplierAcceptance.__table__, SupplySupplierAcceptanceLine.__table__,
         ):

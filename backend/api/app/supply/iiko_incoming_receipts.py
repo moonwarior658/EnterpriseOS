@@ -269,7 +269,14 @@ def _readiness(
             historical_unit_price=(
                 Decimal(document_line.unit_price)
                 if document_line is not None and document_line.unit_price is not None
-                else None
+                else (
+                    Decimal(document_line.line_amount) / Decimal(document_line.quantity_base)
+                    if document_line is not None
+                    and document_line.quantity_base is not None
+                    and Decimal(document_line.quantity_base) > 0
+                    and document_line.pricing_basis == "PACKAGE"
+                    else None
+                )
             ),
             historical_line_sum=(
                 Decimal(document_line.line_amount) if document_line is not None else None

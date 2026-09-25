@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from uuid import UUID
+from pathlib import Path
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +11,7 @@ from app.models.supply import (
     SupplySupplierConfirmation,
     SupplySupplierConfirmationLine,
     SupplySupplierDocument,
+    SupplySupplierDocumentAttachment,
     SupplySupplierDocumentLine,
     SupplySupplierObligation,
     SupplySupplierOrder,
@@ -19,6 +21,7 @@ from app.models.supply import (
 )
 from app.schemas.supplier_document import (
     SupplySupplierDocumentCreate,
+    SupplySupplierDocumentAttachmentRead,
     SupplySupplierDocumentLineCreate,
     SupplySupplierDocumentLineRead,
     SupplySupplierDocumentLineUpdate,
@@ -56,11 +59,13 @@ class SupplierDocumentConflictError(ValueError):
 MONEY_QUANTUM = Decimal("0.000001")
 PACKAGE_QUANTUM = Decimal("0.001")
 PRICE_QUANTUM = Decimal("0.01")
+MAX_ATTACHMENT_COUNT = 10
 
 
 def _document_options():
     return (
         selectinload(SupplySupplierDocument.lines),
+        selectinload(SupplySupplierDocument.attachments),
         selectinload(SupplySupplierDocument.allocations),
         selectinload(SupplySupplierDocument.payments).joinedload(SupplySupplierPayment.supplier),
         selectinload(SupplySupplierDocument.payments).joinedload(SupplySupplierPayment.supplier_order),
@@ -136,6 +141,19 @@ def _line_read(line: SupplySupplierDocumentLine) -> SupplySupplierDocumentLineRe
         is_extra_line=line.supplier_order_line_id is None,
         created_at=line.created_at,
         updated_at=line.updated_at,
+    )
+
+
+def _attachment_read(
+    attachment: SupplySupplierDocumentAttachment,
+) -> SupplySupplierDocumentAttachmentRead:
+    return SupplySupplierDocumentAttachmentRead(
+        id=attachment.id,
+        original_filename=attachment.original_filename,
+        content_type=attachment.content_type,
+        size_bytes=attachment.size_bytes,
+        created_by_user_id=attachment.created_by_user_id,
+        created_at=attachment.created_at,
     )
 
 
@@ -216,6 +234,7 @@ def _read(session: Session, document: SupplySupplierDocument) -> SupplySupplierD
         overdue_state=overdue_state,
         payments=[payment_read(session, item) for item in document.payments],
         lines=[_line_read(line) for line in document.lines],
+        attachments=[_attachment_read(item) for item in document.attachments],
     )
 
 
@@ -678,4 +697,99 @@ def cancel_document(
         raise SupplierDocumentStateError
     document.status = "CANCELLED"
     session.commit()
+    return read_document(session, document.id, tenant_id=tenant_id)
+
+
+def create_attachment(
+    session: Session,
+    document_id: UUID,
+    *,
+    tenant_id: str,
+    user_id: int,
+    original_filename: str,
+    content_type: str,
+    content: bytes,
+    upload_dir: Path,
+) -> SupplySupplierDocumentRead:
+    document = _get_document(session, document_id, tenant_id=tenant_id, lock=True)
+    if document.status == "CANCELLED":
+        raise SupplierDocumentStateError
+    if len(document.attachments) >= MAX_ATTACHMENT_COUNT:
+        raise SupplierDocumentValidationError
+
+    suffix = {
+        "application/pdf": ".pdf",
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+    }.get(content_type)
+    if suffix is None or not content:
+        raise SupplierDocumentValidationError
+
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_root = upload_dir.resolve()
+    stored_filename = f"{uuid4().hex}{suffix}"
+    target = (upload_root / stored_filename).resolve()
+    if target.parent != upload_root:
+        raise SupplierDocumentValidationError
+
+    try:
+        target.write_bytes(content)
+        session.add(SupplySupplierDocumentAttachment(
+            tenant_id=tenant_id,
+            supplier_document_id=document.id,
+            original_filename=Path(original_filename).name[:255] or "document",
+            stored_filename=stored_filename,
+            content_type=content_type,
+            size_bytes=len(content),
+            created_by_user_id=user_id,
+        ))
+        session.commit()
+    except Exception:
+        session.rollback()
+        target.unlink(missing_ok=True)
+        raise
+    return read_document(session, document.id, tenant_id=tenant_id)
+
+
+def get_attachment(
+    session: Session,
+    document_id: UUID,
+    attachment_id: UUID,
+    *,
+    tenant_id: str,
+) -> SupplySupplierDocumentAttachment:
+    attachment = session.scalar(select(SupplySupplierDocumentAttachment).where(
+        SupplySupplierDocumentAttachment.id == attachment_id,
+        SupplySupplierDocumentAttachment.supplier_document_id == document_id,
+        SupplySupplierDocumentAttachment.tenant_id == tenant_id,
+    ))
+    if attachment is None:
+        raise SupplierDocumentNotFoundError
+    return attachment
+
+
+def delete_attachment(
+    session: Session,
+    document_id: UUID,
+    attachment_id: UUID,
+    *,
+    tenant_id: str,
+    upload_dir: Path,
+) -> SupplySupplierDocumentRead:
+    document = _get_document(session, document_id, tenant_id=tenant_id, lock=True)
+    if document.status == "CANCELLED":
+        raise SupplierDocumentStateError
+    attachment = next(
+        (item for item in document.attachments if item.id == attachment_id), None,
+    )
+    if attachment is None:
+        raise SupplierDocumentNotFoundError
+    stored_filename = attachment.stored_filename
+    session.delete(attachment)
+    session.commit()
+
+    upload_root = upload_dir.resolve()
+    target = (upload_root / stored_filename).resolve()
+    if target.parent == upload_root:
+        target.unlink(missing_ok=True)
     return read_document(session, document.id, tenant_id=tenant_id)

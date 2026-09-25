@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom'
 import { EosDateField, EosSelect } from '../components/EosFormControls'
 import { EosProductCombobox } from '../components/EosProductCombobox'
 import SupplyPurchaseAllocationWorkspace from './SupplyPurchaseAllocationWorkspace'
-import ProcurementCashFlowSummary from '../components/ProcurementCashFlowSummary'
 import {
   addSupplyPurchaseRequestLine,
   cancelSupplyPurchaseRequest,
@@ -11,7 +10,6 @@ import {
   deleteSupplyPurchaseRequestLine,
   getSupplyPurchaseRequest,
   getSupplyPurchaseRequestCoverage,
-  getSupplyPurchaseRequestCashFlow,
   getSupplyUnits,
   readySupplyPurchaseRequest,
   updateSupplyPurchaseRequest,
@@ -20,7 +18,6 @@ import {
   type SupplyPurchaseRequest,
   type SupplyPurchaseRequestCoverage,
   type SupplyPurchaseRequestLine,
-  type SupplyProcurementCashFlowSummary as CashFlowSummary,
   type SupplyUnit,
   SupplyApiError,
 } from '../services/supplyAdmin'
@@ -50,7 +47,6 @@ export default function SupplyPurchaseRequestDetailPage() {
   const [collected, setCollected] = useState(false)
   const [showAllocations, setShowAllocations] = useState(false)
   const [coverage, setCoverage] = useState<SupplyPurchaseRequestCoverage | null>(null)
-  const [cashFlow, setCashFlow] = useState<CashFlowSummary | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -58,11 +54,9 @@ export default function SupplyPurchaseRequestDetailPage() {
       getSupplyPurchaseRequest(requestId, controller.signal),
       getSupplyUnits(controller.signal),
       getSupplyPurchaseRequestCoverage(requestId, controller.signal),
-      getSupplyPurchaseRequestCashFlow(requestId, controller.signal),
-    ]).then(([loaded, loadedUnits, loadedCoverage, loadedCashFlow]) => {
+    ]).then(([loaded, loadedUnits, loadedCoverage]) => {
       setRequest(loaded); setNeedDate(loaded.need_date)
       setCoverage(loadedCoverage)
-      setCashFlow(loadedCashFlow)
       setComment(loaded.comment ?? ''); setUnits(loadedUnits.filter((unit) => unit.is_active))
     }).catch(() => { if (!controller.signal.aborted) setMessage('Не удалось загрузить закупочный запрос') })
     return () => controller.abort()
@@ -143,8 +137,6 @@ export default function SupplyPurchaseRequestDetailPage() {
         {request.status === 'READY' && <div className="purchase-actions"><button type="button" className="primary-action" onClick={() => setShowAllocations((value) => !value)}>{showAllocations ? 'Скрыть распределение' : 'Распределить по поставщикам'}</button></div>}
 
         {request.status === 'READY' && coverage && <div className="allocation-summary"><div><span>Покрыто полностью</span><strong>{coverage.fully_covered_count}</strong></div><div><span>Покрыто частично</span><strong>{coverage.partially_covered_count}</strong></div><div><span>Не покрыто</span><strong>{coverage.not_covered_count}</strong></div><div><span>Legacy без traceability</span><strong>{coverage.unknown_legacy_count}</strong></div><div><span>С задержкой</span><strong>{coverage.delayed_count}</strong></div><div><span>Будущая потребность покрыта</span><strong>{coverage.manual_future_covered_quantity}</strong></div></div>}
-
-        {cashFlow && <ProcurementCashFlowSummary value={cashFlow} />}
 
         {request.status === 'READY' && showAllocations && <SupplyPurchaseAllocationWorkspace requestId={requestId} />}
 

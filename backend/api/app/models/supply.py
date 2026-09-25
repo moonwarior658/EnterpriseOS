@@ -1951,6 +1951,14 @@ class SupplySupplierDocument(Base):
             "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentLine.tenant_id))"
         ),
     )
+    attachments: Mapped[list["SupplySupplierDocumentAttachment"]] = relationship(
+        back_populates="supplier_document", cascade="all, delete-orphan",
+        passive_deletes=True, order_by="SupplySupplierDocumentAttachment.created_at",
+        primaryjoin=(
+            "and_(SupplySupplierDocument.id == foreign(SupplySupplierDocumentAttachment.supplier_document_id), "
+            "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentAttachment.tenant_id))"
+        ),
+    )
     payments: Mapped[list["SupplySupplierPayment"]] = relationship(
         passive_deletes=True, order_by="SupplySupplierPayment.payment_date",
         foreign_keys="SupplySupplierPayment.supplier_document_id",
@@ -1958,6 +1966,53 @@ class SupplySupplierDocument(Base):
     allocations: Mapped[list["SupplySupplierPaymentAllocation"]] = relationship(
         passive_deletes=True, order_by="SupplySupplierPaymentAllocation.created_at",
         foreign_keys="SupplySupplierPaymentAllocation.supplier_document_id",
+    )
+
+
+class SupplySupplierDocumentAttachment(Base):
+    __tablename__ = "supply_supplier_document_attachments"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id",
+            name="uq_supply_supplier_document_attachments_tenant_id",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "supplier_document_id"],
+            ["supply_supplier_documents.tenant_id", "supply_supplier_documents.id"],
+            name="fk_supply_supplier_document_attachments_document_tenant",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("size_bytes > 0", name="ck_supply_supplier_document_attachments_size"),
+        CheckConstraint(
+            "content_type IN ('application/pdf', 'image/jpeg', 'image/png')",
+            name="ck_supply_supplier_document_attachments_content_type",
+        ),
+        Index(
+            "ix_supply_supplier_document_attachments_document",
+            "tenant_id", "supplier_document_id", "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    supplier_document_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_filename: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    supplier_document: Mapped[SupplySupplierDocument] = relationship(
+        back_populates="attachments",
+        primaryjoin=(
+            "and_(SupplySupplierDocument.id == foreign(SupplySupplierDocumentAttachment.supplier_document_id), "
+            "SupplySupplierDocument.tenant_id == foreign(SupplySupplierDocumentAttachment.tenant_id))"
+        ),
     )
 
 

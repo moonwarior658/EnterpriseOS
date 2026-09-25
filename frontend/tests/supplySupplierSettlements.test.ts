@@ -15,7 +15,7 @@ test('UI покрывает overview, allocation, reversal, statement, overdue �
   const payments = readFileSync(new URL('../src/components/SupplierPaymentsPanel.tsx', import.meta.url), 'utf8')
   const settlement = readFileSync(new URL('../src/components/SupplierSettlementPanel.tsx', import.meta.url), 'utf8')
   const documents = readFileSync(new URL('../src/components/SupplierDocumentsPanel.tsx', import.meta.url), 'utf8')
-  assert.match(detail, /SupplierSettlementPanel/)
+  assert.doesNotMatch(detail, /SupplierSettlementPanel/)
   assert.match(payments, /Распределить платёж/)
   assert.match(payments, /отмены распределения/i)
   assert.match(payments, /Возврат/)

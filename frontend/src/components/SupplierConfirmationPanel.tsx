@@ -62,7 +62,6 @@ export default function SupplierConfirmationPanel({ order, onOrderRefresh }: Pro
   async function saveHeader() {
     if (!draft) return null
     const value = await updateSupplySupplierConfirmation(draft.id, {
-      supplier_reference: draft.supplier_reference,
       supplier_comment: draft.supplier_comment,
       confirmed_delivery_date: draft.confirmed_delivery_date,
       responded_at: draft.responded_at,
@@ -118,7 +117,6 @@ export default function SupplierConfirmationPanel({ order, onOrderRefresh }: Pro
     {draft && <>
       <div className="purchase-request-header">
         <EosDateField label="Подтверждённая дата поставки" value={draft.confirmed_delivery_date ?? ''} disabled={busy} onChange={(event) => setDraft({ ...draft, confirmed_delivery_date: event.target.value || null })} />
-        <label className="eos-field"><span>Номер / ссылка поставщика</span><input disabled={busy} value={draft.supplier_reference ?? ''} onChange={(event) => setDraft({ ...draft, supplier_reference: event.target.value || null })} /></label>
         <label className="eos-field"><span>Когда поставщик ответил</span><input type="datetime-local" disabled={busy} value={draft.responded_at ? new Date(draft.responded_at).toISOString().slice(0, 16) : ''} onChange={(event) => setDraft({ ...draft, responded_at: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label>
       </div>
       <label className="eos-field"><span>Комментарий поставщика</span><input disabled={busy} value={draft.supplier_comment ?? ''} onChange={(event) => setDraft({ ...draft, supplier_comment: event.target.value || null })} /></label>

@@ -23,7 +23,8 @@ test('денежный поток показывает funnel, недоступ�
   assert.match(component, /не «экономия»/)
   assert.doesNotMatch(component, /savings/)
   assert.match(supplierPanel, /getSupplySupplierCashFlow/)
-  assert.match(requestPage, /getSupplyPurchaseRequestCashFlow/)
+  assert.doesNotMatch(requestPage, /getSupplyPurchaseRequestCashFlow/)
+  assert.doesNotMatch(requestPage, /ProcurementCashFlowSummary/)
 })
 
 

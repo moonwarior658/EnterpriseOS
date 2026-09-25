@@ -108,16 +108,11 @@ class ReceiptLineReadinessTests(unittest.TestCase):
                 self.assertEqual(result.status, ReceiptLineStatus.BLOCKED)
                 self.assertIn(reason, result.reason_codes)
 
-    def test_package_conversion_is_blocked(self) -> None:
+    def test_package_basis_is_safe_with_document_quantity_and_amount(self) -> None:
         result = evaluate_receipt_line(ready_input(pricing_basis="PACKAGE"))
-        self.assertEqual(
-            result.classification,
-            ReceiptLineClassification.PACKAGE_CONVERSION_REQUIRED,
-        )
-        self.assertIn(
-            ReceiptReadinessReason.PACKAGE_CONVERSION_REQUIRED,
-            result.reason_codes,
-        )
+        self.assertEqual(result.status, ReceiptLineStatus.READY)
+        self.assertEqual(result.classification, ReceiptLineClassification.BASE_UNIT_SAFE)
+        self.assertEqual(result.contract.sum_amount, Decimal("123.456780"))
 
     def test_documentless_and_order_price_fallback_are_blocked(self) -> None:
         for changes in (

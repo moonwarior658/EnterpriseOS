@@ -496,6 +496,15 @@ export type SupplySupplierDocumentLine = {
   updated_at: string
 }
 
+export type SupplySupplierDocumentAttachment = {
+  id: string
+  original_filename: string
+  content_type: 'application/pdf' | 'image/jpeg' | 'image/png'
+  size_bytes: number
+  created_by_user_id: number
+  created_at: string
+}
+
 export type SupplySupplierDocumentSummary = {
   id: string
   document_type: SupplySupplierDocumentType
@@ -531,6 +540,7 @@ export type SupplySupplierDocument = SupplySupplierDocumentSummary & {
   overdue_state: 'UNKNOWN' | 'NOT_DUE' | 'OVERDUE' | 'SETTLED'
   payments: SupplySupplierPayment[]
   lines: SupplySupplierDocumentLine[]
+  attachments: SupplySupplierDocumentAttachment[]
 }
 
 export type SupplySupplierPaymentType = 'PREPAYMENT' | 'POSTPAYMENT'
@@ -1072,17 +1082,20 @@ export class SupplyApiError extends Error {
   code: string | null
   currentVersion: number | null
   status: number | null
+  reasons: string[]
 
   constructor(
     message: string,
     code: string | null,
     currentVersion: number | null,
     status: number | null = null,
+    reasons: string[] = [],
   ) {
     super(message)
     this.code = code
     this.currentVersion = currentVersion
     this.status = status
+    this.reasons = reasons
   }
 }
 
@@ -1092,7 +1105,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', 'application/json')
-  if (options.body) headers.set('Content-Type', 'application/json')
+  if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const response = await fetch(`/api${path}`, { ...options, headers })
   if (!response.ok) {
     let detail: unknown
@@ -1103,13 +1116,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       detail = null
     }
     const payload = typeof detail === 'object' && detail !== null
-      ? detail as { code?: string; current_version?: number }
+      ? detail as { code?: string; current_version?: number; reasons?: string[] }
       : null
     throw new SupplyApiError(
       typeof detail === 'string' ? detail : 'Не удалось выполнить действие',
       payload?.code ?? null,
       payload?.current_version ?? null,
       response.status,
+      Array.isArray(payload?.reasons) ? payload.reasons : [],
     )
   }
   return response.json() as Promise<T>
@@ -1732,6 +1746,37 @@ export function recordSupplySupplierDocument(documentId: string): Promise<Supply
 
 export function cancelSupplySupplierDocument(documentId: string): Promise<SupplySupplierDocument> {
   return request(`/supply/supplier-documents/${documentId}/cancel`, { method: 'POST' })
+}
+
+export function uploadSupplySupplierDocumentAttachment(
+  documentId: string, file: File,
+): Promise<SupplySupplierDocument> {
+  const body = new FormData()
+  body.append('file', file)
+  return request(`/supply/supplier-documents/${documentId}/attachments`, {
+    method: 'POST', body,
+  })
+}
+
+export function deleteSupplySupplierDocumentAttachment(
+  documentId: string, attachmentId: string,
+): Promise<SupplySupplierDocument> {
+  return request(`/supply/supplier-documents/${documentId}/attachments/${attachmentId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getSupplySupplierDocumentAttachmentUrl(
+  documentId: string, attachmentId: string,
+): Promise<string> {
+  const token = getStoredToken()
+  if (!token) throw new SupplyApiError('Сессия не найдена', null, null)
+  const response = await fetch(
+    `/api/supply/supplier-documents/${documentId}/attachments/${attachmentId}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!response.ok) throw new SupplyApiError('Не удалось открыть файл', null, null, response.status)
+  return URL.createObjectURL(await response.blob())
 }
 
 export type SupplySupplierPaymentInput = {
