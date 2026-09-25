@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { EosSelect } from './EosFormControls'
 import {
   getConfirmedDestinationWarehouseMappings,
@@ -18,9 +18,9 @@ import {
   type SupplySupplierAcceptanceRejectionReason, type SupplySupplierDocument, type SupplySupplierOrder,
 } from '../services/supplyAdmin'
 import { formatMoney, formatQuantity } from '../utils/format'
+import { hasAcceptanceDiscrepancy, summarizeAcceptanceQuantity } from './supplierAcceptanceHistory'
 
 const reasons: Record<SupplySupplierAcceptanceRejectionReason, string> = { DAMAGED: 'Повреждение', QUALITY_MISMATCH: 'Несоответствие качества', WRONG_PRODUCT: 'Другой товар', WRONG_PACKAGE: 'Другая упаковка', EXPIRED: 'Истёк срок годности', OTHER: 'Другое' }
-const results = { FULLY_ACCEPTED: 'Принято полностью', PARTIALLY_ACCEPTED: 'Принято частично', REJECTED: 'Отклонено', OVER_DELIVERED: 'Поставка сверх документа', MIXED: 'Смешанный результат' } as const
 const roles: Record<string, string> = { MAIN: 'Основной', PACKAGING: 'Упаковка', HOUSEHOLD: 'Хозяйственный', FIXED_ASSETS: 'Основные средства', OTHER: 'Другой' }
 const issueLabels = { SHORTAGE: 'Недопоставка', REJECTED: 'Брак / отклонено', EXCESS: 'Принятый излишек' } as const
 const resolutionLabels: Record<SupplyAcceptanceResolutionType, string> = {
@@ -185,15 +185,16 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
     const numeric = Number(value)
     return numeric > 0 ? `+${formatQuantity(value)}` : formatQuantity(value)
   }
-  function planFact(line: SupplySupplierAcceptanceLine) {
-    const unit = line.unit_name_snapshot || ''
-    return <div className="acceptance-plan-fact">
-      <div><span>Заказано</span><strong>{formatQuantity(line.ordered_quantity)} {unit}</strong></div>
-      <div><span>Подтверждено</span><strong>{formatQuantity(line.confirmed_quantity)} {unit}</strong><small>Δ {delta(line.ordered_vs_confirmed)}</small></div>
-      <div><span>В документе</span><strong>{formatQuantity(line.documented_quantity)} {unit}</strong><small>Δ {delta(line.confirmed_vs_documented)}</small></div>
-      <div><span>Приехало</span><strong>{formatQuantity(line.received_quantity)} {unit}</strong><small>Δ {delta(line.documented_vs_received)}</small></div>
-      <div><span>Принято</span><strong>{formatQuantity(line.accepted_quantity)} {unit}</strong><small>Отклонено: {formatQuantity(line.rejected_quantity)} {unit}</small></div>
-    </div>
+  function historyDocument(document: SupplySupplierDocument | undefined) {
+    if (!document) return 'Без документа'
+    const label = document.document_type === 'UPD' ? 'УПД' : document.document_type === 'INVOICE' ? 'Счёт' : 'Накладная'
+    const title = `${label} №${document.document_number || 'без номера'}`
+    if (document.attachments.length === 0) return title
+    if (document.attachments.length === 1) {
+      const attachment = document.attachments[0]
+      return <button type="button" className="acceptance-document-link" disabled={busy} onClick={() => openAttachment(document, attachment.id, attachment.original_filename)}>{title}</button>
+    }
+    return <details className="acceptance-document-files"><summary>{title}</summary>{document.attachments.map((attachment) => <button type="button" key={attachment.id} disabled={busy} onClick={() => openAttachment(document, attachment.id, attachment.original_filename)}>{attachment.original_filename}</button>)}</details>
   }
   function documentBasis(document: SupplySupplierDocument | undefined) {
     if (!document) return null
@@ -220,7 +221,11 @@ export default function SupplierAcceptancesPanel({ order, onOrderRefresh, onRece
       <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy || !draft.destination_mapping_id || draft.lines.some((line) => line.supplier_order_line_id && line.traceability_status !== 'TRACEABLE')} onClick={() => window.confirm('Зафиксировать факт приёмки?') && run(() => recordSupplySupplierAcceptance(draft.id), 'Приёмка зафиксирована')}>Зафиксировать приёмку</button><button type="button" className="danger-action" disabled={busy} onClick={() => window.confirm('Отменить черновик приёмки?') && run(() => cancelSupplySupplierAcceptance(draft.id))}>Отменить</button></div>
     </div>}
     {(order.acceptance_summary?.cumulative_lines.length ?? 0) > 0 && <div className="supplier-table-wrap"><h3>Накопительный факт приёмки</h3><table className="supplier-table"><thead><tr><th>Позиция</th><th>Источник</th><th>Приехало всего</th><th>Принято всего</th><th>Отклонено всего</th><th>Остаток</th><th>Для будущего прихода</th></tr></thead><tbody>{order.acceptance_summary?.cumulative_lines.map((line, index) => <tr key={`${line.source_type}-${line.source_line_id || index}`}><td>{line.product_name}</td><td>{line.source_type === 'DOCUMENT' ? 'Накладная' : line.source_type === 'CONFIRMATION' ? 'Подтверждение' : line.source_type === 'ORDER' ? 'Заказ' : 'Вне документа'}</td><td>{formatQuantity(line.total_received)} {line.unit_name || ''}</td><td>{formatQuantity(line.total_accepted)} {line.unit_name || ''}</td><td>{formatQuantity(line.total_rejected)} {line.unit_name || ''}</td><td>{formatQuantity(line.remaining_quantity)} {line.unit_name || ''}</td><td>{line.receipt_eligible_quantity === null ? 'Требуется решение по излишку' : `${formatQuantity(line.receipt_eligible_quantity)} ${line.unit_name || ''}`}</td></tr>)}</tbody></table></div>}
-    {items.length > 0 && <div className="supplier-table-wrap"><h3>История приёмок</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Склад приёмки</th><th>Источник</th><th>Статус</th><th>Результат</th><th>План / факт</th><th>Комментарий</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td>{new Date(item.recorded_at || item.created_at).toLocaleString('ru-RU')}</td><td>{item.destination ? `${item.destination.department_name} · ${roles[item.destination.role] || item.destination.role} · ${item.destination.iiko_store_name}` : 'Не выбран'}</td><td>{item.source === 'DOCUMENT' ? 'Документ' : item.source === 'CONFIRMATION' ? 'Ответ поставщика' : 'Заказ'}</td><td>{item.status === 'RECORDED' ? 'Зафиксирована' : item.status === 'DRAFT' ? 'Черновик' : 'Отменена'}{item.open_issues_count > 0 && <small>Открытых расхождений: {item.open_issues_count}</small>}</td><td>{results[item.result]}</td><td>{item.lines.map((line) => <div className="acceptance-history-line" key={line.id}><strong>{line.product_name_snapshot}</strong>{planFact(line)}{item.status === 'RECORDED' && <small>Принято к учёту: {formatQuantity(line.accounted_quantity)} {line.unit_name_snapshot || ''}; сумма {formatMoney(line.accounted_sum)}</small>}</div>)}</td><td>{item.comment || '—'}</td></tr>)}</tbody></table></div>}
+    {items.some((item) => item.status === 'RECORDED') && <div className="supplier-table-wrap acceptance-history"><h3>История приёмок</h3><table className="supplier-table acceptance-history-table"><thead><tr><th>Дата</th><th>Склад</th><th>Документ</th><th>Результат</th><th>Заказано</th><th>Принято</th></tr></thead><tbody>{items.filter((item) => item.status === 'RECORDED').map((item) => {
+      const document = documents.find((candidate) => candidate.id === item.supplier_document_id)
+      const discrepancy = hasAcceptanceDiscrepancy(item.lines, item.result)
+      return <Fragment key={item.id}><tr><td>{new Date(item.recorded_at || item.created_at).toLocaleString('ru-RU')}</td><td>{item.destination?.department_name || 'Не выбран'}</td><td>{historyDocument(document)}</td><td><span className={`acceptance-result ${discrepancy ? 'acceptance-result-warning' : ''}`}>{discrepancy ? 'Принято с расхождениями' : 'Принято'}</span></td><td>{summarizeAcceptanceQuantity(item.lines, 'ordered_quantity')}</td><td>{summarizeAcceptanceQuantity(item.lines, 'accepted_quantity')}</td></tr>{item.comment && <tr className="acceptance-history-comment"><td colSpan={6}>{item.comment}</td></tr>}</Fragment>
+    })}</tbody></table></div>}
     {items.filter((item) => item.status === 'RECORDED').map((item) => {
       const receipt = receipts[item.id]
       const receiptDate = new Date(item.recorded_at || item.created_at).toLocaleDateString('ru-RU')

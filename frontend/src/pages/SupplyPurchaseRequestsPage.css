@@ -118,12 +118,18 @@
 .supplier-history-list { display: grid; gap: .35rem; margin: .75rem 0 0; padding-left: 1.2rem; }
 .acceptance-document-basis { display: flex; justify-content: space-between; gap: 1rem; align-items: center; min-width: 0; padding: .9rem 1rem; border: 1px solid #e2e2dc; border-radius: .8rem; background: #fff; }
 .acceptance-document-basis > div:first-child { display: grid; gap: .2rem; min-width: 0; }
-.acceptance-plan-fact { display: grid; gap: .35rem; min-width: 14rem; }
-.acceptance-plan-fact > div { display: grid; grid-template-columns: minmax(6rem, 1fr) auto; gap: .2rem .6rem; align-items: baseline; }
-.acceptance-plan-fact span, .acceptance-plan-fact small { color: #686b70; font-size: .74rem; }
-.acceptance-plan-fact small { grid-column: 2; }
-.acceptance-history-line { display: grid; gap: .45rem; padding: .5rem 0; }
-.acceptance-history-line + .acceptance-history-line { border-top: 1px solid #ecece7; }
+.acceptance-history-table th:nth-child(1) { width: 15%; }
+.acceptance-history-table th:nth-child(2) { width: 19%; }
+.acceptance-history-table th:nth-child(3) { width: 18%; }
+.acceptance-history-table th:nth-child(4) { width: 22%; }
+.acceptance-history-table th:nth-child(5), .acceptance-history-table th:nth-child(6) { width: 13%; }
+.acceptance-document-link, .acceptance-document-files summary, .acceptance-document-files button { border: 0; background: none; padding: 0; color: #245fae; font: inherit; text-align: left; text-decoration: underline; cursor: pointer; }
+.acceptance-document-files { display: grid; gap: .35rem; }
+.acceptance-document-files summary { list-style-position: inside; }
+.acceptance-document-files button { display: block; margin: .35rem 0 0 1rem; font-size: .82rem; }
+.acceptance-result { display: inline-flex; padding: .3rem .55rem; border-radius: 999px; background: #ddf4e6; color: #176b39; font-size: .78rem; font-weight: 700; }
+.acceptance-result-warning { background: #fff0d8; color: #85500f; }
+.acceptance-history-comment td { padding-top: .35rem; color: #686b70; font-size: .82rem; font-style: italic; }
 .supplier-document-attachments { display: grid; gap: .6rem; padding: .9rem; border: 1px solid #e2e2dc; border-radius: .8rem; background: #fff; }
 .supplier-document-attachments > div, .supplier-attachment-actions > div { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .supplier-document-attachments > div > span, .supplier-attachment-actions > div > span { flex: 1 1 12rem; overflow-wrap: anywhere; }
