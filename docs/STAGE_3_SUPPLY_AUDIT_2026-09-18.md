@@ -2,6 +2,8 @@
 
 Canonical roadmap: [ROADMAP_STAGE_3_SUPPLY_v0.1.0.md](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md). Это аудит и коррекция документации, не новый параллельный roadmap.
 
+**Status update 28.09.2026:** реальный EOS business smoke выполнен; Stage 3.1C считается production/business verified и operationally complete. Исторический snapshot 18.09.2026 ниже сохранён без изменения scope и требований следующих этапов.
+
 ## Current production snapshot — 18.09.2026
 
 - Production baseline, сообщённый владельцем: `f8ab3a355f5ec49f7468e2ff868e1b0e17364a2a`, Alembic `20260917_0056`.
@@ -9,8 +11,8 @@ Canonical roadmap: [ROADMAP_STAGE_3_SUPPLY_v0.1.0.md](ROADMAP_STAGE_3_SUPPLY_v0.
 - Read-only SSH-проверка 18.09.2026 предпринята дважды, но соединение завершилось `Connection timed out during banner exchange` до авторизации. На Mac ветка `main`; ветка/HEAD/рабочее дерево сервера и live Alembic пока **не проверены**, равенство веток не утверждается. Сервер не изменялся.
 - В repo подтверждена непрерывная цепочка migrations до `0056`; миграции в этом аудите не применялись. Production SHA/Alembic и deployment facts ниже опираются на предоставленный baseline, не на новый запрос к серверу.
 - В production по baseline: Supplier foundation, Product↔Supplier, price history, PurchaseRequest, ProcurementNeed, allocation/minimum order, SupplierOrder/outbound email, confirmation/deviations/decisions, documents, acceptance/destination/resolutions, payments/settlements, traceability/coverage, supplier↔iiko mapping, incoming invoice readback, base-unit/price/sum contract, receipt lifecycle/accounting facts и cash flow. «В production» относится к реализованному объёму, а не ко всем первоначальным требованиям пункта.
-- 3.1C.18: **IMPLEMENTED + DEPLOYED + PRODUCTION_READY; REAL_BUSINESS_SMOKE_PENDING**. Technical iiko contract smoke: **YES**, `EOS-CONTRACT-20260917-001`, UUID `5bf2b1c7-8c91-b774-01a0-ae4cafa53ba1`: `NEW → authoritative UUID → processDocuments → PROCESSED → stock +1`.
-- Этот технический документ **не является EOS business receipt**. При deployment production Acceptances = **0**; реальный EOS business receipt **NOT YET PERFORMED**. По остальным 3.1C capabilities deployment не приравнивается к индивидуальному business smoke: отдельные подтверждения сценариев в baseline не приложены.
+- 3.1C.18 на дату snapshot: **IMPLEMENTED + DEPLOYED + PRODUCTION_READY**. Technical iiko contract smoke: **YES**, `EOS-CONTRACT-20260917-001`, UUID `5bf2b1c7-8c91-b774-01a0-ae4cafa53ba1`: `NEW → authoritative UUID → processDocuments → PROCESSED → stock +1`.
+- На дату deployment этот технический документ не являлся EOS business receipt, а production Acceptances = **0**. Этот исторический факт superseded обновлением 28.09.2026: реальный EOS business smoke выполнен.
 
 ## Статусы и архитектурные инварианты
 
@@ -35,7 +37,7 @@ SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation
 
 ## Audit matrix — 3.1C.1–3.1C.20
 
-`DEPLOYED*` — реализованный объём по production baseline владельца; новый live audit сервера не выполнялся. Для всех строк, кроме явно указанного технического smoke .18, отдельный business-smoke evidence не предоставлен. Исходный объём сверялся с версией canonical roadmap в `f8ab3a3`, а не восстановлен по новым status labels.
+`DEPLOYED*` — реализованный объём по production baseline владельца; новый live audit сервера в аудите 18.09.2026 не выполнялся. Реальный EOS business smoke подтверждён последующим status update 28.09.2026. Исходный объём сверялся с версией canonical roadmap в `f8ab3a3`, а не восстановлен по новым status labels.
 
 | ITEM | ORIGINAL SCOPE | ACTUAL | PROD | STATUS | GAP | WHY | PRIORITY | Evidence |
 |---|---|---|---|---|---|---|---|---|
@@ -55,8 +57,8 @@ SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation
 | 3.1C.14 Накладные | Номер/дата/поставщик/сумма/НДС/строки/файл, сверка, несколько документов на закупку. | Domain document DONE: INVOICE/DELIVERY_NOTE/UPD, metadata, lines/pricing basis, financial_role, immutable RECORDED; order/confirmation/acceptance links, несколько документов. | DEPLOYED* | PARTIAL | Нет binary attachment, отдельных VAT fields и полного статуса трёхсторонней сверки; один документ относится к одному order. | Структурированный операционный документ не является PDF или налоговым регистром. | P2 | E5 |
 | 3.1C.15 Оплаты | Отдельная оплата, частичные/несколько оплат, пред-/постоплата, просрочка, поручение, комментарий и история. | Domain payment DONE: RECORDED facts, payment amount/date, pre/postpayment, payment-order number/date, comment; explicit allocations, overdue при известном due date. | DEPLOYED* | PARTIAL | Нет файла поручения/proof; даты платежа не назначаются догадкой; банковской интеграции нет. | Метаданные поручения реализованы, binary proof — отдельное optional enhancement. | P2 | E6 |
 | 3.1C.16 Взаиморасчёты | Документы/оплаты/возвраты/корректировки, долг/просрочка, движение и внутренний акт, финансовые исключения. | ACTIVE obligation + один RECORDED PAYABLE, payment allocations/reversal, refunds/corrections, statement, debt/overpayment/unallocated prepayment и exceptions. | DEPLOYED* | DONE | Не бухгалтерский акт/ledger; duplicate safeguards и exceptions не доказывают отсутствие любого возможного повторного банковского платежа. | Явные связи предотвращают повторный учёт одного обязательства; никаких guessed allocations. | NONE | E6 |
-| 3.1C.17 Приёмка | Ordered/confirmed/documented/received/rejected/accepted/accounted, план/факт и исключения. | Acceptance + destination mapping, shortage/rejected/excess issues и resolutions; accounted_quantity/accounted_sum из POSTED receipt. | DEPLOYED* | DONE | Полный business smoke с реальной EOS acceptance ещё не выполнен; данные при deployment: Acceptances=0. | Прежний BLOCKED_BY_3_1C_18 закрыт кодом lifecycle 18F; recorded acceptance сама не является accounting fact. | P1 | E7 |
-| 3.1C.18 Приход iiko | Создать приход через provider, подтвердить iiko, обновить остатки, показать ошибку; HTTP ack недостаточен. | IMPLEMENTED + DEPLOYED + PRODUCTION_READY: DRAFT→READY→CREATING→CREATED→PROCESSING→POSTED, reconciliation, authoritative UUID/PROCESSED, accounting facts, UI. | DEPLOYED*; PRODUCTION_READY; real smoke pending | DONE | REAL_BUSINESS_SMOKE_PENDING; общий Dashboard ошибок — Stage 3.3. Только safe base-unit contract; package conversion/сервисы/неоднозначные суммы не допускаются. | Технический contract smoke доказан отдельно; stock refresh выполняет GET, но не сохраняет новый EOS staging snapshot. | P1 | E8 |
+| 3.1C.17 Приёмка | Ordered/confirmed/documented/received/rejected/accepted/accounted, план/факт и исключения. | Acceptance + destination mapping, shortage/rejected/excess issues и resolutions; accounted_quantity/accounted_sum из POSTED receipt. | DEPLOYED*; BUSINESS VERIFIED | DONE | Нет блокера operational completion; реальный business smoke с EOS acceptance выполнен. `Acceptances=0` относится только к первоначальному deployment. | Прежний BLOCKED_BY_3_1C_18 закрыт кодом lifecycle 18F; recorded acceptance сама не является accounting fact. | NONE | E7 |
+| 3.1C.18 Приход iiko | Создать приход через provider, подтвердить iiko, обновить остатки, показать ошибку; HTTP ack недостаточен. | IMPLEMENTED + DEPLOYED + PRODUCTION_READY: DRAFT→READY→CREATING→CREATED→PROCESSING→POSTED, reconciliation, authoritative UUID/PROCESSED, accounting facts, UI. | DEPLOYED*; PRODUCTION_READY; BUSINESS VERIFIED | DONE | Общий Dashboard ошибок — Stage 3.3. Только safe base-unit contract; package conversion/сервисы/неоднозначные суммы не допускаются. | Реальный EOS business smoke выполнен; stock refresh выполняет GET, но не сохраняет новый EOS staging snapshot. | P2 | E8 |
 | 3.1C.19 Товарное покрытие | Full/partial/not covered, with substitutions/delay, незакрытые позиции; недозакупка не экономия. | Явные allocation/order/acceptance sources; FULLY_COVERED/PARTIALLY_COVERED/NOT_COVERED, UNKNOWN_LEGACY, MANUAL_FUTURE отдельно, has_delay и uncovered count. | DEPLOYED* | DONE_DIFFERENTLY | Нет COVERED_WITH_SUBSTITUTIONS; delay — отдельный флаг, только при полном покрытии и recorded_at позже need_date. | Coverage основан на attributable RECORDED acceptance, не POSTED и не оплате; substitutions deferred, FIFO/pro-rata и legacy guessing запрещены. | NONE | E9 |
 | 3.1C.20 Денежный поток | План/заказ/подтверждение/документ/принято/оплачено/долг/исключения, видимая потребность. | Read model supplier/request: planned, ordered, confirmed, payable documented, accepted, gross/net paid, refunded, debt/overdue, variances и exceptions; API/UI. | DEPLOYED* | DONE | Не accounting ledger и не прогноз банковской ликвидности; UNAVAILABLE/null при недостаточных фактах. | Использует snapshots и canonical settlement; не скрывает need/coverage и не называет недозакупку экономией. | NONE | E10 |
 
@@ -185,9 +187,9 @@ PROJECT_CHARTER и BLUEPRINT задают миссию/целевую модел
 | 3.1C inbound/files | Нет inbound supplier email ingestion/thread, confirmation PDF, document binary, payment proof и generic procurement attachment model | P2, optional для структурированного ручного MVP |
 | 3.1C VAT/reconciliation | Нет отдельной VAT-модели/полной трёхсторонней сверки; omission в текущем safe receipt contract не означает налоговую функциональность. Multi-order supplier document отсутствует | P2; расширенный контракт согласовывать до реализации |
 | 3.1C.4 / .11 | DEFERRED по решениям выше; в production отсутствуют | NONE, будущие enhancements |
-| 3.1C.17–.18 | Реализованы/развёрнуты, реальная EOS acceptance→receipt→POSTED не business-smoked | P1, проверка operational completion |
-| 3.1C email и остальные сценарии | Deployment заявлен baseline; индивидуальный business smoke, получение email адресатом и состав master data не подтверждены отдельными артефактами | P1 — собрать evidence сквозного сценария; отсутствие evidence не равно отсутствию feature |
-| 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot и не проверяет дельту +quantity | P2 UX/observability; бизнес-проверка остатков входит в P1 smoke |
+| 3.1C.17–.18 | Реализованы/развёрнуты; реальная EOS acceptance→receipt→POSTED подтверждена business smoke | NONE для operational completion; P2-ограничения receipt ниже сохраняются |
+| 3.1C email и остальные сценарии | Operational contour production/business verified; получение email адресатом и состав master data не подтверждены отдельными артефактами | P2 — дополнительный evidence/observability; не блокирует завершённый operational scope |
+| 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot | P2 UX/observability |
 | 3.2 | NOT_STARTED: production plan/ТТК/chef confirmation, выпуск/списание и анализ отклонений | Later stage, P2 относительно 3.1C |
 | 3.3 | PARTIAL: базовый Dashboard заявок/mapping/debt есть; unified procurement/print exceptions, owner/deadline/severity не реализованы | Later stage, P2 |
 | 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; финальные roles, departments admin, employee/shift links, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2 |
@@ -197,13 +199,13 @@ PROJECT_CHARTER и BLUEPRINT задают миссию/целевую модел
 
 ### Next recommended work
 
-Первым шагом провести отдельно согласованный реальный бизнес-сценарий в EOS: need → allocation/order → отправка и ручное confirmation → document → acceptance с destination/source distribution → receipt NEW → POSTED → accounting facts/остатки → payment allocation/settlement и cash flow/coverage. Зафиксировать ссылки и результаты, отдельно проверить shortage/rejected/excess, unpaid/overpaid и безопасное отображение ошибки без создания искусственных финансовых фактов. Этот документационный аудит не выполняет production writes, отправку email или новый smoke.
+Следующий этап — **Stage 3.2 «Производственная потребность»**. Его scope, архитектура и требования остаются без изменений; эта актуализация только фиксирует завершение production/business verification Stage 3.1C.
 
 ### Operational completion criteria — 3.1C
 
-Реализация текущего operational scope присутствует в production по baseline. **Доказанное operational completion пока не объявляется:** реальный EOS business receipt и сквозной бизнес-сценарий ещё не подтверждены. Известных P0 по проверенным источникам не найдено; отсутствие smoke не является доказательством отсутствия runtime defects.
+Реализация текущего operational scope присутствует в production. Реальный EOS business smoke выполнен; **Stage 3.1C считается production/business verified и operationally complete**. Известных P0 по зафиксированному результату не осталось.
 
-Для закрытия должны быть подтверждены на реальных фактах:
+Выполненный business smoke подтверждает operational contour на реальных фактах:
 
 - каждая потребность прослеживается до allocation/order либо явно видна как uncovered/UNKNOWN_LEGACY;
 - заказанные количества прослеживаются до acceptance, shortage/rejected/excess имеют видимое решение;
