@@ -18,6 +18,8 @@ import SupplySupplierOrdersPage from './pages/SupplySupplierOrdersPage'
 import SupplySupplierOrderDetailPage from './pages/SupplySupplierOrderDetailPage'
 import SupplySupplierPaymentsPage from './pages/SupplySupplierPaymentsPage'
 import UsersPage from './pages/UsersPage'
+import EmployeesPage from './pages/EmployeesPage'
+import EmployeeDetailPage from './pages/EmployeeDetailPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
 import WorkRequestListPage from './pages/WorkRequestListPage'
@@ -121,6 +123,9 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route path="/employees" element={<ProtectedRoute adminOnly><EmployeesPage /></ProtectedRoute>} />
+        <Route path="/employees/:employeeId" element={<ProtectedRoute adminOnly><EmployeeDetailPage /></ProtectedRoute>} />
 
         <Route
           path="/automation/diagnostics"

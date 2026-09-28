@@ -11,6 +11,7 @@ export type CreateUserInput = {
   password: string
   is_admin: boolean
   can_view_requests: boolean
+  account_type?: 'HUMAN' | 'SERVICE'
 }
 
 export type UpdateUserInput = {

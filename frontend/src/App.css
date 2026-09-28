@@ -472,6 +472,74 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
   gap: 10px;
 }
 
+.employee-admin-page { padding-bottom: 3rem; }
+.employee-detail-heading,
+.employee-section-heading,
+.employee-access { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.employee-detail-heading { margin-bottom: 1.5rem; }
+.employee-detail-heading h1, .employee-card h2, .employee-form h2 { margin: 0; }
+.employee-form, .employee-card {
+  display: grid; gap: 1.25rem; margin-top: 1.5rem; border: 1px solid #e8e9ec;
+  border-radius: 20px; background: #fff; padding: 1.5rem;
+}
+.employee-form { background: #f5f6f8; }
+.employee-form-grid, .employee-filters, .employee-assignment-form {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; align-items: end;
+}
+.employee-form-grid label, .employee-filters label, .employee-assignment-form label, .employee-dialog label {
+  display: grid; gap: 0.45rem; color: #555860; font-size: 0.82rem; font-weight: 650;
+}
+.employee-form-grid input, .employee-assignment-form input, .employee-dialog input, .employee-dialog textarea {
+  width: 100%; min-height: 2.8rem; box-sizing: border-box; border: 1px solid #dfe1e6;
+  border-radius: 12px; background: #fff; padding: 0.65rem 0.8rem; color: #191a1d; font: inherit;
+}
+.employee-wide-field { grid-column: span 2; }
+.employee-role-picker { display: flex; flex-wrap: wrap; gap: 0.7rem 1rem; border: 0; padding: 0; }
+.employee-role-picker legend { margin-bottom: 0.7rem; font-weight: 700; }
+.employee-role-picker label { font-size: 0.86rem; }
+.employee-filters { margin-top: 1.5rem; grid-template-columns: 2fr repeat(3, 1fr); }
+.employee-list { margin-top: 1.5rem; overflow-x: auto; }
+.employee-list-head, .employee-list-row {
+  display: grid; grid-template-columns: minmax(13rem, 1.4fr) 9rem 11rem minmax(12rem, 1fr) minmax(11rem, 1fr) 9rem;
+  gap: 0.75rem; align-items: center; min-width: 68rem; padding: 0.8rem;
+}
+.employee-list-head { color: #777b84; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; }
+.employee-list-row { width: 100%; border: 0; border-top: 1px solid #e8e9ec; background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.employee-list-row:hover { background: #f7f8fa; }
+.employee-list-row span { display: grid; gap: 0.2rem; }
+.employee-list-row small { color: #777b84; }
+.employee-card { background: rgb(255 255 255 / 85%); }
+.employee-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 0; }
+.employee-facts div { display: grid; gap: 0.25rem; }
+.employee-facts dt { color: #777b84; font-size: 0.78rem; }
+.employee-facts dd { margin: 0; }
+.employee-access > div { display: grid; gap: 0.25rem; }
+.employee-access span { color: #777b84; font-size: 0.85rem; }
+.employee-assignment-form { grid-template-columns: 1fr 1fr 1.5fr auto; }
+.employee-check { display: flex !important; align-items: center; min-height: 2.8rem; }
+.employee-history { display: grid; gap: 0.65rem; }
+.employee-history article { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #eceef2; padding-top: 0.8rem; }
+.employee-history article > div { display: grid; gap: 0.25rem; }
+.employee-history span, .employee-help { color: #6f737c; font-size: 0.84rem; }
+.employee-warning { border: 1px solid #ead39c; border-radius: 14px; background: #fff8e6; padding: 0.9rem 1rem; color: #765617; }
+.employee-dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; background: rgb(15 18 24 / 45%); padding: 1rem; }
+.employee-dialog { display: grid; width: min(32rem, 100%); gap: 1rem; border-radius: 20px; background: #fff; padding: 1.5rem; box-shadow: 0 24px 70px rgb(0 0 0 / 25%); }
+.employee-dialog h2 { margin: 0; }
+.field-error { margin: 0; color: #a23530; font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  .employee-detail-heading { align-items: flex-start; flex-wrap: wrap; }
+  .employee-form-grid, .employee-filters, .employee-assignment-form, .employee-facts { grid-template-columns: 1fr 1fr; }
+  .employee-wide-field { grid-column: span 2; }
+  .employee-assignment-form .primary-action { grid-column: span 2; }
+}
+
+@media (max-width: 620px) {
+  .employee-form-grid, .employee-filters, .employee-assignment-form, .employee-facts { grid-template-columns: 1fr; }
+  .employee-wide-field, .employee-assignment-form .primary-action { grid-column: auto; }
+  .employee-access { align-items: stretch; flex-direction: column; }
+}
+
 @media (max-width: 760px) {
   .user-actions {
     grid-column: 2;

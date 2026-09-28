@@ -129,6 +129,18 @@ function AppLayout() {
 
           {user?.is_admin && (
             <>
+              <p className="menu-section-label">Администрирование</p>
+              <NavLink
+                to="/employees"
+                onClick={closeMenu}
+                className={({ isActive }) =>
+                  isActive ? 'menu-link menu-link-active' : 'menu-link'
+                }
+              >
+                <span>Сотрудники</span>
+                <span>→</span>
+              </NavLink>
+
               <NavLink
                 to="/supply/debts"
                 onClick={closeMenu}

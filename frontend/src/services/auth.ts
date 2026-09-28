@@ -11,6 +11,8 @@ export type CurrentUser = {
   is_active: boolean
   is_admin: boolean
   can_view_requests: boolean
+  account_type: 'HUMAN' | 'SERVICE'
+  blocked_by_employee_dismissal: boolean
   created_at: string
 }
 
