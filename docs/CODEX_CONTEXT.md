@@ -22,8 +22,7 @@ flow и iiko incoming receipt lifecycle развёрнут. Acceptance→account
 закрыт через POSTED receipt facts. На момент deployment Acceptances=0, а
 технический iiko contract smoke ещё не являлся реальным EOS business receipt.
 После этого реальный EOS business smoke выполнен: Stage 3.1C считается
-production/business verified и operationally complete. Следующий этап — Stage
-3.2 «Производственная потребность».
+production/business verified и operationally complete.
 
 Weighted Average (.4) и Substitutions (.11) deferred по business decision
 18.09.2026, не current MVP blockers. Manual confirmation есть; inbound email,
@@ -33,9 +32,21 @@ procurement attachments, reliability/forecast и расширенный supplier
 [audit](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
 Production facts здесь — baseline владельца, не новый live audit сервера.
 
+## Current mandatory stage — Stage 3.1P
+
+Текущий обязательный этап — Stage 3.1P «Пользователи и ответственность».
+Governing business spec:
+[STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md).
+
+Stage 3.2 «Производственная потребность» начинается только после выполнения
+всех критериев готовности Stage 3.1P. Реализацию Stage 3.2 раньше этого перехода
+не начинать. Scope Stage 3.2 этой последовательностью не изменяется.
+
 ## Current state
 
 - Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.
+- Governing business spec текущего обязательного этапа:
+  `docs/STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md`.
 - Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
 - ADR-002 принят владельцем проекта 27 июля 2026 года.
 - Основной ручной контур Stage 3.1A работает: публичная Supply-форма, реестр
