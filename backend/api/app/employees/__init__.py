@@ -1,0 +1,1 @@
+"""Employee identity foundation."""

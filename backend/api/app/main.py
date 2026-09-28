@@ -4,6 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.automation import router as automation_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.employees import router as employees_router
 from app.api.routes.iiko import router as iiko_router
 from app.api.routes.iiko_mapping import router as iiko_mapping_router
 from app.api.routes.iiko_supplier_mapping import router as iiko_supplier_mapping_router
@@ -44,6 +45,7 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(employees_router)
 app.include_router(users_router)
 app.include_router(public_requests_router)
 app.include_router(public_supply_router)

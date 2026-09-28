@@ -1,0 +1,276 @@
+import os
+import unittest
+from datetime import UTC, date, datetime, timedelta
+from uuid import uuid4
+
+os.environ.setdefault("POSTGRES_DB", "test")
+os.environ.setdefault("POSTGRES_USER", "test")
+os.environ.setdefault("POSTGRES_PASSWORD", "test")
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.api.dependencies import get_current_user
+from app.db.session import get_db
+from app.main import app
+from app.models.employee import (
+    Employee, EmployeeDepartmentAssignment, EmployeeLifecycleEvent,
+    EmployeeRoleAssignment,
+)
+from app.models.supply import Department
+from app.models.user import User, UserAccountType
+
+
+class EmployeesApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        app.dependency_overrides.clear()
+        app.openapi_schema = None
+        self.engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+        )
+        event.listen(
+            self.engine, "connect",
+            lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"),
+        )
+        Department.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
+        User.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeLifecycleEvent.__table__.create(self.engine)
+        self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.department_id = uuid4()
+        self.other_department_id = uuid4()
+        with self.sessions.begin() as session:
+            session.add_all([
+                Department(id=self.department_id, tenant_id="eclair", code="M15", name="М15"),
+                Department(id=self.other_department_id, tenant_id="eclair", code="M35", name="М35"),
+                User(
+                    id=1, username="admin", display_name="Администратор",
+                    hashed_password="unused", is_active=True, is_admin=True, tenant_id="eclair",
+                ),
+                User(
+                    id=2, username="worker", display_name="Сотрудник",
+                    hashed_password="unused", is_active=True, is_admin=False, tenant_id="eclair",
+                ),
+                User(
+                    id=3, username="service", display_name="Сервис",
+                    hashed_password="unused", is_active=True, is_admin=False, tenant_id="eclair",
+                    account_type=UserAccountType.SERVICE,
+                ),
+                User(
+                    id=4, username="other-admin", display_name="Другой администратор",
+                    hashed_password="unused", is_active=True, is_admin=True, tenant_id="other",
+                ),
+            ])
+        self.current_user_id = 1
+
+        def override_get_db():
+            with self.sessions() as session:
+                yield session
+
+        def override_current_user():
+            with self.sessions() as session:
+                return session.get(User, self.current_user_id)
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_current_user
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.clear()
+        app.openapi_schema = None
+        self.engine.dispose()
+
+    @staticmethod
+    def employee_payload(**changes) -> dict:
+        payload = {
+            "full_name": " Иванов Иван Иванович ",
+            "birth_date": "1990-05-10",
+            "photo_url": None,
+            "phone": " +7 900 000-00-00 ",
+            "residence_address": " Екатеринбург ",
+            "reason": " Приём на работу ",
+        }
+        payload.update(changes)
+        return payload
+
+    def create_employee(self, **changes) -> dict:
+        response = self.client.post("/employees", json=self.employee_payload(**changes))
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    def test_create_update_list_and_tenant_isolation(self) -> None:
+        employee = self.create_employee()
+        self.assertEqual(employee["full_name"], "Иванов Иван Иванович")
+        self.assertEqual(employee["status"], "ACTIVE")
+        self.assertEqual(employee["lifecycle_events"][0]["event_type"], "CREATED")
+
+        updated = self.client.patch(
+            f"/employees/{employee['id']}",
+            json={"phone": " +7 999 111-22-33 ", "reason": "Актуализация телефона"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["phone"], "+7 999 111-22-33")
+        self.assertIn(
+            "UPDATED",
+            [item["event_type"] for item in updated.json()["lifecycle_events"]],
+        )
+        self.assertEqual(self.client.get("/employees").status_code, 200)
+
+        self.current_user_id = 4
+        self.assertEqual(self.client.get(f"/employees/{employee['id']}").status_code, 404)
+        self.current_user_id = 2
+        self.assertEqual(self.client.get("/employees").status_code, 403)
+
+    def test_role_and_department_assignment_history_and_invariants(self) -> None:
+        employee = self.create_employee()
+        employee_id = employee["id"]
+        start = datetime.now(UTC)
+        role = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Работа продавцом"},
+        )
+        self.assertEqual(role.status_code, 201, role.text)
+        duplicate = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Повтор"},
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+
+        primary = self.client.post(
+            f"/employees/{employee_id}/departments",
+            json={
+                "department_id": str(self.department_id), "is_primary": True,
+                "valid_from": start.isoformat(), "reason": "Основное место работы",
+            },
+        )
+        self.assertEqual(primary.status_code, 201, primary.text)
+        second_primary = self.client.post(
+            f"/employees/{employee_id}/departments",
+            json={
+                "department_id": str(self.other_department_id), "is_primary": True,
+                "valid_from": start.isoformat(), "reason": "Конфликт основного места",
+            },
+        )
+        self.assertEqual(second_primary.status_code, 409, second_primary.text)
+
+        ended = self.client.post(
+            f"/employees/{employee_id}/roles/{role.json()['id']}/end",
+            json={"valid_to": (start + timedelta(days=1)).isoformat(), "reason": "Перевод"},
+        )
+        self.assertEqual(ended.status_code, 200, ended.text)
+        self.assertEqual(ended.json()["ended_reason"], "Перевод")
+        overlapping = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={
+                "role": "SELLER", "valid_from": (start + timedelta(hours=12)).isoformat(),
+                "reason": "Пересекающееся назначение",
+            },
+        )
+        self.assertEqual(overlapping.status_code, 409, overlapping.text)
+        reassigned = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={
+                "role": "SELLER", "valid_from": (start + timedelta(days=2)).isoformat(),
+                "reason": "Новое назначение",
+            },
+        )
+        self.assertEqual(reassigned.status_code, 201, reassigned.text)
+        detail = self.client.get(f"/employees/{employee_id}").json()
+        self.assertEqual(len(detail["role_assignments"]), 2)
+
+    def test_link_dismiss_reactivate_preserves_identity_and_history(self) -> None:
+        employee = self.create_employee()
+        employee_id = employee["id"]
+        start = datetime.now(UTC)
+        self.assertEqual(
+            self.client.post(
+                f"/employees/{employee_id}/user",
+                json={"user_id": 2, "reason": "Выдан доступ в EOS"},
+            ).status_code,
+            200,
+        )
+        role = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Назначение"},
+        )
+        self.assertEqual(role.status_code, 201, role.text)
+        department = self.client.post(
+            f"/employees/{employee_id}/departments",
+            json={
+                "department_id": str(self.department_id), "is_primary": True,
+                "valid_from": start.isoformat(), "reason": "Назначение",
+            },
+        )
+        self.assertEqual(department.status_code, 201, department.text)
+
+        dismissed = self.client.post(
+            f"/employees/{employee_id}/dismiss",
+            json={"dismissal_date": date.today().isoformat(), "reason": "Увольнение по заявлению"},
+        )
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
+        body = dismissed.json()
+        self.assertEqual(body["status"], "DISMISSED")
+        self.assertIsNotNone(body["role_assignments"][0]["valid_to"])
+        self.assertIsNotNone(body["department_assignments"][0]["valid_to"])
+        self.assertEqual(
+            self.client.post(
+                f"/employees/{employee_id}/dismiss",
+                json={"dismissal_date": date.today().isoformat(), "reason": "Повтор"},
+            ).status_code,
+            409,
+        )
+        with self.sessions() as session:
+            user = session.get(User, 2)
+            self.assertFalse(user.is_active)
+            self.assertTrue(user.blocked_by_employee_dismissal)
+        blocked_activation = self.client.patch("/users/2", json={"is_active": True})
+        self.assertEqual(blocked_activation.status_code, 409, blocked_activation.text)
+
+        reactivated = self.client.post(
+            f"/employees/{employee_id}/reactivate",
+            json={"effective_date": date.today().isoformat(), "reason": "Повторный приём"},
+        )
+        self.assertEqual(reactivated.status_code, 200, reactivated.text)
+        body = reactivated.json()
+        self.assertEqual(body["status"], "ACTIVE")
+        self.assertTrue(all(item["valid_to"] is not None for item in body["role_assignments"]))
+        self.assertTrue(all(item["valid_to"] is not None for item in body["department_assignments"]))
+        self.assertEqual(body["id"], employee_id)
+        with self.sessions() as session:
+            self.assertTrue(session.get(User, 2).is_active)
+
+    def test_link_guards_service_accounts_and_one_to_one(self) -> None:
+        first = self.create_employee(full_name="Первый Сотрудник")
+        second = self.create_employee(full_name="Второй Сотрудник")
+        service_link = self.client.post(
+            f"/employees/{first['id']}/user",
+            json={"user_id": 3, "reason": "Неверная попытка"},
+        )
+        self.assertEqual(service_link.status_code, 422, service_link.text)
+        linked = self.client.post(
+            f"/employees/{first['id']}/user",
+            json={"user_id": 2, "reason": "Выдан доступ"},
+        )
+        self.assertEqual(linked.status_code, 200, linked.text)
+        conflict = self.client.post(
+            f"/employees/{second['id']}/user",
+            json={"user_id": 2, "reason": "Повторная связь"},
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+
+    def test_blank_reasons_and_delete_are_rejected(self) -> None:
+        self.assertEqual(
+            self.client.post("/employees", json=self.employee_payload(reason="   ")).status_code,
+            422,
+        )
+        employee = self.create_employee()
+        self.assertEqual(self.client.delete(f"/employees/{employee['id']}").status_code, 405)
+
+
+if __name__ == "__main__":
+    unittest.main()

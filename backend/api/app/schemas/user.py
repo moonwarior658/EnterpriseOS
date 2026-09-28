@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.user import UserAccountType
+
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
 
@@ -26,6 +28,8 @@ class UserRead(BaseModel):
     is_active: bool
     is_admin: bool
     can_view_requests: bool
+    account_type: UserAccountType
+    blocked_by_employee_dismissal: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -38,6 +42,7 @@ class UserCreate(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=500)
     is_admin: bool = False
     can_view_requests: bool = False
+    account_type: UserAccountType = UserAccountType.HUMAN
 
     model_config = ConfigDict(extra="forbid")
 

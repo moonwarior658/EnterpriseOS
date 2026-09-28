@@ -11,6 +11,15 @@
     ScheduleAuditEventType,
 )
 from app.models.user import User
+from app.models.employee import (
+    Employee,
+    EmployeeDepartmentAssignment,
+    EmployeeLifecycleEvent,
+    EmployeeLifecycleEventType,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+    EmployeeStatus,
+)
 from app.models.iiko import (
     IikoDocumentType,
     IikoDocumentWrite,
@@ -139,6 +148,13 @@ __all__ = [
     "SupplySupplier",
     "SupplyUnit",
     "User",
+    "Employee",
+    "EmployeeDepartmentAssignment",
+    "EmployeeLifecycleEvent",
+    "EmployeeLifecycleEventType",
+    "EmployeeRole",
+    "EmployeeRoleAssignment",
+    "EmployeeStatus",
     "WorkRequest",
     "WorkRequestAttachment",
     "WorkRequestComment",

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_admin
 from app.core.security import hash_password
 from app.db.session import get_db
+from app.models.employee import Employee, EmployeeStatus
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 
@@ -75,6 +76,7 @@ def create_user(
         is_active=True,
         is_admin=payload.is_admin,
         can_view_requests=payload.can_view_requests,
+        account_type=payload.account_type,
         tenant_id=current_admin.tenant_id,
     )
 
@@ -146,6 +148,23 @@ def update_user(
 
     if password is not None:
         user.hashed_password = hash_password(password)
+
+    if updates.get("is_active") is True:
+        dismissed_employee = db.scalar(
+            select(Employee.id).where(
+                Employee.tenant_id == current_admin.tenant_id,
+                Employee.linked_user_id == user.id,
+                Employee.status == EmployeeStatus.DISMISSED,
+            )
+        )
+        if dismissed_employee is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dismissed employee account cannot be activated",
+            )
+
+    if "is_active" in updates:
+        user.blocked_by_employee_dismissal = False
 
     for field, value in updates.items():
         setattr(user, field, value)

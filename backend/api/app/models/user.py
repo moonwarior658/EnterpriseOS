@@ -1,9 +1,15 @@
 ﻿from datetime import datetime
+from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+class UserAccountType(StrEnum):
+    HUMAN = "HUMAN"
+    SERVICE = "SERVICE"
 
 
 class User(Base):
@@ -42,6 +48,25 @@ class User(Base):
         default="eclair",
         nullable=False,
         index=True,
+    )
+    account_type: Mapped[UserAccountType] = mapped_column(
+        SqlEnum(
+            UserAccountType,
+            name="user_account_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum: [member.value for member in enum],
+            length=16,
+        ),
+        default=UserAccountType.HUMAN,
+        server_default=UserAccountType.HUMAN.value,
+        nullable=False,
+    )
+    blocked_by_employee_dismissal: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
