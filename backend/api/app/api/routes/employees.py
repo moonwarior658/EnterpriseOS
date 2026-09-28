@@ -1,13 +1,18 @@
+from datetime import date, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
 from app.db.session import get_db
 from app.employees import service
+from app.employees import iiko as iiko_employee_service
+from app.api.routes.iiko import get_iiko_provider, integration_error
+from app.integrations.iiko.exceptions import IikoError
+from app.integrations.iiko.provider import IikoProvider
 from app.models.employee import (
     Employee, EmployeeDepartmentAssignment, EmployeeRoleAssignment, EmployeeStatus,
 )
@@ -17,6 +22,8 @@ from app.schemas.employee import (
     EmployeeDepartmentAssignmentCreate, EmployeeDismiss, EmployeeReactivate,
     EmployeeRead, EmployeeRoleAssignmentCreate, EmployeeUpdate,
     EmployeeUserLink, EmployeeUserUnlink, RoleAssignmentRead,
+    EmployeeIikoShiftRead, EmployeeIikoSyncRead, IikoEmployeeCandidateRead,
+    IikoEmployeeLinkCorrect, IikoEmployeeLinkCreate, IikoEmployeeLinkRead,
 )
 
 
@@ -149,3 +156,126 @@ def unlink_user(
 ) -> EmployeeRead:
     employee = service.get_employee(db, employee_id, current_admin.tenant_id, lock=True)
     return employee_read(db, service.unlink_user(db, employee, payload.reason, current_admin))
+
+
+@router.get("/{employee_id}/iiko/candidates", response_model=list[IikoEmployeeCandidateRead])
+async def find_iiko_candidates(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+) -> list[IikoEmployeeCandidateRead]:
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    try:
+        return await iiko_employee_service.find_candidates(
+            provider, full_name=employee.full_name,
+        )
+    except IikoError as error:
+        raise integration_error(error) from error
+
+
+@router.get("/{employee_id}/iiko/link", response_model=IikoEmployeeLinkRead | None)
+def get_iiko_link(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    return iiko_employee_service.current_link(db, employee)
+
+
+@router.get("/{employee_id}/iiko/link/history", response_model=list[IikoEmployeeLinkRead])
+def get_iiko_link_history(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    return iiko_employee_service.link_history(db, employee)
+
+
+@router.post("/{employee_id}/iiko/link", response_model=IikoEmployeeLinkRead, status_code=201)
+async def create_iiko_link(
+    employee_id: UUID,
+    payload: IikoEmployeeLinkCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id, lock=True)
+    try:
+        return await iiko_employee_service.create_link(
+            db, employee, iiko_user_id=payload.iiko_user_id,
+            reason=payload.reason, actor=current_admin, provider=provider,
+        )
+    except IikoError as error:
+        raise integration_error(error) from error
+
+
+@router.post("/{employee_id}/iiko/link/correct", response_model=IikoEmployeeLinkRead)
+async def correct_iiko_link(
+    employee_id: UUID,
+    payload: IikoEmployeeLinkCorrect,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id, lock=True)
+    try:
+        return await iiko_employee_service.correct_link(
+            db, employee, iiko_user_id=payload.iiko_user_id,
+            reason=payload.reason, actor=current_admin, provider=provider,
+        )
+    except IikoError as error:
+        raise integration_error(error) from error
+
+
+@router.get("/{employee_id}/iiko/shifts", response_model=list[EmployeeIikoShiftRead])
+def get_iiko_shifts(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    return iiko_employee_service.list_shifts(db, employee, limit=limit)
+
+
+@router.get("/{employee_id}/iiko/shifts/active", response_model=EmployeeIikoShiftRead | None)
+def get_active_iiko_shift(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    return iiko_employee_service.active_shift(db, employee)
+
+
+@router.post("/{employee_id}/iiko/shifts/refresh", response_model=EmployeeIikoSyncRead)
+async def refresh_iiko_shifts(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+    provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+):
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    link = iiko_employee_service.current_link(db, employee)
+    if link is None:
+        raise HTTPException(status_code=409, detail="Employee has no active iiko link")
+    until = date_to or date.today()
+    since = date_from or (until - timedelta(days=7))
+    if since > until or (until - since).days > 93:
+        raise HTTPException(status_code=422, detail="Invalid shift sync period")
+    try:
+        shifts = await provider.get_personal_shifts(date_from=since, date_to=until)
+    except IikoError as error:
+        raise integration_error(error) from error
+    scoped = [item for item in shifts if item.employee_external_id == link.iiko_user_id]
+    return EmployeeIikoSyncRead.model_validate(
+        iiko_employee_service.sync_shifts(
+            db, scoped, tenant_id=current_admin.tenant_id,
+        ),
+        from_attributes=True,
+    )

@@ -3,7 +3,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.employee import EmployeeLifecycleEventType, EmployeeRole, EmployeeStatus
+from app.models.employee import (
+    EmployeeIikoShiftStatus, EmployeeLifecycleEventType, EmployeeRole,
+    EmployeeStatus,
+)
 
 
 def strip_required(value: str) -> str:
@@ -97,6 +100,69 @@ class EmployeeUserUnlink(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
     model_config = ConfigDict(extra="forbid")
     _strip_reason = field_validator("reason")(strip_required)
+
+
+class IikoEmployeeLinkCreate(BaseModel):
+    iiko_user_id: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=1000)
+    model_config = ConfigDict(extra="forbid")
+    _strip_values = field_validator("iiko_user_id", "reason")(strip_required)
+
+
+class IikoEmployeeLinkCorrect(IikoEmployeeLinkCreate):
+    pass
+
+
+class IikoEmployeeCandidateRead(BaseModel):
+    iiko_user_id: str
+    display_name: str
+    code: str | None = None
+    birth_date: date | None = None
+    is_deleted: bool = False
+
+
+class IikoEmployeeLinkRead(BaseModel):
+    id: UUID
+    employee_id: UUID
+    iiko_user_id: str
+    iiko_display_name: str
+    iiko_birth_date: date | None
+    valid_from: datetime
+    valid_to: datetime | None
+    reason: str
+    created_by_user_id: int
+    ended_reason: str | None
+    ended_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeIikoShiftRead(BaseModel):
+    id: UUID
+    employee_id: UUID
+    iiko_user_id: str
+    external_shift_id: str | None
+    iiko_department_id: str | None
+    department_id: UUID | None
+    opened_at: datetime
+    closed_at: datetime | None
+    duration_minutes: int | None
+    source: str
+    status: EmployeeIikoShiftStatus
+    first_seen_at: datetime
+    last_seen_at: datetime
+    department_mapping_resolved: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeIikoSyncRead(BaseModel):
+    received: int
+    matched: int
+    created: int
+    updated: int
+    unchanged: int
+    unresolved_department: int
 
 
 class RoleAssignmentRead(BaseModel):

@@ -55,6 +55,21 @@ class IikoSupplierDto(IikoDto):
     is_deleted: bool = False
 
 
+class IikoEmployeeDto(IikoDto):
+    external_id: str
+    name: str
+    code: str | None = None
+    is_deleted: bool = False
+
+
+class IikoPersonalShiftDto(IikoDto):
+    external_id: str | None = None
+    employee_external_id: str
+    department_external_id: str | None = None
+    opened_at: datetime
+    closed_at: datetime | None = None
+
+
 class IikoOutgoingInvoiceItemDto(IikoDto):
     product_id: UUID
     amount: Decimal = Field(ge=0, allow_inf_nan=False)

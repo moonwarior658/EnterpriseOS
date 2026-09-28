@@ -3,9 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { EosSelect } from '../components/EosFormControls'
 import {
   EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, dismissEmployee,
+  correctEmployeeIikoLink, createEmployeeIikoLink, findEmployeeIikoCandidates,
   endEmployeeDepartment, endEmployeeRole, getEmployee, getEmployeeDepartments,
-  getEmployees, linkEmployeeUser, reactivateEmployee, unlinkEmployeeUser,
-  updateEmployee, type Department, type Employee, type EmployeeRole,
+  getEmployeeActiveIikoShift, getEmployeeIikoLink, getEmployeeIikoLinkHistory,
+  getEmployeeIikoShifts, getEmployees, linkEmployeeUser, reactivateEmployee,
+  refreshEmployeeIikoShifts, unlinkEmployeeUser, updateEmployee, type Department,
+  type Employee, type EmployeeIikoShift, type EmployeeRole,
+  type IikoEmployeeCandidate, type IikoEmployeeLink,
 } from '../services/employees'
 import { getUsers, type UserRecord } from '../services/users'
 import {
@@ -20,6 +24,7 @@ const today = () => new Date().toISOString().slice(0, 10)
 const iso = (value: string) => new Date(value).toISOString()
 const dateTimeLabel = (value: string | null) => value
   ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'по настоящее время'
+const durationLabel = (minutes: number) => `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`
 
 type ReasonDialogProps = {
   title: string
@@ -77,6 +82,15 @@ function EmployeeDetailPage() {
   const [isPrimary, setIsPrimary] = useState(false)
   const [departmentReason, setDepartmentReason] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [iikoLink, setIikoLink] = useState<IikoEmployeeLink | null>(null)
+  const [iikoHistory, setIikoHistory] = useState<IikoEmployeeLink[]>([])
+  const [iikoCandidates, setIikoCandidates] = useState<IikoEmployeeCandidate[]>([])
+  const [iikoShifts, setIikoShifts] = useState<EmployeeIikoShift[]>([])
+  const [activeIikoShift, setActiveIikoShift] = useState<EmployeeIikoShift | null>(null)
+  const [selectedIikoUserId, setSelectedIikoUserId] = useState('')
+  const [iikoReason, setIikoReason] = useState('')
+  const [iikoLoading, setIikoLoading] = useState(false)
+  const [iikoError, setIikoError] = useState('')
   const [dialog, setDialog] = useState<null | { kind: 'dismiss' | 'reactivate' | 'unlink' | 'link' | 'endRole' | 'endDepartment'; assignmentId?: string }>(null)
 
   const load = useCallback(async () => {
@@ -90,6 +104,20 @@ function EmployeeDetailPage() {
       setAddress(item.residence_address); setPhotoUrl(item.photo_url ?? '')
     } catch (requestError) { setError(employeeErrorMessage(requestError, 'Не удалось загрузить карточку сотрудника')) }
     finally { setLoading(false) }
+  }, [employeeId])
+
+  const loadIiko = useCallback(async (searchCandidates = false) => {
+    setIikoLoading(true); setIikoError('')
+    try {
+      const [link, history, shifts, active] = await Promise.all([
+        getEmployeeIikoLink(employeeId), getEmployeeIikoLinkHistory(employeeId),
+        getEmployeeIikoShifts(employeeId), getEmployeeActiveIikoShift(employeeId),
+      ])
+      setIikoLink(link); setIikoHistory(history); setIikoShifts(shifts); setActiveIikoShift(active)
+      if (searchCandidates || !link) setIikoCandidates(await findEmployeeIikoCandidates(employeeId))
+    } catch (requestError) {
+      setIikoError(employeeErrorMessage(requestError, 'Не удалось загрузить данные iiko'))
+    } finally { setIikoLoading(false) }
   }, [employeeId])
 
   useEffect(() => {
@@ -107,6 +135,10 @@ function EmployeeDetailPage() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [employeeId])
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void loadIiko() }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [loadIiko])
   const usersById = useMemo(() => new Map(users.map((item) => [item.id, item])), [users])
   const candidates = useMemo(() => availableHumanUsers(users, employees, employeeId), [users, employees, employeeId])
   const linkedUser = employee?.linked_user_id ? usersById.get(employee.linked_user_id) : undefined
@@ -154,6 +186,23 @@ function EmployeeDetailPage() {
     return mutation(() => endEmployeeDepartment(employeeId, dialog.assignmentId!, iso(date), reason), 'Не удалось завершить назначение подразделения')
   }
 
+  async function saveIikoLink(event: FormEvent) {
+    event.preventDefault()
+    if (!selectedIikoUserId || !iikoReason.trim()) { setIikoError('Выберите сотрудника iiko и укажите причину'); return }
+    setIikoLoading(true); setIikoError('')
+    try {
+      if (iikoLink) await correctEmployeeIikoLink(employeeId, selectedIikoUserId, iikoReason.trim())
+      else await createEmployeeIikoLink(employeeId, selectedIikoUserId, iikoReason.trim())
+      setSelectedIikoUserId(''); setIikoReason(''); await loadIiko(false)
+    } catch (requestError) { setIikoError(employeeErrorMessage(requestError, 'Не удалось сохранить связь с iiko')); setIikoLoading(false) }
+  }
+
+  async function refreshShifts() {
+    setIikoLoading(true); setIikoError('')
+    try { await refreshEmployeeIikoShifts(employeeId); await loadIiko(false) }
+    catch (requestError) { setIikoError(employeeErrorMessage(requestError, 'Не удалось обновить смены iiko')); setIikoLoading(false) }
+  }
+
   if (loading) return <main className="app-page"><div className="page-shell"><p className="empty-state">Загружаем карточку сотрудника…</p></div></main>
   if (!employee) return <main className="app-page"><div className="page-shell"><p className="page-error">{error || 'Сотрудник не найден'}</p></div></main>
 
@@ -183,6 +232,20 @@ function EmployeeDetailPage() {
     <section className="employee-card"><h2>Доступ в EOS</h2>
       {linkedUser ? <div className="employee-access"><div><strong>@{linkedUser.username}</strong><span>{linkedUser.display_name}</span><span>{linkedUser.is_active ? 'Доступ активен' : 'Доступ заблокирован'}</span></div><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'unlink' })}>Отвязать User</button></div>
         : <div className="employee-access"><div><strong>Нет доступа</strong><span>Employee существует без учётной записи</span></div><div className="user-actions"><EosSelect value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}><option value="">Выберите HUMAN User</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}</EosSelect><button className="primary-action" type="button" disabled={!selectedUserId || busy} onClick={() => setDialog({ kind: 'link' })}>Связать</button></div></div>}
+    </section>
+
+    <section className="employee-card"><div className="employee-section-heading"><h2>iiko</h2><button className="secondary-action" type="button" disabled={iikoLoading} onClick={() => void loadIiko(true)}>Найти сотрудника iiko</button></div>
+      {iikoError && <p className="page-error" role="alert">{iikoError}</p>}
+      {iikoLink ? <dl className="employee-facts"><div><dt>Связанный сотрудник</dt><dd>{iikoLink.iiko_display_name}</dd></div><div><dt>iiko user ID</dt><dd>{iikoLink.iiko_user_id}</dd></div><div><dt>Статус</dt><dd><b className="badge badge-active">Активна</b></dd></div><div><dt>Создана</dt><dd>{dateTimeLabel(iikoLink.valid_from)}</dd></div></dl>
+        : <p className="employee-help">Связь с сотрудником iiko ещё не подтверждена.</p>}
+      {iikoCandidates.length > 0 && <form className="employee-assignment-form employee-iiko-form" onSubmit={saveIikoLink}><label><span>Кандидат iiko</span><EosSelect value={selectedIikoUserId} onChange={(event) => setSelectedIikoUserId(event.target.value)} required><option value="">Выберите сотрудника</option>{iikoCandidates.filter((item) => !item.is_deleted && item.iiko_user_id !== iikoLink?.iiko_user_id).map((item) => <option key={item.iiko_user_id} value={item.iiko_user_id}>{item.display_name}{item.code ? ` · ${item.code}` : ''}</option>)}</EosSelect></label><label><span>Причина изменения</span><input value={iikoReason} onChange={(event) => setIikoReason(event.target.value)} required /></label><button className={iikoLink ? 'danger-action' : 'primary-action'} type="submit" disabled={iikoLoading || !selectedIikoUserId}>{iikoLink ? 'Исправить связь с iiko' : 'Связать с iiko'}</button></form>}
+      {iikoCandidates.length === 0 && !iikoLoading && <p className="employee-help">Кандидаты по ФИО не найдены. Это не мешает работе карточки Employee.</p>}
+      {iikoHistory.length > 0 && <div className="employee-history"><h3>История связи</h3>{iikoHistory.map((item, index) => <article key={item.id}><div><strong>{item.iiko_display_name}</strong><span>{item.iiko_user_id}</span><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина исправления: {item.ended_reason}</span>}{item.valid_to && iikoHistory[index - 1] && <span>Исправлено на: {iikoHistory[index - 1].iiko_display_name} ({iikoHistory[index - 1].iiko_user_id})</span>}<span>Автор связи: User #{item.created_by_user_id}</span>{item.ended_by_user_id && <span>Исправил: User #{item.ended_by_user_id}</span>}</div></article>)}</div>}
+    </section>
+
+    <section className="employee-card"><div className="employee-section-heading"><h2>Смены iiko</h2><button className="secondary-action" type="button" disabled={iikoLoading || !iikoLink} onClick={() => void refreshShifts()}>{iikoLoading ? 'Обновляем…' : 'Обновить смены'}</button></div>
+      {activeIikoShift ? <div className="employee-warning"><strong>Активная смена</strong><div>{activeIikoShift.department_id ? departmentName(departments, activeIikoShift.department_id) : 'Подразделение iiko не сопоставлено'}</div><div>Открыта: {dateTimeLabel(activeIikoShift.opened_at)} · на момент обновления {durationLabel(Math.max(0, Math.floor((new Date(activeIikoShift.last_seen_at).getTime() - new Date(activeIikoShift.opened_at).getTime()) / 60_000)))}</div></div> : <p className="employee-help">Активной личной смены нет.</p>}
+      <div className="employee-history">{iikoShifts.map((item) => <article key={item.id}><div><strong>{item.status === 'OPEN' ? 'Открыта' : 'Закрыта'} · {item.department_id ? departmentName(departments, item.department_id) : 'Подразделение не сопоставлено'}</strong><span>{dateTimeLabel(item.opened_at)} — {dateTimeLabel(item.closed_at)}</span><span>{item.duration_minutes == null ? 'Смена продолжается' : durationLabel(item.duration_minutes)}</span>{!item.department_mapping_resolved && item.iiko_department_id && <span className="field-error">Подразделение iiko не сопоставлено</span>}</div></article>)}</div>
     </section>
 
     <section className="employee-card"><h2>Роли</h2>

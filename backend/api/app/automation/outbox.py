@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from typing import Protocol
+from typing import Awaitable, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -120,7 +120,7 @@ class LocalAutomationExecutor(Protocol):
         claim: ClaimedOutboxEvent,
         *,
         executed_at: datetime,
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | Awaitable[dict[str, object]]:
         """Execute and atomically finalize one local action."""
 
 
@@ -426,10 +426,12 @@ class OutboxWorker:
                 self._local_executor is not None
                 and self._local_executor.supports(claim.automation_type)
             ):
-                self._local_executor.execute(
+                local_result = self._local_executor.execute(
                     claim,
                     executed_at=self._now(),
                 )
+                if hasattr(local_result, "__await__"):
+                    await local_result
                 return DeliveryResult(
                     status=DeliveryStatus.PUBLISHED,
                     event_id=claim.event_id,

@@ -11,12 +11,14 @@ from app.integrations.iiko.schemas import (
     IikoIncomingInvoicePreviewDto,
     InternalTransferDto,
     IikoDocumentValidationResultDto,
+    IikoEmployeeDto,
     IikoOutgoingInvoiceCreateDto,
     IikoOutgoingInvoiceCreateResultDto,
     IikoOrganizationDto,
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceUpdateSourceDto,
     IikoPackageDto,
+    IikoPersonalShiftDto,
     IikoProductCategoryDto,
     IikoProductDto,
     IikoProductGroupDto,
@@ -108,6 +110,19 @@ class IikoProvider(ABC):
 
     async def get_suppliers(self) -> list[IikoSupplierDto]:
         """Return read-only supplier/user records."""
+        raise NotImplementedError
+
+    async def get_employees(self) -> list[IikoEmployeeDto]:
+        """Return iiko employees with stable external identities."""
+        raise NotImplementedError
+
+    async def get_personal_shifts(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoPersonalShiftDto]:
+        """Return personal-shift attendance facts for a bounded period."""
         raise NotImplementedError
 
     async def get_incoming_invoices(

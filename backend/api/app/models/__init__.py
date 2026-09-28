@@ -13,12 +13,15 @@
 from app.models.user import User
 from app.models.employee import (
     Employee,
+    EmployeeIikoShift,
+    EmployeeIikoShiftStatus,
     EmployeeDepartmentAssignment,
     EmployeeLifecycleEvent,
     EmployeeLifecycleEventType,
     EmployeeRole,
     EmployeeRoleAssignment,
     EmployeeStatus,
+    IikoEmployeeLink,
 )
 from app.models.iiko import (
     IikoDocumentType,
@@ -93,6 +96,9 @@ __all__ = [
     "OutboxEvent",
     "OutboxStatus",
     "RuntimeComponent",
+    "EmployeeIikoShift",
+    "EmployeeIikoShiftStatus",
+    "IikoEmployeeLink",
     "IikoDocumentType",
     "IikoDocumentWrite",
     "IikoDocumentWriteStatus",

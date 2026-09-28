@@ -516,6 +516,8 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
 .employee-access > div { display: grid; gap: 0.25rem; }
 .employee-access span { color: #777b84; font-size: 0.85rem; }
 .employee-assignment-form { grid-template-columns: 1fr 1fr 1.5fr auto; }
+.employee-iiko-form { margin-top: 1rem; grid-template-columns: 2fr 2fr auto; }
+.employee-history h3 { margin: 1rem 0 0; font-size: 0.95rem; }
 .employee-check { display: flex !important; align-items: center; min-height: 2.8rem; }
 .employee-history { display: grid; gap: 0.65rem; }
 .employee-history article { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #eceef2; padding-top: 0.8rem; }

@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   assignEmployeeDepartment, assignEmployeeRole, createEmployee, dismissEmployee,
-  EmployeeApiError, getEmployees, linkEmployeeUser, reactivateEmployee,
+  correctEmployeeIikoLink, createEmployeeIikoLink, EmployeeApiError,
+  findEmployeeIikoCandidates, getEmployeeActiveIikoShift, getEmployeeIikoLink,
+  getEmployeeIikoLinkHistory, getEmployeeIikoShifts, getEmployees,
+  linkEmployeeUser, reactivateEmployee, refreshEmployeeIikoShifts,
   type Employee,
 } from '../src/services/employees.ts'
 import {
@@ -91,4 +94,34 @@ test('reason обязателен в формах, User conflict перевод�
     new EmployeeApiError('User is already linked to another employee', 409), 'fallback',
   ), 'Эта учётная запись уже связана с другим сотрудником')
   assert.equal(employeeErrorMessage(new EmployeeApiError('[{"secret":"raw"}]', 422), 'fallback'), 'Проверьте заполнение полей и укажите содержательную причину изменения')
+})
+
+test('карточка и API client покрывают iiko identity, correction и personal shifts', async () => {
+  const detail = readFileSync(new URL('../src/pages/EmployeeDetailPage.tsx', import.meta.url), 'utf8')
+  assert.match(detail, /Исправить связь с iiko/)
+  assert.match(detail, /Подразделение iiko не сопоставлено/)
+  assert.match(detail, /Активная смена/)
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: () => 'token' } })
+  globalThis.fetch = async (input, options = {}) => {
+    calls.push({ url: String(input), options })
+    const url = String(input)
+    const payload = url.endsWith('/candidates') || url.endsWith('/history') || url.endsWith('/shifts') ? [] : null
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await findEmployeeIikoCandidates(EMPLOYEE.id)
+    await getEmployeeIikoLink(EMPLOYEE.id)
+    await getEmployeeIikoLinkHistory(EMPLOYEE.id)
+    await createEmployeeIikoLink(EMPLOYEE.id, 'iiko-1', 'Подтверждение')
+    await correctEmployeeIikoLink(EMPLOYEE.id, 'iiko-2', 'Исправление')
+    await getEmployeeIikoShifts(EMPLOYEE.id)
+    await getEmployeeActiveIikoShift(EMPLOYEE.id)
+    await refreshEmployeeIikoShifts(EMPLOYEE.id)
+  } finally { globalThis.fetch = originalFetch }
+  assert.match(calls[0].url, /\/iiko\/candidates$/)
+  assert.match(calls[3].url, /\/iiko\/link$/)
+  assert.deepEqual(JSON.parse(String(calls[4].options.body)), { iiko_user_id: 'iiko-2', reason: 'Исправление' })
+  assert.match(calls[7].url, /\/iiko\/shifts\/refresh$/)
 })

@@ -49,6 +49,7 @@ from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
     IikoAccountDto,
     IikoDocumentValidationResultDto,
+    IikoEmployeeDto,
     IikoIncomingInvoiceDto,
     IikoIncomingInvoiceItemDto,
     IikoIncomingInvoicePreviewDto,
@@ -62,6 +63,7 @@ from app.integrations.iiko.schemas import (
     IikoOutgoingInvoiceDto,
     IikoOutgoingInvoiceUpdateSourceDto,
     IikoPackageDto,
+    IikoPersonalShiftDto,
     IikoProductCategoryDto,
     IikoProductDto,
     IikoProductGroupDto,
@@ -443,9 +445,86 @@ class IikoServerClient(IikoProvider):
         root = await self._get_xml("/api/suppliers")
         return self._parse_people_xml(root, endpoint="suppliers")
 
-    async def get_employees(self) -> list[IikoSupplierDto]:
+    async def get_employees(self) -> list[IikoEmployeeDto]:
         root = await self._get_xml("/api/employees")
-        return self._parse_people_xml(root, endpoint="employees")
+        people = self._parse_people_xml(root, endpoint="employees")
+        return [
+            IikoEmployeeDto(
+                external_id=item.external_id,
+                name=item.name,
+                code=item.code,
+                is_deleted=item.is_deleted,
+            )
+            for item in people
+        ]
+
+    async def get_personal_shifts(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+    ) -> list[IikoPersonalShiftDto]:
+        root = await self._get_xml(
+            "/api/employees/attendance",
+            params={"from": date_from.isoformat(), "to": date_to.isoformat()},
+        )
+
+        def value(element: ET.Element, *names: str) -> str | None:
+            wanted = {name.casefold() for name in names}
+            for child in element:
+                if child.tag.rsplit("}", 1)[-1].casefold() in wanted:
+                    text_value = (child.text or "").strip()
+                    if text_value:
+                        return text_value
+            return None
+
+        def instant(raw: str | None, field: str) -> datetime | None:
+            if raw is None:
+                return None
+            normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+            try:
+                parsed = datetime.fromisoformat(normalized)
+            except ValueError as error:
+                raise IikoContractError(
+                    f"Invalid iiko attendance field field={field}"
+                ) from error
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise IikoContractError(
+                    f"Invalid iiko attendance field field={field}"
+                )
+            return parsed
+
+        shifts: list[IikoPersonalShiftDto] = []
+        for element in root.iter():
+            employee_id = value(element, "employeeId", "userId")
+            opened_raw = value(
+                element, "dateFrom", "openTime", "openedAt", "clockIn"
+            )
+            if employee_id is None and opened_raw is None:
+                continue
+            if employee_id is None or opened_raw is None:
+                raise IikoContractError(
+                    "Missing iiko attendance identity or opening time"
+                )
+            try:
+                shifts.append(IikoPersonalShiftDto(
+                    external_id=value(element, "id", "attendanceId", "sessionId"),
+                    employee_external_id=employee_id,
+                    department_external_id=value(
+                        element, "departmentId", "enterpriseId", "storeId"
+                    ),
+                    opened_at=instant(opened_raw, "opened_at"),
+                    closed_at=instant(
+                        value(element, "dateTo", "closeTime", "closedAt", "clockOut"),
+                        "closed_at",
+                    ),
+                ))
+            except ValidationError as error:
+                field = ".".join(str(item) for item in error.errors()[0]["loc"])
+                raise IikoContractError(
+                    f"Invalid iiko attendance field field={field}"
+                ) from error
+        return shifts
 
     @staticmethod
     def _parse_people_xml(

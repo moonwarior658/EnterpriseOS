@@ -47,6 +47,18 @@ AUTOMATION_TYPES = (
         supports_manual_run=False,
     ),
     AutomationTypeDefinition(
+        key="employee.sync_iiko_shifts",
+        display_name="Синхронизировать личные смены iiko",
+        description=(
+            "Получает явки iiko за ограниченный период и идемпотентно "
+            "обновляет личные смены связанных сотрудников."
+        ),
+        category="employees",
+        is_system=False,
+        is_available=True,
+        supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
         key="smoke_test",
         display_name="Проверка Automation Core",
         description=(

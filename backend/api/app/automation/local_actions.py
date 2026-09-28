@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +12,9 @@ from app.automation.supply_actions import (
     SUPPLY_ACTION_HANDLERS,
     SupplyAutomationContext,
 )
+from app.employees.iiko import sync_shifts
+from app.integrations.iiko.client import IikoServerClient
+from app.integrations.iiko.config import get_iiko_settings
 from app.models.automation import (
     ExecutionStatus,
     OutboxEvent,
@@ -20,6 +23,8 @@ from app.models.automation import (
 
 
 class LocalAutomationActionExecutor:
+    IIKO_SHIFT_SYNC = "employee.sync_iiko_shifts"
+
     def __init__(
         self,
         session_factory: Callable[[], Session],
@@ -28,17 +33,22 @@ class LocalAutomationActionExecutor:
 
     @staticmethod
     def supports(automation_type: str) -> bool:
-        return automation_type in SUPPLY_ACTION_HANDLERS
+        return (
+            automation_type in SUPPLY_ACTION_HANDLERS
+            or automation_type == LocalAutomationActionExecutor.IIKO_SHIFT_SYNC
+        )
 
     def execute(
         self,
         claim: ClaimedOutboxEvent,
         *,
         executed_at: datetime,
-    ) -> dict[str, object]:
+    ):
         if executed_at.tzinfo is None or executed_at.utcoffset() is None:
             raise ValueError("executed_at must include a timezone")
         executed_at = executed_at.astimezone(timezone.utc)
+        if claim.automation_type == self.IIKO_SHIFT_SYNC:
+            return self._execute_iiko_shift_sync(claim, executed_at=executed_at)
         handler = SUPPLY_ACTION_HANDLERS.get(claim.automation_type)
         if handler is None:
             raise ValueError("Unsupported local automation action")
@@ -93,3 +103,72 @@ class LocalAutomationActionExecutor:
                 session.flush()
 
         return result
+
+    async def _execute_iiko_shift_sync(
+        self,
+        claim: ClaimedOutboxEvent,
+        *,
+        executed_at: datetime,
+    ) -> dict[str, object]:
+        lookback_days = claim.payload.get("lookback_days", 7)
+        if isinstance(lookback_days, bool) or not isinstance(lookback_days, int) or not 1 <= lookback_days <= 93:
+            raise ValueError("lookback_days must be an integer between 1 and 93")
+        date_to = executed_at.date()
+        date_from = date_to - timedelta(days=lookback_days)
+        async with IikoServerClient(get_iiko_settings()) as provider:
+            external_shifts = await provider.get_personal_shifts(
+                date_from=date_from,
+                date_to=date_to,
+            )
+
+        with self._session_factory() as session:
+            with session.begin():
+                event = session.scalar(
+                    select(OutboxEvent)
+                    .where(
+                        OutboxEvent.id == claim.id,
+                        OutboxEvent.status == OutboxStatus.PROCESSING,
+                        OutboxEvent.locked_by == claim.lock_token,
+                    )
+                    .with_for_update()
+                )
+                if event is None:
+                    raise OutboxClaimLostError(
+                        f"Outbox event {claim.event_id} is no longer owned by this worker claim"
+                    )
+                result = sync_shifts(
+                    session,
+                    external_shifts,
+                    tenant_id=claim.tenant_id,
+                    seen_at=executed_at,
+                    commit=False,
+                )
+                payload = {
+                    "received": result.received,
+                    "matched": result.matched,
+                    "created": result.created,
+                    "updated": result.updated,
+                    "unchanged": result.unchanged,
+                    "unresolved_department": result.unresolved_department,
+                    "date_from": date_from.isoformat(),
+                    "date_to": date_to.isoformat(),
+                }
+                execution = event.execution
+                if execution.started_at is None:
+                    execution.started_at = executed_at
+                event.status = OutboxStatus.PUBLISHED
+                event.published_at = executed_at
+                event.next_attempt_at = None
+                event.locked_at = None
+                event.locked_by = None
+                event.last_error = None
+                execution.provider = "enterpriseos"
+                execution.status = ExecutionStatus.SUCCEEDED
+                execution.result = payload
+                execution.error_code = None
+                execution.error_message = None
+                execution.next_retry_at = None
+                execution.attempt_count = event.attempt_count
+                execution.finished_at = executed_at
+                session.flush()
+        return payload

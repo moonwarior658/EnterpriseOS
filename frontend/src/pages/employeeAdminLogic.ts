@@ -51,6 +51,9 @@ export function employeeErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof EmployeeApiError)) return fallback
   if (error.status === 403) return 'Недостаточно прав для этого действия'
   if (error.status === 422) return 'Проверьте заполнение полей и укажите содержательную причину изменения'
+  if (error.status === 409 && error.message.startsWith('iiko employee is already linked to ')) {
+    return `Этот сотрудник iiko уже связан: ${error.message.slice('iiko employee is already linked to '.length)}`
+  }
   if (error.status === 409) return KNOWN_ERRORS[error.message] ?? 'Изменение конфликтует с текущим состоянием сотрудника'
   if (error.status === 404) return 'Сотрудник или связанная запись не найдены'
   return fallback

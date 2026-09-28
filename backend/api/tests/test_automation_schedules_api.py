@@ -349,6 +349,7 @@ class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
         self.assertEqual(
             [item["key"] for item in response.json()],
             [
+                "employee.sync_iiko_shifts",
                 "supply.close_expired_request_cycles",
                 "supply.ensure_request_cycle",
                 "supply.supplier_order_email_send",

@@ -61,6 +61,56 @@ export type Department = {
   is_active: boolean
 }
 
+export type IikoEmployeeCandidate = {
+  iiko_user_id: string
+  display_name: string
+  code: string | null
+  birth_date: string | null
+  is_deleted: boolean
+}
+
+export type IikoEmployeeLink = {
+  id: string
+  employee_id: string
+  iiko_user_id: string
+  iiko_display_name: string
+  iiko_birth_date: string | null
+  valid_from: string
+  valid_to: string | null
+  reason: string
+  created_by_user_id: number
+  ended_reason: string | null
+  ended_by_user_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type EmployeeIikoShift = {
+  id: string
+  employee_id: string
+  iiko_user_id: string
+  external_shift_id: string | null
+  iiko_department_id: string | null
+  department_id: string | null
+  opened_at: string
+  closed_at: string | null
+  duration_minutes: number | null
+  source: 'IIKO'
+  status: 'OPEN' | 'CLOSED'
+  first_seen_at: string
+  last_seen_at: string
+  department_mapping_resolved: boolean
+}
+
+export type EmployeeIikoSyncResult = {
+  received: number
+  matched: number
+  created: number
+  updated: number
+  unchanged: number
+  unresolved_department: number
+}
+
 export class EmployeeApiError extends Error {
   status: number
 
@@ -140,3 +190,23 @@ export const reactivateEmployee = (id: string, effectiveDate: string, reason: st
   employeeRequest<Employee>(`/employees/${id}/reactivate`, {
     method: 'POST', body: JSON.stringify({ effective_date: effectiveDate, reason }),
   })
+export const findEmployeeIikoCandidates = (id: string) =>
+  employeeRequest<IikoEmployeeCandidate[]>(`/employees/${id}/iiko/candidates`)
+export const getEmployeeIikoLink = (id: string) =>
+  employeeRequest<IikoEmployeeLink | null>(`/employees/${id}/iiko/link`)
+export const getEmployeeIikoLinkHistory = (id: string) =>
+  employeeRequest<IikoEmployeeLink[]>(`/employees/${id}/iiko/link/history`)
+export const createEmployeeIikoLink = (id: string, iikoUserId: string, reason: string) =>
+  employeeRequest<IikoEmployeeLink>(`/employees/${id}/iiko/link`, {
+    method: 'POST', body: JSON.stringify({ iiko_user_id: iikoUserId, reason }),
+  })
+export const correctEmployeeIikoLink = (id: string, iikoUserId: string, reason: string) =>
+  employeeRequest<IikoEmployeeLink>(`/employees/${id}/iiko/link/correct`, {
+    method: 'POST', body: JSON.stringify({ iiko_user_id: iikoUserId, reason }),
+  })
+export const getEmployeeIikoShifts = (id: string) =>
+  employeeRequest<EmployeeIikoShift[]>(`/employees/${id}/iiko/shifts`)
+export const getEmployeeActiveIikoShift = (id: string) =>
+  employeeRequest<EmployeeIikoShift | null>(`/employees/${id}/iiko/shifts/active`)
+export const refreshEmployeeIikoShifts = (id: string) =>
+  employeeRequest<EmployeeIikoSyncResult>(`/employees/${id}/iiko/shifts/refresh`, { method: 'POST' })
