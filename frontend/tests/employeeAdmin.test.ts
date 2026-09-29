@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
-  assignEmployeeDepartment, assignEmployeeRole, createEmployee, dismissEmployee,
+  assignEmployeeDepartment, assignEmployeeRole, bootstrapFirstAdmin, createEmployee, dismissEmployee,
   correctEmployeeIikoLink, createEmployeeIikoLink, EmployeeApiError,
-  findEmployeeIikoCandidates, getEmployeeActiveIikoShift, getEmployeeIikoLink,
+  findEmployeeIikoCandidates, getEmployeeActiveIikoShift, getEmployeeBootstrapStatus, getEmployeeIikoLink,
   getEmployeeIikoLinkHistory, getEmployeeIikoShifts, getEmployees,
   linkEmployeeUser, reactivateEmployee, refreshEmployeeIikoShifts,
   type Employee,
@@ -83,6 +83,42 @@ test('API client покрывает создание, несколько рол�
   assert.match(calls[5].url, /\/user$/)
   assert.match(calls[6].url, /\/dismiss$/)
   assert.match(calls[7].url, /\/reactivate$/)
+})
+
+test('bootstrap первого ADMIN связывает текущий User одним запросом без логина и пароля', async () => {
+  const calls: Array<{ url: string; options: RequestInit }> = []
+  const originalFetch = globalThis.fetch
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: () => 'token' } })
+  globalThis.fetch = async (input, options = {}) => {
+    calls.push({ url: String(input), options })
+    const payload = options.method === 'POST'
+      ? EMPLOYEE
+      : { available: true, username: 'moonwarior', unavailable_reason: null }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await getEmployeeBootstrapStatus()
+    await bootstrapFirstAdmin({
+      full_name: EMPLOYEE.full_name,
+      birth_date: EMPLOYEE.birth_date,
+      photo_url: null,
+      phone: EMPLOYEE.phone,
+      residence_address: EMPLOYEE.residence_address,
+      department_id: 'dep-1',
+      reason: 'Первый администратор',
+    })
+  } finally { globalThis.fetch = originalFetch }
+  assert.equal(calls[0].url, '/api/employees/bootstrap')
+  assert.equal(calls[1].url, '/api/employees/bootstrap')
+  assert.equal(calls[1].options.method, 'POST')
+  const body = JSON.parse(String(calls[1].options.body))
+  assert.equal(body.department_id, 'dep-1')
+  assert.equal('username' in body, false)
+  assert.equal('password' in body, false)
+
+  const page = readFileSync(new URL('../src/pages/EmployeesPage.tsx', import.meta.url), 'utf8')
+  assert.match(page, /Связать с текущей учётной записью @\{bootstrapStatus\.username\}/)
+  assert.match(page, /bootstrapFirstAdmin/)
 })
 
 test('reason обязателен в формах, User conflict переводится без raw JSON', () => {

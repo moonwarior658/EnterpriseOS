@@ -28,6 +28,16 @@ class EmployeeCreate(BaseModel):
     _strip_required = field_validator("full_name", "phone", "residence_address", "reason")(strip_required)
 
 
+class EmployeeBootstrapCreate(EmployeeCreate):
+    department_id: UUID
+
+
+class EmployeeBootstrapStatus(BaseModel):
+    available: bool
+    username: str
+    unavailable_reason: str | None = None
+
+
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=240)
     birth_date: date | None = None

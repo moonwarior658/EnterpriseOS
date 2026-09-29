@@ -61,6 +61,12 @@ export type Department = {
   is_active: boolean
 }
 
+export type EmployeeBootstrapStatus = {
+  available: boolean
+  username: string
+  unavailable_reason: string | null
+}
+
 export type IikoEmployeeCandidate = {
   iiko_user_id: string
   display_name: string
@@ -142,6 +148,14 @@ async function employeeRequest<T>(path: string, options: RequestInit = {}): Prom
 
 export const getEmployees = (status?: EmployeeStatus) =>
   employeeRequest<Employee[]>(`/employees${status ? `?status=${status}` : ''}`)
+export const getEmployeeBootstrapStatus = () =>
+  employeeRequest<EmployeeBootstrapStatus>('/employees/bootstrap')
+export const bootstrapFirstAdmin = (input: {
+  full_name: string; birth_date: string; photo_url: string | null; phone: string;
+  residence_address: string; department_id: string; reason: string
+}) => employeeRequest<Employee>('/employees/bootstrap', {
+  method: 'POST', body: JSON.stringify(input),
+})
 export const getEmployee = (id: string) => employeeRequest<Employee>(`/employees/${id}`)
 export const getEmployeeDepartments = () => employeeRequest<Department[]>('/supply/departments')
 export const createEmployee = (input: {

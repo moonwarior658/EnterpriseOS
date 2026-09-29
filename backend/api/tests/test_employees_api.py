@@ -9,7 +9,7 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, delete, event, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -140,6 +140,105 @@ class EmployeesApiTests(unittest.TestCase):
         response = self.client.post("/employees", json=self.employee_payload(**changes))
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
+
+    def remove_eclair_admin_employee(self) -> None:
+        with self.sessions.begin() as session:
+            employee_id = session.scalar(select(Employee.id).where(
+                Employee.tenant_id == "eclair",
+                Employee.linked_user_id == 1,
+            ))
+            session.execute(delete(EmployeeRoleAssignment).where(
+                EmployeeRoleAssignment.employee_id == employee_id,
+            ))
+            session.execute(delete(EmployeeDepartmentAssignment).where(
+                EmployeeDepartmentAssignment.employee_id == employee_id,
+            ))
+            session.execute(delete(Employee).where(Employee.id == employee_id))
+
+    def bootstrap_payload(self, **changes) -> dict:
+        payload = {
+            **self.employee_payload(),
+            "department_id": str(self.department_id),
+        }
+        payload.update(changes)
+        return payload
+
+    def test_first_admin_bootstrap_is_atomic_audited_and_one_time(self) -> None:
+        self.remove_eclair_admin_employee()
+        self.assertEqual(self.client.get("/employees").status_code, 403)
+
+        bootstrap_status = self.client.get("/employees/bootstrap")
+        self.assertEqual(bootstrap_status.status_code, 200, bootstrap_status.text)
+        self.assertEqual(bootstrap_status.json(), {
+            "available": True,
+            "username": "admin",
+            "unavailable_reason": None,
+        })
+
+        response = self.client.post("/employees/bootstrap", json=self.bootstrap_payload())
+        self.assertEqual(response.status_code, 201, response.text)
+        employee = response.json()
+        self.assertEqual(employee["linked_user_id"], 1)
+        self.assertEqual([item["role"] for item in employee["role_assignments"]], ["ADMIN"])
+        self.assertEqual(employee["department_assignments"][0]["department_id"], str(self.department_id))
+        self.assertTrue(employee["department_assignments"][0]["is_primary"])
+        self.assertEqual(
+            {item["event_type"] for item in employee["lifecycle_events"]},
+            {"CREATED", "USER_LINKED"},
+        )
+        self.assertEqual(self.client.get("/employees").status_code, 200)
+
+        with self.sessions() as session:
+            self.assertEqual(len(session.scalars(select(User.id).where(
+                User.tenant_id == "eclair",
+            )).all()), 3)
+            events = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.entity_id == employee["id"],
+            )).all())
+            self.assertEqual({item.event_type for item in events}, {
+                "FIRST_ADMIN_BOOTSTRAPPED",
+                "EMPLOYEE_CREATED",
+                "EMPLOYEE_USER_LINKED",
+                "EMPLOYEE_ROLE_ASSIGNED",
+                "EMPLOYEE_DEPARTMENT_ASSIGNED",
+            })
+            self.assertTrue(all(item.actor_employee_id is not None for item in events))
+
+        repeat = self.client.post("/employees/bootstrap", json=self.bootstrap_payload())
+        self.assertEqual(repeat.status_code, 409, repeat.text)
+        status_after = self.client.get("/employees/bootstrap").json()
+        self.assertFalse(status_after["available"])
+        self.assertEqual(status_after["unavailable_reason"], "CURRENT_USER_ALREADY_LINKED")
+
+    def test_bootstrap_rejects_service_existing_admin_and_rolls_back(self) -> None:
+        with self.sessions.begin() as session:
+            session.add(User(
+                id=5, username="legacy-admin", display_name="Legacy Admin",
+                hashed_password="unused", is_active=True, is_admin=True, tenant_id="eclair",
+            ))
+        self.current_user_id = 5
+        status_with_admin = self.client.get("/employees/bootstrap")
+        self.assertEqual(status_with_admin.json()["unavailable_reason"], "ADMIN_EMPLOYEE_ALREADY_EXISTS")
+        existing_admin = self.client.post("/employees/bootstrap", json=self.bootstrap_payload())
+        self.assertEqual(existing_admin.status_code, 409, existing_admin.text)
+        self.assertIn("bootstrap навсегда недоступен", existing_admin.json()["detail"])
+
+        self.current_user_id = 1
+        self.remove_eclair_admin_employee()
+        invalid_department = self.client.post(
+            "/employees/bootstrap",
+            json=self.bootstrap_payload(department_id=str(uuid4())),
+        )
+        self.assertEqual(invalid_department.status_code, 404, invalid_department.text)
+        with self.sessions() as session:
+            self.assertIsNone(session.scalar(select(Employee.id).where(
+                Employee.tenant_id == "eclair",
+                Employee.linked_user_id == 1,
+            )))
+
+        self.current_user_id = 3
+        service = self.client.post("/employees/bootstrap", json=self.bootstrap_payload())
+        self.assertEqual(service.status_code, 403, service.text)
 
     def test_create_update_list_and_tenant_isolation(self) -> None:
         employee = self.create_employee()

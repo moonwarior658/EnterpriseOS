@@ -15,7 +15,8 @@ from app.models.employee import (
 from app.models.supply import Department
 from app.models.user import User, UserAccountType
 from app.schemas.employee import (
-    AssignmentEnd, EmployeeCreate, EmployeeDepartmentAssignmentCreate,
+    AssignmentEnd, EmployeeBootstrapCreate, EmployeeBootstrapStatus, EmployeeCreate,
+    EmployeeDepartmentAssignmentCreate,
     EmployeeDismiss, EmployeeReactivate, EmployeeRoleAssignmentCreate,
     EmployeeUpdate,
 )
@@ -74,6 +75,172 @@ def linked_user_id(db: Session, employee_id: UUID, tenant_id: str) -> int | None
     return db.scalar(select(Employee.linked_user_id).where(
         Employee.id == employee_id, Employee.tenant_id == tenant_id,
     ))
+
+
+def _has_admin_assignment(db: Session, tenant_id: str) -> bool:
+    return db.scalar(select(EmployeeRoleAssignment.id).where(
+        EmployeeRoleAssignment.tenant_id == tenant_id,
+        EmployeeRoleAssignment.role == EmployeeRole.ADMIN,
+    ).limit(1)) is not None
+
+
+def first_admin_bootstrap_status(db: Session, actor: User) -> EmployeeBootstrapStatus:
+    unavailable_reason = None
+    if actor.account_type != UserAccountType.HUMAN:
+        unavailable_reason = "SERVICE_ACCOUNT_FORBIDDEN"
+    elif not actor.is_admin:
+        unavailable_reason = "LEGACY_ADMIN_REQUIRED"
+    elif db.scalar(select(Employee.id).where(
+        Employee.tenant_id == actor.tenant_id,
+        Employee.linked_user_id == actor.id,
+    ).limit(1)) is not None:
+        unavailable_reason = "CURRENT_USER_ALREADY_LINKED"
+    elif _has_admin_assignment(db, actor.tenant_id):
+        unavailable_reason = "ADMIN_EMPLOYEE_ALREADY_EXISTS"
+    return EmployeeBootstrapStatus(
+        available=unavailable_reason is None,
+        username=actor.username,
+        unavailable_reason=unavailable_reason,
+    )
+
+
+def bootstrap_first_admin(
+    db: Session, payload: EmployeeBootstrapCreate, actor: User,
+) -> Employee:
+    # Every bootstrap attempt for a tenant locks the same stable row set. This
+    # prevents two legacy admins from both observing an empty ADMIN assignment set.
+    tenant_users = db.scalars(select(User).where(
+        User.tenant_id == actor.tenant_id,
+    ).order_by(User.id).with_for_update()).all()
+    actor = next((item for item in tenant_users if item.id == actor.id), actor)
+
+    if actor.account_type != UserAccountType.HUMAN:
+        raise HTTPException(
+            status_code=403,
+            detail="Сервисная учётная запись не может создать первого администратора",
+        )
+    if not actor.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Bootstrap доступен только legacy-администратору",
+        )
+    if db.scalar(select(Employee.id).where(
+        Employee.tenant_id == actor.tenant_id,
+        Employee.linked_user_id == actor.id,
+    ).limit(1)) is not None:
+        raise _conflict("Текущая учётная запись уже связана с сотрудником")
+    if _has_admin_assignment(db, actor.tenant_id):
+        raise _conflict(
+            "Роль ADMIN уже назначалась сотруднику; bootstrap навсегда недоступен"
+        )
+
+    department = db.scalar(select(Department).where(
+        Department.id == payload.department_id,
+        Department.tenant_id == actor.tenant_id,
+        Department.is_active.is_(True),
+    ).with_for_update())
+    if department is None:
+        raise HTTPException(status_code=404, detail="Активное подразделение не найдено")
+
+    now = datetime.now(UTC)
+    employee = Employee(
+        tenant_id=actor.tenant_id,
+        linked_user_id=actor.id,
+        full_name=payload.full_name,
+        birth_date=payload.birth_date,
+        photo_url=payload.photo_url,
+        phone=payload.phone,
+        residence_address=payload.residence_address,
+    )
+    db.add(employee)
+    db.flush()
+    db.add_all([
+        EmployeeLifecycleEvent(
+            tenant_id=actor.tenant_id,
+            employee_id=employee.id,
+            event_type=EmployeeLifecycleEventType.CREATED,
+            effective_date=now.date(),
+            reason=payload.reason,
+            actor_user_id=actor.id,
+        ),
+        EmployeeLifecycleEvent(
+            tenant_id=actor.tenant_id,
+            employee_id=employee.id,
+            event_type=EmployeeLifecycleEventType.USER_LINKED,
+            effective_date=now.date(),
+            reason=payload.reason,
+            actor_user_id=actor.id,
+        ),
+        EmployeeRoleAssignment(
+            tenant_id=actor.tenant_id,
+            employee_id=employee.id,
+            role=EmployeeRole.ADMIN,
+            valid_from=now,
+            reason=payload.reason,
+            assigned_by_user_id=actor.id,
+        ),
+        EmployeeDepartmentAssignment(
+            tenant_id=actor.tenant_id,
+            employee_id=employee.id,
+            department_id=department.id,
+            is_primary=True,
+            valid_from=now,
+            reason=payload.reason,
+            assigned_by_user_id=actor.id,
+        ),
+    ])
+    try:
+        db.flush()
+        context = resolve_action_context(
+            db,
+            actor,
+            required_roles=frozenset({EmployeeRole.ADMIN}),
+            role_precedence=(EmployeeRole.ADMIN,),
+            write=True,
+            at=now,
+        )
+        audit_events = (
+            ("FIRST_ADMIN_BOOTSTRAPPED", "BOOTSTRAP", {}, {
+                "linked_user_id": actor.id,
+                "role": EmployeeRole.ADMIN.value,
+                "primary_department_id": department.id,
+            }),
+            ("EMPLOYEE_CREATED", "CREATE", {}, {
+                "full_name": employee.full_name,
+                "status": employee.status.value,
+            }),
+            ("EMPLOYEE_USER_LINKED", "LINK_USER", {"linked_user_id": None}, {
+                "linked_user_id": actor.id,
+            }),
+            ("EMPLOYEE_ROLE_ASSIGNED", "ASSIGN_ROLE", {}, {
+                "role": EmployeeRole.ADMIN.value,
+                "valid_from": now,
+            }),
+            ("EMPLOYEE_DEPARTMENT_ASSIGNED", "ASSIGN_DEPARTMENT", {}, {
+                "department_id": department.id,
+                "is_primary": True,
+                "valid_from": now,
+            }),
+        )
+        for event_type, operation, before, after in audit_events:
+            record_audit_event(
+                db,
+                tenant_id=actor.tenant_id,
+                event_type=event_type,
+                entity_type="Employee",
+                entity_id=employee.id,
+                operation=operation,
+                context=context,
+                actor_user=actor,
+                before=before,
+                after=after,
+                reason=payload.reason,
+            )
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise _conflict("Bootstrap конфликтует с существующими данными сотрудника") from error
+    return get_employee(db, employee.id, actor.tenant_id)
 
 
 def create_employee(db: Session, payload: EmployeeCreate, actor: User) -> Employee:

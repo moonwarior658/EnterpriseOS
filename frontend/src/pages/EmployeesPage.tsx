@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EosSearchField, EosSelect } from '../components/EosFormControls'
 import {
-  EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, createEmployee,
-  getEmployeeDepartments, getEmployees, linkEmployeeUser,
-  type Department, type Employee, type EmployeeRole,
+  EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, bootstrapFirstAdmin,
+  createEmployee, getEmployeeBootstrapStatus, getEmployeeDepartments, getEmployees,
+  linkEmployeeUser, type Department, type Employee, type EmployeeBootstrapStatus,
+  type EmployeeRole,
 } from '../services/employees'
 import { createUser, getUsers, type UserRecord } from '../services/users'
 import {
@@ -20,6 +21,7 @@ function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [users, setUsers] = useState<UserRecord[]>([])
+  const [bootstrapStatus, setBootstrapStatus] = useState<EmployeeBootstrapStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -47,6 +49,14 @@ function EmployeesPage() {
     setLoading(true)
     setError('')
     try {
+      const currentBootstrapStatus = await getEmployeeBootstrapStatus()
+      setBootstrapStatus(currentBootstrapStatus)
+      if (currentBootstrapStatus.available) {
+        setEmployees([])
+        setUsers([])
+        setDepartments(await getEmployeeDepartments())
+        return
+      }
       const [employeeItems, departmentItems, userItems] = await Promise.all([
         getEmployees(), getEmployeeDepartments(), getUsers(),
       ])
@@ -62,12 +72,23 @@ function EmployeesPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getEmployees(), getEmployeeDepartments(), getUsers()])
-      .then(([employeeItems, departmentItems, userItems]) => {
+    getEmployeeBootstrapStatus()
+      .then(async (currentBootstrapStatus) => {
         if (cancelled) return
-        setEmployees(employeeItems)
-        setDepartments(departmentItems)
-        setUsers(userItems)
+        setBootstrapStatus(currentBootstrapStatus)
+        if (currentBootstrapStatus.available) {
+          const departmentItems = await getEmployeeDepartments()
+          if (!cancelled) setDepartments(departmentItems)
+          return
+        }
+        const [employeeItems, departmentItems, userItems] = await Promise.all([
+          getEmployees(), getEmployeeDepartments(), getUsers(),
+        ])
+        if (!cancelled) {
+          setEmployees(employeeItems)
+          setDepartments(departmentItems)
+          setUsers(userItems)
+        }
       })
       .catch((requestError) => {
         if (!cancelled) setError(employeeErrorMessage(requestError, 'Не удалось загрузить сотрудников'))
@@ -93,7 +114,7 @@ function EmployeesPage() {
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!reason.trim()) { setError('Укажите причину изменения'); return }
-    if (!departmentId || roles.length === 0) {
+    if (!departmentId || (!bootstrapStatus?.available && roles.length === 0)) {
       setError('Выберите основное подразделение и хотя бы одну роль')
       return
     }
@@ -101,6 +122,15 @@ function EmployeesPage() {
     setError('')
     let created: Employee | null = null
     try {
+      if (bootstrapStatus?.available) {
+        created = await bootstrapFirstAdmin({
+          full_name: fullName, birth_date: birthDate, phone,
+          residence_address: address, photo_url: photoUrl.trim() || null,
+          department_id: departmentId, reason: reason.trim(),
+        })
+        navigate(`/employees/${created.id}`)
+        return
+      }
       created = await createEmployee({
         full_name: fullName, birth_date: birthDate, phone,
         residence_address: address, photo_url: photoUrl.trim() || null, reason: reason.trim(),
@@ -144,7 +174,7 @@ function EmployeesPage() {
 
           {showCreate && (
             <form className="employee-form" onSubmit={handleCreate}>
-              <h2>Новый сотрудник</h2>
+              <h2>{bootstrapStatus?.available ? 'Первый администратор' : 'Новый сотрудник'}</h2>
               <div className="employee-form-grid">
                 <label><span>ФИО</span><input value={fullName} onChange={(e) => setFullName(e.target.value)} required /></label>
                 <label><span>Дата рождения</span><input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} required /></label>
@@ -155,23 +185,35 @@ function EmployeesPage() {
                   <option value="">Выберите</option>{departments.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </EosSelect></label>
               </div>
-              <fieldset className="employee-role-picker"><legend>Роли</legend>
-                {EMPLOYEE_ROLES.map((role) => <label key={role}><input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} /> {ROLE_LABELS[role]}</label>)}
-              </fieldset>
+              {bootstrapStatus?.available ? (
+                <fieldset className="employee-role-picker"><legend>Роль</legend>
+                  <label><input type="checkbox" checked disabled /> {ROLE_LABELS.ADMIN}</label>
+                </fieldset>
+              ) : (
+                <fieldset className="employee-role-picker"><legend>Роли</legend>
+                  {EMPLOYEE_ROLES.map((role) => <label key={role}><input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} /> {ROLE_LABELS[role]}</label>)}
+                </fieldset>
+              )}
               <div className="employee-form-grid">
-                <label><span>Доступ в EOS</span><EosSelect value={userMode} onChange={(e) => setUserMode(e.target.value as typeof userMode)}>
-                  <option value="NONE">Нет доступа</option><option value="EXISTING">Связать существующего User</option><option value="NEW">Создать HUMAN User</option>
-                </EosSelect></label>
-                {userMode === 'EXISTING' && <label><span>Учётная запись</span><EosSelect value={userId} onChange={(e) => setUserId(e.target.value)} required>
-                  <option value="">Выберите</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}
-                </EosSelect></label>}
-                {userMode === 'NEW' && <><label><span>Логин</span><input value={login} onChange={(e) => setLogin(e.target.value)} minLength={3} required /></label>
-                  <label><span>Временный пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} required /></label>
-                  <label className="employee-check"><input type="checkbox" checked={userIsAdmin} onChange={(e) => setUserIsAdmin(e.target.checked)} /> Администратор EOS</label>
-                  <label className="employee-check"><input type="checkbox" checked={userCanViewRequests} onChange={(e) => setUserCanViewRequests(e.target.checked)} /> Просмотр заявок</label></>}
+                {bootstrapStatus?.available ? (
+                  <label className="employee-wide-field"><span>Доступ в EOS</span>
+                    <strong>Связать с текущей учётной записью @{bootstrapStatus.username}</strong>
+                  </label>
+                ) : <>
+                  <label><span>Доступ в EOS</span><EosSelect value={userMode} onChange={(e) => setUserMode(e.target.value as typeof userMode)}>
+                    <option value="NONE">Нет доступа</option><option value="EXISTING">Связать существующего User</option><option value="NEW">Создать HUMAN User</option>
+                  </EosSelect></label>
+                  {userMode === 'EXISTING' && <label><span>Учётная запись</span><EosSelect value={userId} onChange={(e) => setUserId(e.target.value)} required>
+                    <option value="">Выберите</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}
+                  </EosSelect></label>}
+                  {userMode === 'NEW' && <><label><span>Логин</span><input value={login} onChange={(e) => setLogin(e.target.value)} minLength={3} required /></label>
+                    <label><span>Временный пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} required /></label>
+                    <label className="employee-check"><input type="checkbox" checked={userIsAdmin} onChange={(e) => setUserIsAdmin(e.target.checked)} /> Администратор EOS</label>
+                    <label className="employee-check"><input type="checkbox" checked={userCanViewRequests} onChange={(e) => setUserCanViewRequests(e.target.checked)} /> Просмотр заявок</label></>}
+                </>}
                 <label className="employee-wide-field"><span>Причина изменения</span><input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
               </div>
-              <button className="primary-action" disabled={busy} type="submit">{busy ? 'Создаём…' : 'Создать сотрудника'}</button>
+              <button className="primary-action" disabled={busy} type="submit">{busy ? 'Создаём…' : bootstrapStatus?.available ? `Создать Employee и связать @${bootstrapStatus.username}` : 'Создать сотрудника'}</button>
             </form>
           )}
 

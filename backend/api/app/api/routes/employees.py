@@ -6,7 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin as get_current_legacy_admin
+from app.api.dependencies import (
+    get_current_admin as get_current_legacy_admin,
+    get_current_user,
+)
 from app.api.routes.action_context import action_context_http_error
 from app.core.action_context import ActionContextError, resolve_action_context
 from app.db.session import get_db
@@ -21,7 +24,8 @@ from app.models.employee import (
 )
 from app.models.user import User
 from app.schemas.employee import (
-    AssignmentEnd, DepartmentAssignmentRead, EmployeeCreate,
+    AssignmentEnd, DepartmentAssignmentRead, EmployeeBootstrapCreate,
+    EmployeeBootstrapStatus, EmployeeCreate,
     EmployeeDepartmentAssignmentCreate, EmployeeDismiss, EmployeeReactivate,
     EmployeeRead, EmployeeRoleAssignmentCreate, EmployeeUpdate,
     EmployeeUserLink, EmployeeUserUnlink, RoleAssignmentRead,
@@ -51,6 +55,23 @@ def employee_read(db: Session, employee: Employee) -> EmployeeRead:
     result = EmployeeRead.model_validate(employee)
     result.linked_user_id = service.linked_user_id(db, employee.id, employee.tenant_id)
     return result
+
+
+@router.get("/bootstrap", response_model=EmployeeBootstrapStatus)
+def get_bootstrap_status(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> EmployeeBootstrapStatus:
+    return service.first_admin_bootstrap_status(db, current_user)
+
+
+@router.post("/bootstrap", response_model=EmployeeRead, status_code=status.HTTP_201_CREATED)
+def bootstrap_first_admin(
+    payload: EmployeeBootstrapCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> EmployeeRead:
+    return employee_read(db, service.bootstrap_first_admin(db, payload, current_user))
 
 
 @router.post("", response_model=EmployeeRead, status_code=status.HTTP_201_CREATED)
