@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.main import app
+from app.core.security import verify_password
 from app.models.user import User
 
 
@@ -119,6 +120,52 @@ class UserRequestViewAccessTests(unittest.TestCase):
             ).status_code,
             403,
         )
+
+    def test_human_password_is_generated_once_and_service_flow_is_preserved(self) -> None:
+        created = self.client.post("/users", json={
+            "username": "new.human",
+            "display_name": "Новый сотрудник",
+            "is_admin": False,
+            "can_view_requests": False,
+            "account_type": "HUMAN",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        temporary_password = created.json()["temporary_password"]
+        self.assertGreaterEqual(len(temporary_password), 12)
+
+        with self.sessions() as session:
+            human = session.query(User).filter_by(username="new.human").one()
+            self.assertNotEqual(human.hashed_password, temporary_password)
+            self.assertTrue(verify_password(temporary_password, human.hashed_password))
+
+        login = self.client.post("/auth/token", data={
+            "username": "new.human",
+            "password": temporary_password,
+        })
+        self.assertEqual(login.status_code, 200, login.text)
+        listed = self.client.get("/users").json()
+        self.assertNotIn("temporary_password", next(
+            item for item in listed if item["username"] == "new.human"
+        ))
+        self.assertEqual(self.client.post("/users", json={
+            "username": "manual.human",
+            "display_name": "Ручной пароль",
+            "password": "must-not-be-used",
+            "account_type": "HUMAN",
+        }).status_code, 422)
+
+        service_password = "service-password-123"
+        service = self.client.post("/users", json={
+            "username": "new.service",
+            "display_name": "Сервис",
+            "password": service_password,
+            "account_type": "SERVICE",
+        })
+        self.assertEqual(service.status_code, 201, service.text)
+        self.assertIsNone(service.json()["temporary_password"])
+        with self.sessions() as session:
+            service_user = session.query(User).filter_by(username="new.service").one()
+            self.assertTrue(verify_password(service_password, service_user.hashed_password))
 
 
 if __name__ == "__main__":

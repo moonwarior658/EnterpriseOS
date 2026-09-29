@@ -1,7 +1,7 @@
 ﻿import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.user import UserAccountType
 
@@ -38,7 +38,7 @@ class UserRead(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     display_name: str = Field(min_length=1, max_length=128)
-    password: str = Field(min_length=12, max_length=256)
+    password: str | None = Field(default=None, min_length=12, max_length=256)
     avatar_url: str | None = Field(default=None, max_length=500)
     is_admin: bool = False
     can_view_requests: bool = False
@@ -55,6 +55,36 @@ class UserCreate(BaseModel):
     @classmethod
     def normalize_display_name(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def validate_password_source(self):
+        if self.account_type == UserAccountType.HUMAN and self.password is not None:
+            raise ValueError("Password is generated automatically for HUMAN users")
+        if self.account_type == UserAccountType.SERVICE and self.password is None:
+            raise ValueError("Password is required for SERVICE users")
+        return self
+
+
+class UserCreated(UserRead):
+    temporary_password: str | None
+
+
+class GeneratedCredentials(BaseModel):
+    username: str
+    temporary_password: str
+
+
+class PasswordReset(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason must not be blank")
+        return value
 
 
 class UserUpdate(BaseModel):

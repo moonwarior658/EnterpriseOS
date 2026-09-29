@@ -6,11 +6,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
-from app.core.security import hash_password
+from app.core.security import generate_password, hash_password
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeStatus
-from app.models.user import User
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.models.user import User, UserAccountType
+from app.schemas.user import UserCreate, UserCreated, UserRead, UserUpdate
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -50,14 +50,14 @@ def get_user(
 
 @router.post(
     "",
-    response_model=UserRead,
+    response_model=UserCreated,
     status_code=status.HTTP_201_CREATED,
 )
 def create_user(
     payload: UserCreate,
     db: Annotated[Session, Depends(get_db)],
     current_admin: Annotated[User, Depends(get_current_admin)],
-) -> User:
+) -> UserCreated:
     existing_user = db.scalar(
         select(User).where(User.username == payload.username)
     )
@@ -68,11 +68,20 @@ def create_user(
             detail="Login already exists",
         )
 
+    temporary_password = (
+        generate_password()
+        if payload.account_type == UserAccountType.HUMAN
+        else None
+    )
+    password = temporary_password or payload.password
+    if password is None:  # Protected by UserCreate validation.
+        raise HTTPException(status_code=422, detail="Password is required")
+
     user = User(
         username=payload.username,
         display_name=payload.display_name,
         avatar_url=payload.avatar_url,
-        hashed_password=hash_password(payload.password),
+        hashed_password=hash_password(password),
         is_active=True,
         is_admin=payload.is_admin,
         can_view_requests=payload.can_view_requests,
@@ -92,7 +101,10 @@ def create_user(
             detail="Login already exists",
         ) from error
 
-    return user
+    return UserCreated(
+        **UserRead.model_validate(user).model_dump(),
+        temporary_password=temporary_password,
+    )
 
 
 @router.patch("/{user_id}", response_model=UserRead)

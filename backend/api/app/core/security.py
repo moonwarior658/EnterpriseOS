@@ -1,5 +1,7 @@
 ﻿from datetime import datetime, timedelta, timezone
 
+import secrets
+
 import jwt
 from pwdlib import PasswordHash
 
@@ -8,6 +10,11 @@ from app.core.config import settings
 
 password_hash = PasswordHash.recommended()
 DUMMY_HASH = password_hash.hash("enterpriseos-dummy-password")
+GENERATED_PASSWORD_BYTES = 18
+
+
+def generate_password() -> str:
+    return secrets.token_urlsafe(GENERATED_PASSWORD_BYTES)
 
 
 def hash_password(password: str) -> str:

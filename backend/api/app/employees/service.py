@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.audit.service import record_audit_event
 from app.core.action_context import ActionContext, resolve_action_context
+from app.core.security import generate_password, hash_password
 from app.models.employee import (
     Employee, EmployeeDepartmentAssignment, EmployeeLifecycleEvent,
     EmployeeLifecycleEventType, EmployeeRole, EmployeeRoleAssignment, EmployeeStatus,
@@ -545,6 +546,43 @@ def unlink_user(db: Session, employee: Employee, reason: str, actor: User) -> Em
     )
     db.commit()
     return get_employee(db, employee.id, actor.tenant_id)
+
+
+def reset_linked_user_password(
+    db: Session, employee: Employee, reason: str, actor: User,
+) -> tuple[User, str]:
+    context = _admin_context(db, actor)
+    if employee.linked_user_id is None:
+        raise _conflict("Employee has no linked user")
+    user = db.scalar(select(User).where(
+        User.id == employee.linked_user_id,
+        User.tenant_id == actor.tenant_id,
+    ).with_for_update())
+    if user is None:
+        raise _conflict("Linked user is unavailable")
+    if user.account_type != UserAccountType.HUMAN:
+        raise HTTPException(
+            status_code=422,
+            detail="Service account password cannot be reset through Employee",
+        )
+
+    temporary_password = generate_password()
+    user.hashed_password = hash_password(temporary_password)
+    record_audit_event(
+        db,
+        tenant_id=actor.tenant_id,
+        event_type="USER_PASSWORD_RESET",
+        entity_type="User",
+        entity_id=user.id,
+        operation="RESET_PASSWORD",
+        context=context,
+        actor_user=actor,
+        before={},
+        after={},
+        reason=reason,
+    )
+    db.commit()
+    return user, temporary_password
 
 
 def _commit_integrity(db: Session, detail: str) -> None:

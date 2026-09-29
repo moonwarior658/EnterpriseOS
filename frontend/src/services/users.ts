@@ -8,10 +8,19 @@ export type UserRecord = CurrentUser
 export type CreateUserInput = {
   username: string
   display_name: string
-  password: string
+  password?: string
   is_admin: boolean
   can_view_requests: boolean
   account_type?: 'HUMAN' | 'SERVICE'
+}
+
+export type GeneratedCredentials = {
+  username: string
+  temporary_password: string
+}
+
+export type CreatedUserRecord = UserRecord & {
+  temporary_password: string | null
 }
 
 export type UpdateUserInput = {
@@ -60,10 +69,20 @@ export function getUsers(): Promise<UserRecord[]> {
 
 export function createUser(
   input: CreateUserInput,
-): Promise<UserRecord> {
-  return authorizedRequest<UserRecord>('/users', {
+): Promise<CreatedUserRecord> {
+  return authorizedRequest<CreatedUserRecord>('/users', {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+}
+
+export function resetEmployeePassword(
+  employeeId: string,
+  reason: string,
+): Promise<GeneratedCredentials> {
+  return authorizedRequest<GeneratedCredentials>(`/employees/${employeeId}/password-reset`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   })
 }
 

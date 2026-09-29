@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EosSearchField, EosSelect } from '../components/EosFormControls'
+import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
 import {
   EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, bootstrapFirstAdmin,
   createEmployee, getEmployeeBootstrapStatus, getEmployeeDepartments, getEmployees,
   linkEmployeeUser, type Department, type Employee, type EmployeeBootstrapStatus,
   type EmployeeRole,
 } from '../services/employees'
-import { createUser, getUsers, type UserRecord } from '../services/users'
+import { createUser, getUsers, type GeneratedCredentials, type UserRecord } from '../services/users'
 import {
   ROLE_LABELS, activeAt, availableHumanUsers, departmentName, employeeErrorMessage,
   filterEmployees,
@@ -41,7 +42,7 @@ function EmployeesPage() {
   const [userMode, setUserMode] = useState<'NONE' | 'EXISTING' | 'NEW'>('NONE')
   const [userId, setUserId] = useState('')
   const [login, setLogin] = useState('')
-  const [password, setPassword] = useState('')
+  const [generatedCredentials, setGeneratedCredentials] = useState<GeneratedCredentials | null>(null)
   const [userIsAdmin, setUserIsAdmin] = useState(false)
   const [userCanViewRequests, setUserCanViewRequests] = useState(false)
 
@@ -142,12 +143,23 @@ function EmployeesPage() {
       if (userMode === 'EXISTING') selectedUserId = Number(userId)
       if (userMode === 'NEW') {
         const newUser = await createUser({
-          username: login, display_name: fullName, password,
+          username: login, display_name: fullName,
           is_admin: userIsAdmin, can_view_requests: userCanViewRequests, account_type: 'HUMAN',
         })
         selectedUserId = newUser.id
+        if (newUser.temporary_password) {
+          setGeneratedCredentials({
+            username: newUser.username,
+            temporary_password: newUser.temporary_password,
+          })
+        }
       }
       if (selectedUserId) await linkEmployeeUser(created.id, selectedUserId, reason.trim())
+      if (userMode === 'NEW') {
+        setShowCreate(false)
+        await load()
+        return
+      }
       navigate(`/employees/${created.id}`)
     } catch (requestError) {
       setError(employeeErrorMessage(
@@ -207,7 +219,6 @@ function EmployeesPage() {
                     <option value="">Выберите</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}
                   </EosSelect></label>}
                   {userMode === 'NEW' && <><label><span>Логин</span><input value={login} onChange={(e) => setLogin(e.target.value)} minLength={3} required /></label>
-                    <label><span>Временный пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} required /></label>
                     <label className="employee-check"><input type="checkbox" checked={userIsAdmin} onChange={(e) => setUserIsAdmin(e.target.checked)} /> Администратор EOS</label>
                     <label className="employee-check"><input type="checkbox" checked={userCanViewRequests} onChange={(e) => setUserCanViewRequests(e.target.checked)} /> Просмотр заявок</label></>}
                 </>}
@@ -216,6 +227,12 @@ function EmployeesPage() {
               <button className="primary-action" disabled={busy} type="submit">{busy ? 'Создаём…' : bootstrapStatus?.available ? `Создать Employee и связать @${bootstrapStatus.username}` : 'Создать сотрудника'}</button>
             </form>
           )}
+
+          {generatedCredentials && <GeneratedCredentialsPanel
+            username={generatedCredentials.username}
+            temporaryPassword={generatedCredentials.temporary_password}
+            onClose={() => setGeneratedCredentials(null)}
+          />}
 
           <div className="employee-filters">
             <EosSearchField label="Поиск по ФИО" value={query} onChange={(e) => setQuery(e.target.value)} />

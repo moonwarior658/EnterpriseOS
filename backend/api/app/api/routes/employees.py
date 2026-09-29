@@ -32,6 +32,7 @@ from app.schemas.employee import (
     EmployeeIikoShiftRead, EmployeeIikoSyncRead, IikoEmployeeCandidateRead,
     IikoEmployeeLinkCorrect, IikoEmployeeLinkCreate, IikoEmployeeLinkRead,
 )
+from app.schemas.user import GeneratedCredentials, PasswordReset
 
 
 router = APIRouter(prefix="/employees", tags=["employees"])
@@ -102,6 +103,23 @@ def get_employee(
     current_admin: Annotated[User, Depends(get_current_admin)],
 ) -> EmployeeRead:
     return employee_read(db, service.get_employee(db, employee_id, current_admin.tenant_id))
+
+
+@router.post("/{employee_id}/password-reset", response_model=GeneratedCredentials)
+def reset_employee_password(
+    employee_id: UUID,
+    payload: PasswordReset,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> GeneratedCredentials:
+    employee = service.get_employee(db, employee_id, current_admin.tenant_id, lock=True)
+    user, temporary_password = service.reset_linked_user_password(
+        db, employee, payload.reason, current_admin,
+    )
+    return GeneratedCredentials(
+        username=user.username,
+        temporary_password=temporary_password,
+    )
 
 
 @router.patch("/{employee_id}", response_model=EmployeeRead)

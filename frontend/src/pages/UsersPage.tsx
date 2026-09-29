@@ -1,11 +1,13 @@
 ﻿import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
 import {
   createUser,
   getUsers,
   updateUser,
   type UpdateUserInput,
+  type GeneratedCredentials,
   type UserRecord,
 } from '../services/users'
 
@@ -24,7 +26,7 @@ function UsersPage() {
 
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [password, setPassword] = useState('')
+  const [generatedCredentials, setGeneratedCredentials] = useState<GeneratedCredentials | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [canViewRequests, setCanViewRequests] = useState(false)
 
@@ -77,9 +79,9 @@ function UsersPage() {
       const createdUser = await createUser({
         username,
         display_name: displayName,
-        password,
         is_admin: isAdmin,
         can_view_requests: canViewRequests,
+        account_type: 'HUMAN',
       })
 
       setUsers((currentUsers) => [
@@ -88,10 +90,15 @@ function UsersPage() {
       ])
       setUsername('')
       setDisplayName('')
-      setPassword('')
       setIsAdmin(false)
       setCanViewRequests(false)
       setShowCreateForm(false)
+      if (createdUser.temporary_password) {
+        setGeneratedCredentials({
+          username: createdUser.username,
+          temporary_password: createdUser.temporary_password,
+        })
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -261,20 +268,6 @@ function UsersPage() {
                   />
                 </label>
 
-                <label>
-                  <span>Временный пароль</span>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(event) =>
-                      setPassword(event.target.value)
-                    }
-                    placeholder="Минимум 12 символов"
-                    minLength={12}
-                    required
-                  />
-                </label>
-
                 <label className="checkbox-field">
                   <input
                     type="checkbox"
@@ -310,6 +303,12 @@ function UsersPage() {
             </form>
           )}
 
+          {generatedCredentials && <GeneratedCredentialsPanel
+            username={generatedCredentials.username}
+            temporaryPassword={generatedCredentials.temporary_password}
+            onClose={() => setGeneratedCredentials(null)}
+          />}
+
           {editingUser && (
             <form
               className="user-create-form"
@@ -344,7 +343,7 @@ function UsersPage() {
                   />
                 </label>
 
-                <label>
+                {editingUser.account_type === 'SERVICE' && <label>
                   <span>Новый пароль</span>
                   <input
                     type="password"
@@ -355,7 +354,7 @@ function UsersPage() {
                     placeholder="Оставить прежний"
                     minLength={12}
                   />
-                </label>
+                </label>}
 
                 <label className="checkbox-field">
                   <input

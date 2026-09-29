@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { EosSelect } from '../components/EosFormControls'
+import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
 import {
   EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, dismissEmployee,
   correctEmployeeIikoLink, createEmployeeIikoLink, findEmployeeIikoCandidates,
@@ -11,7 +12,9 @@ import {
   type Employee, type EmployeeIikoShift, type EmployeeRole,
   type IikoEmployeeCandidate, type IikoEmployeeLink,
 } from '../services/employees'
-import { getUsers, type UserRecord } from '../services/users'
+import {
+  getUsers, resetEmployeePassword, type GeneratedCredentials, type UserRecord,
+} from '../services/users'
 import {
   ROLE_LABELS, activeAt, availableHumanUsers, departmentName, employeeErrorMessage,
 } from './employeeAdminLogic'
@@ -91,7 +94,8 @@ function EmployeeDetailPage() {
   const [iikoReason, setIikoReason] = useState('')
   const [iikoLoading, setIikoLoading] = useState(false)
   const [iikoError, setIikoError] = useState('')
-  const [dialog, setDialog] = useState<null | { kind: 'dismiss' | 'reactivate' | 'unlink' | 'link' | 'endRole' | 'endDepartment'; assignmentId?: string }>(null)
+  const [dialog, setDialog] = useState<null | { kind: 'dismiss' | 'reactivate' | 'unlink' | 'link' | 'resetPassword' | 'endRole' | 'endDepartment'; assignmentId?: string }>(null)
+  const [generatedCredentials, setGeneratedCredentials] = useState<GeneratedCredentials | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -182,6 +186,16 @@ function EmployeeDetailPage() {
     if (dialog.kind === 'reactivate') return mutation(() => reactivateEmployee(employeeId, date, reason), 'Не удалось восстановить сотрудника')
     if (dialog.kind === 'unlink') return mutation(() => unlinkEmployeeUser(employeeId, reason), 'Не удалось отвязать учётную запись')
     if (dialog.kind === 'link') return mutation(() => linkEmployeeUser(employeeId, Number(selectedUserId), reason), 'Не удалось связать учётную запись')
+    if (dialog.kind === 'resetPassword') {
+      setBusy(true); setError('')
+      try {
+        setGeneratedCredentials(await resetEmployeePassword(employeeId, reason))
+        setDialog(null)
+      } catch (requestError) {
+        setError(employeeErrorMessage(requestError, 'Не удалось сбросить пароль'))
+      } finally { setBusy(false) }
+      return
+    }
     if (dialog.kind === 'endRole') return mutation(() => endEmployeeRole(employeeId, dialog.assignmentId!, iso(date), reason), 'Не удалось завершить назначение роли')
     return mutation(() => endEmployeeDepartment(employeeId, dialog.assignmentId!, iso(date), reason), 'Не удалось завершить назначение подразделения')
   }
@@ -230,8 +244,9 @@ function EmployeeDetailPage() {
     </section>
 
     <section className="employee-card"><h2>Доступ в EOS</h2>
-      {linkedUser ? <div className="employee-access"><div><strong>@{linkedUser.username}</strong><span>{linkedUser.display_name}</span><span>{linkedUser.is_active ? 'Доступ активен' : 'Доступ заблокирован'}</span></div><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'unlink' })}>Отвязать User</button></div>
+      {linkedUser ? <div className="employee-access"><div><strong>@{linkedUser.username}</strong><span>{linkedUser.display_name}</span><span>{linkedUser.is_active ? 'Доступ активен' : 'Доступ заблокирован'}</span></div><div className="user-actions"><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'resetPassword' })}>Сбросить пароль</button><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'unlink' })}>Отвязать User</button></div></div>
         : <div className="employee-access"><div><strong>Нет доступа</strong><span>Employee существует без учётной записи</span></div><div className="user-actions"><EosSelect value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}><option value="">Выберите HUMAN User</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}</EosSelect><button className="primary-action" type="button" disabled={!selectedUserId || busy} onClick={() => setDialog({ kind: 'link' })}>Связать</button></div></div>}
+      {generatedCredentials && <GeneratedCredentialsPanel username={generatedCredentials.username} temporaryPassword={generatedCredentials.temporary_password} onClose={() => setGeneratedCredentials(null)} />}
     </section>
 
     <section className="employee-card"><div className="employee-section-heading"><h2>iiko</h2><button className="secondary-action" type="button" disabled={iikoLoading} onClick={() => void loadIiko(true)}>Найти сотрудника iiko</button></div>
@@ -261,7 +276,7 @@ function EmployeeDetailPage() {
 
     <section className="employee-card"><h2>История жизненного цикла</h2><div className="employee-history">{[...employee.lifecycle_events].reverse().map((item) => <article key={item.id}><div><strong>{({ CREATED: 'Создан', UPDATED: 'Данные изменены', DISMISSED: 'Уволен', REACTIVATED: 'Восстановлен', USER_LINKED: 'User связан', USER_UNLINKED: 'User отвязан' } as const)[item.event_type]}</strong><span>{item.effective_date}</span><span>{item.reason}</span></div></article>)}</div></section>
   </div>
-  {dialog && <ReasonDialog title={({ dismiss: 'Уволить сотрудника', reactivate: 'Восстановить сотрудника', unlink: 'Отвязать User', link: 'Связать User', endRole: 'Завершить назначение роли', endDepartment: 'Завершить назначение подразделения' } as const)[dialog.kind]} confirmLabel={({ dismiss: 'Уволить', reactivate: 'Восстановить', unlink: 'Отвязать', link: 'Связать', endRole: 'Завершить', endDepartment: 'Завершить' } as const)[dialog.kind]} dateLabel={dialog.kind === 'dismiss' ? 'Дата увольнения' : dialog.kind === 'reactivate' ? 'Дата восстановления' : dialog.kind.startsWith('end') ? 'Действует до' : undefined} dateType={dialog.kind === 'dismiss' || dialog.kind === 'reactivate' ? 'date' : 'datetime-local'} busy={busy} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />}
+  {dialog && <ReasonDialog title={({ dismiss: 'Уволить сотрудника', reactivate: 'Восстановить сотрудника', unlink: 'Отвязать User', link: 'Связать User', resetPassword: 'Сбросить пароль', endRole: 'Завершить назначение роли', endDepartment: 'Завершить назначение подразделения' } as const)[dialog.kind]} confirmLabel={({ dismiss: 'Уволить', reactivate: 'Восстановить', unlink: 'Отвязать', link: 'Связать', resetPassword: 'Сбросить пароль', endRole: 'Завершить', endDepartment: 'Завершить' } as const)[dialog.kind]} dateLabel={dialog.kind === 'dismiss' ? 'Дата увольнения' : dialog.kind === 'reactivate' ? 'Дата восстановления' : dialog.kind.startsWith('end') ? 'Действует до' : undefined} dateType={dialog.kind === 'dismiss' || dialog.kind === 'reactivate' ? 'date' : 'datetime-local'} busy={busy} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />}
   </main>
 }
 

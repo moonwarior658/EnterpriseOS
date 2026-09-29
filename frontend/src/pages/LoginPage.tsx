@@ -1,6 +1,7 @@
 ﻿import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { passwordInputType, passwordToggleLabel } from '../utils/passwordUx'
 
 function LoginPage() {
   const navigate = useNavigate()
@@ -10,6 +11,7 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [passwordVisible, setPasswordVisible] = useState(false)
 
   if (user) {
     return <Navigate to="/dashboard" replace />
@@ -68,15 +70,25 @@ function LoginPage() {
 
           <label>
             <span>Пароль</span>
-            <input
-              type="password"
-              name="password"
-              placeholder="Введите пароль"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
+            <span className="password-input-row">
+              <input
+                type={passwordInputType(passwordVisible)}
+                name="password"
+                placeholder="Введите пароль"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                className="password-visibility-action"
+                type="button"
+                aria-label={passwordToggleLabel(passwordVisible)}
+                onClick={() => setPasswordVisible((value) => !value)}
+              >
+                {passwordVisible ? '◉' : '◎'}
+              </button>
+            </span>
           </label>
 
           <button type="submit" disabled={isSubmitting}>

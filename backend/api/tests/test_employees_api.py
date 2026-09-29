@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_user
+from app.core.security import hash_password
 from app.db.session import get_db
 from app.main import app
 from app.models.employee import (
@@ -442,6 +443,52 @@ class EmployeesApiTests(unittest.TestCase):
                 AuditEvent.entity_id == first["id"],
             )).all())
             self.assertIn("EMPLOYEE_USER_UNLINKED", event_types)
+
+    def test_password_reset_rotates_linked_human_and_audits_without_plaintext(self) -> None:
+        old_password = "old-password-123"
+        with self.sessions.begin() as session:
+            session.get(User, 2).hashed_password = hash_password(old_password)
+        employee = self.create_employee()
+        employee_id = employee["id"]
+        linked = self.client.post(
+            f"/employees/{employee_id}/user",
+            json={"user_id": 2, "reason": "Выдан доступ"},
+        )
+        self.assertEqual(linked.status_code, 200, linked.text)
+        self.assertEqual(self.client.post("/auth/token", data={
+            "username": "worker", "password": old_password,
+        }).status_code, 200)
+
+        reset = self.client.post(
+            f"/employees/{employee_id}/password-reset",
+            json={"reason": "Плановый сброс администратором"},
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        temporary_password = reset.json()["temporary_password"]
+        self.assertGreaterEqual(len(temporary_password), 12)
+        self.assertNotEqual(temporary_password, old_password)
+        self.assertEqual(self.client.post("/auth/token", data={
+            "username": "worker", "password": old_password,
+        }).status_code, 401)
+        self.assertEqual(self.client.post("/auth/token", data={
+            "username": "worker", "password": temporary_password,
+        }).status_code, 200)
+
+        with self.sessions() as session:
+            event = session.scalar(select(AuditEvent).where(
+                AuditEvent.event_type == "USER_PASSWORD_RESET",
+            ))
+            self.assertIsNotNone(event)
+            self.assertEqual(event.reason, "Плановый сброс администратором")
+            rendered = repr({"before": event.before, "after": event.after})
+            self.assertNotIn(old_password, rendered)
+            self.assertNotIn(temporary_password, rendered)
+
+        unlinked_employee = self.create_employee(full_name="Без учётной записи")
+        self.assertEqual(self.client.post(
+            f"/employees/{unlinked_employee['id']}/password-reset",
+            json={"reason": "Нельзя"},
+        ).status_code, 409)
 
     def test_blank_reasons_and_delete_are_rejected(self) -> None:
         self.assertEqual(
