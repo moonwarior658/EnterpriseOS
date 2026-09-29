@@ -18,7 +18,11 @@ from app.employees.iiko import (
     link_history, list_shifts, sync_shifts,
 )
 from app.integrations.iiko.schemas import IikoEmployeeDto, IikoPersonalShiftDto
-from app.models.employee import Employee, EmployeeIikoShift, IikoEmployeeLink
+from app.models.employee import (
+    Employee, EmployeeDepartmentAssignment, EmployeeIikoShift, EmployeeRole,
+    EmployeeRoleAssignment, IikoEmployeeLink,
+)
+from app.models.audit import AuditEvent
 from app.models.iiko import IikoWarehouseMapping
 from app.models.supply import Department
 from app.models.user import User
@@ -41,18 +45,27 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
         Department.__table__.create(self.engine)
         User.__table__.create(self.engine)
         Employee.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
         IikoWarehouseMapping.__table__.create(self.engine)
         IikoEmployeeLink.__table__.create(self.engine)
         EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.department_id = uuid4()
         self.warehouse_id = uuid4()
         self.employee_id = uuid4()
         self.other_employee_id = uuid4()
+        self.admin_employee_id = uuid4()
+        self.started = datetime(2026, 9, 28, 7, 0, tzinfo=UTC)
         with self.sessions.begin() as db:
             db.add_all([
                 Department(id=self.department_id, tenant_id="eclair", code="M15", name="М15"),
                 User(id=1, username="admin", display_name="Admin", hashed_password="x", is_active=True, is_admin=True, tenant_id="eclair"),
+            ])
+            db.flush()
+            db.add_all([
+                Employee(id=self.admin_employee_id, tenant_id="eclair", linked_user_id=1, full_name="Администратор", birth_date=datetime(1989, 1, 1).date(), phone="0", residence_address="z"),
                 Employee(id=self.employee_id, tenant_id="eclair", full_name="Иванов Иван Иванович", birth_date=datetime(1990, 1, 1).date(), phone="1", residence_address="x"),
                 Employee(id=self.other_employee_id, tenant_id="eclair", full_name="Иванов Иван Петрович", birth_date=datetime(1991, 1, 1).date(), phone="2", residence_address="y"),
                 IikoWarehouseMapping(
@@ -62,11 +75,24 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
                     is_deleted=False,
                 ),
             ])
+        with self.sessions.begin() as db:
+            db.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair", employee_id=self.admin_employee_id,
+                    role=EmployeeRole.ADMIN, valid_from=self.started - timedelta(days=1),
+                    reason="Администрирование", assigned_by_user_id=1,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair", employee_id=self.admin_employee_id,
+                    department_id=self.department_id, is_primary=True,
+                    valid_from=self.started - timedelta(days=1),
+                    reason="Основное подразделение", assigned_by_user_id=1,
+                ),
+            ])
         self.provider = FakeIikoProvider([
             IikoEmployeeDto(external_id="iiko-1", name="Иванов Иван Иванович", code="001"),
             IikoEmployeeDto(external_id="iiko-2", name="Иванов Иван Иванович", code="002"),
         ])
-        self.started = datetime(2026, 9, 28, 7, 0, tzinfo=UTC)
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -117,6 +143,15 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history[1].ended_reason, "Исправление identity")
             stored = db.scalar(select(EmployeeIikoShift))
             self.assertEqual(stored.iiko_user_id, "iiko-2")
+            audits = list(db.scalars(select(AuditEvent).where(
+                AuditEvent.entity_id == str(self.employee_id),
+            ).order_by(AuditEvent.occurred_at)).all())
+            self.assertEqual(
+                [item.event_type for item in audits],
+                ["IIKO_EMPLOYEE_LINK_CREATED", "IIKO_EMPLOYEE_LINK_CORRECTED"],
+            )
+            self.assertEqual(audits[1].correction_of_event_id, audits[0].id)
+            self.assertEqual(audits[1].reason, "Исправление identity")
 
     async def test_shift_create_repeat_close_duration_mapping_and_history_after_dismissal(self) -> None:
         with self.sessions() as db:

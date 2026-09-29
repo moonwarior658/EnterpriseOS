@@ -16,6 +16,7 @@ import {
   getSupplyStockCalculation,
   getSupplyProducts,
   getSupplyRequest,
+  getSupplyRequestHistory,
   getSupplyUnits,
   matchSupplyLine,
   openSupplyIikoDocumentPdf,
@@ -37,6 +38,7 @@ import {
   type SupplyProductSourcePreview,
   type SupplyProduct,
   type SupplyRequest,
+  type SupplyRequestHistory,
   type SupplyStockCalculation,
   type SupplyUnit,
 } from '../services/supplyAdmin'
@@ -524,6 +526,7 @@ function SupplyRequestDetailPage() {
   const readOnly = !user?.is_admin
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
+  const [history, setHistory] = useState<SupplyRequestHistory[]>([])
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
@@ -698,6 +701,14 @@ function SupplyRequestDetailPage() {
       controller.abort()
     }
   }, [readOnly, requestId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getSupplyRequestHistory(requestId, controller.signal)
+      .then(setHistory)
+      .catch(() => setHistory([]))
+    return () => controller.abort()
+  }, [requestId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -2186,6 +2197,21 @@ function SupplyRequestDetailPage() {
           </details>
         ))}
       </div>
+
+      <section className="supply-card">
+        <h2>История заявки</h2>
+        {history.length === 0 ? <p>Значимых событий пока нет.</p> : (
+          <div className="audit-diff">
+            {history.map((item) => (
+              <p key={item.id}>
+                <strong>{new Date(item.occurred_at).toLocaleString('ru-RU')}</strong>
+                {' · '}{item.actor_name ?? 'Система'} · {item.operation}
+                {item.reason ? ` · ${item.reason}` : ''}
+              </p>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="supply-sticky-actions">
         {message && <span role="status">{message}</span>}

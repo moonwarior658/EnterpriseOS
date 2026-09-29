@@ -20,6 +20,7 @@ import SupplySupplierPaymentsPage from './pages/SupplySupplierPaymentsPage'
 import UsersPage from './pages/UsersPage'
 import EmployeesPage from './pages/EmployeesPage'
 import EmployeeDetailPage from './pages/EmployeeDetailPage'
+import AuditPage from './pages/AuditPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
 import WorkRequestListPage from './pages/WorkRequestListPage'
@@ -78,12 +79,12 @@ function App() {
 
         <Route
           path="/supply/requests"
-          element={<ProtectedRoute requestViewOnly><SupplyRequestListPage /></ProtectedRoute>}
+          element={<ProtectedRoute><SupplyRequestListPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/requests/:requestId"
-          element={<ProtectedRoute requestViewOnly><SupplyRequestDetailPage /></ProtectedRoute>}
+          element={<ProtectedRoute><SupplyRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route
@@ -126,6 +127,7 @@ function App() {
 
         <Route path="/employees" element={<ProtectedRoute adminOnly><EmployeesPage /></ProtectedRoute>} />
         <Route path="/employees/:employeeId" element={<ProtectedRoute adminOnly><EmployeeDetailPage /></ProtectedRoute>} />
+        <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
 
         <Route
           path="/automation/diagnostics"

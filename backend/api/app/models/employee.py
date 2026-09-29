@@ -106,6 +106,9 @@ class Employee(Base):
     iiko_shifts: Mapped[list["EmployeeIikoShift"]] = relationship(
         back_populates="employee", order_by="EmployeeIikoShift.opened_at"
     )
+    shift_department_confirmations: Mapped[list["ShiftDepartmentConfirmation"]] = relationship(
+        back_populates="employee", order_by="ShiftDepartmentConfirmation.confirmed_at"
+    )
 
 
 class EmployeeRoleAssignment(Base):
@@ -247,6 +250,7 @@ class IikoEmployeeLink(Base):
 class EmployeeIikoShift(Base):
     __tablename__ = "employee_iiko_shifts"
     __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_employee_iiko_shifts_tenant_id"),
         ForeignKeyConstraint(
             ["tenant_id", "employee_id"], ["employees.tenant_id", "employees.id"],
             name="fk_employee_iiko_shifts_employee_tenant", ondelete="RESTRICT",
@@ -290,3 +294,57 @@ class EmployeeIikoShift(Base):
     @property
     def department_mapping_resolved(self) -> bool:
         return self.department_id is not None
+
+
+class ShiftDepartmentConfirmation(Base):
+    __tablename__ = "shift_department_confirmations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "employee_id"], ["employees.tenant_id", "employees.id"],
+            name="fk_shift_department_confirmations_employee_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "shift_id"],
+            ["employee_iiko_shifts.tenant_id", "employee_iiko_shifts.id"],
+            name="fk_shift_department_confirmations_shift_tenant", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "primary_department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_shift_department_confirmations_primary_department_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "actual_department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_shift_department_confirmations_actual_department_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "shift_id", "employee_id",
+            name="uq_shift_department_confirmations_shift_employee",
+        ),
+        Index(
+            "ix_shift_department_confirmations_employee_confirmed",
+            "tenant_id", "employee_id", "confirmed_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    employee_id: Mapped[UUID] = mapped_column(nullable=False)
+    shift_id: Mapped[UUID] = mapped_column(nullable=False)
+    primary_department_id: Mapped[UUID] = mapped_column(nullable=False)
+    actual_department_id: Mapped[UUID] = mapped_column(nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actor_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    employee: Mapped[Employee] = relationship(back_populates="shift_department_confirmations")
+    shift: Mapped[EmployeeIikoShift] = relationship(
+        overlaps="employee,shift_department_confirmations"
+    )

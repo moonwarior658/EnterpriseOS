@@ -10,11 +10,15 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.audit.service import record_audit_event
+from app.core.action_context import resolve_action_context
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import IikoEmployeeDto, IikoPersonalShiftDto
 from app.models.employee import (
-    Employee, EmployeeIikoShift, EmployeeIikoShiftStatus, IikoEmployeeLink,
+    Employee, EmployeeIikoShift, EmployeeIikoShiftStatus, EmployeeRole,
+    IikoEmployeeLink,
 )
+from app.models.audit import AuditEvent
 from app.models.iiko import (
     IikoMappingStatus, IikoWarehouseDestinationType, IikoWarehouseMapping,
 )
@@ -129,6 +133,10 @@ async def create_link(
     provider: IikoProvider,
     now: datetime | None = None,
 ) -> IikoEmployeeLink:
+    context = resolve_action_context(
+        db, actor, required_roles=frozenset({EmployeeRole.ADMIN}),
+        role_precedence=(EmployeeRole.ADMIN,), write=True,
+    )
     if current_link(db, employee, lock=True) is not None:
         raise _conflict("Employee already has an active iiko link")
     authoritative = await _authoritative_iiko_employee(provider, iiko_user_id)
@@ -148,6 +156,17 @@ async def create_link(
     )
     db.add(link)
     try:
+        db.flush()
+        record_audit_event(
+            db, tenant_id=actor.tenant_id, event_type="IIKO_EMPLOYEE_LINK_CREATED",
+            entity_type="Employee", entity_id=employee.id, operation="LINK_IIKO_EMPLOYEE",
+            context=context, actor_user=actor, before={},
+            after={
+                "iiko_user_id": link.iiko_user_id,
+                "iiko_display_name": link.iiko_display_name,
+            },
+            reason=reason,
+        )
         db.commit()
     except IntegrityError as error:
         db.rollback()
@@ -166,6 +185,10 @@ async def correct_link(
     provider: IikoProvider,
     now: datetime | None = None,
 ) -> IikoEmployeeLink:
+    context = resolve_action_context(
+        db, actor, required_roles=frozenset({EmployeeRole.ADMIN}),
+        role_precedence=(EmployeeRole.ADMIN,), write=True,
+    )
     old = current_link(db, employee, lock=True)
     if old is None:
         raise _conflict("Employee has no active iiko link")
@@ -202,7 +225,29 @@ async def correct_link(
     ).with_for_update()).all())
     for shift in shifts:
         shift.iiko_user_id = authoritative.external_id
+    corrected_event_id = db.scalar(select(AuditEvent.id).where(
+        AuditEvent.tenant_id == actor.tenant_id,
+        AuditEvent.entity_type == "Employee",
+        AuditEvent.entity_id == str(employee.id),
+        AuditEvent.event_type.in_({
+            "IIKO_EMPLOYEE_LINK_CREATED", "IIKO_EMPLOYEE_LINK_CORRECTED",
+        }),
+    ).order_by(AuditEvent.occurred_at.desc(), AuditEvent.id.desc()))
     try:
+        db.flush()
+        record_audit_event(
+            db, tenant_id=actor.tenant_id, event_type="IIKO_EMPLOYEE_LINK_CORRECTED",
+            entity_type="Employee", entity_id=employee.id, operation="CORRECT_IIKO_EMPLOYEE_LINK",
+            context=context, actor_user=actor,
+            before={"iiko_user_id": old.iiko_user_id, "iiko_display_name": old.iiko_display_name},
+            after={
+                "iiko_user_id": replacement.iiko_user_id,
+                "iiko_display_name": replacement.iiko_display_name,
+                "reattributed_shift_count": len(shifts),
+            },
+            reason=reason,
+            correction_of_event_id=corrected_event_id,
+        )
         db.commit()
     except IntegrityError as error:
         db.rollback()

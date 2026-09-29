@@ -40,6 +40,14 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.models.user import User
+from app.models.audit import AuditEvent
+from app.models.employee import (
+    Employee,
+    EmployeeDepartmentAssignment,
+    EmployeeIikoShift,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+)
 from app.models.work_request import WorkRequest
 from app.supply.normalization import normalize_product_text
 
@@ -74,6 +82,11 @@ class SupplyMatchingApiTests(unittest.TestCase):
         )
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
@@ -166,6 +179,38 @@ class SupplyMatchingApiTests(unittest.TestCase):
                 is_active=False,
             )
 
+        with self.session_factory.begin() as session:
+            employee = Employee(
+                tenant_id="eclair",
+                linked_user_id=2,
+                full_name="Администратор",
+                birth_date=date(1990, 1, 1),
+                phone="1",
+                residence_address="x",
+            )
+            session.add(employee)
+            session.flush()
+            self.admin_employee_id = employee.id
+            session.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    role=EmployeeRole.ADMIN,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый администратор",
+                    assigned_by_user_id=2,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    department_id=self.department.id,
+                    is_primary=True,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый scope",
+                    assigned_by_user_id=2,
+                ),
+            ])
+
         self.current_user_id = 2
         self.cycle_counter = 0
 
@@ -216,6 +261,25 @@ class SupplyMatchingApiTests(unittest.TestCase):
         *raw_lines: str,
         department_id: UUID | None = None,
     ) -> dict:
+        requested_department_id = department_id or self.department.id
+        with self.session_factory.begin() as session:
+            department = session.get(Department, requested_department_id)
+            assignment = session.query(EmployeeDepartmentAssignment).filter_by(
+                tenant_id="eclair",
+                employee_id=self.admin_employee_id,
+                department_id=requested_department_id,
+                valid_to=None,
+            ).first()
+            if department is not None and department.tenant_id == "eclair" and assignment is None:
+                session.add(EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=self.admin_employee_id,
+                    department_id=requested_department_id,
+                    is_primary=False,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый scope",
+                    assigned_by_user_id=2,
+                ))
         self.cycle_counter += 1
         with self.session_factory.begin() as session:
             cycle = SupplyRequestCycle(
@@ -233,7 +297,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         response = self.client.post(
             "/supply/requests",
             json={
-                "department_id": str(department_id or self.department.id),
+                "department_id": str(requested_department_id),
                 "direction_id": str(self.direction.id),
                 "cycle_id": str(cycle_id),
                 "raw_input": "\n".join(raw_lines),

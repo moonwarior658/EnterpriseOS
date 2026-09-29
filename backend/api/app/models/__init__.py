@@ -1,4 +1,5 @@
-﻿from app.models.automation import (
+﻿from app.models.audit import AuditEvent
+from app.models.automation import (
     AutomationExecution,
     AutomationRuntimeStatus,
     AutomationSchedule,
@@ -22,6 +23,7 @@ from app.models.employee import (
     EmployeeRoleAssignment,
     EmployeeStatus,
     IikoEmployeeLink,
+    ShiftDepartmentConfirmation,
 )
 from app.models.iiko import (
     IikoDocumentType,
@@ -87,6 +89,7 @@ from app.models.work_request import (
 )
 
 __all__ = [
+    "AuditEvent",
     "AutomationExecution",
     "AutomationRuntimeStatus",
     "AutomationSchedule",
@@ -99,6 +102,7 @@ __all__ = [
     "EmployeeIikoShift",
     "EmployeeIikoShiftStatus",
     "IikoEmployeeLink",
+    "ShiftDepartmentConfirmation",
     "IikoDocumentType",
     "IikoDocumentWrite",
     "IikoDocumentWriteStatus",

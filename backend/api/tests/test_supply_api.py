@@ -40,6 +40,15 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.models.user import User
+from app.models.audit import AuditEvent
+from app.models.employee import (
+    Employee,
+    EmployeeDepartmentAssignment,
+    EmployeeIikoShift,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+    ShiftDepartmentConfirmation,
+)
 from app.models.work_request import WorkRequest
 from app.schemas.supply import SupplyRequestCreate
 from app.supply.service import create_supply_request
@@ -79,6 +88,12 @@ class SupplyApiTests(unittest.TestCase):
         )
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        ShiftDepartmentConfirmation.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
@@ -121,6 +136,15 @@ class SupplyApiTests(unittest.TestCase):
                         is_active=True,
                         is_admin=True,
                     ),
+                    User(
+                        id=3,
+                        username="seller",
+                        display_name="Продавец",
+                        hashed_password="unused",
+                        is_active=True,
+                        is_admin=False,
+                        can_view_requests=False,
+                    ),
                 ]
             )
             session.add_all(
@@ -146,6 +170,69 @@ class SupplyApiTests(unittest.TestCase):
                 ]
             )
 
+        with self.session_factory.begin() as session:
+            departments = list(session.scalars(
+                select(Department).order_by(Department.display_order)
+            ).all())
+            employee = Employee(
+                tenant_id="eclair",
+                linked_user_id=2,
+                full_name="Администратор",
+                birth_date=date(1990, 1, 1),
+                phone="1",
+                residence_address="x",
+            )
+            session.add(employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair",
+                employee_id=employee.id,
+                role=EmployeeRole.ADMIN,
+                valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                reason="Тестовый администратор",
+                assigned_by_user_id=2,
+            ))
+            session.add_all([
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    department_id=department.id,
+                    is_primary=index == 0,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый scope",
+                    assigned_by_user_id=2,
+                )
+                for index, department in enumerate(departments)
+            ])
+            seller = Employee(
+                tenant_id="eclair",
+                linked_user_id=3,
+                full_name="Продавец",
+                birth_date=date(1991, 1, 1),
+                phone="2",
+                residence_address="y",
+            )
+            session.add(seller)
+            session.flush()
+            session.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair",
+                    employee_id=seller.id,
+                    role=EmployeeRole.SELLER,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый продавец",
+                    assigned_by_user_id=2,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=seller.id,
+                    department_id=departments[0].id,
+                    is_primary=True,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Основная точка",
+                    assigned_by_user_id=2,
+                ),
+            ])
         self.current_user_id = 2
         self.cycle_counter = 0
 
@@ -487,7 +574,11 @@ class SupplyApiTests(unittest.TestCase):
                 direction_id=str(direction.id),
             ),
         )
-        self.assertEqual(unknown_department.status_code, 400)
+        self.assertEqual(unknown_department.status_code, 403)
+        self.assertEqual(
+            unknown_department.json()["detail"]["code"],
+            "DEPARTMENT_FORBIDDEN",
+        )
         self.assertEqual(unknown_direction.status_code, 400)
         self.assertEqual(inactive_department.status_code, 400)
         self.assertEqual(inactive_direction.status_code, 400)
@@ -553,6 +644,101 @@ class SupplyApiTests(unittest.TestCase):
         )
         self.assertEqual(repeated.status_code, 409)
         self.assertEqual(missing.status_code, 404)
+        with self.session_factory() as session:
+            events = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.entity_type == "SupplyRequest",
+                AuditEvent.entity_id == created["id"],
+            ).order_by(AuditEvent.occurred_at, AuditEvent.event_type)).all())
+            self.assertEqual(
+                {item.event_type for item in events},
+                {"SUPPLY_REQUEST_CREATED", "SUPPLY_REQUEST_SUBMITTED"},
+            )
+            submitted_audit = next(
+                item for item in events
+                if item.event_type == "SUPPLY_REQUEST_SUBMITTED"
+            )
+            self.assertEqual(submitted_audit.before["status"], "DRAFT")
+            self.assertEqual(submitted_audit.after["status"], "SUBMITTED")
+
+    def test_seller_create_audit_uses_shift_context_and_scoped_history(self) -> None:
+        departments = self.client.get("/supply/departments").json()
+        primary = next(item for item in departments if item["code"] == "М15")
+        actual = next(item for item in departments if item["code"] == "М35")
+        payload = self.payload(department_id=actual["id"])
+        with self.session_factory.begin() as session:
+            seller_id = session.scalar(select(Employee.id).where(Employee.linked_user_id == 3))
+            shift = EmployeeIikoShift(
+                tenant_id="eclair", employee_id=seller_id,
+                iiko_user_id="seller-iiko", external_shift_id="seller-shift",
+                iiko_department_id="iiko-m35", department_id=UUID(actual["id"]),
+                opened_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                status="OPEN", raw_external_idempotency_key="seller-shift",
+                first_seen_at=datetime.now(timezone.utc),
+                last_seen_at=datetime.now(timezone.utc),
+            )
+            session.add(shift)
+            session.flush()
+            shift_id = shift.id
+        self.current_user_id = 3
+        first = self.client.post("/supply/requests", json=payload)
+        self.assertEqual(first.status_code, 403, first.text)
+        self.assertEqual(
+            first.json()["detail"]["code"],
+            "SHIFT_SUBSTITUTION_CONFIRMATION_REQUIRED",
+        )
+        confirmed = self.client.post(
+            "/auth/action-context/shift-substitution-confirmation",
+            json={"shift_id": str(shift_id)},
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        created = self.client.post("/supply/requests", json=payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["department"]["id"], actual["id"])
+
+        spoof_payload = {**payload, "department_id": primary["id"]}
+        spoofed = self.client.post("/supply/requests", json=spoof_payload)
+        self.assertEqual(spoofed.status_code, 403, spoofed.text)
+        self.assertEqual(spoofed.json()["detail"]["code"], "DEPARTMENT_FORBIDDEN")
+
+        history = self.client.get(f"/supply/requests/{created.json()['id']}/history")
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual([item["operation"] for item in history.json()], ["CREATE"])
+        self.assertEqual(
+            set(history.json()[0]["after"]),
+            {"public_number", "need_date", "status", "line_count"},
+        )
+        self.assertNotIn("department_id", history.json()[0]["after"])
+        self.assertEqual(self.client.get("/audit/events").status_code, 403)
+        with self.session_factory() as session:
+            audit = session.scalar(select(AuditEvent).where(
+                AuditEvent.event_type == "SUPPLY_REQUEST_CREATED",
+                AuditEvent.entity_id == created.json()["id"],
+            ))
+            self.assertEqual(audit.authorized_as, "SELLER")
+            self.assertEqual(str(audit.primary_department_id), primary["id"])
+            self.assertEqual(str(audit.actual_department_id), actual["id"])
+            self.assertEqual(audit.shift_id, shift_id)
+            self.assertTrue(audit.shift_context_snapshot["substitution_confirmed"])
+
+    def test_cancel_creates_meaningful_audit_with_reason(self) -> None:
+        created = self.create_request()
+        submitted = self.client.post(
+            f"/supply/requests/{created['id']}/submit",
+            json={"expected_version": 1},
+        )
+        cancelled = self.client.post(
+            f"/supply/requests/{created['id']}/cancel",
+            json={"expected_version": submitted.json()["version"], "reason": "Точка отменила заявку"},
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        with self.session_factory() as session:
+            audit = session.scalar(select(AuditEvent).where(
+                AuditEvent.event_type == "SUPPLY_REQUEST_CANCELLED",
+                AuditEvent.entity_id == created["id"],
+            ))
+            self.assertEqual(audit.reason, "Точка отменила заявку")
+            self.assertEqual(audit.before["status"], "SUBMITTED")
+            self.assertEqual(audit.after["status"], "CANCELLED")
 
     def test_list_and_card_are_ordered_protected_and_tenant_scoped(self) -> None:
         created = self.create_request()
@@ -571,7 +757,7 @@ class SupplyApiTests(unittest.TestCase):
 
         with self.session_factory.begin() as session:
             session.add(User(
-                id=3,
+                id=4,
                 username="other-viewer",
                 display_name="Другой tenant",
                 hashed_password="unused",
@@ -608,7 +794,7 @@ class SupplyApiTests(unittest.TestCase):
             session.flush()
             other_id = other.id
 
-        self.current_user_id = 3
+        self.current_user_id = 4
         other_list = self.client.get("/supply/requests")
         self.assertEqual(other_list.status_code, 200, other_list.text)
         self.assertEqual(
@@ -681,6 +867,29 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(first_page.headers["x-total-count"], "26")
         self.assertEqual(len(second_page.json()), 1)
         self.assertEqual(second_page.headers["x-total-count"], "26")
+
+    def test_seller_reads_own_and_primary_department_requests_without_shift(self) -> None:
+        departments = self.client.get("/supply/departments").json()
+        primary = next(item for item in departments if item["code"] == "М15")
+        other = next(item for item in departments if item["code"] == "М35")
+        hidden = next(item for item in departments if item["code"] == "ЦЕХ")
+        primary_request = self.create_request(department_id=primary["id"])
+        own_request = self.create_request(department_id=other["id"])
+        hidden_request = self.create_request(department_id=hidden["id"])
+        with self.session_factory.begin() as session:
+            session.get(SupplyRequest, UUID(own_request["id"])).created_by_user_id = 3
+
+        self.current_user_id = 3
+        response = self.client.get("/supply/requests")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            {item["id"] for item in response.json()},
+            {primary_request["id"], own_request["id"]},
+        )
+        self.assertEqual(
+            self.client.get(f"/supply/requests/{hidden_request['id']}").status_code,
+            403,
+        )
 
     def test_public_number_shape_supports_cyrillic_department(self) -> None:
         department = next(

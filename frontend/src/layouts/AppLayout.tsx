@@ -4,12 +4,28 @@ import {
   Outlet,
   useNavigate,
 } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { getActionContext, type ActionContext } from '../services/actionContext'
 
 function AppLayout() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [actionContext, setActionContext] = useState<ActionContext | null>(null)
+  const canReadAudit = actionContext?.roles.some((role) => (
+    role === 'ADMIN' || role === 'DIRECTOR' || role === 'DEPUTY_DIRECTOR'
+  )) === true
+
+  useEffect(() => {
+    let active = true
+    if (user) getActionContext().then((context) => {
+      if (active) setActionContext(context)
+    }).catch(() => {
+      if (active) setActionContext(null)
+    })
+    return () => { active = false }
+  }, [user])
 
   function closeMenu() {
     setMenuOpen(false)
@@ -240,6 +256,18 @@ function AppLayout() {
                 <span>→</span>
               </NavLink>
             </>
+          )}
+          {canReadAudit && (
+            <NavLink
+              to="/audit"
+              onClick={closeMenu}
+              className={({ isActive }) =>
+                isActive ? 'menu-link menu-link-active' : 'menu-link'
+              }
+            >
+              <span>Аудит</span>
+              <span>→</span>
+            </NavLink>
           )}
         </nav>
 

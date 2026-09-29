@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_current_admin as get_current_legacy_admin
+from app.api.routes.action_context import action_context_http_error
+from app.core.action_context import ActionContextError, resolve_action_context
 from app.db.session import get_db
 from app.employees import service
 from app.employees import iiko as iiko_employee_service
@@ -14,7 +16,8 @@ from app.api.routes.iiko import get_iiko_provider, integration_error
 from app.integrations.iiko.exceptions import IikoError
 from app.integrations.iiko.provider import IikoProvider
 from app.models.employee import (
-    Employee, EmployeeDepartmentAssignment, EmployeeRoleAssignment, EmployeeStatus,
+    Employee, EmployeeDepartmentAssignment, EmployeeRole, EmployeeRoleAssignment,
+    EmployeeStatus,
 )
 from app.models.user import User
 from app.schemas.employee import (
@@ -28,6 +31,20 @@ from app.schemas.employee import (
 
 
 router = APIRouter(prefix="/employees", tags=["employees"])
+
+
+def get_current_admin(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_legacy_admin)],
+) -> User:
+    try:
+        resolve_action_context(
+            db, user, required_roles=frozenset({EmployeeRole.ADMIN}),
+            role_precedence=(EmployeeRole.ADMIN,), write=False,
+        )
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+    return user
 
 
 def employee_read(db: Session, employee: Employee) -> EmployeeRead:

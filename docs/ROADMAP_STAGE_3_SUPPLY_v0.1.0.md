@@ -1728,7 +1728,7 @@ Weighted Average/Substitutions — deferred enhancements, не blockers. Общ�
 
 # Этап 3.1P — Пользователи и ответственность
 
-Прогресс: **3.1P-A / 3.1P-B / 3.1P-C реализованы локально; Stage 3.1P не завершён**
+Прогресс: **3.1P-A / 3.1P-B / 3.1P-C / 3.1P-D / 3.1P-E реализованы локально; Stage 3.1P не production-complete**
 Статус: **обязательный подэтап до перехода к Stage 3.2 «Производственная потребность»**
 
 Цель этапа: EOS должен однозначно знать, кто вошёл в систему, где работает, в какой роли действует и какие бизнес-действия совершает.
@@ -1757,6 +1757,26 @@ Governing business spec: [STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](
 - [x] Добавлены ручной ADMIN refresh, локальный тип Automation Core для polling и базовый блок iiko/смен в карточке Employee.
 
 Срез не вводит shift-based write gate, не реализует общий immutable audit rollout и не закрывает Stage 3.1P целиком. Эти границы остаются за 3.1P-D/E; production deployment и business smoke не выполнялись.
+
+### 3.1P-D Authorization & shift write gate — реализовано локально 29.09.2026
+
+- [x] Добавлен единый runtime `ActionContext`, связывающий Human User с ACTIVE Employee, действующими ролями, основным и фактическим подразделением, активной личной сменой iiko и подтверждением подмены.
+- [x] Для `SELLER` отсутствие активной resolved смены запрещает shift-required write, но не разрешённое чтение; остальные зафиксированные роли не получают автоматическое требование iiko-смены.
+- [x] Подмена подтверждается только перед первым relevant write конкретной смены и хранится отдельным lightweight-фактом `ShiftDepartmentConfirmation`.
+- [x] Первым migrated flow стало authenticated создание `SupplyRequest`: backend не доверяет произвольному `department_id`, а seller read ограничен собственными заявками и доступной точкой.
+- [x] Публичные no-auth Supply/Repair flows и остальные ещё не мигрированные модули сохранены без изменения поведения.
+
+Срез не вводит глобальный immutable audit framework, audit explorer или массовую миграцию write-flow. Actor/before-after snapshots и последовательный rollout остальных модулей остаются в 3.1P-E; production deployment и business smoke не выполнялись.
+
+### 3.1P-E Immutable audit & historical responsibility — locally implemented 29.09.2026
+
+- [x] Добавлен единый append-only `AuditEvent` с historical snapshots actor/active roles/effective authorization role/primary и actual Department/shift, meaningful before/after, reason, source и correction link.
+- [x] UPDATE/DELETE audit events запрещены ORM guard и PostgreSQL trigger; исправление создаёт новый event с `correction_of_event_id`.
+- [x] Audit атомарно подключён к Employee create/update, User link/unlink, role/department assignment/end, dismissal/reactivation, iiko-link create/correct, substitution confirmation и `SupplyRequest` create/submit/cancel.
+- [x] Добавлены read-only audit API и простой explorer для `ADMIN`/`DIRECTOR`/`DEPUTY_DIRECTOR`; `SELLER` получает только безопасную историю доступного `SupplyRequest`.
+- [x] Audit payload проходит явную sanitization: password/token/secret, адрес проживания, дата рождения и raw external payload не сохраняются и не выдаются.
+
+Срез реализован и проверен локально. Полный 3.1P всё ещё требует PostgreSQL migration/runtime smoke, browser role smoke, production backup/migration/deploy и последовательного подключения остальных бизнес-flow к `ActionContext → AuditEvent`; технические execution/outbox logs остаются отдельным контуром.
 
 - [ ] `User` — учётная запись для входа.
 - [ ] `Employee` — сотрудник бизнеса.

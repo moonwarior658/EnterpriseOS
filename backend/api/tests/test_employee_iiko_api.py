@@ -21,7 +21,6 @@ class EmployeeIikoApiTests(EmployeesApiTests):
     def setUp(self) -> None:
         super().setUp()
         IikoEmployeeLink.__table__.create(self.engine)
-        EmployeeIikoShift.__table__.create(self.engine)
         app_provider = FakeIikoProvider()
         from app.main import app
         app.dependency_overrides[get_iiko_provider] = lambda: app_provider

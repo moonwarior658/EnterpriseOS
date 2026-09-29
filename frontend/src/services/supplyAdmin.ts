@@ -889,6 +889,16 @@ export type SupplyRequest = SupplyRequestSummary & {
   lines: SupplyLine[]
 }
 
+export type SupplyRequestHistory = {
+  id: string
+  occurred_at: string
+  actor_name: string | null
+  operation: string
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+  reason: string | null
+}
+
 export type SupplyIikoDocument = {
   document_write_id: string
   document_type: 'OUTGOING_INVOICE' | 'INTERNAL_TRANSFER'
@@ -1190,6 +1200,16 @@ export function getSupplyRequest(
 ): Promise<SupplyRequest> {
   const query = withFreshRequest(new URLSearchParams())
   return request(`/supply/requests/${id}?${query.toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export function getSupplyRequestHistory(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SupplyRequestHistory[]> {
+  return request(`/supply/requests/${id}/history`, {
     cache: 'no-store',
     signal,
   })

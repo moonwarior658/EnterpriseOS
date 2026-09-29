@@ -21,6 +21,15 @@ import {
   type PublicSupplySchedule,
 } from '../services/publicSupply'
 import {
+  BusinessActionError,
+  confirmShiftSubstitution,
+  createEmployeeSupplyRequest,
+  getActionContext,
+  type ActionContext,
+  type CreatedEmployeeSupplyRequest,
+} from '../services/actionContext'
+import { useAuth } from '../contexts/AuthContext'
+import {
   EosCheckbox,
   EosDateField,
   EosSelect,
@@ -45,10 +54,12 @@ const EXAMPLES = [
 
 function safeMessage(error: unknown): string {
   if (error instanceof PublicSupplyApiError) return error.message
+  if (error instanceof BusinessActionError) return error.message
   return 'Не удалось выполнить запрос. Попробуйте ещё раз'
 }
 
 function PublicSupplyRequestPage() {
+  const { user } = useAuth()
   const [departments, setDepartments] = useState<PublicSupplyDepartment[]>([])
   const [cycles, setCycles] = useState<PublicSupplyCycle[]>([])
   const [schedule, setSchedule] = useState<PublicSupplySchedule[]>([])
@@ -66,6 +77,20 @@ function PublicSupplyRequestPage() {
   const [error, setError] = useState('')
   const [receivedAtMs, setReceivedAtMs] = useState(0)
   const [clockMs, setClockMs] = useState(0)
+  const [actionContext, setActionContext] = useState<ActionContext | null>(null)
+  const [contextUnavailableUserId, setContextUnavailableUserId] = useState<number | null>(null)
+  const [createdInternal, setCreatedInternal] = useState<CreatedEmployeeSupplyRequest | null>(null)
+  const [substitution, setSubstitution] = useState<BusinessActionError | null>(null)
+
+  const sellerMode = actionContext?.roles.includes('SELLER') === true
+  const contextPending = Boolean(
+    user
+    && actionContext?.user_id !== user.id
+    && contextUnavailableUserId !== user.id,
+  )
+  const actualDepartmentName = departments.find(
+    (department) => department.id === actionContext?.actual_department_id,
+  )?.name
 
   const applyRequest = useCallback((next: PublicSupplyRequest) => {
     setRequest(next)
@@ -121,6 +146,29 @@ function PublicSupplyRequestPage() {
       active = false
     }
   }, [applyRequest])
+
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+    let active = true
+    getActionContext()
+      .then((context) => {
+        if (!active) return
+        setContextUnavailableUserId(null)
+        setActionContext(context)
+        if (context.roles.includes('SELLER')) {
+          setDepartmentId(
+            context.actual_department_id ?? context.primary_department_id ?? '',
+          )
+        }
+      })
+      .catch(() => {
+        // Accounts outside the migrated Employee flow keep the public form.
+        if (active) setContextUnavailableUserId(user.id)
+      })
+    return () => { active = false }
+  }, [user])
 
   useEffect(() => {
     if (!departmentId || request) return
@@ -199,6 +247,22 @@ function PublicSupplyRequestPage() {
     setIsBusy(true)
     setError('')
     try {
+      if (sellerMode && actionContext) {
+        const cycle = cycles[0]
+        if (!cycle) {
+          setError('Сейчас нет доступного цикла приёма заявок')
+          return
+        }
+        const created = await createEmployeeSupplyRequest({
+          department_id: departmentId,
+          direction_id: cycle.direction.id,
+          cycle_id: cycle.id,
+          need_date: needDate || null,
+          multiline_text: multilineText,
+        })
+        setCreatedInternal(created)
+        return
+      }
       if (request && publicToken && isEditing) {
         const updated = await updatePublicSupplyLines(publicToken, {
           expected_version: request.version,
@@ -223,7 +287,40 @@ function PublicSupplyRequestPage() {
       setIsEditing(false)
       setConfirmUnrecognized(false)
     } catch (caught) {
+      if (
+        caught instanceof BusinessActionError
+        && caught.code === 'SHIFT_SUBSTITUTION_CONFIRMATION_REQUIRED'
+      ) {
+        setSubstitution(caught)
+        return
+      }
       setError(safeMessage(caught))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function confirmSubstitutionAndRetry() {
+    const shiftId = substitution?.detail.shift_id
+    if (!shiftId || isBusy) return
+    setIsBusy(true)
+    setError('')
+    try {
+      const context = await confirmShiftSubstitution(shiftId)
+      setActionContext(context)
+      setSubstitution(null)
+      const cycle = cycles[0]
+      if (!cycle || !context.actual_department_id) return
+      setCreatedInternal(await createEmployeeSupplyRequest({
+        department_id: context.actual_department_id,
+        direction_id: cycle.direction.id,
+        cycle_id: cycle.id,
+        need_date: needDate || null,
+        multiline_text: multilineText,
+      }))
+    } catch (caught) {
+      setSubstitution(null)
+      setError(caught instanceof Error ? caught.message : 'Не удалось подтвердить подмену')
     } finally {
       setIsBusy(false)
     }
@@ -292,6 +389,24 @@ function PublicSupplyRequestPage() {
     )
   }
 
+
+  if (createdInternal) {
+    return (
+      <main className="public-request-page">
+        <section className="request-page supply-request-page">
+          <div className="request-panel">
+            <p className="eyebrow">ЗАЯВКА СОТРУДНИКА</p>
+            <h1>Заявка создана</h1>
+            <p className="request-message request-message-success">
+              {createdInternal.public_number} · {createdInternal.department.name}
+            </p>
+            <p>Заявка сохранена как черновик от имени фактического подразделения смены.</p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   const showForm = !request || isEditing
   const submitted = request?.status === 'SUBMITTED'
   const isInitialState = showForm && !departmentId && !isEditing
@@ -320,6 +435,25 @@ function PublicSupplyRequestPage() {
             </div>
           </div>
 
+          {sellerMode && actionContext && (
+            <div className="supply-shift-status" role="status">
+              <strong>Личная смена iiko</strong>
+              <span>
+                {!actionContext.shift_id
+                  ? 'Смена не открыта — создание заявки недоступно'
+                  : !actionContext.actual_department_id
+                    ? 'Подразделение смены не сопоставлено с EOS'
+                    : `Активна с ${new Date(actionContext.shift_opened_at!).toLocaleString('ru-RU')}${actualDepartmentName ? ` · ${actualDepartmentName}` : ''}`}
+              </span>
+            </div>
+          )}
+          {contextPending && (
+            <div className="supply-shift-status" role="status">
+              <strong>Проверяем рабочий контекст…</strong>
+              <span>Создание заявки станет доступно после проверки роли и смены.</span>
+            </div>
+          )}
+
           {showForm ? (
             <form
               className={`request-form${isInitialState ? ' supply-request-initial-form' : ''}`}
@@ -330,7 +464,7 @@ function PublicSupplyRequestPage() {
                 <span>Подразделение</span>
                 <EosSelect
                   value={departmentId}
-                  disabled={isBusy || isEditing}
+                  disabled={isBusy || isEditing || sellerMode}
                   onChange={(event) => {
                     const nextDepartmentId = event.target.value
                     setDepartmentId(nextDepartmentId)
@@ -408,9 +542,17 @@ function PublicSupplyRequestPage() {
               <button
                 className="primary-action request-submit"
                 type="submit"
-                disabled={isBusy}
+                disabled={
+                  isBusy
+                  || contextPending
+                  || (sellerMode && (
+                    !actionContext?.shift_id || !actionContext.actual_department_id
+                  ))
+                }
               >
-                {isBusy ? 'Проверяем…' : 'Проверить заявку'}
+                {isBusy
+                  ? 'Сохраняем…'
+                  : sellerMode ? 'Создать заявку' : 'Проверить заявку'}
               </button>
               </>
               )}
@@ -572,6 +714,26 @@ function PublicSupplyRequestPage() {
           )}
         </div>
       </section>
+      {substitution && (
+        <div className="employee-dialog-backdrop" role="presentation">
+          <section className="employee-dialog" role="dialog" aria-modal="true" aria-labelledby="substitution-title">
+            <h2 id="substitution-title">Подтвердите работу на подмене</h2>
+            <p>
+              Вы работаете в {substitution.detail.actual_department_name ?? 'другом подразделении'},
+              {' '}хотя ваше основное подразделение — {substitution.detail.primary_department_name ?? 'другое'}.
+              Выполнить действие от имени фактической точки?
+            </p>
+            <div className="supply-actions">
+              <button type="button" className="secondary-action" disabled={isBusy} onClick={() => setSubstitution(null)}>
+                Отмена
+              </button>
+              <button type="button" className="primary-action" disabled={isBusy} onClick={() => void confirmSubstitutionAndRetry()}>
+                {isBusy ? 'Подтверждаем…' : 'Подтвердить и продолжить'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }

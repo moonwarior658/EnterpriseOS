@@ -17,9 +17,10 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.models.employee import (
-    Employee, EmployeeDepartmentAssignment, EmployeeLifecycleEvent,
-    EmployeeRoleAssignment,
+    Employee, EmployeeDepartmentAssignment, EmployeeIikoShift,
+    EmployeeLifecycleEvent, EmployeeRole, EmployeeRoleAssignment,
 )
+from app.models.audit import AuditEvent
 from app.models.supply import Department
 from app.models.user import User, UserAccountType
 
@@ -41,6 +42,8 @@ class EmployeesApiTests(unittest.TestCase):
         EmployeeRoleAssignment.__table__.create(self.engine)
         EmployeeDepartmentAssignment.__table__.create(self.engine)
         EmployeeLifecycleEvent.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.department_id = uuid4()
         self.other_department_id = uuid4()
@@ -66,6 +69,41 @@ class EmployeesApiTests(unittest.TestCase):
                     hashed_password="unused", is_active=True, is_admin=True, tenant_id="other",
                 ),
             ])
+        with self.sessions.begin() as session:
+            admin_employee = Employee(
+                tenant_id="eclair", linked_user_id=1,
+                full_name="Администратор EOS", birth_date=date(1990, 1, 1),
+                phone="internal", residence_address="internal",
+            )
+            session.add(admin_employee)
+            session.flush()
+            session.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair", employee_id=admin_employee.id,
+                    role=EmployeeRole.ADMIN,
+                    valid_from=datetime.now(UTC) - timedelta(days=1),
+                    reason="Администрирование", assigned_by_user_id=1,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair", employee_id=admin_employee.id,
+                    department_id=self.department_id, is_primary=True,
+                    valid_from=datetime.now(UTC) - timedelta(days=1),
+                    reason="Основное подразделение", assigned_by_user_id=1,
+                ),
+            ])
+            other_admin = Employee(
+                tenant_id="other", linked_user_id=4,
+                full_name="Другой администратор", birth_date=date(1990, 2, 1),
+                phone="internal", residence_address="internal",
+            )
+            session.add(other_admin)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="other", employee_id=other_admin.id,
+                role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(UTC) - timedelta(days=1),
+                reason="Администрирование", assigned_by_user_id=4,
+            ))
         self.current_user_id = 1
 
         def override_get_db():
@@ -121,6 +159,20 @@ class EmployeesApiTests(unittest.TestCase):
         )
         self.assertEqual(self.client.get("/employees").status_code, 200)
 
+        with self.sessions() as session:
+            events = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.entity_type == "Employee",
+                AuditEvent.entity_id == employee["id"],
+            )).all())
+            self.assertEqual(
+                {item.event_type for item in events},
+                {"EMPLOYEE_CREATED", "EMPLOYEE_UPDATED"},
+            )
+            update_event = next(item for item in events if item.event_type == "EMPLOYEE_UPDATED")
+            self.assertEqual(update_event.reason, "Актуализация телефона")
+            self.assertNotIn("phone", update_event.before)
+            self.assertNotIn("residence_address", update_event.before)
+
         self.current_user_id = 4
         self.assertEqual(self.client.get(f"/employees/{employee['id']}").status_code, 404)
         self.current_user_id = 2
@@ -157,6 +209,11 @@ class EmployeesApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(second_primary.status_code, 409, second_primary.text)
+        ended_department = self.client.post(
+            f"/employees/{employee_id}/departments/{primary.json()['id']}/end",
+            json={"valid_to": (start + timedelta(days=1)).isoformat(), "reason": "Перевод точки"},
+        )
+        self.assertEqual(ended_department.status_code, 200, ended_department.text)
 
         ended = self.client.post(
             f"/employees/{employee_id}/roles/{role.json()['id']}/end",
@@ -182,6 +239,14 @@ class EmployeesApiTests(unittest.TestCase):
         self.assertEqual(reassigned.status_code, 201, reassigned.text)
         detail = self.client.get(f"/employees/{employee_id}").json()
         self.assertEqual(len(detail["role_assignments"]), 2)
+        with self.sessions() as session:
+            event_types = set(session.scalars(select(AuditEvent.event_type).where(
+                AuditEvent.entity_id == employee_id,
+            )).all())
+            self.assertTrue({
+                "EMPLOYEE_ROLE_ASSIGNED", "EMPLOYEE_ROLE_ENDED",
+                "EMPLOYEE_DEPARTMENT_ASSIGNED", "EMPLOYEE_DEPARTMENT_ENDED",
+            } <= event_types)
 
     def test_link_dismiss_reactivate_preserves_identity_and_history(self) -> None:
         employee = self.create_employee()
@@ -243,6 +308,12 @@ class EmployeesApiTests(unittest.TestCase):
         self.assertEqual(body["id"], employee_id)
         with self.sessions() as session:
             self.assertTrue(session.get(User, 2).is_active)
+            event_types = set(session.scalars(select(AuditEvent.event_type).where(
+                AuditEvent.entity_id == employee_id,
+            )).all())
+            self.assertTrue({
+                "EMPLOYEE_USER_LINKED", "EMPLOYEE_DISMISSED", "EMPLOYEE_REACTIVATED",
+            } <= event_types)
 
     def test_link_guards_service_accounts_and_one_to_one(self) -> None:
         first = self.create_employee(full_name="Первый Сотрудник")
@@ -262,6 +333,16 @@ class EmployeesApiTests(unittest.TestCase):
             json={"user_id": 2, "reason": "Повторная связь"},
         )
         self.assertEqual(conflict.status_code, 409, conflict.text)
+        unlinked = self.client.post(
+            f"/employees/{first['id']}/user/unlink",
+            json={"reason": "Доступ больше не требуется"},
+        )
+        self.assertEqual(unlinked.status_code, 200, unlinked.text)
+        with self.sessions() as session:
+            event_types = set(session.scalars(select(AuditEvent.event_type).where(
+                AuditEvent.entity_id == first["id"],
+            )).all())
+            self.assertIn("EMPLOYEE_USER_UNLINKED", event_types)
 
     def test_blank_reasons_and_delete_are_rejected(self) -> None:
         self.assertEqual(

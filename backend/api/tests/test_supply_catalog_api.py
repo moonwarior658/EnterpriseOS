@@ -38,6 +38,14 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.models.user import User
+from app.models.audit import AuditEvent
+from app.models.employee import (
+    Employee,
+    EmployeeDepartmentAssignment,
+    EmployeeIikoShift,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+)
 from app.models.work_request import WorkRequest
 from app.supply.normalization import normalize_product_text
 from app.supply.service import (
@@ -75,6 +83,11 @@ class SupplyCatalogApiTests(unittest.TestCase):
         )
         User.__table__.create(self.engine)
         Department.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         SupplyRequestDirection.__table__.create(self.engine)
         SupplyRequestCycle.__table__.create(self.engine)
         SupplyUnit.__table__.create(self.engine)
@@ -143,6 +156,37 @@ class SupplyCatalogApiTests(unittest.TestCase):
             }
             session.add_all(self.units.values())
             session.flush()
+
+        with self.session_factory.begin() as session:
+            employee = Employee(
+                tenant_id="eclair",
+                linked_user_id=2,
+                full_name="Администратор",
+                birth_date=date(1990, 1, 1),
+                phone="1",
+                residence_address="x",
+            )
+            session.add(employee)
+            session.flush()
+            session.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    role=EmployeeRole.ADMIN,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый администратор",
+                    assigned_by_user_id=2,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    department_id=self.department.id,
+                    is_primary=True,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый scope",
+                    assigned_by_user_id=2,
+                ),
+            ])
 
         self.current_user_id = 2
         self.cycle_counter = 0

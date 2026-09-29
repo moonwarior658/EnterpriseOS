@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 from secrets import compare_digest
 from uuid import UUID
 
@@ -10,10 +10,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
+    get_current_user,
     get_current_admin,
     require_request_view_access,
 )
+from app.api.routes.action_context import action_context_http_error
 from app.api.routes.iiko import get_iiko_provider, integration_error
+from app.core.action_context import ActionContextError, resolve_action_context
+from app.audit.service import audit_query
+from app.core.authorization import has_request_view_access
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.document_routing import (
@@ -22,6 +27,8 @@ from app.integrations.iiko.document_routing import (
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.exceptions import IikoError
 from app.models.iiko import IikoDocumentWriteStatus
+from app.models.employee import EmployeeRole
+from app.models.audit import AuditEvent
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -38,6 +45,7 @@ from app.models.supply import (
     SupplyUnit,
     SupplyDepartmentDebt,
 )
+from app.schemas.audit import SupplyRequestHistoryRead
 from app.models.user import User
 from app.schemas.supply import (
     DepartmentRead,
@@ -1239,14 +1247,29 @@ def read_request_directions(
 def create_request(
     payload: SupplyRequestCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
+        action_context = resolve_action_context(
+            db,
+            current_user,
+            required_roles=frozenset({EmployeeRole.SELLER, EmployeeRole.ADMIN}),
+            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
+            write=True,
+            requested_department_id=payload.department_id,
+        )
+        authoritative_payload = payload.model_copy(update={
+            "department_id": action_context.actual_department_id,
+        })
         return create_supply_request(
             db,
-            payload,
-            created_by_user_id=current_admin.id,
+            authoritative_payload,
+            created_by_user_id=current_user.id,
+            audit_context=action_context,
+            actor_user=current_user,
         )
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
     except DepartmentNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1312,7 +1335,7 @@ def create_request(
 def read_requests(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
     search: Annotated[str | None, Query(max_length=240)] = None,
     department_id: UUID | None = None,
     direction_id: UUID | None = None,
@@ -1326,6 +1349,23 @@ def read_requests(
     date_to: date | None = None,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[SupplyRequest]:
+    visibility_user_id = None
+    visibility_department_ids = None
+    if not has_request_view_access(current_user):
+        try:
+            context = resolve_action_context(
+                db,
+                current_user,
+                required_roles=frozenset({EmployeeRole.SELLER}),
+                write=False,
+            )
+        except ActionContextError as error:
+            raise action_context_http_error(error) from error
+        visibility_user_id = current_user.id
+        visibility_department_ids = frozenset(filter(None, (
+            context.primary_department_id,
+            context.actual_department_id,
+        )))
     filter_values = {
         "search": search,
         "department_id": department_id,
@@ -1336,6 +1376,8 @@ def read_requests(
         "has_duplicates": has_duplicates,
         "date_from": date_from,
         "date_to": date_to,
+        "visibility_user_id": visibility_user_id,
+        "visibility_department_ids": visibility_department_ids,
     }
     response.headers["X-Total-Count"] = str(
         count_supply_requests(
@@ -1358,17 +1400,75 @@ def read_requests(
 def read_request(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
-        return get_supply_request(
+        supply_request = get_supply_request(
             db,
             request_id,
             tenant_id=current_user.tenant_id,
             include_context_mapping_suggestions=current_user.is_admin,
         )
+        if not has_request_view_access(current_user):
+            context = resolve_action_context(
+                db,
+                current_user,
+                required_roles=frozenset({EmployeeRole.SELLER}),
+                write=False,
+            )
+            allowed_departments = {
+                context.primary_department_id,
+                context.actual_department_id,
+            }
+            if (
+                supply_request.created_by_user_id != current_user.id
+                and supply_request.department_id not in allowed_departments
+            ):
+                raise ActionContextError(
+                    "DEPARTMENT_FORBIDDEN",
+                    "Заявка другого подразделения недоступна",
+                )
+        return supply_request
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+@router.get(
+    "/requests/{request_id}/history",
+    response_model=list[SupplyRequestHistoryRead],
+)
+def read_request_history(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[SupplyRequestHistoryRead]:
+    supply_request = read_request(request_id, db, current_user)
+    events = db.scalars(
+        audit_query(
+            tenant_id=current_user.tenant_id,
+            entity_type="SupplyRequest",
+            entity_id=str(supply_request.id),
+        ).order_by(AuditEvent.occurred_at.asc(), AuditEvent.id.asc())
+    ).all()
+    visible_fields = {"public_number", "need_date", "status", "line_count"}
+
+    def business_values(values: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in values.items() if key in visible_fields}
+
+    return [
+        SupplyRequestHistoryRead(
+            id=event.id,
+            occurred_at=event.occurred_at,
+            actor_name=event.actor_name_snapshot,
+            operation=event.operation,
+            before=business_values(event.before),
+            after=business_values(event.after),
+            reason=event.reason,
+        )
+        for event in events
+    ]
 
 
 @router.patch(
@@ -2022,13 +2122,26 @@ def submit_request(
     request_id: UUID,
     payload: SupplyExpectedVersion,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
+        supply_request = get_supply_request(
+            db, request_id, tenant_id=current_user.tenant_id
+        )
+        context = resolve_action_context(
+            db,
+            current_user,
+            required_roles=frozenset({EmployeeRole.ADMIN, EmployeeRole.SELLER}),
+            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
+            write=True,
+            requested_department_id=supply_request.department_id,
+        )
         return submit_supply_request(
             db,
             request_id,
             expected_version=payload.expected_version,
+            audit_context=context,
+            actor_user=current_user,
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
@@ -2053,6 +2166,8 @@ def submit_request(
                 ],
             },
         ) from error
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
 
 
 @router.post(
@@ -2584,14 +2699,27 @@ def cancel_request(
     request_id: UUID,
     payload: SupplyRequestCancel,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
+        supply_request = get_supply_request(
+            db, request_id, tenant_id=current_user.tenant_id
+        )
+        context = resolve_action_context(
+            db,
+            current_user,
+            required_roles=frozenset({EmployeeRole.ADMIN, EmployeeRole.SELLER}),
+            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
+            write=True,
+            requested_department_id=supply_request.department_id,
+        )
         return cancel_supply_request(
             db, request_id,
             expected_version=payload.expected_version,
             reason=payload.reason,
-            user_id=current_admin.id,
+            user_id=current_user.id,
+            audit_context=context,
+            actor_user=current_user,
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
@@ -2601,6 +2729,8 @@ def cancel_request(
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_CANCELLED"}) from error
     except SupplyRequestStateError as error:
         raise HTTPException(status_code=409, detail={"code": "SUPPLY_REQUEST_NOT_EDITABLE"}) from error
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
 
 
 @router.post(

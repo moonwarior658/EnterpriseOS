@@ -39,6 +39,14 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.models.user import User
+from app.models.audit import AuditEvent
+from app.models.employee import (
+    Employee,
+    EmployeeDepartmentAssignment,
+    EmployeeIikoShift,
+    EmployeeRole,
+    EmployeeRoleAssignment,
+)
 from app.models.work_request import WorkRequest
 from app.supply.normalization import normalize_product_text
 
@@ -64,6 +72,11 @@ class SupplyCyclesAndDuplicatesApiTests(unittest.TestCase):
         for table in (
             User.__table__,
             Department.__table__,
+            Employee.__table__,
+            EmployeeRoleAssignment.__table__,
+            EmployeeDepartmentAssignment.__table__,
+            EmployeeIikoShift.__table__,
+            AuditEvent.__table__,
             SupplyRequestDirection.__table__,
             SupplyRequestCycle.__table__,
             SupplyUnit.__table__,
@@ -156,6 +169,37 @@ class SupplyCyclesAndDuplicatesApiTests(unittest.TestCase):
                 request_direction_id=self.main_direction.id,
             )
             session.add(self.milk)
+
+        with self.session_factory.begin() as session:
+            employee = Employee(
+                tenant_id="eclair",
+                linked_user_id=2,
+                full_name="Администратор",
+                birth_date=date(1990, 1, 1),
+                phone="1",
+                residence_address="x",
+            )
+            session.add(employee)
+            session.flush()
+            session.add_all([
+                EmployeeRoleAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    role=EmployeeRole.ADMIN,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый администратор",
+                    assigned_by_user_id=2,
+                ),
+                EmployeeDepartmentAssignment(
+                    tenant_id="eclair",
+                    employee_id=employee.id,
+                    department_id=self.department.id,
+                    is_primary=True,
+                    valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    reason="Тестовый scope",
+                    assigned_by_user_id=2,
+                ),
+            ])
 
         self.current_user_id = 2
         self.cycle_counter = 0

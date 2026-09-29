@@ -8,6 +8,8 @@ from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.audit.service import record_audit_event
+from app.core.action_context import ActionContext
 from app.core.config import settings
 from app.models.supply import (
     Department,
@@ -61,6 +63,7 @@ from app.schemas.supply import (
 from app.supply.normalization import normalize_product_text
 from app.supply.parser import parse_supply_line, supply_line_product_name
 from app.supply.procurement_needs import invalidate_open_request_need
+from app.models.user import User
 
 
 PUBLIC_NUMBER_RETRY_LIMIT = 5
@@ -1986,8 +1989,17 @@ def _supply_request_filters(
     has_duplicates: bool | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    visibility_user_id: int | None = None,
+    visibility_department_ids: frozenset[UUID] | None = None,
 ) -> list:
     filters = [SupplyRequest.tenant_id == tenant_id]
+    if visibility_user_id is not None:
+        visibility = [SupplyRequest.created_by_user_id == visibility_user_id]
+        if visibility_department_ids:
+            visibility.append(
+                SupplyRequest.department_id.in_(visibility_department_ids)
+            )
+        filters.append(or_(*visibility))
     if search:
         term = f"%{search.strip()}%"
         filters.append(or_(
@@ -2051,6 +2063,8 @@ def list_supply_requests(
     has_duplicates: bool | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    visibility_user_id: int | None = None,
+    visibility_department_ids: frozenset[UUID] | None = None,
     limit: int = 25,
     offset: int = 0,
 ) -> list[SupplyRequest]:
@@ -2065,6 +2079,8 @@ def list_supply_requests(
         has_duplicates=has_duplicates,
         date_from=date_from,
         date_to=date_to,
+        visibility_user_id=visibility_user_id,
+        visibility_department_ids=visibility_department_ids,
     )
     statement = (
         select(SupplyRequest)
@@ -2250,6 +2266,8 @@ def create_supply_request(
     payload: SupplyRequestCreate,
     *,
     created_by_user_id: int | None,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
     source_work_request_id: int | None = None,
     now: datetime | None = None,
 ) -> SupplyRequest:
@@ -2315,6 +2333,27 @@ def create_supply_request(
             supply_request.lines = request_lines
             session.add(supply_request)
             session.flush()
+            if audit_context is not None and actor_user is not None:
+                record_audit_event(
+                    session,
+                    tenant_id=supply_request.tenant_id,
+                    event_type="SUPPLY_REQUEST_CREATED",
+                    entity_type="SupplyRequest",
+                    entity_id=supply_request.id,
+                    operation="CREATE",
+                    context=audit_context,
+                    actor_user=actor_user,
+                    before={},
+                    after={
+                        "public_number": supply_request.public_number,
+                        "department_id": supply_request.department_id,
+                        "direction_id": supply_request.direction_id,
+                        "cycle_id": supply_request.cycle_id,
+                        "need_date": supply_request.need_date,
+                        "status": supply_request.status,
+                        "line_count": len(request_lines),
+                    },
+                )
             session.commit()
             return get_supply_request(session, supply_request.id)
         except IntegrityError as error:
@@ -2580,6 +2619,8 @@ def submit_supply_request(
     request_id: UUID,
     *,
     expected_version: int,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session,
@@ -2616,6 +2657,19 @@ def submit_supply_request(
         supply_request.status = "SUBMITTED"
         supply_request.submitted_at = datetime.now(timezone.utc)
         supply_request.version += 1
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session,
+                tenant_id=supply_request.tenant_id,
+                event_type="SUPPLY_REQUEST_SUBMITTED",
+                entity_type="SupplyRequest",
+                entity_id=supply_request.id,
+                operation="SUBMIT",
+                context=audit_context,
+                actor_user=actor_user,
+                before={"status": "DRAFT", "version": expected_version},
+                after={"status": "SUBMITTED", "version": supply_request.version},
+            )
         session.flush()
         session.commit()
     except Exception:
@@ -4387,6 +4441,8 @@ def cancel_supply_request(
     expected_version: int,
     reason: str,
     user_id: int,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session, request_id, expected_version=expected_version
@@ -4394,11 +4450,26 @@ def cancel_supply_request(
     if supply_request.status not in {"SUBMITTED", "IN_REVIEW"}:
         raise SupplyRequestStateError
     try:
+        previous_status = supply_request.status
         supply_request.status = "CANCELLED"
         supply_request.cancelled_at = datetime.now(timezone.utc)
         supply_request.cancelled_by_user_id = user_id
         supply_request.cancellation_reason = reason
         supply_request.version += 1
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session,
+                tenant_id=supply_request.tenant_id,
+                event_type="SUPPLY_REQUEST_CANCELLED",
+                entity_type="SupplyRequest",
+                entity_id=supply_request.id,
+                operation="CANCEL",
+                context=audit_context,
+                actor_user=actor_user,
+                before={"status": previous_status, "version": expected_version},
+                after={"status": "CANCELLED", "version": supply_request.version},
+                reason=reason,
+            )
         session.commit()
     except Exception:
         session.rollback()
