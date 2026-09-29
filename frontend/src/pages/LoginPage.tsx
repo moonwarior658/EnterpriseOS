@@ -84,9 +84,22 @@ function LoginPage() {
                 className="password-visibility-action"
                 type="button"
                 aria-label={passwordToggleLabel(passwordVisible)}
+                aria-pressed={passwordVisible}
                 onClick={() => setPasswordVisible((value) => !value)}
               >
-                {passwordVisible ? '◉' : '◎'}
+                {passwordVisible ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 3l18 18" />
+                    <path d="M10.6 10.7a2 2 0 0 0 2.7 2.7" />
+                    <path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c5.2 0 8.7 4.7 9 5.2a1.5 1.5 0 0 1 0 1.6 16 16 0 0 1-2.2 2.8" />
+                    <path d="M6.6 6.6A16 16 0 0 0 3 9.2a1.5 1.5 0 0 0 0 1.6c.3.5 3.8 5.2 9 5.2 1 0 2-.2 2.8-.5" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 9.2C3.3 8.7 6.8 4 12 4s8.7 4.7 9 5.2a1.5 1.5 0 0 1 0 1.6c-.3.5-3.8 5.2-9 5.2s-8.7-4.7-9-5.2a1.5 1.5 0 0 1 0-1.6Z" />
+                    <circle cx="12" cy="10" r="2.5" />
+                  </svg>
+                )}
               </button>
             </span>
           </label>
