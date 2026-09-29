@@ -29,6 +29,8 @@ from app.supply.supplier_documents import (
 )
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -55,6 +57,7 @@ class SupplySupplierDocumentsPostgresTests(unittest.TestCase):
         settings.postgres_password, settings.postgres_host = url.password or "", url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             cls.engine.dispose()
             raise RuntimeError("Migration test database must be empty")
@@ -114,9 +117,12 @@ class SupplySupplierDocumentsPostgresTests(unittest.TestCase):
             connection.execute(text("INSERT INTO supply_supplier_orders (id, tenant_id, number, supplier_id, purchase_request_id, status, planned_delivery_date, total_amount, currency, created_by_user_id, confirmed_at, sent_at) VALUES (:id, 'document-test', 'PO-DOC-PG', :supplier, :request, 'SENT', CURRENT_DATE, 200, 'RUB', 94801, now(), now())"), {"id": order_id, "supplier": supplier_id, "request": request_id})
             connection.execute(text("INSERT INTO supply_supplier_order_lines (id, tenant_id, supplier_order_id, source_allocation_id, product_id, product_name_snapshot, packages_count, package_quantity_snapshot, package_unit_id_snapshot, quantity_base, price_per_package_snapshot, base_unit_price_snapshot, planned_amount, currency, is_active_owner) VALUES (:id, 'document-test', :order, :allocation, :product, 'Сахар document', 2, 12, :unit, 24, 100, 8.333333, 200, 'RUB', true)"), {"id": order_line_id, "order": order_id, "allocation": allocation_id, "product": product_id, "unit": unit_id})
 
+        command.upgrade(self.config, "head")
+        self.assertEqual(self.revision(), "20260929_0062")
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         payload = SupplySupplierDocumentCreate(
             document_type="INVOICE", document_number="INV-PG-1", document_date=date(2026, 9, 17),
+            create_obligation=True,
         )
         with sessions() as session:
             document = create_document(

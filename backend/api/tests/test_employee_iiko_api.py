@@ -9,8 +9,8 @@ from tests.test_employees_api import EmployeesApiTests
 class FakeIikoProvider:
     async def get_employees(self):
         return [
-            IikoEmployeeDto(external_id="iiko-1", name="Иванов Иван Иванович", code="001"),
-            IikoEmployeeDto(external_id="iiko-2", name="Иванов Иван Иванович", code="002"),
+            IikoEmployeeDto(external_id="iiko-1", name="Иванов Иван Иванович", code="001", is_employee=True),
+            IikoEmployeeDto(external_id="iiko-2", name="Иванов Иван Иванович", code="002", is_employee=True),
         ]
 
     async def get_personal_shifts(self, *, date_from, date_to):

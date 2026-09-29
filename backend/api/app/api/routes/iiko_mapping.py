@@ -22,6 +22,7 @@ from app.integrations.iiko.mapping_service import (
     start_generation,
     unmap_mapping,
 )
+from app.employees import iiko as iiko_employee_service
 from app.models.iiko import (
     IikoMappingAuditEvent,
     IikoMappingKind,
@@ -30,9 +31,13 @@ from app.models.iiko import (
     IikoUnitMapping,
     IikoWarehouseMapping,
 )
+from app.models.employee import IikoDepartmentMapping
+from app.models.supply import Department
 from app.models.user import User
 from app.schemas.iiko_mapping import (
     IikoCatalogBootstrapRead,
+    IikoDepartmentMappingAction,
+    IikoDepartmentMappingRead,
     IikoMappingAuditPage,
     IikoMappingGenerateRead,
     IikoMappingGenerateStatusRead,
@@ -52,6 +57,62 @@ router = APIRouter(
     prefix="/integrations/iiko/mappings",
     tags=["iiko-mappings"],
 )
+
+
+def department_mapping_read(
+    mapping: IikoDepartmentMapping,
+    eos_department_name: str,
+) -> IikoDepartmentMappingRead:
+    return IikoDepartmentMappingRead(
+        id=mapping.id,
+        iiko_department_id=mapping.iiko_department_id,
+        eos_department_id=mapping.eos_department_id,
+        eos_department_name=eos_department_name,
+        source_name=mapping.source_name,
+        reason=mapping.reason,
+        decided_by_user_id=mapping.decided_by_user_id,
+        created_at=mapping.created_at,
+        updated_at=mapping.updated_at,
+    )
+
+
+@router.get("/departments", response_model=list[IikoDepartmentMappingRead])
+def list_department_mappings(
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> list[IikoDepartmentMappingRead]:
+    return [
+        department_mapping_read(mapping, department_name)
+        for mapping, department_name in iiko_employee_service.list_department_mappings(
+            db, tenant_id=current_admin.tenant_id,
+        )
+    ]
+
+
+@router.put(
+    "/departments/{iiko_department_id}",
+    response_model=IikoDepartmentMappingRead,
+)
+def set_department_mapping(
+    iiko_department_id: UUID,
+    payload: IikoDepartmentMappingAction,
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+) -> IikoDepartmentMappingRead:
+    mapping = iiko_employee_service.set_department_mapping(
+        db,
+        tenant_id=current_admin.tenant_id,
+        iiko_department_id=iiko_department_id,
+        eos_department_id=payload.eos_department_id,
+        source_name=payload.source_name,
+        reason=payload.reason,
+        actor=current_admin,
+    )
+    department_name = db.scalar(select(Department.name).where(
+        Department.tenant_id == current_admin.tenant_id,
+        Department.id == mapping.eos_department_id,
+    ))
+    return department_mapping_read(mapping, department_name or "")
 
 
 def mapping_error(error: MappingError) -> HTTPException:

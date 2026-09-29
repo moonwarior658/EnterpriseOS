@@ -39,6 +39,8 @@ from app.supply.supplier_acceptances import (
 from app.supply.supplier_orders import create_supplier_orders
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -63,6 +65,7 @@ class SupplyQuantityTraceabilityPostgresTests(unittest.TestCase):
         settings.postgres_password, settings.postgres_host = url.password or "", url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             raise RuntimeError("Migration test database must be empty")
         cls.config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
@@ -237,6 +240,8 @@ class SupplyQuantityTraceabilityPostgresTests(unittest.TestCase):
         command.upgrade(self.config, "20260917_0054")
         self.assertEqual(self.revision(), "20260917_0054")
 
+        command.upgrade(self.config, "head")
+        self.assertEqual(self.revision(), "20260929_0062")
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         for allocation_id in (concurrent_a, concurrent_b):
             with sessions() as session:

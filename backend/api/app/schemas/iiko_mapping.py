@@ -74,6 +74,24 @@ class IikoWarehouseMappingAction(BaseModel):
         return self
 
 
+class IikoDepartmentMappingAction(BaseModel):
+    eos_department_id: UUID
+    source_name: str | None = Field(default=None, max_length=240)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class IikoDepartmentMappingRead(BaseModel):
+    id: UUID
+    iiko_department_id: UUID
+    eos_department_id: UUID
+    eos_department_name: str
+    source_name: str | None
+    reason: str
+    decided_by_user_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class IikoProductMappingRead(BaseModel):
     id: UUID
     iiko_product_id: UUID

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -16,12 +16,10 @@ from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import IikoEmployeeDto, IikoPersonalShiftDto
 from app.models.employee import (
     Employee, EmployeeIikoShift, EmployeeIikoShiftStatus, EmployeeRole,
-    IikoEmployeeLink,
+    IikoDepartmentMapping, IikoEmployeeLink,
 )
 from app.models.audit import AuditEvent
-from app.models.iiko import (
-    IikoMappingStatus, IikoWarehouseDestinationType, IikoWarehouseMapping,
-)
+from app.models.supply import Department
 from app.models.user import User
 from app.schemas.employee import IikoEmployeeCandidateRead
 
@@ -42,11 +40,14 @@ async def find_candidates(
     provider: IikoProvider,
     *,
     full_name: str,
+    birth_date: date | None = None,
 ) -> list[IikoEmployeeCandidateRead]:
     needle = _normalized_name(full_name)
     needle_parts = set(needle.split())
     results: list[IikoEmployeeCandidateRead] = []
     for employee in await provider.get_employees():
+        if employee.is_deleted or not employee.is_employee:
+            continue
         candidate_name = _normalized_name(employee.name)
         candidate_parts = set(candidate_name.split())
         if not needle_parts or not (
@@ -59,10 +60,13 @@ async def find_candidates(
             iiko_user_id=employee.external_id,
             display_name=employee.name,
             code=employee.code,
-            birth_date=None,
+            birth_date=employee.birth_date,
             is_deleted=employee.is_deleted,
         ))
-    return sorted(results, key=lambda item: (item.is_deleted, item.display_name.casefold(), item.iiko_user_id))
+    return sorted(results, key=lambda item: (
+        item.birth_date != birth_date if birth_date is not None else False,
+        item.display_name.casefold(), item.iiko_user_id,
+    ))
 
 
 async def _authoritative_iiko_employee(
@@ -77,7 +81,10 @@ async def _authoritative_iiko_employee(
         raise HTTPException(status_code=404, detail="iiko employee not found")
     if len(matches) > 1:
         raise HTTPException(status_code=502, detail="IIKO_EMPLOYEE_ID_AMBIGUOUS")
-    return matches[0]
+    employee = matches[0]
+    if employee.is_deleted or not employee.is_employee:
+        raise HTTPException(status_code=409, detail="iiko identity is not an active employee")
+    return employee
 
 
 def current_link(db: Session, employee: Employee, *, lock: bool = False) -> IikoEmployeeLink | None:
@@ -149,7 +156,7 @@ async def create_link(
         employee_id=employee.id,
         iiko_user_id=authoritative.external_id,
         iiko_display_name=authoritative.name,
-        iiko_birth_date=None,
+        iiko_birth_date=authoritative.birth_date,
         valid_from=now or datetime.now(UTC),
         reason=reason,
         created_by_user_id=actor.id,
@@ -210,7 +217,7 @@ async def correct_link(
         employee_id=employee.id,
         iiko_user_id=authoritative.external_id,
         iiko_display_name=authoritative.name,
-        iiko_birth_date=None,
+        iiko_birth_date=authoritative.birth_date,
         valid_from=corrected_at,
         reason=reason,
         created_by_user_id=actor.id,
@@ -256,11 +263,12 @@ async def correct_link(
     return replacement
 
 
-def _idempotency_key(shift: IikoPersonalShiftDto) -> str:
-    if shift.external_id:
-        return f"attendance:{shift.external_id}"
-    raw = f"{shift.employee_external_id}|{_utc(shift.opened_at).isoformat()}"
-    return "attendance:sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def _reconciliation_key(shift: IikoPersonalShiftDto) -> str:
+    raw = (
+        f"IIKO_PERSONAL|{shift.employee_external_id}|"
+        f"{_utc(shift.opened_at).isoformat()}"
+    )
+    return "personal-shift:sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _department_id(
@@ -272,17 +280,99 @@ def _department_id(
     if not external_id:
         return None
     try:
-        warehouse_id = UUID(external_id)
+        iiko_department_id = UUID(external_id)
     except ValueError:
         return None
-    return db.scalar(select(IikoWarehouseMapping.eos_department_id).where(
-        IikoWarehouseMapping.tenant_id == tenant_id,
-        IikoWarehouseMapping.iiko_warehouse_id == warehouse_id,
-        IikoWarehouseMapping.status == IikoMappingStatus.CONFIRMED,
-        IikoWarehouseMapping.destination_type == IikoWarehouseDestinationType.DESTINATION,
-        IikoWarehouseMapping.is_deleted.is_(False),
-        IikoWarehouseMapping.eos_department_id.is_not(None),
+    return db.scalar(select(IikoDepartmentMapping.eos_department_id).where(
+        IikoDepartmentMapping.tenant_id == tenant_id,
+        IikoDepartmentMapping.iiko_department_id == iiko_department_id,
     ))
+
+
+def list_department_mappings(
+    db: Session,
+    *,
+    tenant_id: str,
+) -> list[tuple[IikoDepartmentMapping, str]]:
+    return list(db.execute(
+        select(IikoDepartmentMapping, Department.name)
+        .join(
+            Department,
+            (Department.tenant_id == IikoDepartmentMapping.tenant_id)
+            & (Department.id == IikoDepartmentMapping.eos_department_id),
+        )
+        .where(IikoDepartmentMapping.tenant_id == tenant_id)
+        .order_by(IikoDepartmentMapping.source_name, IikoDepartmentMapping.iiko_department_id)
+    ).all())
+
+
+def set_department_mapping(
+    db: Session,
+    *,
+    tenant_id: str,
+    iiko_department_id: UUID,
+    eos_department_id: UUID,
+    source_name: str | None,
+    reason: str,
+    actor: User,
+) -> IikoDepartmentMapping:
+    context = resolve_action_context(
+        db, actor, required_roles=frozenset({EmployeeRole.ADMIN}),
+        role_precedence=(EmployeeRole.ADMIN,), write=True,
+    )
+    department = db.scalar(select(Department).where(
+        Department.tenant_id == tenant_id,
+        Department.id == eos_department_id,
+    ))
+    if department is None:
+        raise HTTPException(status_code=404, detail="EOS department not found")
+    mapping = db.scalar(select(IikoDepartmentMapping).where(
+        IikoDepartmentMapping.tenant_id == tenant_id,
+        IikoDepartmentMapping.iiko_department_id == iiko_department_id,
+    ).with_for_update())
+    before: dict[str, str | None] = {}
+    event_type = "IIKO_DEPARTMENT_MAPPING_CONFIRMED"
+    if mapping is None:
+        mapping = IikoDepartmentMapping(
+            tenant_id=tenant_id,
+            iiko_department_id=iiko_department_id,
+            eos_department_id=eos_department_id,
+            source_name=source_name,
+            reason=reason.strip(),
+            decided_by_user_id=actor.id,
+        )
+        db.add(mapping)
+    else:
+        before = {
+            "iiko_department_id": str(mapping.iiko_department_id),
+            "eos_department_id": str(mapping.eos_department_id),
+            "source_name": mapping.source_name,
+        }
+        mapping.eos_department_id = eos_department_id
+        mapping.source_name = source_name
+        mapping.reason = reason.strip()
+        mapping.decided_by_user_id = actor.id
+        event_type = "IIKO_DEPARTMENT_MAPPING_REPLACED"
+    try:
+        db.flush()
+        record_audit_event(
+            db, tenant_id=tenant_id, event_type=event_type,
+            entity_type="IikoDepartmentMapping", entity_id=mapping.id,
+            operation="MAP_IIKO_DEPARTMENT", context=context, actor_user=actor,
+            before=before,
+            after={
+                "iiko_department_id": str(mapping.iiko_department_id),
+                "eos_department_id": str(mapping.eos_department_id),
+                "source_name": mapping.source_name,
+            },
+            reason=reason,
+        )
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise _conflict("Conflicting iiko department mapping") from error
+    db.refresh(mapping)
+    return mapping
 
 
 def _link_for_shift(
@@ -352,11 +442,18 @@ def sync_shifts(
             EmployeeIikoShiftStatus.CLOSED if closed_at is not None
             else EmployeeIikoShiftStatus.OPEN
         )
-        key = _idempotency_key(external)
+        key = _reconciliation_key(external)
         stored = db.scalar(select(EmployeeIikoShift).where(
             EmployeeIikoShift.tenant_id == tenant_id,
-            EmployeeIikoShift.raw_external_idempotency_key == key,
+            EmployeeIikoShift.reconciliation_key == key,
         ).with_for_update())
+        if stored is None:
+            stored = db.scalar(select(EmployeeIikoShift).where(
+                EmployeeIikoShift.tenant_id == tenant_id,
+                EmployeeIikoShift.iiko_user_id == external.employee_external_id,
+                EmployeeIikoShift.opened_at == opened_at,
+                EmployeeIikoShift.source == "IIKO",
+            ).with_for_update())
         if stored is None:
             db.add(EmployeeIikoShift(
                 tenant_id=tenant_id,
@@ -369,7 +466,7 @@ def sync_shifts(
                 closed_at=closed_at,
                 duration_minutes=duration,
                 status=shift_status,
-                raw_external_idempotency_key=key,
+                reconciliation_key=key,
                 first_seen_at=observed_at,
                 last_seen_at=observed_at,
             ))
@@ -378,6 +475,8 @@ def sync_shifts(
         changed = any((
             stored.employee_id != link.employee_id,
             stored.iiko_user_id != external.employee_external_id,
+            stored.external_shift_id != external.external_id,
+            stored.reconciliation_key != key,
             stored.iiko_department_id != external.department_external_id,
             stored.department_id != department_id,
             _utc(stored.opened_at) != opened_at,
@@ -387,12 +486,14 @@ def sync_shifts(
         ))
         stored.employee_id = link.employee_id
         stored.iiko_user_id = external.employee_external_id
+        stored.external_shift_id = external.external_id
         stored.iiko_department_id = external.department_external_id
         stored.department_id = department_id
         stored.opened_at = opened_at
         stored.closed_at = closed_at
         stored.duration_minutes = duration
         stored.status = shift_status
+        stored.reconciliation_key = key
         stored.last_seen_at = observed_at
         if changed:
             updated += 1

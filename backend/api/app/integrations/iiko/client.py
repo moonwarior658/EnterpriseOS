@@ -453,6 +453,20 @@ class IikoServerClient(IikoProvider):
                 external_id=item.external_id,
                 name=item.name,
                 code=item.code,
+                first_name=item.first_name,
+                middle_name=item.middle_name,
+                last_name=item.last_name,
+                birth_date=item.birth_date,
+                preferred_department_code=item.preferred_department_code,
+                department_codes=item.department_codes,
+                responsibility_department_codes=(
+                    item.responsibility_department_codes
+                ),
+                main_role_id=item.main_role_id,
+                role_ids=item.role_ids,
+                main_role_code=item.main_role_code,
+                role_codes=item.role_codes,
+                is_employee=item.is_employee,
                 is_deleted=item.is_deleted,
             )
             for item in people
@@ -466,7 +480,11 @@ class IikoServerClient(IikoProvider):
     ) -> list[IikoPersonalShiftDto]:
         root = await self._get_xml(
             "/api/employees/attendance",
-            params={"from": date_from.isoformat(), "to": date_to.isoformat()},
+            params={
+                "from": date_from.isoformat(),
+                "to": date_to.isoformat(),
+                "withPaymentDetails": "false",
+            },
         )
 
         def value(element: ET.Element, *names: str) -> str | None:
@@ -496,28 +514,38 @@ class IikoServerClient(IikoProvider):
 
         shifts: list[IikoPersonalShiftDto] = []
         for element in root.iter():
-            employee_id = value(element, "employeeId", "userId")
-            opened_raw = value(
-                element, "dateFrom", "openTime", "openedAt", "clockIn"
-            )
-            if employee_id is None and opened_raw is None:
+            if element.tag.rsplit("}", 1)[-1].casefold() != "attendance":
                 continue
-            if employee_id is None or opened_raw is None:
+            employee_id = value(element, "employeeId")
+            opened_raw = value(element, "personalDateFrom")
+            if opened_raw is None:
+                continue
+            if employee_id is None:
                 raise IikoContractError(
                     "Missing iiko attendance identity or opening time"
                 )
             try:
                 shifts.append(IikoPersonalShiftDto(
-                    external_id=value(element, "id", "attendanceId", "sessionId"),
+                    external_id=value(element, "id"),
                     employee_external_id=employee_id,
-                    department_external_id=value(
-                        element, "departmentId", "enterpriseId", "storeId"
-                    ),
+                    role_external_id=value(element, "roleId"),
+                    attendance_type=value(element, "attendanceType"),
+                    department_external_id=value(element, "departmentId"),
+                    department_name=value(element, "departmentName"),
                     opened_at=instant(opened_raw, "opened_at"),
                     closed_at=instant(
-                        value(element, "dateTo", "closeTime", "closedAt", "clockOut"),
+                        value(element, "personalDateTo"),
                         "closed_at",
                     ),
+                    confirmed_opened_at=instant(
+                        value(element, "dateFrom"), "confirmed_opened_at"
+                    ),
+                    confirmed_closed_at=instant(
+                        value(element, "dateTo"), "confirmed_closed_at"
+                    ),
+                    created_at=instant(value(element, "created"), "created_at"),
+                    modified_at=instant(value(element, "modified"), "modified_at"),
+                    modified_by_external_id=value(element, "userModified"),
                 ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
@@ -531,7 +559,7 @@ class IikoServerClient(IikoProvider):
         root: ET.Element,
         *,
         endpoint: str,
-    ) -> list[IikoSupplierDto]:
+    ) -> list[IikoSupplierDto | IikoEmployeeDto]:
         def optional_text(element: ET.Element, name: str) -> str | None:
             child = next(
                 (
@@ -553,7 +581,30 @@ class IikoServerClient(IikoProvider):
                 )
             return value.casefold() == "true"
 
-        records: list[IikoSupplierDto] = []
+        def repeated_text(element: ET.Element, name: str) -> tuple[str, ...]:
+            return tuple(
+                text_value
+                for item in element
+                if item.tag.rsplit("}", 1)[-1] == name
+                and (text_value := (item.text or "").strip())
+            )
+
+        def optional_date(element: ET.Element, name: str) -> date | None:
+            raw = optional_text(element, name)
+            if raw is None:
+                return None
+            normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+            try:
+                return datetime.fromisoformat(normalized).date()
+            except ValueError:
+                try:
+                    return date.fromisoformat(raw)
+                except ValueError as error:
+                    raise IikoContractError(
+                        f"Invalid iiko {endpoint} field field={name}"
+                    ) from error
+
+        records: list[IikoSupplierDto | IikoEmployeeDto] = []
         for element in root.iter():
             external_id = optional_text(element, "id")
             name = optional_text(element, "name")
@@ -565,15 +616,41 @@ class IikoServerClient(IikoProvider):
                     f"{'id' if external_id is None else 'name'}"
                 )
             try:
-                records.append(IikoSupplierDto(
-                    external_id=external_id,
-                    name=name,
-                    code=optional_text(element, "code"),
-                    is_supplier=boolean(element, "supplier"),
-                    is_employee=boolean(element, "employee"),
-                    represents_store=boolean(element, "representsStore"),
-                    is_deleted=boolean(element, "deleted"),
-                ))
+                common = {
+                    "external_id": external_id,
+                    "name": name,
+                    "code": optional_text(element, "code"),
+                    "is_deleted": boolean(element, "deleted"),
+                }
+                if endpoint == "employees":
+                    records.append(IikoEmployeeDto(
+                        **common,
+                        first_name=optional_text(element, "firstName"),
+                        middle_name=optional_text(element, "middleName"),
+                        last_name=optional_text(element, "lastName"),
+                        birth_date=optional_date(element, "birthday"),
+                        preferred_department_code=optional_text(
+                            element, "preferredDepartmentCode"
+                        ),
+                        department_codes=repeated_text(
+                            element, "departmentCodes"
+                        ),
+                        responsibility_department_codes=repeated_text(
+                            element, "responsibilityDepartmentCodes"
+                        ),
+                        main_role_id=optional_text(element, "mainRoleId"),
+                        role_ids=repeated_text(element, "rolesIds"),
+                        main_role_code=optional_text(element, "mainRoleCode"),
+                        role_codes=repeated_text(element, "roleCodes"),
+                        is_employee=boolean(element, "employee"),
+                    ))
+                else:
+                    records.append(IikoSupplierDto(
+                        **common,
+                        is_supplier=boolean(element, "supplier"),
+                        is_employee=boolean(element, "employee"),
+                        represents_store=boolean(element, "representsStore"),
+                    ))
             except ValidationError as error:
                 field = ".".join(str(item) for item in error.errors()[0]["loc"])
                 raise IikoContractError(

@@ -1752,11 +1752,11 @@ Governing business spec: [STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](
 
 - [x] Добавлена историческая связь `Employee ↔ iiko employee` по стабильному `iiko_user_id`, с ADMIN confirmation, обязательной причиной и запретом конфликтующих активных связей.
 - [x] Добавлены поиск кандидатов через существующий `IikoProvider`, безопасное исправление связи отдельным периодом и атомарная перепривязка сохранённых смен затронутого периода.
-- [x] Добавлено идемпотентное сохранение открытия/закрытия личных смен из `employees/attendance`, вычисление длительности и чтение активной смены.
-- [x] Фактическое подразделение смены определяется только через подтверждённый `IikoWarehouseMapping`; неизвестный внешний department сохраняется как unresolved без создания или угадывания Department.
+- [x] Добавлено идемпотентное сохранение открытия/закрытия личных смен из `employees/attendance`: рабочее время берётся только из `personalDateFrom` / `personalDateTo`, а reconciliation выполняется по стабильной паре `employeeId + personalDateFrom`, поскольку `attendance.id` может меняться.
+- [x] Фактическое подразделение смены определяется по `attendance.departmentId` только через отдельный подтверждённый `IikoDepartmentMapping`; UUID склада не считается UUID подразделения. Неизвестный внешний department сохраняется как unresolved без создания или угадывания Department.
 - [x] Добавлены ручной ADMIN refresh, локальный тип Automation Core для polling и базовый блок iiko/смен в карточке Employee.
 
-Срез не вводит shift-based write gate, не реализует общий immutable audit rollout и не закрывает Stage 3.1P целиком. Эти границы остаются за 3.1P-D/E; production deployment и business smoke не выполнялись.
+Контракт parser/mapping/idempotency сверен 29.09.2026 с официальной документацией iiko по Employee и Attendance. Employee identity берётся из `Employee.id`; optional `birthday` используется только как дополнительный match hint; системные/non-employee записи исключаются из кандидатов; iiko roles не участвуют в EOS authorization. Срез не закрывает Stage 3.1P целиком; production deployment и business smoke не выполнялись.
 
 ### 3.1P-D Authorization & shift write gate — реализовано локально 29.09.2026
 

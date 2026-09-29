@@ -39,6 +39,8 @@ from app.supply.iiko_incoming_receipts import (
 )
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -136,6 +138,7 @@ class IikoIncomingReceiptsPostgresTests(unittest.TestCase):
         settings.postgres_password, settings.postgres_host = url.password or "", url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             cls.engine.dispose()
             raise RuntimeError("Receipt migration test database must be empty")

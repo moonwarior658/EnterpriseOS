@@ -149,7 +149,7 @@ class ActionContextTests(unittest.TestCase):
             closed_at=closed_at,
             duration_minutes=60 if closed_at else None,
             status=status,
-            raw_external_idempotency_key=str(shift_id),
+            reconciliation_key=str(shift_id),
             first_seen_at=self.now,
             last_seen_at=self.now,
         ))

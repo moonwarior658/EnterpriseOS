@@ -22,6 +22,7 @@ from app.models.employee import (
     EmployeeRole,
     EmployeeRoleAssignment,
     EmployeeStatus,
+    IikoDepartmentMapping,
     IikoEmployeeLink,
     ShiftDepartmentConfirmation,
 )
@@ -101,6 +102,7 @@ __all__ = [
     "RuntimeComponent",
     "EmployeeIikoShift",
     "EmployeeIikoShiftStatus",
+    "IikoDepartmentMapping",
     "IikoEmployeeLink",
     "ShiftDepartmentConfirmation",
     "IikoDocumentType",

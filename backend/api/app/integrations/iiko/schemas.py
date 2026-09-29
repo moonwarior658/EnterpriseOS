@@ -59,15 +59,35 @@ class IikoEmployeeDto(IikoDto):
     external_id: str
     name: str
     code: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+    last_name: str | None = None
+    birth_date: date | None = None
+    preferred_department_code: str | None = None
+    department_codes: tuple[str, ...] = ()
+    responsibility_department_codes: tuple[str, ...] = ()
+    main_role_id: str | None = None
+    role_ids: tuple[str, ...] = ()
+    main_role_code: str | None = None
+    role_codes: tuple[str, ...] = ()
+    is_employee: bool = False
     is_deleted: bool = False
 
 
 class IikoPersonalShiftDto(IikoDto):
     external_id: str | None = None
     employee_external_id: str
+    role_external_id: str | None = None
+    attendance_type: str | None = None
     department_external_id: str | None = None
+    department_name: str | None = None
     opened_at: datetime
     closed_at: datetime | None = None
+    confirmed_opened_at: datetime | None = None
+    confirmed_closed_at: datetime | None = None
+    created_at: datetime | None = None
+    modified_at: datetime | None = None
+    modified_by_external_id: str | None = None
 
 
 class IikoOutgoingInvoiceItemDto(IikoDto):

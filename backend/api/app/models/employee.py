@@ -247,6 +247,42 @@ class IikoEmployeeLink(Base):
     employee: Mapped[Employee] = relationship(back_populates="iiko_links")
 
 
+class IikoDepartmentMapping(Base):
+    __tablename__ = "iiko_department_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "iiko_department_id",
+            name="uq_iiko_department_mappings_tenant_external",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "eos_department_id"],
+            ["departments.tenant_id", "departments.id"],
+            name="fk_iiko_department_mappings_department_tenant",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "length(trim(reason)) > 0",
+            name="ck_iiko_department_mappings_reason",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    iiko_department_id: Mapped[UUID] = mapped_column(nullable=False)
+    eos_department_id: Mapped[UUID] = mapped_column(nullable=False)
+    source_name: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    reason: Mapped[str] = mapped_column(String(1000), nullable=False)
+    decided_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class EmployeeIikoShift(Base):
     __tablename__ = "employee_iiko_shifts"
     __table_args__ = (
@@ -259,7 +295,10 @@ class EmployeeIikoShift(Base):
             ["tenant_id", "department_id"], ["departments.tenant_id", "departments.id"],
             name="fk_employee_iiko_shifts_department_tenant", ondelete="RESTRICT",
         ),
-        UniqueConstraint("tenant_id", "raw_external_idempotency_key", name="uq_employee_iiko_shifts_idempotency"),
+        UniqueConstraint(
+            "tenant_id", "reconciliation_key",
+            name="uq_employee_iiko_shifts_reconciliation",
+        ),
         CheckConstraint("closed_at IS NULL OR closed_at >= opened_at", name="ck_employee_iiko_shift_period"),
         CheckConstraint("(status = 'OPEN' AND closed_at IS NULL AND duration_minutes IS NULL) OR (status = 'CLOSED' AND closed_at IS NOT NULL AND duration_minutes IS NOT NULL)", name="ck_employee_iiko_shift_status"),
         Index("ix_employee_iiko_shifts_employee_opened", "tenant_id", "employee_id", "opened_at"),
@@ -283,7 +322,7 @@ class EmployeeIikoShift(Base):
     status: Mapped[EmployeeIikoShiftStatus] = mapped_column(
         enum_column(EmployeeIikoShiftStatus, "employee_iiko_shift_status", 16), nullable=False
     )
-    raw_external_idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    reconciliation_key: Mapped[str] = mapped_column(String(255), nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

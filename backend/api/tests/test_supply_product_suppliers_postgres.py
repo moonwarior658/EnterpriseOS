@@ -26,9 +26,12 @@ from app.models.supply import SupplyProductSupplierPriceHistory
 from app.models.user import User
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+CURRENT_HEAD = "20260929_0062"
 
 
 @unittest.skipUnless(TEST_DATABASE_URL, "SUPPLY_TEST_DATABASE_URL is not configured")
@@ -45,6 +48,7 @@ class SupplyProductSuppliersPostgresTests(unittest.TestCase):
         settings.postgres_host = url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             raise RuntimeError("Migration test database must be empty")
         cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
@@ -80,6 +84,11 @@ class SupplyProductSuppliersPostgresTests(unittest.TestCase):
             )).all())
         self.assertIn("WHERE (is_active = true)", definitions["uq_supply_product_suppliers_active_pair"])
         self.assertIn("role", definitions["uq_supply_product_suppliers_active_primary"])
+
+        # The migration contract above is intentionally checked at 0037.
+        # Runtime/API behavior must use the current ORM against the current schema.
+        command.upgrade(self.config, "head")
+        self.assertEqual(self.revision(), CURRENT_HEAD)
 
         unit_id, product_id, other_product_id = uuid4(), uuid4(), uuid4()
         supplier_one, supplier_two, other_supplier = uuid4(), uuid4(), uuid4()

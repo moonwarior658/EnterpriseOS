@@ -26,6 +26,8 @@ from app.supply.supplier_orders import (
 )
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -45,6 +47,7 @@ class SupplySupplierOrdersPostgresTests(unittest.TestCase):
         settings.postgres_password, settings.postgres_host = url.password or "", url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             cls.engine.dispose()
             raise RuntimeError("Migration test database must be empty")
@@ -78,6 +81,7 @@ class SupplySupplierOrdersPostgresTests(unittest.TestCase):
 
         unit_id, product_id, supplier_id, relation_id = uuid4(), uuid4(), uuid4(), uuid4()
         request_id, line_id, allocation_id = uuid4(), uuid4(), uuid4()
+        line_source_id, allocation_source_id = uuid4(), uuid4()
         with self.engine.begin() as connection:
             connection.execute(text("INSERT INTO users (id, username, display_name, hashed_password, tenant_id, is_active, is_admin) VALUES (94001, 'order-admin', 'Admin', 'x', 'order-test', true, true)"))
             connection.execute(text("INSERT INTO supply_units (id, tenant_id, code, name_ru, short_name_ru, allows_fraction, is_active) VALUES (:id, 'order-test', 'ORDER_KG', 'Килограмм', 'кг', true, true)"), {"id": unit_id})
@@ -86,7 +90,9 @@ class SupplySupplierOrdersPostgresTests(unittest.TestCase):
             connection.execute(text("INSERT INTO supply_product_suppliers (id, tenant_id, product_id, supplier_id, role, priority, package_quantity, package_unit_id, price_per_package, currency, is_available, is_active) VALUES (:id, 'order-test', :product, :supplier, 'PRIMARY', 10, 12, :unit, 4956, 'RUB', true, true)"), {"id": relation_id, "product": product_id, "supplier": supplier_id, "unit": unit_id})
             connection.execute(text("INSERT INTO supply_purchase_requests (id, tenant_id, number, need_date, status, created_by_user_id) VALUES (:id, 'order-test', 'ZR-ORDER-PG', CURRENT_DATE, 'READY', 94001)"), {"id": request_id})
             connection.execute(text("INSERT INTO supply_purchase_request_lines (id, tenant_id, purchase_request_id, product_id, quantity, unit_id, manual_future_quantity) VALUES (:id, 'order-test', :request, :product, 36, :unit, 36)"), {"id": line_id, "request": request_id, "product": product_id, "unit": unit_id})
+            connection.execute(text("INSERT INTO supply_purchase_request_line_sources (id, tenant_id, purchase_request_line_id, source_type, quantity, unit_id) VALUES (:id, 'order-test', :line, 'MANUAL_FUTURE', 36, :unit)"), {"id": line_source_id, "line": line_id, "unit": unit_id})
             connection.execute(text("INSERT INTO supply_purchase_allocations (id, tenant_id, purchase_request_line_id, product_supplier_id, quantity_base, package_quantity_snapshot, package_unit_id_snapshot, packages_count, price_per_package_snapshot, base_unit_price_snapshot, currency, planned_amount, status) VALUES (:id, 'order-test', :line, :relation, 36, 12, :unit, 3, 4956, 413, 'RUB', 14868, 'CONFIRMED')"), {"id": allocation_id, "line": line_id, "relation": relation_id, "unit": unit_id})
+            connection.execute(text("INSERT INTO supply_purchase_allocation_sources (id, tenant_id, allocation_id, purchase_request_line_source_id, allocated_quantity) VALUES (:id, 'order-test', :allocation, :source, 36)"), {"id": allocation_source_id, "allocation": allocation_id, "source": line_source_id})
 
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         barrier = Barrier(2)

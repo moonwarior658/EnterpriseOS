@@ -672,7 +672,7 @@ class SupplyApiTests(unittest.TestCase):
                 iiko_user_id="seller-iiko", external_shift_id="seller-shift",
                 iiko_department_id="iiko-m35", department_id=UUID(actual["id"]),
                 opened_at=datetime.now(timezone.utc) - timedelta(hours=1),
-                status="OPEN", raw_external_idempotency_key="seller-shift",
+                status="OPEN", reconciliation_key="seller-shift",
                 first_seen_at=datetime.now(timezone.utc),
                 last_seen_at=datetime.now(timezone.utc),
             )

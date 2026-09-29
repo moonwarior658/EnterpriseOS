@@ -185,7 +185,7 @@ async def find_iiko_candidates(
     employee = service.get_employee(db, employee_id, current_admin.tenant_id)
     try:
         return await iiko_employee_service.find_candidates(
-            provider, full_name=employee.full_name,
+            provider, full_name=employee.full_name, birth_date=employee.birth_date,
         )
     except IikoError as error:
         raise integration_error(error) from error

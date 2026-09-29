@@ -1,8 +1,11 @@
 import os
 import threading
 import unittest
+from pathlib import Path
 from uuid import uuid4
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +15,7 @@ from app.integrations.iiko.supplier_mapping_service import (
     SupplierMappingError,
     confirm_supplier_mapping,
 )
+from app.core.config import settings
 from app.models.iiko import (
     IikoRawEntity,
     IikoSupplierMapping,
@@ -22,6 +26,7 @@ from app.models.iiko import (
 )
 from app.models.supply import SupplySupplier
 from app.models.user import User
+from tests.postgres_test_support import reset_disposable_postgres_schema
 
 
 class IikoSupplierMappingPostgresTests(unittest.TestCase):
@@ -35,12 +40,30 @@ class IikoSupplierMappingPostgresTests(unittest.TestCase):
             raise RuntimeError("Supplier mapping PostgreSQL test requires localhost")
         if parsed.database != "eos_supply_migration_test":
             raise RuntimeError("Supplier mapping PostgreSQL test requires disposable database")
+        cls.previous_settings = (
+            settings.postgres_db, settings.postgres_user,
+            settings.postgres_password, settings.postgres_host,
+            settings.postgres_port,
+        )
+        settings.postgres_db = parsed.database
+        settings.postgres_user = parsed.username or ""
+        settings.postgres_password = parsed.password or ""
+        settings.postgres_host = parsed.host or ""
+        settings.postgres_port = parsed.port or 5432
         cls.engine = create_engine(database_url, pool_size=5)
+        reset_disposable_postgres_schema(cls.engine)
+        config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+        command.upgrade(config, "head")
         cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.engine.dispose()
+        (
+            settings.postgres_db, settings.postgres_user,
+            settings.postgres_password, settings.postgres_host,
+            settings.postgres_port,
+        ) = cls.previous_settings
 
     def setUp(self) -> None:
         self.tenant = f"supplier-map-{uuid4()}"

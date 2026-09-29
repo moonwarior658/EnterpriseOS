@@ -81,6 +81,7 @@ from app.supply.service import (
     replace_context_mapping,
 )
 from app.supply import source_mapping as source_mapping_service
+from app.supply import service as supply_service
 from app.supply.source_mapping import (
     SupplyProductSourceConcurrentAssignmentError,
     SupplyProductSourceVersionConflictError,
@@ -89,9 +90,12 @@ from app.supply.source_mapping import (
 )
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+CURRENT_HEAD = "20260929_0062"
 
 
 @unittest.skipUnless(
@@ -130,6 +134,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
         try:
             cls.engine = create_engine(TEST_DATABASE_URL)
+            reset_disposable_postgres_schema(cls.engine)
             existing_tables = inspect(cls.engine).get_table_names()
         except Exception:
             if hasattr(cls, "engine"):
@@ -1620,8 +1625,8 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             )), 0)
 
     def test_01d_contextual_mapping_postgres_contracts(self) -> None:
-        command.upgrade(self.alembic_config, "20260804_0026")
-        self.assertEqual(self._current_revision(), "20260804_0026")
+        command.upgrade(self.alembic_config, "head")
+        self.assertEqual(self._current_revision(), CURRENT_HEAD)
         previous_tenant_id = settings.default_tenant_id
         tenant_suffix = uuid4().hex[:8]
         primary_tenant = f"context-primary-{tenant_suffix}"
@@ -1701,6 +1706,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                     created_at=now - timedelta(minutes=5),
                     lines=[SupplyRequestLine(
                         id=old_line_id,
+                        tenant_id=primary_tenant,
                         position=1,
                         raw_text="молоко 1 л",
                     )],
@@ -1738,24 +1744,40 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                     created_at=datetime.now(timezone.utc) + timedelta(seconds=1),
                     lines=[SupplyRequestLine(
                         id=new_line_id,
+                        tenant_id=primary_tenant,
                         position=1,
                         raw_text="молоко 2 л",
                     )],
                 ))
 
-            with self.sessions() as session:
-                old_result = recognize_supply_request(
-                    session, old_request_id, expected_version=1
+            get_request = supply_service._get_supply_request_for_update
+
+            def get_primary_tenant_request(session, request_id, **kwargs):
+                return get_request(
+                    session,
+                    request_id,
+                    tenant_id=primary_tenant,
+                    **kwargs,
                 )
-                self.assertEqual(old_result.matched, 0)
-            with self.sessions() as session:
-                new_result = recognize_supply_request(
-                    session, new_request_id, expected_version=1
-                )
-                self.assertEqual(new_result.matched, 1)
-                matched = session.get(SupplyRequestLine, new_line_id)
-                self.assertEqual(matched.product_id, coffee_product_id)
-                self.assertEqual(matched.match_method, "CONTEXT_MAPPING")
+
+            with patch.object(
+                supply_service,
+                "_get_supply_request_for_update",
+                side_effect=get_primary_tenant_request,
+            ):
+                with self.sessions() as session:
+                    old_result = recognize_supply_request(
+                        session, old_request_id, expected_version=1
+                    )
+                    self.assertEqual(old_result.matched, 0)
+                with self.sessions() as session:
+                    new_result = recognize_supply_request(
+                        session, new_request_id, expected_version=1
+                    )
+                    self.assertEqual(new_result.matched, 1)
+                    matched = session.get(SupplyRequestLine, new_line_id)
+                    self.assertEqual(matched.product_id, coffee_product_id)
+                    self.assertEqual(matched.match_method, "CONTEXT_MAPPING")
 
             with self.sessions.begin() as session:
                 department = session.scalar(select(Department).where(
@@ -1772,32 +1794,47 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 session.add(versioned_mapping)
                 session.flush()
                 versioned_mapping_id = versioned_mapping.id
-            with self.sessions() as session:
-                replaced = replace_context_mapping(
+            get_product = supply_service.get_supply_product
+
+            def get_primary_tenant_product(session, product_id, **kwargs):
+                return get_product(
                     session,
-                    mapping_id=versioned_mapping_id,
-                    product_id=second_product_id,
-                    expected_version=1,
-                    actor_user_id=actor_id,
+                    product_id,
+                    tenant_id=primary_tenant,
+                    **kwargs,
                 )
-                self.assertEqual(replaced.version, 2)
-            with self.sessions() as session:
-                with self.assertRaises(SupplyContextMappingVersionConflictError):
-                    replace_context_mapping(
+
+            with patch.object(
+                supply_service,
+                "get_supply_product",
+                side_effect=get_primary_tenant_product,
+            ):
+                with self.sessions() as session:
+                    replaced = replace_context_mapping(
                         session,
                         mapping_id=versioned_mapping_id,
-                        product_id=coffee_product_id,
+                        product_id=second_product_id,
                         expected_version=1,
                         actor_user_id=actor_id,
                     )
-            with self.sessions() as session:
-                with self.assertRaises(SupplyContextMappingVersionConflictError):
-                    delete_context_mapping(
-                        session,
-                        mapping_id=versioned_mapping_id,
-                        expected_version=1,
-                        actor_user_id=actor_id,
-                    )
+                    self.assertEqual(replaced.version, 2)
+                with self.sessions() as session:
+                    with self.assertRaises(SupplyContextMappingVersionConflictError):
+                        replace_context_mapping(
+                            session,
+                            mapping_id=versioned_mapping_id,
+                            product_id=coffee_product_id,
+                            expected_version=1,
+                            actor_user_id=actor_id,
+                        )
+                with self.sessions() as session:
+                    with self.assertRaises(SupplyContextMappingVersionConflictError):
+                        delete_context_mapping(
+                            session,
+                            mapping_id=versioned_mapping_id,
+                            expected_version=1,
+                            actor_user_id=actor_id,
+                        )
 
             with self.sessions.begin() as session:
                 for tenant_id in (other_tenant, conflict_tenant):
@@ -1880,7 +1917,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20260804_0026")
+        self.assertEqual(self._current_revision(), CURRENT_HEAD)
         self._assert_send_quantity_schema()
         self._assert_iiko_staging_schema()
         self._assert_iiko_mapping_schema()
@@ -2494,6 +2531,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             session.add(supply_request)
             session.flush()
             line = SupplyRequestLine(
+                tenant_id="eclair",
                 request_id=supply_request.id,
                 position=1,
                 raw_text="Редкий ингредиент 3 кг",

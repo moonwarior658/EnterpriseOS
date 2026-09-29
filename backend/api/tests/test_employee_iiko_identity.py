@@ -15,12 +15,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.employees.iiko import (
     active_shift, correct_link, create_link, current_link, find_candidates,
-    link_history, list_shifts, sync_shifts,
+    link_history, list_department_mappings, list_shifts, set_department_mapping,
+    sync_shifts,
 )
 from app.integrations.iiko.schemas import IikoEmployeeDto, IikoPersonalShiftDto
 from app.models.employee import (
     Employee, EmployeeDepartmentAssignment, EmployeeIikoShift, EmployeeRole,
-    EmployeeRoleAssignment, IikoEmployeeLink,
+    EmployeeRoleAssignment, IikoDepartmentMapping, IikoEmployeeLink,
 )
 from app.models.audit import AuditEvent
 from app.models.iiko import IikoWarehouseMapping
@@ -49,6 +50,7 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
         EmployeeDepartmentAssignment.__table__.create(self.engine)
         IikoWarehouseMapping.__table__.create(self.engine)
         IikoEmployeeLink.__table__.create(self.engine)
+        IikoDepartmentMapping.__table__.create(self.engine)
         EmployeeIikoShift.__table__.create(self.engine)
         AuditEvent.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
@@ -90,8 +92,9 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ])
         self.provider = FakeIikoProvider([
-            IikoEmployeeDto(external_id="iiko-1", name="Иванов Иван Иванович", code="001"),
-            IikoEmployeeDto(external_id="iiko-2", name="Иванов Иван Иванович", code="002"),
+            IikoEmployeeDto(external_id="iiko-1", name="Иванов Иван Иванович", code="001", birth_date=datetime(1990, 1, 1).date(), is_employee=True),
+            IikoEmployeeDto(external_id="iiko-2", name="Иванов Иван Иванович", code="002", birth_date=datetime(1991, 1, 1).date(), is_employee=True),
+            IikoEmployeeDto(external_id="system", name="Иванов Иван Иванович", code=None, is_employee=False),
         ])
 
     def tearDown(self) -> None:
@@ -103,8 +106,12 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_link_candidate_search_and_manual_choice(self) -> None:
         with self.sessions() as db:
             self.assertIsNone(current_link(db, self.employee(db)))
-        candidates = await find_candidates(self.provider, full_name="Иванов Иван Иванович")
+        candidates = await find_candidates(
+            self.provider, full_name="Иванов Иван Иванович",
+            birth_date=datetime(1990, 1, 1).date(),
+        )
         self.assertEqual([item.iiko_user_id for item in candidates], ["iiko-1", "iiko-2"])
+        self.assertEqual(candidates[0].birth_date, datetime(1990, 1, 1).date())
         missing = await find_candidates(self.provider, full_name="Петров Пётр Петрович")
         self.assertEqual(missing, [])
 
@@ -171,7 +178,17 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
             repeated = sync_shifts(db, [open_fact], tenant_id="eclair", seen_at=opened + timedelta(minutes=5))
             self.assertEqual((repeated.created, repeated.unchanged), (0, 1))
             self.assertIsNotNone(active_shift(db, self.employee(db)))
+            active_shift(db, self.employee(db)).reconciliation_key = "attendance:shift-1"
+            db.commit()
+        with self.sessions.begin() as db:
+            db.add(IikoDepartmentMapping(
+                tenant_id="eclair", iiko_department_id=self.warehouse_id,
+                eos_department_id=self.department_id, source_name="М15",
+                reason="Подтверждено по UUID подразделения iiko",
+                decided_by_user_id=1,
+            ))
         closed_fact = open_fact.model_copy(update={
+            "external_id": "shift-2",
             "closed_at": opened + timedelta(hours=8, minutes=17),
             "department_external_id": str(self.warehouse_id),
         })
@@ -180,6 +197,8 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(closed.updated, 1)
             self.assertIsNone(active_shift(db, self.employee(db)))
             shifts = list_shifts(db, self.employee(db))
+            self.assertEqual(len(shifts), 1)
+            self.assertEqual(shifts[0].external_shift_id, "shift-2")
             self.assertEqual(shifts[0].duration_minutes, 497)
             self.assertEqual(shifts[0].department_id, self.department_id)
             self.employee(db).status = "DISMISSED"
@@ -188,6 +207,27 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
             db.commit()
         with self.sessions() as db:
             self.assertEqual(len(list_shifts(db, self.employee(db))), 1)
+
+    async def test_department_mapping_is_explicit_and_audited(self) -> None:
+        with self.sessions() as db:
+            mapping = set_department_mapping(
+                db,
+                tenant_id="eclair",
+                iiko_department_id=self.warehouse_id,
+                eos_department_id=self.department_id,
+                source_name="М15",
+                reason="Подтверждён UUID подразделения iiko",
+                actor=db.get(User, 1),
+            )
+            self.assertEqual(mapping.iiko_department_id, self.warehouse_id)
+            listed = list_department_mappings(db, tenant_id="eclair")
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0][1], "М15")
+            audit = db.scalar(select(AuditEvent).where(
+                AuditEvent.entity_type == "IikoDepartmentMapping",
+            ))
+            self.assertEqual(audit.event_type, "IIKO_DEPARTMENT_MAPPING_CONFIRMED")
+            self.assertEqual(audit.reason, "Подтверждён UUID подразделения iiko")
 
 
 if __name__ == "__main__":

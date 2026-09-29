@@ -31,6 +31,8 @@ from app.supply.supplier_acceptances import (
     resolve_acceptance_resolution,
 )
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -48,6 +50,7 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
         settings.postgres_password, settings.postgres_host = url.password or "", url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         if inspect(cls.engine).get_table_names():
             cls.engine.dispose(); raise RuntimeError("Migration test database must be empty")
         cls.config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
@@ -90,6 +93,9 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
         department_id, destination_mapping_id = uuid4(), uuid4()
         request_id, request_line_id, allocation_id, order_id, order_line_id = (uuid4() for _ in range(5))
         document_id, document_line_id = uuid4(), uuid4()
+        request_line_source_id = uuid4()
+        allocation_source_id = uuid4()
+        order_line_source_id = uuid4()
         with self.engine.begin() as c:
             c.execute(text("INSERT INTO users (id, username, display_name, hashed_password, tenant_id, is_active, is_admin) VALUES (94901, 'accept-admin', 'Admin', 'x', 'accept-test', true, true)"))
             c.execute(text("INSERT INTO departments (id, tenant_id, code, name, legal_contour, is_active, display_order) VALUES (:id, 'accept-test', 'ACC', 'Acceptance Department', 'IP', true, 1)"), {"id": department_id})
@@ -106,6 +112,12 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
             c.execute(text("INSERT INTO supply_supplier_documents (id, tenant_id, supplier_order_id, supplier_id, document_type, document_number, document_date, status, supplier_display_name_snapshot, currency, total_amount, recorded_by_user_id, recorded_at, created_by_user_id) VALUES (:id, 'accept-test', :order, :supplier, 'DELIVERY_NOTE', 'DN-ACC-PG', CURRENT_DATE, 'RECORDED', 'Acceptance Supplier', 'RUB', 200, 94901, now(), 94901)"), {"id": document_id, "order": order_id, "supplier": supplier_id})
             c.execute(text("INSERT INTO supply_supplier_document_lines (id, tenant_id, supplier_document_id, supplier_order_id, supplier_order_line_id, product_name_snapshot, pricing_basis, package_quantity_snapshot, package_unit_id_snapshot, unit_name_snapshot, packages_count, quantity_base, price_per_package, line_amount, currency) VALUES (:id, 'accept-test', :document, :order, :order_line, 'Сахар acceptance', 'PACKAGE', 12, :unit, 'кг', 2, 24, 100, 200, 'RUB')"), {"id": document_line_id, "document": document_id, "order": order_id, "order_line": order_line_id, "unit": unit_id})
 
+        command.upgrade(self.config, "head")
+        self.assertEqual(self.revision(), "20260929_0062")
+        with self.engine.begin() as c:
+            c.execute(text("INSERT INTO supply_purchase_request_line_sources (id, tenant_id, purchase_request_line_id, source_type, quantity, unit_id) VALUES (:id, 'accept-test', :line, 'MANUAL_FUTURE', 24, :unit)"), {"id": request_line_source_id, "line": request_line_id, "unit": unit_id})
+            c.execute(text("INSERT INTO supply_purchase_allocation_sources (id, tenant_id, allocation_id, purchase_request_line_source_id, allocated_quantity) VALUES (:id, 'accept-test', :allocation, :source, 24)"), {"id": allocation_source_id, "allocation": allocation_id, "source": request_line_source_id})
+            c.execute(text("INSERT INTO supply_supplier_order_line_sources (id, tenant_id, order_line_id, allocation_source_id, purchase_request_line_source_id, source_type_snapshot, planned_quantity) VALUES (:id, 'accept-test', :order_line, :allocation_source, :request_source, 'MANUAL_FUTURE', 24)"), {"id": order_line_source_id, "order_line": order_line_id, "allocation_source": allocation_source_id, "request_source": request_line_source_id})
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with sessions() as session:
             first = create_acceptance(session, order_id, SupplySupplierAcceptanceCreate(supplier_document_id=document_id, destination_mapping_id=destination_mapping_id), tenant_id="accept-test", user_id=94901)
@@ -116,6 +128,11 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
                 "UPDATE supply_supplier_acceptance_lines SET received_quantity = 22, "
                 "accepted_quantity = 22, rejected_quantity = 0 "
                 "WHERE id IN (:first_line, :second_line)"
+            ), {"first_line": first.lines[0].id, "second_line": second.lines[0].id})
+            c.execute(text(
+                "UPDATE supply_supplier_acceptance_line_sources "
+                "SET accepted_quantity = 22 "
+                "WHERE acceptance_line_id IN (:first_line, :second_line)"
             ), {"first_line": first.lines[0].id, "second_line": second.lines[0].id})
         self.assertEqual(first.lines[0].documented_quantity, 24)
         self.assertEqual(first.destination_mapping_id, destination_mapping_id)

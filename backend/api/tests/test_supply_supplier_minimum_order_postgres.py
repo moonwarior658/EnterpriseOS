@@ -23,6 +23,8 @@ from app.main import app
 from app.models.user import User
 
 
+from tests.postgres_test_support import reset_disposable_postgres_schema
+
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -50,6 +52,7 @@ class SupplySupplierMinimumOrderPostgresTests(unittest.TestCase):
         settings.postgres_host = url.host or ""
         settings.postgres_port = url.port or 5432
         cls.engine = create_engine(TEST_DATABASE_URL)
+        reset_disposable_postgres_schema(cls.engine)
         tables = inspect(cls.engine).get_table_names()
         if tables:
             cls.engine.dispose()
@@ -112,6 +115,8 @@ class SupplySupplierMinimumOrderPostgresTests(unittest.TestCase):
             "ck_supply_suppliers_minimum_order_amount", str(raised.exception)
         )
 
+        command.upgrade(self.alembic_config, "head")
+        self.assertEqual(self._revision(), "20260929_0062")
         with self.sessions.begin() as session:
             session.add(User(
                 id=92001, username="minimum-admin", display_name="Admin",
