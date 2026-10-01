@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.action_context import ActionContext, ActionContextError, resolve_action_context
 from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User
 
 
@@ -100,11 +100,6 @@ ROLE_ASSIGNABLE = {
     }),
 }
 
-# Populate only from an owner-approved Department.code inventory. Empty is fail closed.
-ECLAIR_POINT_DEPARTMENT_CODES: frozenset[str] = frozenset()
-PRODUCTION_DEPARTMENT_CODES: frozenset[str] = frozenset()
-
-
 def has_request_view_access(user: User) -> bool:
     return user.is_admin or user.can_view_requests
 
@@ -120,32 +115,67 @@ def _active_departments(db: Session, tenant_id: str, employee_id, at):
 
 
 def scoped_department_ids(db: Session, user: User, scope: Scope, actor: ActionContext) -> set:
-    codes = (ECLAIR_POINT_DEPARTMENT_CODES if scope == Scope.ECLAIR_POINTS
-             else PRODUCTION_DEPARTMENT_CODES if scope == Scope.PRODUCTION else frozenset())
-    if not codes:
+    category = (DepartmentBusinessType.RETAIL_POINT if scope == Scope.ECLAIR_POINTS
+                else DepartmentBusinessType.PRODUCTION if scope == Scope.PRODUCTION else None)
+    if category is None:
         return set()
-    assigned = _active_departments(db, user.tenant_id, actor.employee_id, actor.determined_at)
-    return set(db.scalars(select(Department.id).where(
+    query = select(Department.id).where(
         Department.tenant_id == user.tenant_id,
-        Department.id.in_(assigned), Department.code.in_(codes), Department.is_active.is_(True),
-    )).all())
+        Department.business_type == category, Department.is_active.is_(True),
+    )
+    if scope == Scope.PRODUCTION:
+        query = query.where(Department.id.in_(_active_departments(
+            db, user.tenant_id, actor.employee_id, actor.determined_at,
+        )))
+    return set(db.scalars(query).all())
 
 
 def _in_scope(
     db: Session, user: User, actor: ActionContext, scope: Scope,
-    target: Employee | None, department_id=None,
+    target: Employee | None, department_id=None, assigned_role: EmployeeRole | None = None,
 ) -> bool:
     if scope == Scope.ALL_COMPANY:
         return True
     if scope in {Scope.ECLAIR_POINTS, Scope.PRODUCTION}:
         allowed = scoped_department_ids(db, user, scope, actor)
-        if not allowed:
+        if scope == Scope.ECLAIR_POINTS and target is not None:
+            staff_roles = set(db.scalars(select(EmployeeRoleAssignment.role).where(
+                EmployeeRoleAssignment.tenant_id == user.tenant_id,
+                EmployeeRoleAssignment.employee_id == target.id,
+                EmployeeRoleAssignment.role.in_((EmployeeRole.DRIVER, EmployeeRole.HANDYMAN)),
+                EmployeeRoleAssignment.valid_from <= actor.determined_at,
+                (EmployeeRoleAssignment.valid_to.is_(None)
+                 | (EmployeeRoleAssignment.valid_to > actor.determined_at)),
+            )).all())
+            assigned = _active_departments(db, user.tenant_id, target.id, actor.determined_at)
+            auto_assigned = db.scalar(select(Department.id).where(
+                Department.tenant_id == user.tenant_id,
+                Department.id.in_(assigned), Department.is_active.is_(True),
+                Department.business_type == DepartmentBusinessType.AUTO,
+            )) is not None
+            staff_role = EmployeeRole.HANDYMAN in staff_roles or (
+                EmployeeRole.DRIVER in staff_roles and auto_assigned
+            )
+            if staff_role and department_id is None:
+                return True
+            if assigned_role in {EmployeeRole.DRIVER, EmployeeRole.HANDYMAN} and department_id is None:
+                if auto_assigned:
+                    return True
+        if department_id is not None:
+            if department_id in allowed:
+                return target is None or bool(_active_departments(
+                    db, user.tenant_id, target.id, actor.determined_at,
+                ) & allowed)
+            if scope == Scope.ECLAIR_POINTS:
+                department = db.get(Department, department_id)
+                return bool(department and department.tenant_id == user.tenant_id
+                            and department.is_active
+                            and department.business_type == DepartmentBusinessType.AUTO
+                            and (target is None or staff_role))
             return False
-        if target is not None and not (_active_departments(
+        return bool(target is not None and _active_departments(
             db, user.tenant_id, target.id, actor.determined_at,
-        ) & allowed):
-            return False
-        return department_id in allowed if department_id is not None else target is not None
+        ) & allowed)
     if target is None:
         return False
     if scope == Scope.DRIVER_HANDYMAN:
@@ -168,7 +198,7 @@ def authorize(
 ) -> ActionContext:
     base = resolve_action_context(db, user, write=False)
     for role, scope in GRANTS[capability]:
-        if role not in base.roles or not _in_scope(db, user, base, scope, target, department_id):
+        if role not in base.roles or not _in_scope(db, user, base, scope, target, department_id, assigned_role):
             continue
         if assigned_role is not None and assigned_role not in ROLE_ASSIGNABLE.get(role, frozenset()):
             continue

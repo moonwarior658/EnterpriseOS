@@ -31,7 +31,7 @@ from tests.postgres_test_support import reset_disposable_postgres_schema
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
-CURRENT_HEAD = "20260929_0062"
+CURRENT_HEAD = "20261001_0063"
 
 
 @unittest.skipUnless(TEST_DATABASE_URL, "SUPPLY_TEST_DATABASE_URL is not configured")

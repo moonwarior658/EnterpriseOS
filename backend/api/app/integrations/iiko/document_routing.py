@@ -72,17 +72,17 @@ _OUTGOING_INVOICE_ROUTES = MappingProxyType({
         destination_store_id=UUID("d9144d36-f4cb-47d4-afff-f6b3ad8a4ca7"),
         counteragent_id=UUID("cbc5afd7-6e03-a56d-0197-0acc172e7647"),
     ),
-    ("М6А", SupplyProductSourceRole.MAIN): IikoOutgoingInvoiceRoute(
+    ("И25", SupplyProductSourceRole.MAIN): IikoOutgoingInvoiceRoute(
         source_store_id=_MAIN_SOURCE_STORE_ID,
         destination_store_id=UUID("10f8add8-163d-47a7-b4ce-7b766fe9d6f0"),
         counteragent_id=UUID("47c6accc-4bc7-6be1-0194-ccf9367e20cb"),
     ),
-    ("М6А", SupplyProductSourceRole.PACKAGING): IikoOutgoingInvoiceRoute(
+    ("И25", SupplyProductSourceRole.PACKAGING): IikoOutgoingInvoiceRoute(
         source_store_id=_PACKAGING_SOURCE_STORE_ID,
         destination_store_id=UUID("10f8add8-163d-47a7-b4ce-7b766fe9d6f0"),
         counteragent_id=UUID("47c6accc-4bc7-6be1-0194-ccf9367e20cb"),
     ),
-    ("М6А", SupplyProductSourceRole.HOUSEHOLD): IikoOutgoingInvoiceRoute(
+    ("И25", SupplyProductSourceRole.HOUSEHOLD): IikoOutgoingInvoiceRoute(
         source_store_id=_HOUSEHOLD_SOURCE_STORE_ID,
         destination_store_id=UUID("1d5e0f78-5c64-4458-99da-51c643f21208"),
         counteragent_id=UUID("cbc5afd7-6e03-a56d-0197-0acc172e765e"),

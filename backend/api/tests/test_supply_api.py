@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.supply import (
     Department,
+    DepartmentBusinessType,
     SupplyProduct,
     SupplyProductAlias,
     SupplyDepartmentProductCorrection,
@@ -57,7 +58,7 @@ from app.supply.service import create_supply_request
 DEPARTMENT_DATA = (
     ("М15", "Матросова 15", 10),
     ("М35", "Матросова 35", 20),
-    ("М6А", "Маяковского 6а", 30),
+    ("И25", "Игарская 25В", 30),
     ("ЦЕХ", "Цех производство", 40),
     ("ATO", "Авто", 50),
 )
@@ -153,6 +154,9 @@ class SupplyApiTests(unittest.TestCase):
                         tenant_id="eclair",
                         code=code,
                         name=name,
+                        business_type=(DepartmentBusinessType.RETAIL_POINT if code in {"М15", "М35", "И25"}
+                                       else DepartmentBusinessType.PRODUCTION if code == "ЦЕХ"
+                                       else DepartmentBusinessType.AUTO),
                         display_order=display_order,
                     )
                     for code, name, display_order in DEPARTMENT_DATA
@@ -320,10 +324,10 @@ class SupplyApiTests(unittest.TestCase):
             list(DEPARTMENT_DATA),
         )
         codes = {item["code"] for item in body}
-        self.assertTrue({"М15", "М35", "М6А", "ЦЕХ"} <= codes)
+        self.assertTrue({"М15", "М35", "И25", "ЦЕХ"} <= codes)
         self.assertIn("ATO", codes)
         self.assertTrue(all(char.isascii() for char in "ATO"))
-        self.assertTrue(any(not char.isascii() for char in "М15М35М6АЦЕХ"))
+        self.assertTrue(any(not char.isascii() for char in "М15М35И25ЦЕХ"))
         self.assertTrue(
             codes.isdisjoint({"KITCHEN", "WORKSHOP_GH", "BAR_GH", "СКЛ"})
         )

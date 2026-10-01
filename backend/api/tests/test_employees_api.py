@@ -22,7 +22,7 @@ from app.models.employee import (
     EmployeeLifecycleEvent, EmployeeRole, EmployeeRoleAssignment,
 )
 from app.models.audit import AuditEvent
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User, UserAccountType
 
 
@@ -50,8 +50,8 @@ class EmployeesApiTests(unittest.TestCase):
         self.other_department_id = uuid4()
         with self.sessions.begin() as session:
             session.add_all([
-                Department(id=self.department_id, tenant_id="eclair", code="M15", name="М15"),
-                Department(id=self.other_department_id, tenant_id="eclair", code="M35", name="М35"),
+                Department(id=self.department_id, tenant_id="eclair", code="M15", name="М15", business_type=DepartmentBusinessType.RETAIL_POINT),
+                Department(id=self.other_department_id, tenant_id="eclair", code="M35", name="М35", business_type=DepartmentBusinessType.RETAIL_POINT),
                 User(
                     id=1, username="admin", display_name="Администратор",
                     hashed_password="unused", is_active=True, is_admin=True, tenant_id="eclair",
@@ -282,6 +282,14 @@ class EmployeesApiTests(unittest.TestCase):
         employee = self.create_employee()
         employee_id = employee["id"]
         start = datetime.now(UTC)
+        primary = self.client.post(
+            f"/employees/{employee_id}/departments",
+            json={
+                "department_id": str(self.department_id), "is_primary": True,
+                "valid_from": start.isoformat(), "reason": "Основное место работы",
+            },
+        )
+        self.assertEqual(primary.status_code, 201, primary.text)
         role = self.client.post(
             f"/employees/{employee_id}/roles",
             json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Работа продавцом"},
@@ -293,14 +301,6 @@ class EmployeesApiTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409, duplicate.text)
 
-        primary = self.client.post(
-            f"/employees/{employee_id}/departments",
-            json={
-                "department_id": str(self.department_id), "is_primary": True,
-                "valid_from": start.isoformat(), "reason": "Основное место работы",
-            },
-        )
-        self.assertEqual(primary.status_code, 201, primary.text)
         second_primary = self.client.post(
             f"/employees/{employee_id}/departments",
             json={
@@ -336,9 +336,9 @@ class EmployeesApiTests(unittest.TestCase):
                 "reason": "Новое назначение",
             },
         )
-        self.assertEqual(reassigned.status_code, 201, reassigned.text)
+        self.assertEqual(reassigned.status_code, 409, reassigned.text)
         detail = self.client.get(f"/employees/{employee_id}").json()
-        self.assertEqual(len(detail["role_assignments"]), 2)
+        self.assertEqual(len(detail["role_assignments"]), 1)
         with self.sessions() as session:
             event_types = set(session.scalars(select(AuditEvent.event_type).where(
                 AuditEvent.entity_id == employee_id,
@@ -359,11 +359,6 @@ class EmployeesApiTests(unittest.TestCase):
             ).status_code,
             200,
         )
-        role = self.client.post(
-            f"/employees/{employee_id}/roles",
-            json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Назначение"},
-        )
-        self.assertEqual(role.status_code, 201, role.text)
         department = self.client.post(
             f"/employees/{employee_id}/departments",
             json={
@@ -372,6 +367,11 @@ class EmployeesApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(department.status_code, 201, department.text)
+        role = self.client.post(
+            f"/employees/{employee_id}/roles",
+            json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Назначение"},
+        )
+        self.assertEqual(role.status_code, 201, role.text)
 
         dismissed = self.client.post(
             f"/employees/{employee_id}/dismiss",

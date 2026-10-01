@@ -95,7 +95,7 @@ from tests.postgres_test_support import reset_disposable_postgres_schema
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
-CURRENT_HEAD = "20260929_0062"
+CURRENT_HEAD = "20261001_0063"
 
 
 @unittest.skipUnless(
@@ -1669,7 +1669,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                         code=code,
                         name=f"{primary_tenant} {code}",
                     )
-                    for code in ("М15", "М35", "М6А", "ATO")
+                    for code in ("М15", "М35", "И25", "ATO")
                 ]
                 session.add_all([unit, direction, *departments])
                 session.flush()
@@ -1861,7 +1861,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                     )
                     session.add_all([product, alternate])
                     session.flush()
-                    for code in ("М15", "М35", "М6А"):
+                    for code in ("М15", "М35", "И25"):
                         session.add(Department(
                             tenant_id=tenant_id,
                             code=code,

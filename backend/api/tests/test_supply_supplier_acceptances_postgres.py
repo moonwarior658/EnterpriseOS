@@ -113,7 +113,7 @@ class SupplySupplierAcceptancesPostgresTests(unittest.TestCase):
             c.execute(text("INSERT INTO supply_supplier_document_lines (id, tenant_id, supplier_document_id, supplier_order_id, supplier_order_line_id, product_name_snapshot, pricing_basis, package_quantity_snapshot, package_unit_id_snapshot, unit_name_snapshot, packages_count, quantity_base, price_per_package, line_amount, currency) VALUES (:id, 'accept-test', :document, :order, :order_line, 'Сахар acceptance', 'PACKAGE', 12, :unit, 'кг', 2, 24, 100, 200, 'RUB')"), {"id": document_line_id, "document": document_id, "order": order_id, "order_line": order_line_id, "unit": unit_id})
 
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20260929_0062")
+        self.assertEqual(self.revision(), "20261001_0063")
         with self.engine.begin() as c:
             c.execute(text("INSERT INTO supply_purchase_request_line_sources (id, tenant_id, purchase_request_line_id, source_type, quantity, unit_id) VALUES (:id, 'accept-test', :line, 'MANUAL_FUTURE', 24, :unit)"), {"id": request_line_source_id, "line": request_line_id, "unit": unit_id})
             c.execute(text("INSERT INTO supply_purchase_allocation_sources (id, tenant_id, allocation_id, purchase_request_line_source_id, allocated_quantity) VALUES (:id, 'accept-test', :allocation, :source, 24)"), {"id": allocation_source_id, "allocation": allocation_id, "source": request_line_source_id})

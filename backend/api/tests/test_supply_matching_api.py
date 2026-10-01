@@ -1370,7 +1370,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
         with self.session_factory.begin() as session:
             session.add_all([
                 Department(tenant_id="eclair", code="М35", name="М35"),
-                Department(tenant_id="eclair", code="М6А", name="М6А"),
+                Department(tenant_id="eclair", code="И25", name="И25"),
             ])
             other_unit = SupplyUnit(
                 tenant_id="other",
@@ -1395,7 +1395,7 @@ class SupplyMatchingApiTests(unittest.TestCase):
             )
             other_departments = [
                 Department(tenant_id="other", code=code, name=code)
-                for code in ("М15", "М35", "М6А")
+                for code in ("М15", "М35", "И25")
             ]
             session.add_all([other_coffee, other_product, *other_departments])
             session.flush()

@@ -12,7 +12,7 @@ import {
 } from '../services/employees'
 import { createUser, getUsers, type GeneratedCredentials, type UserRecord } from '../services/users'
 import {
-  ROLE_LABELS, activeAt, availableHumanUsers, departmentName, employeeErrorMessage,
+  ROLE_LABELS, activeAt, assignableDepartments, availableHumanUsers, departmentName, employeeErrorMessage,
   filterEmployees,
 } from './employeeAdminLogic'
 
@@ -116,6 +116,7 @@ function EmployeesPage() {
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
 
   function toggleRole(role: EmployeeRole) {
+    setDepartmentId('')
     setRoles((current) => current.includes(role)
       ? current.filter((item) => item !== role) : [...current, role])
   }
@@ -123,8 +124,16 @@ function EmployeesPage() {
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!reason.trim()) { setError('Укажите причину изменения'); return }
+    if (roles.includes('SELLER') && roles.includes('DRIVER')) {
+      setError('Продавцу и водителю нужны разные основные подразделения')
+      return
+    }
     if (!departmentId || (!bootstrapStatus?.available && roles.length === 0)) {
       setError('Выберите основное подразделение и хотя бы одну роль')
+      return
+    }
+    if (!assignableDepartments(departments, roles, accessRoles.includes('NETWORK_MANAGER') && !accessRoles.includes('ADMIN') && !accessRoles.includes('DEPUTY_DIRECTOR')).some((item) => item.id === departmentId)) {
+      setError('Выберите подразделение допустимой категории')
       return
     }
     setBusy(true)
@@ -206,7 +215,7 @@ function EmployeesPage() {
                 <label className="employee-wide-field"><span>Адрес проживания</span><input value={address} onChange={(e) => setAddress(e.target.value)} required /></label>
                 <label><span>Ссылка на фото</span><input type="url" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} placeholder="Необязательно" /></label>
                 <label><span>Основное подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required>
-                  <option value="">Выберите</option>{departments.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  <option value="">Выберите</option>{assignableDepartments(departments, roles, accessRoles.includes('NETWORK_MANAGER') && !accessRoles.includes('ADMIN') && !accessRoles.includes('DEPUTY_DIRECTOR')).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </EosSelect></label>
               </div>
               {bootstrapStatus?.available ? (

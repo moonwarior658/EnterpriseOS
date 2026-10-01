@@ -941,7 +941,7 @@ class IikoOutgoingInvoiceWriteTests(unittest.IsolatedAsyncioTestCase):
 
         combinations = [
             (department, flow)
-            for department in ("М15", "М35", "М6А")
+            for department in ("М15", "М35", "И25")
             for flow in (
                 SupplyProductSourceRole.MAIN,
                 SupplyProductSourceRole.PACKAGING,

@@ -24,7 +24,7 @@ from app.models.employee import (
     EmployeeStatus,
 )
 from app.models.user import User
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.schemas.supply import DepartmentRead
 from app.supply.service import list_departments
 from app.schemas.employee import (
@@ -134,7 +134,8 @@ def list_employee_departments(
         return departments
     if EmployeeRole.NETWORK_MANAGER in context.roles:
         allowed_ids = scoped_department_ids(db, current_user, Scope.ECLAIR_POINTS, context)
-        return [department for department in departments if department.id in allowed_ids]
+        return [department for department in departments if department.id in allowed_ids
+                or (department.is_active and department.business_type == DepartmentBusinessType.AUTO)]
     if EmployeeRole.HEAD_OF_PRODUCTION in context.roles:
         allowed_ids = scoped_department_ids(db, current_user, Scope.PRODUCTION, context)
         return [department for department in departments if department.id in allowed_ids]

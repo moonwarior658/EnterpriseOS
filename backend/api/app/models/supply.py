@@ -32,6 +32,12 @@ class LegalContour(StrEnum):
     OOO = "OOO"
 
 
+class DepartmentBusinessType(StrEnum):
+    RETAIL_POINT = "RETAIL_POINT"
+    PRODUCTION = "PRODUCTION"
+    AUTO = "AUTO"
+
+
 class SupplyProductSourceRole(StrEnum):
     MAIN = "MAIN"
     PACKAGING = "PACKAGING"
@@ -300,6 +306,10 @@ class Department(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    business_type: Mapped[DepartmentBusinessType | None] = mapped_column(
+        SqlEnum(DepartmentBusinessType, name="ck_departments_business_type", native_enum=False,
+                create_constraint=True, length=20), nullable=True,
+    )
     legal_contour: Mapped[LegalContour | None] = mapped_column(
         SqlEnum(
             LegalContour,

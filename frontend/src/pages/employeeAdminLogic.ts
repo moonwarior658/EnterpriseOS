@@ -45,12 +45,19 @@ const KNOWN_ERRORS: Record<string, string> = {
   'Employee is already dismissed': 'Сотрудник уже уволен',
   'Employee is already active': 'Сотрудник уже активен',
   'Assignments cannot be changed for a dismissed employee': 'Назначения уволенного сотрудника менять нельзя',
+  'Для роли требуется одно основное подразделение допустимой категории': 'Для этой роли требуется одно основное подразделение допустимой категории',
+  'Роль допускает только одно основное подразделение своей категории': 'Для этой роли доступно только одно основное подразделение своей категории',
+  'Сначала завершите прежнее назначение подразделения': 'Сначала завершите прежнее назначение подразделения',
+  'Недопустимая категория подразделения': 'Выберите подразделение допустимой категории',
+  'Авто можно назначить только водителю': 'Авто можно назначить только водителю',
+  'Подразделение неактивно': 'Это подразделение неактивно',
 }
 
 export function employeeErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof EmployeeApiError)) return fallback
   if (error.status === 403) return 'Недостаточно прав для этого действия'
-  if (error.status === 422) return 'Проверьте заполнение полей и укажите содержательную причину изменения'
+  if (error.status === 422) return error.message === 'Выберите торговую точку или Авто'
+    ? error.message : 'Проверьте заполнение полей и укажите содержательную причину изменения'
   if (error.status === 409 && error.message.startsWith('iiko employee is already linked to ')) {
     return `Этот сотрудник iiko уже связан: ${error.message.slice('iiko employee is already linked to '.length)}`
   }
@@ -62,4 +69,14 @@ export function employeeErrorMessage(error: unknown, fallback: string) {
 export function departmentName(departments: Department[], id: string) {
   const department = departments.find((item) => item.id === id)
   return department ? department.name : 'Подразделение недоступно'
+}
+
+export function assignableDepartments(
+  departments: Department[], roles: readonly EmployeeRole[], networkManager: boolean,
+) {
+  const active = departments.filter((item) => item.is_active)
+  if (!networkManager) return active
+  if (roles.includes('SELLER')) return active.filter((item) => item.business_type === 'RETAIL_POINT')
+  if (roles.includes('DRIVER')) return active.filter((item) => item.business_type === 'AUTO')
+  return active.filter((item) => item.business_type === 'RETAIL_POINT' || item.business_type === 'AUTO')
 }

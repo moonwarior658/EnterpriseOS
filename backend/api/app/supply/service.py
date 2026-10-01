@@ -3490,7 +3490,7 @@ def _populate_context_mapping_suggestions(
             line.context_mapping_suggestion = suggestion
 
 
-PERMANENT_MILK_DEPARTMENT_CODES = ("М15", "М35", "М6А")
+PERMANENT_MILK_DEPARTMENT_CODES = ("М15", "М35", "И25")
 PERMANENT_MILK_PHRASE = "молоко"
 PERMANENT_MILK_PRODUCT_NAME = "молоко для кофе"
 

@@ -14,7 +14,7 @@ from app.models.employee import (
     Employee, EmployeeDepartmentAssignment, EmployeeLifecycleEvent,
     EmployeeLifecycleEventType, EmployeeRole, EmployeeRoleAssignment, EmployeeStatus,
 )
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User, UserAccountType
 from app.schemas.employee import (
     AssignmentEnd, EmployeeBootstrapCreate, EmployeeBootstrapStatus, EmployeeCreate,
@@ -249,6 +249,12 @@ def bootstrap_first_admin(
 
 def create_employee(db: Session, payload: EmployeeCreate, actor: User) -> Employee:
     context = _admin_context(db, actor, department_id=payload.department_id)
+    if context.authorized_as == EmployeeRole.NETWORK_MANAGER:
+        department = db.get(Department, payload.department_id) if payload.department_id else None
+        if department is None or department.business_type not in {
+            DepartmentBusinessType.RETAIL_POINT, DepartmentBusinessType.AUTO,
+        }:
+            raise HTTPException(status_code=422, detail="Выберите торговую точку или Авто")
     employee = Employee(
         tenant_id=actor.tenant_id, full_name=payload.full_name, birth_date=payload.birth_date,
         photo_url=payload.photo_url, phone=payload.phone,
@@ -316,6 +322,23 @@ def update_employee(db: Session, employee: Employee, payload: EmployeeUpdate, ac
 def assign_role(db: Session, employee: Employee, payload: EmployeeRoleAssignmentCreate, actor: User):
     context = _admin_context(db, actor, Capability.ROLE_ASSIGN, employee, payload.role)
     _require_active(employee)
+    if payload.role in {EmployeeRole.SELLER, EmployeeRole.DRIVER}:
+        departments = list(db.execute(select(Department, EmployeeDepartmentAssignment.is_primary).join(
+            EmployeeDepartmentAssignment,
+            EmployeeDepartmentAssignment.department_id == Department.id,
+        ).where(
+            EmployeeDepartmentAssignment.tenant_id == actor.tenant_id,
+            EmployeeDepartmentAssignment.employee_id == employee.id,
+            EmployeeDepartmentAssignment.valid_from <= payload.valid_from,
+            (EmployeeDepartmentAssignment.valid_to.is_(None)
+             | (EmployeeDepartmentAssignment.valid_to > payload.valid_from)),
+        )).all())
+        expected = (DepartmentBusinessType.RETAIL_POINT if payload.role == EmployeeRole.SELLER
+                    else DepartmentBusinessType.AUTO)
+        if (len(departments) != 1 or not departments[0].is_primary
+                or departments[0].Department.business_type != expected
+                or not departments[0].Department.is_active):
+            raise _conflict("Для роли требуется одно основное подразделение допустимой категории")
     existing = db.scalar(select(EmployeeRoleAssignment.id).where(
         EmployeeRoleAssignment.tenant_id == actor.tenant_id,
         EmployeeRoleAssignment.employee_id == employee.id,
@@ -348,11 +371,40 @@ def assign_department(db: Session, employee: Employee, payload: EmployeeDepartme
     context = _admin_context(db, actor, Capability.DEPARTMENT_ASSIGN, employee,
                              department_id=payload.department_id)
     _require_active(employee)
-    department = db.scalar(select(Department.id).where(
+    department = db.scalar(select(Department).where(
         Department.id == payload.department_id, Department.tenant_id == actor.tenant_id,
     ))
     if department is None:
         raise HTTPException(status_code=404, detail="Department not found")
+    if not department.is_active:
+        raise _conflict("Подразделение неактивно")
+    roles = set(db.scalars(select(EmployeeRoleAssignment.role).where(
+        EmployeeRoleAssignment.tenant_id == actor.tenant_id,
+        EmployeeRoleAssignment.employee_id == employee.id,
+        EmployeeRoleAssignment.valid_from <= payload.valid_from,
+        (EmployeeRoleAssignment.valid_to.is_(None)
+         | (EmployeeRoleAssignment.valid_to > payload.valid_from)),
+    )).all())
+    required = ({EmployeeRole.SELLER: DepartmentBusinessType.RETAIL_POINT,
+                 EmployeeRole.DRIVER: DepartmentBusinessType.AUTO})
+    for role, category in required.items():
+        if role in roles:
+            if department.business_type != category or not payload.is_primary:
+                raise _conflict("Роль допускает только одно основное подразделение своей категории")
+            others = db.scalar(select(EmployeeDepartmentAssignment.id).where(
+                EmployeeDepartmentAssignment.tenant_id == actor.tenant_id,
+                EmployeeDepartmentAssignment.employee_id == employee.id,
+                (EmployeeDepartmentAssignment.valid_to.is_(None)
+                 | (EmployeeDepartmentAssignment.valid_to > payload.valid_from)),
+            ))
+            if others is not None:
+                raise _conflict("Сначала завершите прежнее назначение подразделения")
+    if context.authorized_as == EmployeeRole.NETWORK_MANAGER:
+        if department.business_type not in {DepartmentBusinessType.RETAIL_POINT,
+                                            DepartmentBusinessType.AUTO}:
+            raise _conflict("Недопустимая категория подразделения")
+        if department.business_type == DepartmentBusinessType.AUTO and EmployeeRole.DRIVER not in roles:
+            raise _conflict("Авто можно назначить только водителю")
     if payload.is_primary:
         primary = db.scalar(select(EmployeeDepartmentAssignment.id).where(
             EmployeeDepartmentAssignment.tenant_id == actor.tenant_id,

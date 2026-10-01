@@ -76,6 +76,7 @@ export type Department = {
   id: string
   code: string
   name: string
+  business_type: 'RETAIL_POINT' | 'PRODUCTION' | 'AUTO' | null
   is_active: boolean
 }
 

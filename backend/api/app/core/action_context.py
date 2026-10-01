@@ -17,7 +17,7 @@ from app.models.employee import (
     EmployeeStatus,
     ShiftDepartmentConfirmation,
 )
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User, UserAccountType
 
 
@@ -132,6 +132,30 @@ def resolve_action_context(
     primary = next((item for item in assignments if item.is_primary), None)
     primary_department_id = primary.department_id if primary else None
 
+    if authorized_as == EmployeeRole.SELLER:
+        primary_department = db.get(Department, primary_department_id) if primary_department_id else None
+        if (len(assignments) != 1 or primary_department is None
+                or not primary_department.is_active
+                or primary_department.business_type != DepartmentBusinessType.RETAIL_POINT):
+            raise ActionContextError("SELLER_DEPARTMENT_INVALID", "Рабочая точка продавца не определена")
+    if authorized_as == EmployeeRole.DRIVER:
+        primary_department = db.get(Department, primary_department_id) if primary_department_id else None
+        if (len(assignments) != 1 or primary_department is None
+                or not primary_department.is_active
+                or primary_department.business_type != DepartmentBusinessType.AUTO):
+            raise ActionContextError("DRIVER_DEPARTMENT_INVALID", "Подразделение водителя не определено")
+    if authorized_as in {EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.CHEF_CONFECTIONER}:
+        production_ids = {item.department_id for item in assignments if (
+            (department := db.get(Department, item.department_id)) is not None
+            and department.tenant_id == user.tenant_id and department.is_active
+            and department.business_type == DepartmentBusinessType.PRODUCTION
+        )}
+        if not production_ids or (requested_department_id is not None
+                                  and requested_department_id not in production_ids):
+            raise ActionContextError("PRODUCTION_DEPARTMENT_INVALID", "Производственное подразделение не назначено")
+        if primary_department_id not in production_ids and requested_department_id is None:
+            raise ActionContextError("PRODUCTION_DEPARTMENT_INVALID", "Производственное подразделение не назначено")
+
     shift = db.scalar(select(EmployeeIikoShift).where(
         EmployeeIikoShift.tenant_id == user.tenant_id,
         EmployeeIikoShift.employee_id == employee.id,
@@ -149,6 +173,14 @@ def resolve_action_context(
             "IIKO_SHIFT_DEPARTMENT_UNRESOLVED",
             "Подразделение активной смены iiko не сопоставлено с EOS",
         )
+    if seller_shift_required and shift is not None:
+        shift_department = db.get(Department, shift.department_id)
+        if (shift_department is None or shift_department.tenant_id != user.tenant_id
+                or not shift_department.is_active
+                or shift_department.business_type != DepartmentBusinessType.RETAIL_POINT):
+            raise ActionContextError(
+                "SELLER_SHIFT_DEPARTMENT_INVALID", "Смена открыта вне торговой точки",
+            )
 
     actual_department_id = (
         shift.department_id

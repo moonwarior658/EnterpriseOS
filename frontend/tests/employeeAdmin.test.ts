@@ -10,7 +10,7 @@ import {
   type Employee,
 } from '../src/services/employees.ts'
 import {
-  availableHumanUsers, employeeErrorMessage, filterEmployees,
+  assignableDepartments, availableHumanUsers, employeeErrorMessage, filterEmployees,
 } from '../src/pages/employeeAdminLogic.ts'
 import type { UserRecord } from '../src/services/users.ts'
 
@@ -47,6 +47,18 @@ test('реестр показывает Employee, фильтрует ФИО, с�
   assert.deepEqual(filterEmployees([EMPLOYEE], 'иванов', 'ACTIVE', 'dep-1', 'SELLER'), [EMPLOYEE])
   assert.deepEqual(filterEmployees([EMPLOYEE], 'петров', 'ALL', '', ''), [])
   assert.deepEqual(filterEmployees([EMPLOYEE], '', 'DISMISSED', '', ''), [])
+})
+
+test('NETWORK_MANAGER выбирает подразделение по business_type, а не по названию', () => {
+  const departments = [
+    { id: 'retail', code: 'renamed', name: 'Любое имя', business_type: 'RETAIL_POINT' as const, is_active: true },
+    { id: 'auto', code: 'driver', name: 'Другое имя', business_type: 'AUTO' as const, is_active: true },
+    { id: 'production', code: 'shop', name: 'Цех', business_type: 'PRODUCTION' as const, is_active: true },
+    { id: 'unknown', code: 'x', name: 'Неизвестно', business_type: null, is_active: true },
+  ]
+  assert.deepEqual(assignableDepartments(departments, ['SELLER'], true).map((item) => item.id), ['retail'])
+  assert.deepEqual(assignableDepartments(departments, ['DRIVER'], true).map((item) => item.id), ['auto'])
+  assert.deepEqual(assignableDepartments(departments, [], true).map((item) => item.id), ['retail', 'auto'])
 })
 
 test('Employee без User поддерживается, SERVICE и уже связанный User не предлагаются', () => {

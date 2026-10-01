@@ -454,7 +454,7 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 if flow not in source_mapping_ids:
                     route_department_code = (
                         department_code
-                        if department_code in {"М15", "М35", "М6А"}
+                        if department_code in {"М15", "М35", "И25"}
                         else "М15"
                     )
                     route = resolve_outgoing_invoice_route(
@@ -927,7 +927,7 @@ class SupplyIikoDocumentWorkflowTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_all_supported_departments_create_outgoing_invoice(self):
-        for department_code in ("М15", "М35", "М6А"):
+        for department_code in ("М15", "М35", "И25"):
             with self.subTest(department_code=department_code):
                 request_id = self._create_request(
                     (SupplyProductSourceRole.MAIN,),

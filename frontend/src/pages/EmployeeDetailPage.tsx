@@ -18,7 +18,7 @@ import {
   getUsers, resetEmployeePassword, type GeneratedCredentials, type UserRecord,
 } from '../services/users'
 import {
-  ROLE_LABELS, activeAt, availableHumanUsers, departmentName, employeeErrorMessage,
+  ROLE_LABELS, activeAt, assignableDepartments, availableHumanUsers, departmentName, employeeErrorMessage,
 } from './employeeAdminLogic'
 
 const localDateTime = () => {
@@ -161,6 +161,18 @@ function EmployeeDetailPage() {
   const linkedUser = employee?.linked_user_id ? usersById.get(employee.linked_user_id) : undefined
   const activeRoles = employee?.role_assignments.filter((item) => activeAt(item.valid_from, item.valid_to)) ?? []
   const activeDepartments = employee?.department_assignments.filter((item) => activeAt(item.valid_from, item.valid_to)) ?? []
+  const networkOnly = accessRoles.includes('NETWORK_MANAGER')
+    && !accessRoles.includes('ADMIN') && !accessRoles.includes('DEPUTY_DIRECTOR')
+  const primaryCategory = departments.find((item) => item.id === activeDepartments.find((assignment) => assignment.is_primary)?.department_id)?.business_type
+  const roleChoices = networkOnly ? allowedRoles.filter((item) => (
+    item === 'HANDYMAN' || (item === 'SELLER' && primaryCategory === 'RETAIL_POINT')
+    || (item === 'DRIVER' && primaryCategory === 'AUTO')
+  )) : allowedRoles
+  const selectedRole = roleChoices.includes(role) ? role : roleChoices[0]
+  const departmentChoices = assignableDepartments(
+    departments, activeRoles.map((item) => item.role),
+    networkOnly,
+  )
 
   async function mutation(action: () => Promise<unknown>, fallback: string) {
     setBusy(true); setError('')
@@ -182,13 +194,17 @@ function EmployeeDetailPage() {
   async function addRole(event: FormEvent) {
     event.preventDefault()
     if (!roleReason.trim()) { setError('Укажите причину изменения'); return }
-    await mutation(() => assignEmployeeRole(employeeId, role, iso(roleFrom), roleReason.trim()), 'Не удалось назначить роль')
+    await mutation(() => assignEmployeeRole(employeeId, selectedRole, iso(roleFrom), roleReason.trim()), 'Не удалось назначить роль')
     setRoleReason('')
   }
 
   async function addDepartment(event: FormEvent) {
     event.preventDefault()
     if (!departmentReason.trim()) { setError('Укажите причину изменения'); return }
+    if (!departmentChoices.some((item) => item.id === departmentId)) {
+      setError('Выберите подразделение допустимой категории')
+      return
+    }
     await mutation(() => assignEmployeeDepartment(employeeId, departmentId, isPrimary, iso(departmentFrom), departmentReason.trim()), 'Не удалось назначить подразделение')
     setDepartmentReason(''); setIsPrimary(false)
   }
@@ -280,12 +296,12 @@ function EmployeeDetailPage() {
     {employee.profile_level === 'BASIC' && <section className="employee-card"><h2>Рабочий профиль</h2><p>Роли: {employee.roles?.map((role) => ROLE_LABELS[role]).join(', ') || '—'}</p><p>Подразделения: {employee.department_ids?.map((id) => departmentName(departments, id)).join(', ') || '—'}</p></section>}
 
     {canViewFull && employee.profile_level === 'FULL' && <section className="employee-card"><h2>Роли</h2>
-      {allowedRoles.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{allowedRoles.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить роль</button></form>}
+      {roleChoices.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={selectedRole} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{roleChoices.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить роль</button></form>}
       <div className="employee-history">{[...employee.role_assignments].reverse().map((item) => <article key={item.id}><div><strong>{ROLE_LABELS[item.role]}</strong><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && allowedRoles.includes(item.role) && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endRole', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
     </section>}
 
     {employee.profile_level === 'FULL' && <section className="employee-card"><h2>Подразделения</h2>
-      {canWrite && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addDepartment}><label><span>Подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required><option value="">Выберите</option>{departments.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={departmentFrom} onChange={(e) => setDepartmentFrom(e.target.value)} required /></label><label className="employee-check"><input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} /> Основное</label><label><span>Причина изменения</span><input value={departmentReason} onChange={(e) => setDepartmentReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить подразделение</button></form>}
+      {canWrite && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addDepartment}><label><span>Подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required><option value="">Выберите</option>{departmentChoices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={departmentFrom} onChange={(e) => setDepartmentFrom(e.target.value)} required /></label><label className="employee-check"><input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} /> Основное</label><label><span>Причина изменения</span><input value={departmentReason} onChange={(e) => setDepartmentReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить подразделение</button></form>}
       <p className="employee-help">Чтобы сменить основное подразделение, завершите текущее назначение и создайте новое как основное. Backend не поддерживает отдельную атомарную операцию смены primary.</p>
       <div className="employee-history">{[...employee.department_assignments].reverse().map((item) => <article key={item.id}><div><strong>{departmentName(departments, item.department_id)} {item.is_primary && <b className="badge">Основное</b>}</strong><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endDepartment', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
     </section>}

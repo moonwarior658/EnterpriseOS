@@ -116,7 +116,7 @@ class SupplySupplierMinimumOrderPostgresTests(unittest.TestCase):
         )
 
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._revision(), "20260929_0062")
+        self.assertEqual(self._revision(), "20261001_0063")
         with self.sessions.begin() as session:
             session.add(User(
                 id=92001, username="minimum-admin", display_name="Admin",

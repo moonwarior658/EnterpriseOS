@@ -42,17 +42,17 @@ class IikoDocumentRoutingTests(unittest.TestCase):
                 "d9144d36-f4cb-47d4-afff-f6b3ad8a4ca7",
                 "cbc5afd7-6e03-a56d-0197-0acc172e7647",
             ),
-            ("М6А", SupplyProductSourceRole.MAIN): (
+            ("И25", SupplyProductSourceRole.MAIN): (
                 "24b90a5f-1a58-4f6b-9b55-368d7a92ec3e",
                 "10f8add8-163d-47a7-b4ce-7b766fe9d6f0",
                 "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
             ),
-            ("М6А", SupplyProductSourceRole.PACKAGING): (
+            ("И25", SupplyProductSourceRole.PACKAGING): (
                 "bf44ec50-91d2-48b3-a927-2e3e2490f1d6",
                 "10f8add8-163d-47a7-b4ce-7b766fe9d6f0",
                 "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
             ),
-            ("М6А", SupplyProductSourceRole.HOUSEHOLD): (
+            ("И25", SupplyProductSourceRole.HOUSEHOLD): (
                 "9ea20084-9182-4633-8c52-a968a15e0b3b",
                 "1d5e0f78-5c64-4458-99da-51c643f21208",
                 "cbc5afd7-6e03-a56d-0197-0acc172e765e",

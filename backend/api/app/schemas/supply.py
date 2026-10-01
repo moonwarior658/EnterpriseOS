@@ -12,6 +12,7 @@ from app.models.iiko import (
     IikoWarehouseRole,
 )
 from app.models.supply import (
+    DepartmentBusinessType,
     LegalContour,
     SupplyProductSupplierPriceSource,
     SupplyProductSupplierRole,
@@ -102,6 +103,7 @@ class DepartmentRead(BaseModel):
     id: UUID
     code: str
     name: str
+    business_type: DepartmentBusinessType | None
     legal_contour: LegalContour | None
     is_active: bool
     display_order: int

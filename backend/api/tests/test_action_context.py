@@ -32,7 +32,7 @@ from app.models.employee import (
     ShiftDepartmentConfirmation,
 )
 from app.models.audit import AuditEvent
-from app.models.supply import Department
+from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User
 
 
@@ -64,10 +64,10 @@ class ActionContextTests(unittest.TestCase):
         with self.sessions.begin() as db:
             db.add_all([
                 Department(
-                    id=self.primary_id, tenant_id="eclair", code="M15", name="М15"
+                    id=self.primary_id, tenant_id="eclair", code="M15", name="М15", business_type=DepartmentBusinessType.RETAIL_POINT
                 ),
                 Department(
-                    id=self.actual_id, tenant_id="eclair", code="M35", name="М35"
+                    id=self.actual_id, tenant_id="eclair", code="M35", name="М35", business_type=DepartmentBusinessType.RETAIL_POINT
                 ),
                 User(
                     id=1, username="seller", display_name="Seller",
@@ -106,12 +106,6 @@ class ActionContextTests(unittest.TestCase):
                     tenant_id="eclair", employee_id=self.employee_id,
                     department_id=self.primary_id, is_primary=True,
                     valid_from=self.now - timedelta(days=1), reason="Основное",
-                    assigned_by_user_id=3,
-                ),
-                EmployeeDepartmentAssignment(
-                    tenant_id="eclair", employee_id=self.employee_id,
-                    department_id=self.actual_id, is_primary=False,
-                    valid_from=self.now - timedelta(days=1), reason="Дополнительное",
                     assigned_by_user_id=3,
                 ),
             ])
@@ -245,6 +239,29 @@ class ActionContextTests(unittest.TestCase):
                     requested_department_id=self.actual_id,
                 ),
             )
+
+    def test_seller_shift_outside_retail_point_is_denied(self) -> None:
+        for category in (DepartmentBusinessType.PRODUCTION, DepartmentBusinessType.AUTO, None):
+            department_id = uuid4()
+            with self.sessions.begin() as db:
+                db.add(Department(
+                    id=department_id, tenant_id="eclair", code=str(department_id),
+                    name="Текст не определяет категорию", business_type=category,
+                ))
+                db.flush()
+                self.add_shift(db, department_id=department_id)
+            with self.sessions() as db:
+                self.assert_code(
+                    "SELLER_SHIFT_DEPARTMENT_INVALID",
+                    lambda: resolve_action_context(
+                        db, db.get(User, 1), write=True,
+                        required_roles=frozenset({EmployeeRole.SELLER}),
+                        requested_department_id=department_id,
+                        at=self.now,
+                    ),
+                )
+            with self.sessions.begin() as db:
+                db.execute(EmployeeIikoShift.__table__.delete())
 
     def test_unresolved_and_closed_shift_rejected(self) -> None:
         with self.sessions() as db:
