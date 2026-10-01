@@ -12,6 +12,7 @@ export type CreateUserInput = {
   is_admin: boolean
   can_view_requests: boolean
   account_type?: 'HUMAN' | 'SERVICE'
+  employee_id?: string
 }
 
 export type GeneratedCredentials = {
@@ -30,6 +31,7 @@ export type UpdateUserInput = {
   is_active?: boolean
   is_admin?: boolean
   can_view_requests?: boolean
+  reason?: string
 }
 
 async function authorizedRequest<T>(
@@ -54,13 +56,25 @@ async function authorizedRequest<T>(
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null)
-
-    throw new Error(
-      errorBody?.detail ?? 'Не удалось выполнить запрос',
-    )
+    const detail = typeof errorBody?.detail === 'string' ? errorBody.detail : ''
+    if (response.status === 403 && detail === 'Текущий пароль указан неверно') throw new Error(detail)
+    if (response.status === 403) throw new Error('Недостаточно прав для этого действия')
+    if (response.status === 422) throw new Error('Проверьте поля и укажите причину изменения, если она требуется')
+    if (response.status === 409 && detail === 'Login already exists') throw new Error('Этот логин уже занят')
+    if (response.status === 409) throw new Error('Изменение конфликтует с текущим состоянием учётной записи')
+    if (response.status === 404) throw new Error('Учётная запись не найдена')
+    throw new Error('Не удалось выполнить запрос')
   }
 
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+export function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  return authorizedRequest<void>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
 }
 
 export function getUsers(): Promise<UserRecord[]> {
@@ -78,7 +92,7 @@ export function createUser(
 
 export function resetEmployeePassword(
   employeeId: string,
-  reason: string,
+  reason?: string,
 ): Promise<GeneratedCredentials> {
   return authorizedRequest<GeneratedCredentials>(`/employees/${employeeId}/password-reset`, {
     method: 'POST',

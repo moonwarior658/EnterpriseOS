@@ -37,13 +37,16 @@ export type LifecycleEvent = {
 }
 
 export type Employee = {
+  profile_level: 'FULL' | 'BASIC'
+  roles?: EmployeeRole[]
+  department_ids?: string[]
   id: string
   full_name: string
   birth_date: string
   photo_url: string | null
   phone: string
   residence_address: string
-  status: EmployeeStatus
+  status: EmployeeStatus | null
   dismissal_date: string | null
   dismissal_reason: string | null
   linked_user_id: number | null
@@ -52,6 +55,21 @@ export type Employee = {
   role_assignments: RoleAssignment[]
   department_assignments: DepartmentAssignment[]
   lifecycle_events: LifecycleEvent[]
+}
+
+type BasicEmployee = Pick<Employee, 'id' | 'full_name' | 'birth_date' | 'photo_url' | 'phone'> & {
+  profile_level: 'BASIC'
+  roles: EmployeeRole[]
+  department_ids: string[]
+}
+
+function employeeView(item: Employee | BasicEmployee): Employee {
+  if (item.profile_level !== 'BASIC') return item as Employee
+  return {
+    ...item, status: null, residence_address: '', dismissal_date: null, dismissal_reason: null,
+    linked_user_id: null, created_at: '', updated_at: '',
+    role_assignments: [], department_assignments: [], lifecycle_events: [],
+  }
 }
 
 export type Department = {
@@ -147,7 +165,8 @@ async function employeeRequest<T>(path: string, options: RequestInit = {}): Prom
 }
 
 export const getEmployees = (status?: EmployeeStatus) =>
-  employeeRequest<Employee[]>(`/employees${status ? `?status=${status}` : ''}`)
+  employeeRequest<(Employee | BasicEmployee)[]>(`/employees${status ? `?status=${status}` : ''}`)
+    .then((items) => items.map(employeeView))
 export const getEmployeeBootstrapStatus = () =>
   employeeRequest<EmployeeBootstrapStatus>('/employees/bootstrap')
 export const bootstrapFirstAdmin = (input: {
@@ -156,11 +175,11 @@ export const bootstrapFirstAdmin = (input: {
 }) => employeeRequest<Employee>('/employees/bootstrap', {
   method: 'POST', body: JSON.stringify(input),
 })
-export const getEmployee = (id: string) => employeeRequest<Employee>(`/employees/${id}`)
-export const getEmployeeDepartments = () => employeeRequest<Department[]>('/supply/departments')
+export const getEmployee = (id: string) => employeeRequest<Employee | BasicEmployee>(`/employees/${id}`).then(employeeView)
+export const getEmployeeDepartments = () => employeeRequest<Department[]>('/employees/departments')
 export const createEmployee = (input: {
   full_name: string; birth_date: string; photo_url: string | null; phone: string;
-  residence_address: string; reason: string
+  residence_address: string; reason: string; department_id?: string
 }) => employeeRequest<Employee>('/employees', { method: 'POST', body: JSON.stringify(input) })
 export const updateEmployee = (id: string, input: Partial<{
   full_name: string; birth_date: string; photo_url: string | null; phone: string;

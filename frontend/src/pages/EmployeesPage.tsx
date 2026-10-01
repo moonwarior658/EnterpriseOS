@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EosSearchField, EosSelect } from '../components/EosFormControls'
 import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
+import { getActionContext, type EmployeeRole as AccessRole } from '../services/actionContext'
+import { assignableRoles, canCreateEmployee, canCreateHumanUser } from '../services/employeePermissions'
 import {
   EMPLOYEE_ROLES, assignEmployeeDepartment, assignEmployeeRole, bootstrapFirstAdmin,
   createEmployee, getEmployeeBootstrapStatus, getEmployeeDepartments, getEmployees,
-  linkEmployeeUser, type Department, type Employee, type EmployeeBootstrapStatus,
+  linkEmployeeUser, type Department, type Employee, type EmployeeStatus, type EmployeeBootstrapStatus,
   type EmployeeRole,
 } from '../services/employees'
 import { createUser, getUsers, type GeneratedCredentials, type UserRecord } from '../services/users'
@@ -20,6 +22,10 @@ const nowLocal = () => new Date().toISOString()
 function EmployeesPage() {
   const navigate = useNavigate()
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [accessRoles, setAccessRoles] = useState<AccessRole[]>([])
+  const canWrite = canCreateEmployee(accessRoles)
+  const canCreateUser = canCreateHumanUser(accessRoles)
+  const allowedRoles = assignableRoles(accessRoles)
   const [departments, setDepartments] = useState<Department[]>([])
   const [users, setUsers] = useState<UserRecord[]>([])
   const [bootstrapStatus, setBootstrapStatus] = useState<EmployeeBootstrapStatus | null>(null)
@@ -28,7 +34,7 @@ function EmployeesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<'ALL' | Employee['status']>('ACTIVE')
+  const [status, setStatus] = useState<'ALL' | EmployeeStatus>('ACTIVE')
   const [departmentFilter, setDepartmentFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState<'' | EmployeeRole>('')
   const [fullName, setFullName] = useState('')
@@ -58,9 +64,10 @@ function EmployeesPage() {
         setDepartments(await getEmployeeDepartments())
         return
       }
-      const [employeeItems, departmentItems, userItems] = await Promise.all([
-        getEmployees(), getEmployeeDepartments(), getUsers(),
+      const [employeeItems, departmentItems, userItems, context] = await Promise.all([
+        getEmployees(), getEmployeeDepartments(), getUsers().catch(() => []), getActionContext(),
       ])
+      setAccessRoles(context.roles)
       setEmployees(employeeItems)
       setDepartments(departmentItems)
       setUsers(userItems)
@@ -82,13 +89,14 @@ function EmployeesPage() {
           if (!cancelled) setDepartments(departmentItems)
           return
         }
-        const [employeeItems, departmentItems, userItems] = await Promise.all([
-          getEmployees(), getEmployeeDepartments(), getUsers(),
+        const [employeeItems, departmentItems, userItems, context] = await Promise.all([
+          getEmployees(), getEmployeeDepartments(), getUsers().catch(() => []), getActionContext(),
         ])
         if (!cancelled) {
           setEmployees(employeeItems)
           setDepartments(departmentItems)
           setUsers(userItems)
+          setAccessRoles(context.roles)
         }
       })
       .catch((requestError) => {
@@ -135,9 +143,12 @@ function EmployeesPage() {
       created = await createEmployee({
         full_name: fullName, birth_date: birthDate, phone,
         residence_address: address, photo_url: photoUrl.trim() || null, reason: reason.trim(),
+        department_id: departmentId,
       })
       const validFrom = nowLocal()
-      await assignEmployeeDepartment(created.id, departmentId, true, validFrom, reason.trim())
+      if (!created.department_assignments.some((item) => item.is_primary && activeAt(item.valid_from, item.valid_to))) {
+        await assignEmployeeDepartment(created.id, departmentId, true, validFrom, reason.trim())
+      }
       await Promise.all(roles.map((role) => assignEmployeeRole(created!.id, role, validFrom, reason.trim())))
       let selectedUserId: number | null = null
       if (userMode === 'EXISTING') selectedUserId = Number(userId)
@@ -145,6 +156,7 @@ function EmployeesPage() {
         const newUser = await createUser({
           username: login, display_name: fullName,
           is_admin: userIsAdmin, can_view_requests: userCanViewRequests, account_type: 'HUMAN',
+          employee_id: created.id,
         })
         selectedUserId = newUser.id
         if (newUser.temporary_password) {
@@ -154,7 +166,7 @@ function EmployeesPage() {
           })
         }
       }
-      if (selectedUserId) await linkEmployeeUser(created.id, selectedUserId, reason.trim())
+      if (selectedUserId && userMode === 'EXISTING') await linkEmployeeUser(created.id, selectedUserId, reason.trim())
       if (userMode === 'NEW') {
         setShowCreate(false)
         await load()
@@ -179,12 +191,12 @@ function EmployeesPage() {
           <div className="page-title-row">
             <div><p className="eyebrow">АДМИНИСТРИРОВАНИЕ</p><h1>Сотрудники</h1>
               <p className="subtitle">Сотрудники, назначения и доступ в EOS</p></div>
-            <button className="primary-action" type="button" onClick={() => setShowCreate((value) => !value)}>
+            {(canWrite || bootstrapStatus?.available) && <button className="primary-action" type="button" onClick={() => setShowCreate((value) => !value)}>
               {showCreate ? 'Отмена' : 'Добавить сотрудника'}
-            </button>
+            </button>}
           </div>
 
-          {showCreate && (
+          {(canWrite || bootstrapStatus?.available) && showCreate && (
             <form className="employee-form" onSubmit={handleCreate}>
               <h2>{bootstrapStatus?.available ? 'Первый администратор' : 'Новый сотрудник'}</h2>
               <div className="employee-form-grid">
@@ -203,7 +215,7 @@ function EmployeesPage() {
                 </fieldset>
               ) : (
                 <fieldset className="employee-role-picker"><legend>Роли</legend>
-                  {EMPLOYEE_ROLES.map((role) => <label key={role}><input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} /> {ROLE_LABELS[role]}</label>)}
+                  {allowedRoles.map((role) => <label key={role}><input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} /> {ROLE_LABELS[role]}</label>)}
                 </fieldset>
               )}
               <div className="employee-form-grid">
@@ -212,15 +224,15 @@ function EmployeesPage() {
                     <strong>Связать с текущей учётной записью @{bootstrapStatus.username}</strong>
                   </label>
                 ) : <>
-                  <label><span>Доступ в EOS</span><EosSelect value={userMode} onChange={(e) => setUserMode(e.target.value as typeof userMode)}>
-                    <option value="NONE">Нет доступа</option><option value="EXISTING">Связать существующего User</option><option value="NEW">Создать HUMAN User</option>
-                  </EosSelect></label>
+                  {canCreateUser && <label><span>Доступ в EOS</span><EosSelect value={userMode} onChange={(e) => setUserMode(e.target.value as typeof userMode)}>
+                    <option value="NONE">Нет доступа</option>{accessRoles.includes('ADMIN') && <option value="EXISTING">Связать существующего User</option>}<option value="NEW">Создать HUMAN User</option>
+                  </EosSelect></label>}
                   {userMode === 'EXISTING' && <label><span>Учётная запись</span><EosSelect value={userId} onChange={(e) => setUserId(e.target.value)} required>
                     <option value="">Выберите</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}
                   </EosSelect></label>}
                   {userMode === 'NEW' && <><label><span>Логин</span><input value={login} onChange={(e) => setLogin(e.target.value)} minLength={3} required /></label>
-                    <label className="employee-check"><input type="checkbox" checked={userIsAdmin} onChange={(e) => setUserIsAdmin(e.target.checked)} /> Администратор EOS</label>
-                    <label className="employee-check"><input type="checkbox" checked={userCanViewRequests} onChange={(e) => setUserCanViewRequests(e.target.checked)} /> Просмотр заявок</label></>}
+                    {accessRoles.includes('ADMIN') && <><label className="employee-check"><input type="checkbox" checked={userIsAdmin} onChange={(e) => setUserIsAdmin(e.target.checked)} /> Администратор EOS</label>
+                    <label className="employee-check"><input type="checkbox" checked={userCanViewRequests} onChange={(e) => setUserCanViewRequests(e.target.checked)} /> Просмотр заявок</label></>}</>}
                 </>}
                 <label className="employee-wide-field"><span>Причина изменения</span><input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
               </div>
@@ -249,10 +261,10 @@ function EmployeesPage() {
                 const activeRoles = employee.role_assignments.filter((item) => activeAt(item.valid_from, item.valid_to))
                 const primary = employee.department_assignments.find((item) => item.is_primary && activeAt(item.valid_from, item.valid_to))
                 return <button className="employee-list-row" role="row" type="button" key={employee.id} onClick={() => navigate(`/employees/${employee.id}`)}>
-                  <strong>{employee.full_name}</strong><span><b className={`badge ${employee.status === 'ACTIVE' ? 'badge-active' : 'badge-blocked'}`}>{employee.status === 'ACTIVE' ? 'Активен' : `Уволен${employee.dismissal_date ? ` ${employee.dismissal_date}` : ''}`}</b></span>
-                  <span>{linkedUser ? <><b>@{linkedUser.username}</b><small>{linkedUser.is_active ? 'Доступ есть' : 'Заблокирован'}</small></> : <small>Нет доступа</small>}</span>
-                  <span>{activeRoles.map((item) => ROLE_LABELS[item.role]).join(', ') || '—'}</span>
-                  <span>{primary ? departmentName(departments, primary.department_id) : '—'}</span><span>{employee.phone}</span>
+                  <strong>{employee.full_name}</strong><span>{employee.profile_level === 'BASIC' ? '—' : <b className={`badge ${employee.status === 'ACTIVE' ? 'badge-active' : 'badge-blocked'}`}>{employee.status === 'ACTIVE' ? 'Активен' : `Уволен${employee.dismissal_date ? ` ${employee.dismissal_date}` : ''}`}</b>}</span>
+                  <span>{employee.profile_level === 'BASIC' ? '—' : linkedUser ? <><b>@{linkedUser.username}</b><small>{linkedUser.is_active ? 'Доступ есть' : 'Заблокирован'}</small></> : <small>Нет доступа</small>}</span>
+                  <span>{employee.profile_level === 'BASIC' ? employee.roles?.map((role) => ROLE_LABELS[role]).join(', ') || '—' : activeRoles.map((item) => ROLE_LABELS[item.role]).join(', ') || '—'}</span>
+                  <span>{employee.profile_level === 'BASIC' ? employee.department_ids?.map((id) => departmentName(departments, id)).join(', ') || '—' : primary ? departmentName(departments, primary.department_id) : '—'}</span><span>{employee.phone}</span>
                 </button>
               })}
             </div>

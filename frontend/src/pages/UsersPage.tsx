@@ -1,6 +1,10 @@
 ﻿import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getActionContext, type EmployeeRole } from '../services/actionContext'
+import { getEmployees, type Employee } from '../services/employees'
+import { EosSelect } from '../components/EosFormControls'
+import { canBlockHumanUser, canCreateHumanUser } from '../services/employeePermissions'
 import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
 import {
   createUser,
@@ -16,6 +20,12 @@ function UsersPage() {
   const { user } = useAuth()
 
   const [users, setUsers] = useState<UserRecord[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [roles, setRoles] = useState<EmployeeRole[]>([])
+  const canCreate = canCreateHumanUser(roles)
+  const isNetworkManager = roles.includes('NETWORK_MANAGER') && !roles.includes('ADMIN')
+  const canEdit = roles.includes('ADMIN')
+  const canBlock = canBlockHumanUser(roles)
   const [isLoading, setIsLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -25,6 +35,7 @@ function UsersPage() {
   const [error, setError] = useState('')
 
   const [username, setUsername] = useState('')
+  const [employeeId, setEmployeeId] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [generatedCredentials, setGeneratedCredentials] = useState<GeneratedCredentials | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -37,8 +48,8 @@ function UsersPage() {
   const [editCanViewRequests, setEditCanViewRequests] = useState(false)
 
   useEffect(() => {
-    getUsers()
-      .then(setUsers)
+    Promise.all([getUsers(), getActionContext(), getEmployees().catch(() => [])])
+      .then(([items, context, employeeItems]) => { setUsers(items); setRoles(context.roles); setEmployees(employeeItems) })
       .catch((requestError) => {
         setError(
           requestError instanceof Error
@@ -82,13 +93,12 @@ function UsersPage() {
         is_admin: isAdmin,
         can_view_requests: canViewRequests,
         account_type: 'HUMAN',
+        ...(isNetworkManager ? { employee_id: employeeId } : {}),
       })
 
-      setUsers((currentUsers) => [
-        ...currentUsers,
-        createdUser,
-      ])
+      setUsers(await getUsers())
       setUsername('')
+      setEmployeeId('')
       setDisplayName('')
       setIsAdmin(false)
       setCanViewRequests(false)
@@ -139,13 +149,7 @@ function UsersPage() {
         updates,
       )
 
-      setUsers((currentUsers) =>
-        currentUsers.map((currentUser) =>
-          currentUser.id === updatedUser.id
-            ? updatedUser
-            : currentUser,
-        ),
-      )
+      setUsers(await getUsers())
 
       setEditingUser(null)
 
@@ -171,21 +175,18 @@ function UsersPage() {
     if (!window.confirm(`${action} пользователя ${target.display_name}?`)) {
       return
     }
+    const reason = window.prompt('Причина изменения доступа')?.trim()
+    if (!reason) return
 
     setError('')
 
     try {
       const updatedUser = await updateUser(target.id, {
         is_active: !target.is_active,
+        reason,
       })
-
-      setUsers((currentUsers) =>
-        currentUsers.map((currentUser) =>
-          currentUser.id === updatedUser.id
-            ? updatedUser
-            : currentUser,
-        ),
-      )
+      void updatedUser
+      setUsers(await getUsers())
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -228,21 +229,22 @@ function UsersPage() {
               </p>
             </div>
 
-            <button
+            {canCreate && <button
               className="primary-action"
               type="button"
               onClick={openCreateForm}
             >
               {showCreateForm ? 'Отмена' : 'Добавить'}
-            </button>
+            </button>}
           </div>
 
-          {showCreateForm && (
+          {canCreate && showCreateForm && (
             <form
               className="user-create-form"
               onSubmit={handleCreate}
             >
               <div className="form-grid">
+                {isNetworkManager && <label><span>Сотрудник</span><EosSelect value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} required><option value="">Выберите сотрудника</option>{employees.filter((item) => item.profile_level === 'FULL' && !item.linked_user_id).map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</EosSelect></label>}
                 <label>
                   <span>Имя сотрудника</span>
                   <input
@@ -268,7 +270,7 @@ function UsersPage() {
                   />
                 </label>
 
-                <label className="checkbox-field">
+                {!isNetworkManager && <label className="checkbox-field">
                   <input
                     type="checkbox"
                     checked={isAdmin}
@@ -277,9 +279,9 @@ function UsersPage() {
                     }
                   />
                   <span>Администратор</span>
-                </label>
+                </label>}
 
-                <label className="checkbox-field">
+                {!isNetworkManager && <label className="checkbox-field">
                   <input
                     type="checkbox"
                     checked={canViewRequests}
@@ -288,13 +290,13 @@ function UsersPage() {
                     }
                   />
                   <span>Только просмотр заявок</span>
-                </label>
+                </label>}
               </div>
 
               <button
                 className="primary-action"
                 type="submit"
-                disabled={isCreating}
+                disabled={isCreating || (isNetworkManager && !employeeId)}
               >
                 {isCreating
                   ? 'Создаём…'
@@ -309,7 +311,7 @@ function UsersPage() {
             onClose={() => setGeneratedCredentials(null)}
           />}
 
-          {editingUser && (
+          {canEdit && editingUser && (
             <form
               className="user-create-form"
               onSubmit={handleEdit}
@@ -451,15 +453,15 @@ function UsersPage() {
                   </div>
 
                   <div className="user-actions">
-                    <button
+                    {canEdit && <button
                       className="secondary-action"
                       type="button"
                       onClick={() => openEditForm(listedUser)}
                     >
                       Изменить
-                    </button>
+                    </button>}
 
-                    <button
+                    {canBlock && <button
                       className="secondary-action"
                       type="button"
                       disabled={listedUser.id === user?.id}
@@ -470,7 +472,7 @@ function UsersPage() {
                       {listedUser.is_active
                         ? 'Заблокировать'
                         : 'Разблокировать'}
-                    </button>
+                    </button>}
                   </div>
                 </article>
               ))}

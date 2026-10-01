@@ -1,5 +1,6 @@
 ﻿import re
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,6 +44,7 @@ class UserCreate(BaseModel):
     is_admin: bool = False
     can_view_requests: bool = False
     account_type: UserAccountType = UserAccountType.HUMAN
+    employee_id: UUID | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -75,16 +77,24 @@ class GeneratedCredentials(BaseModel):
 
 
 class PasswordReset(BaseModel):
-    reason: str = Field(min_length=1, max_length=1000)
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("reason")
     @classmethod
-    def normalize_reason(cls, value: str) -> str:
+    def normalize_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = value.strip()
         if not value:
             raise ValueError("Reason must not be blank")
         return value
+
+
+class OwnPasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=256)
+    model_config = ConfigDict(extra="forbid")
 
 
 class UserUpdate(BaseModel):
@@ -107,8 +117,19 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     is_admin: bool | None = None
     can_view_requests: bool | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Reason must not be blank")
+        return value
 
     @field_validator("username")
     @classmethod

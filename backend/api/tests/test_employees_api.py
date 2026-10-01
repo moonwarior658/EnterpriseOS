@@ -393,7 +393,7 @@ class EmployeesApiTests(unittest.TestCase):
             user = session.get(User, 2)
             self.assertFalse(user.is_active)
             self.assertTrue(user.blocked_by_employee_dismissal)
-        blocked_activation = self.client.patch("/users/2", json={"is_active": True})
+        blocked_activation = self.client.patch("/users/2", json={"is_active": True, "reason": "Повторная активация"})
         self.assertEqual(blocked_activation.status_code, 409, blocked_activation.text)
 
         reactivated = self.client.post(

@@ -7,7 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.audit.service import record_audit_event
-from app.core.action_context import ActionContext, resolve_action_context
+from app.core.action_context import ActionContext, ActionContextError, resolve_action_context
+from app.core.authorization import Capability, authorize
 from app.core.security import generate_password, hash_password
 from app.models.employee import (
     Employee, EmployeeDepartmentAssignment, EmployeeLifecycleEvent,
@@ -43,14 +44,16 @@ def _require_active(employee: Employee) -> None:
         raise _conflict("Assignments cannot be changed for a dismissed employee")
 
 
-def _admin_context(db: Session, actor: User) -> ActionContext:
-    return resolve_action_context(
-        db,
-        actor,
-        required_roles=frozenset({EmployeeRole.ADMIN}),
-        role_precedence=(EmployeeRole.ADMIN,),
-        write=True,
-    )
+def _admin_context(
+    db: Session, actor: User, capability: Capability = Capability.EMPLOYEE_WRITE,
+    employee: Employee | None = None, assigned_role: EmployeeRole | None = None,
+    department_id: UUID | None = None,
+) -> ActionContext:
+    try:
+        return authorize(db, actor, capability, target=employee, write=True,
+                         assigned_role=assigned_role, department_id=department_id)
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail={"code": error.code, "message": error.message}) from error
 
 
 def _employee_query(tenant_id: str):
@@ -245,7 +248,7 @@ def bootstrap_first_admin(
 
 
 def create_employee(db: Session, payload: EmployeeCreate, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, department_id=payload.department_id)
     employee = Employee(
         tenant_id=actor.tenant_id, full_name=payload.full_name, birth_date=payload.birth_date,
         photo_url=payload.photo_url, phone=payload.phone,
@@ -253,6 +256,22 @@ def create_employee(db: Session, payload: EmployeeCreate, actor: User) -> Employ
     )
     db.add(employee)
     db.flush()
+    if context.authorized_as == EmployeeRole.NETWORK_MANAGER:
+        if payload.department_id is None:
+            raise HTTPException(status_code=422, detail="Выберите рабочую точку сотрудника")
+        db.add(EmployeeDepartmentAssignment(
+            tenant_id=actor.tenant_id, employee_id=employee.id,
+            department_id=payload.department_id, is_primary=True,
+            valid_from=datetime.now(UTC), reason=payload.reason,
+            assigned_by_user_id=actor.id,
+        ))
+        record_audit_event(
+            db, tenant_id=actor.tenant_id, event_type="EMPLOYEE_DEPARTMENT_ASSIGNED",
+            entity_type="Employee", entity_id=employee.id, operation="ASSIGN_DEPARTMENT",
+            context=context, actor_user=actor, before={},
+            after={"department_id": payload.department_id, "is_primary": True},
+            reason=payload.reason,
+        )
     db.add(EmployeeLifecycleEvent(
         tenant_id=actor.tenant_id, employee_id=employee.id,
         event_type=EmployeeLifecycleEventType.CREATED, effective_date=date.today(),
@@ -270,7 +289,7 @@ def create_employee(db: Session, payload: EmployeeCreate, actor: User) -> Employ
 
 
 def update_employee(db: Session, employee: Employee, payload: EmployeeUpdate, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, employee=employee)
     updates = payload.model_dump(exclude_unset=True, exclude={"reason"})
     before = {"changed_fields": sorted(updates)}
     after = {"changed_fields": sorted(updates)}
@@ -295,7 +314,7 @@ def update_employee(db: Session, employee: Employee, payload: EmployeeUpdate, ac
 
 
 def assign_role(db: Session, employee: Employee, payload: EmployeeRoleAssignmentCreate, actor: User):
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.ROLE_ASSIGN, employee, payload.role)
     _require_active(employee)
     existing = db.scalar(select(EmployeeRoleAssignment.id).where(
         EmployeeRoleAssignment.tenant_id == actor.tenant_id,
@@ -326,7 +345,8 @@ def assign_role(db: Session, employee: Employee, payload: EmployeeRoleAssignment
 
 
 def assign_department(db: Session, employee: Employee, payload: EmployeeDepartmentAssignmentCreate, actor: User):
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.DEPARTMENT_ASSIGN, employee,
+                             department_id=payload.department_id)
     _require_active(employee)
     department = db.scalar(select(Department.id).where(
         Department.id == payload.department_id, Department.tenant_id == actor.tenant_id,
@@ -379,9 +399,16 @@ def assign_department(db: Session, employee: Employee, payload: EmployeeDepartme
 
 
 def end_assignment(db: Session, assignment, payload: AssignmentEnd, actor: User):
-    context = _admin_context(db, actor)
     if assignment is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    employee = get_employee(db, assignment.employee_id, actor.tenant_id)
+    context = _admin_context(
+        db, actor,
+        Capability.ROLE_ASSIGN if isinstance(assignment, EmployeeRoleAssignment) else Capability.DEPARTMENT_ASSIGN,
+        employee,
+        assignment.role if isinstance(assignment, EmployeeRoleAssignment) else None,
+        assignment.department_id if isinstance(assignment, EmployeeDepartmentAssignment) else None,
+    )
     if assignment.valid_to is not None:
         raise _conflict("Assignment is already ended")
     if _utc(payload.valid_to) <= _utc(assignment.valid_from):
@@ -415,7 +442,7 @@ def end_assignment(db: Session, assignment, payload: AssignmentEnd, actor: User)
 
 
 def dismiss_employee(db: Session, employee: Employee, payload: EmployeeDismiss, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.EMPLOYEE_LIFECYCLE, employee)
     if employee.status == EmployeeStatus.DISMISSED:
         raise _conflict("Employee is already dismissed")
     now = datetime.now(UTC)
@@ -451,7 +478,7 @@ def dismiss_employee(db: Session, employee: Employee, payload: EmployeeDismiss, 
 
 
 def reactivate_employee(db: Session, employee: Employee, payload: EmployeeReactivate, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.EMPLOYEE_LIFECYCLE, employee)
     if employee.status == EmployeeStatus.ACTIVE:
         raise _conflict("Employee is already active")
     employee.status = EmployeeStatus.ACTIVE
@@ -483,7 +510,7 @@ def reactivate_employee(db: Session, employee: Employee, payload: EmployeeReacti
 
 
 def link_user(db: Session, employee: Employee, user_id: int, reason: str, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.USER_CREATE, employee)
     user = db.scalar(select(User).where(User.id == user_id, User.tenant_id == actor.tenant_id).with_for_update())
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -520,7 +547,7 @@ def link_user(db: Session, employee: Employee, user_id: int, reason: str, actor:
 
 
 def unlink_user(db: Session, employee: Employee, reason: str, actor: User) -> Employee:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.USER_CREATE, employee)
     if employee.linked_user_id is None:
         raise _conflict("Employee has no linked user")
     user = db.scalar(select(User).where(
@@ -549,9 +576,9 @@ def unlink_user(db: Session, employee: Employee, reason: str, actor: User) -> Em
 
 
 def reset_linked_user_password(
-    db: Session, employee: Employee, reason: str, actor: User,
+    db: Session, employee: Employee, reason: str | None, actor: User,
 ) -> tuple[User, str]:
-    context = _admin_context(db, actor)
+    context = _admin_context(db, actor, Capability.USER_RESET_PASSWORD, employee)
     if employee.linked_user_id is None:
         raise _conflict("Employee has no linked user")
     user = db.scalar(select(User).where(

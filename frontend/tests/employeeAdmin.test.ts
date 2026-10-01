@@ -15,6 +15,7 @@ import {
 import type { UserRecord } from '../src/services/users.ts'
 
 const EMPLOYEE: Employee = {
+  profile_level: 'FULL',
   id: 'employee-1', full_name: 'Иванов Иван Иванович', birth_date: '1990-01-01',
   photo_url: null, phone: '+7 900 000-00-00', residence_address: 'Екатеринбург',
   status: 'ACTIVE', dismissal_date: null, dismissal_reason: null, linked_user_id: null,
@@ -30,14 +31,14 @@ const USER = (changes: Partial<UserRecord> = {}): UserRecord => ({
   blocked_by_employee_dismissal: false, created_at: '2026-09-28T10:00:00Z', ...changes,
 })
 
-test('ADMIN route и navigation entry защищены, delete Employee отсутствует', () => {
+test('Employee routes use role access and delete Employee is absent', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const layout = readFileSync(new URL('../src/layouts/AppLayout.tsx', import.meta.url), 'utf8')
   const list = readFileSync(new URL('../src/pages/EmployeesPage.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/EmployeeDetailPage.tsx', import.meta.url), 'utf8')
-  assert.match(app, /path="\/employees" element={<ProtectedRoute adminOnly>/)
-  assert.match(app, /path="\/employees\/:employeeId" element={<ProtectedRoute adminOnly>/)
-  assert.match(layout, /\{user\?\.is_admin && \([\s\S]*?to="\/employees"/)
+  assert.match(app, /path="\/employees" element={<ProtectedRoute allowBootstrap allowedRoles=/)
+  assert.match(app, /path="\/employees\/:employeeId" element={<ProtectedRoute allowedRoles=/)
+  assert.match(layout, /\{showEmployees && <NavLink to="\/employees"/)
   assert.match(layout, /Сотрудники/)
   assert.doesNotMatch(`${list}\n${detail}`, /Удалить сотрудника|deleteEmployee/)
 })
@@ -63,7 +64,7 @@ test('API client покрывает создание, несколько рол�
   Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: () => 'token' } })
   globalThis.fetch = async (input, options = {}) => {
     calls.push({ url: String(input), options })
-    return new Response(JSON.stringify(EMPLOYEE), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify(String(input) === '/api/employees' ? [EMPLOYEE] : EMPLOYEE), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   try {
     await getEmployees()
@@ -125,7 +126,7 @@ test('reason обязателен в формах, User conflict перевод�
   const list = readFileSync(new URL('../src/pages/EmployeesPage.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/EmployeeDetailPage.tsx', import.meta.url), 'utf8')
   assert.match(list, /Причина изменения/)
-  assert.match(detail, /if \(!reason\.trim\(\)\)/)
+  assert.match(detail, /if \(reasonRequired && !reason\.trim\(\)\)/)
   assert.equal(employeeErrorMessage(
     new EmployeeApiError('User is already linked to another employee', 409), 'fallback',
   ), 'Эта учётная запись уже связана с другим сотрудником')

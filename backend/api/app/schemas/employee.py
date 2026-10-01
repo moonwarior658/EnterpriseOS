@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -23,6 +24,7 @@ class EmployeeCreate(BaseModel):
     phone: str = Field(min_length=1, max_length=64)
     residence_address: str = Field(min_length=1, max_length=500)
     reason: str = Field(min_length=1, max_length=1000)
+    department_id: UUID | None = None
 
     model_config = ConfigDict(extra="forbid")
     _strip_required = field_validator("full_name", "phone", "residence_address", "reason")(strip_required)
@@ -213,6 +215,7 @@ class LifecycleEventRead(BaseModel):
 
 
 class EmployeeRead(BaseModel):
+    profile_level: Literal["FULL"] = "FULL"
     id: UUID
     full_name: str
     birth_date: date
@@ -228,5 +231,18 @@ class EmployeeRead(BaseModel):
     role_assignments: list[RoleAssignmentRead] = Field(default_factory=list)
     department_assignments: list[DepartmentAssignmentRead] = Field(default_factory=list)
     lifecycle_events: list[LifecycleEventRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeBasicRead(BaseModel):
+    profile_level: Literal["BASIC"] = "BASIC"
+    id: UUID
+    full_name: str
+    birth_date: date
+    photo_url: str | None
+    phone: str
+    roles: list[EmployeeRole]
+    department_ids: list[UUID]
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,5 +1,7 @@
 import os
 import unittest
+from datetime import UTC, date, datetime, timedelta
+from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -16,6 +18,9 @@ from app.db.session import get_db
 from app.main import app
 from app.core.security import verify_password
 from app.models.user import User
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment, EmployeeIikoShift
+from app.models.supply import Department
+from app.models.audit import AuditEvent
 
 
 class UserRequestViewAccessTests(unittest.TestCase):
@@ -26,7 +31,13 @@ class UserRequestViewAccessTests(unittest.TestCase):
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        Department.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
         User.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.sessions.begin() as session:
             session.add_all([
@@ -59,6 +70,22 @@ class UserRequestViewAccessTests(unittest.TestCase):
                     can_view_requests=True,
                     tenant_id="other",
                 ),
+            ])
+        with self.sessions.begin() as session:
+            department = Department(id=uuid4(), tenant_id="eclair", code="ADMIN", name="Администрация")
+            employee = Employee(tenant_id="eclair", linked_user_id=1,
+                                full_name="Администратор", birth_date=date(1990, 1, 1),
+                                phone="internal", residence_address="internal")
+            session.add_all([department, employee])
+            session.flush()
+            session.add_all([
+                EmployeeRoleAssignment(tenant_id="eclair", employee_id=employee.id,
+                                       role=EmployeeRole.ADMIN, valid_from=datetime.now(UTC) - timedelta(days=1),
+                                       reason="Администрирование", assigned_by_user_id=1),
+                EmployeeDepartmentAssignment(tenant_id="eclair", employee_id=employee.id,
+                                             department_id=department.id, is_primary=True,
+                                             valid_from=datetime.now(UTC) - timedelta(days=1),
+                                             reason="Администрирование", assigned_by_user_id=1),
             ])
         self.current_user_id = 1
 

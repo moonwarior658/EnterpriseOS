@@ -7,22 +7,39 @@ import {
 import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getActionContext, type ActionContext } from '../services/actionContext'
+import { canReadAudit, canReadEmployees, canReadUsers } from '../services/employeePermissions'
+import { getEmployeeBootstrapStatus } from '../services/employees'
+import { changeOwnPassword } from '../services/users'
+import type { FormEvent } from 'react'
 
 function AppLayout() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [actionContext, setActionContext] = useState<ActionContext | null>(null)
-  const canReadAudit = actionContext?.roles.some((role) => (
-    role === 'ADMIN' || role === 'DIRECTOR' || role === 'DEPUTY_DIRECTOR'
-  )) === true
+  const [bootstrapAvailable, setBootstrapAvailable] = useState<{ userId: number; available: boolean } | null>(null)
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordBusy, setPasswordBusy] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordChanged, setPasswordChanged] = useState(false)
+  const roles = actionContext && user && actionContext.user_id === user.id ? actionContext.roles : []
+  const showAudit = canReadAudit(roles)
+  const showEmployees = canReadEmployees(roles) || Boolean(bootstrapAvailable && user && bootstrapAvailable.userId === user.id && bootstrapAvailable.available)
+  const showUsers = canReadUsers(roles)
 
   useEffect(() => {
     let active = true
     if (user) getActionContext().then((context) => {
       if (active) setActionContext(context)
-    }).catch(() => {
-      if (active) setActionContext(null)
+    }).catch(async () => {
+      if (!active) return
+      setActionContext(null)
+      if (user.is_admin) {
+        const status = await getEmployeeBootstrapStatus().catch(() => null)
+        if (active) setBootstrapAvailable({ userId: user.id, available: status?.available === true })
+      }
     })
     return () => { active = false }
   }, [user])
@@ -34,6 +51,24 @@ function AppLayout() {
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (passwordBusy) return
+    setPasswordBusy(true)
+    setPasswordError('')
+    try {
+      await changeOwnPassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setPasswordChanged(true)
+      setPasswordFormOpen(false)
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'Не удалось сменить пароль')
+    } finally {
+      setPasswordBusy(false)
+    }
   }
 
   return (
@@ -147,17 +182,6 @@ function AppLayout() {
             <>
               <p className="menu-section-label">Администрирование</p>
               <NavLink
-                to="/employees"
-                onClick={closeMenu}
-                className={({ isActive }) =>
-                  isActive ? 'menu-link menu-link-active' : 'menu-link'
-                }
-              >
-                <span>Сотрудники</span>
-                <span>→</span>
-              </NavLink>
-
-              <NavLink
                 to="/supply/debts"
                 onClick={closeMenu}
                 className={({ isActive }) =>
@@ -212,7 +236,7 @@ function AppLayout() {
                 <span>→</span>
               </NavLink>
 
-              <NavLink
+              {roles.includes('ADMIN') && <NavLink
                 to="/integrations/iiko/mappings"
                 onClick={closeMenu}
                 className={({ isActive }) =>
@@ -221,20 +245,9 @@ function AppLayout() {
               >
                 <span>Mapping iiko ↔ EOS</span>
                 <span>→</span>
-              </NavLink>
+              </NavLink>}
 
-              <NavLink
-                to="/users"
-                onClick={closeMenu}
-                className={({ isActive }) =>
-                  isActive ? 'menu-link menu-link-active' : 'menu-link'
-                }
-              >
-                <span>Пользователи</span>
-                <span>→</span>
-              </NavLink>
-
-              <NavLink
+              {roles.includes('ADMIN') && <NavLink
                 to="/automation/schedules"
                 onClick={closeMenu}
                 className={({ isActive }) =>
@@ -243,9 +256,9 @@ function AppLayout() {
               >
                 <span>Регламентные задачи</span>
                 <span>→</span>
-              </NavLink>
+              </NavLink>}
 
-              <NavLink
+              {roles.includes('ADMIN') && <NavLink
                 to="/automation/diagnostics"
                 onClick={closeMenu}
                 className={({ isActive }) =>
@@ -254,10 +267,12 @@ function AppLayout() {
               >
                 <span>Диагностика автоматизаций</span>
                 <span>→</span>
-              </NavLink>
+              </NavLink>}
             </>
           )}
-          {canReadAudit && (
+          {showEmployees && <NavLink to="/employees" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Сотрудники</span><span>→</span></NavLink>}
+          {showUsers && <NavLink to="/users" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Пользователи</span><span>→</span></NavLink>}
+          {showAudit && (
             <NavLink
               to="/audit"
               onClick={closeMenu}
@@ -276,6 +291,15 @@ function AppLayout() {
             <strong>{user?.display_name}</strong>
             <span>@{user?.username}</span>
           </div>
+
+          {user?.account_type === 'HUMAN' && <button type="button" onClick={() => { setPasswordFormOpen((open) => !open); setPasswordError(''); setPasswordChanged(false) }}>Сменить пароль</button>}
+          {passwordFormOpen && <form onSubmit={submitPassword}>
+            <label>Текущий пароль<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+            <label>Новый пароль<input type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></label>
+            {passwordError && <p role="alert">{passwordError}</p>}
+            <button type="submit" disabled={passwordBusy}>{passwordBusy ? 'Сохраняем…' : 'Сохранить пароль'}</button>
+          </form>}
+          {passwordChanged && <p role="status">Пароль изменён</p>}
 
           <button type="button" onClick={handleLogout}>
             Выйти

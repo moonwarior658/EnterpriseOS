@@ -119,15 +119,15 @@ function App() {
         <Route
           path="/users"
           element={
-            <ProtectedRoute adminOnly>
+            <ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER']}>
               <UsersPage />
             </ProtectedRoute>
           }
         />
 
-        <Route path="/employees" element={<ProtectedRoute adminOnly><EmployeesPage /></ProtectedRoute>} />
-        <Route path="/employees/:employeeId" element={<ProtectedRoute adminOnly><EmployeeDetailPage /></ProtectedRoute>} />
-        <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
+        <Route path="/employees" element={<ProtectedRoute allowBootstrap allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'SUPPLY_MANAGER']}><EmployeesPage /></ProtectedRoute>} />
+        <Route path="/employees/:employeeId" element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'SUPPLY_MANAGER']}><EmployeeDetailPage /></ProtectedRoute>} />
+        <Route path="/audit" element={<ProtectedRoute allowedRoles={['ADMIN']}><AuditPage /></ProtectedRoute>} />
 
         <Route
           path="/automation/diagnostics"

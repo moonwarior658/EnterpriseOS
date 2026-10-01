@@ -1,4 +1,4 @@
-import type { Employee, EmployeeRole, Department } from '../services/employees.ts'
+import type { Employee, EmployeeRole, EmployeeStatus, Department } from '../services/employees.ts'
 import { EmployeeApiError } from '../services/employees.ts'
 import type { UserRecord } from '../services/users.ts'
 
@@ -19,19 +19,19 @@ export function availableHumanUsers(users: UserRecord[], employees: Employee[], 
 }
 
 export function filterEmployees(
-  employees: Employee[], query: string, status: 'ALL' | Employee['status'],
+  employees: Employee[], query: string, status: 'ALL' | EmployeeStatus,
   departmentId: string, role: '' | EmployeeRole,
 ) {
   const needle = query.trim().toLocaleLowerCase('ru')
   return employees.filter((employee) => {
-    if (status !== 'ALL' && employee.status !== status) return false
+    if (status !== 'ALL' && employee.profile_level === 'FULL' && employee.status !== status) return false
     if (needle && !employee.full_name.toLocaleLowerCase('ru').includes(needle)) return false
-    if (departmentId && !employee.department_assignments.some(
-      (item) => item.department_id === departmentId && activeAt(item.valid_from, item.valid_to),
-    )) return false
-    if (role && !employee.role_assignments.some(
-      (item) => item.role === role && activeAt(item.valid_from, item.valid_to),
-    )) return false
+    if (departmentId && !(employee.profile_level === 'BASIC'
+      ? employee.department_ids?.includes(departmentId)
+      : employee.department_assignments.some((item) => item.department_id === departmentId && activeAt(item.valid_from, item.valid_to)))) return false
+    if (role && !(employee.profile_level === 'BASIC'
+      ? employee.roles?.includes(role)
+      : employee.role_assignments.some((item) => item.role === role && activeAt(item.valid_from, item.valid_to)))) return false
     return true
   })
 }

@@ -227,13 +227,13 @@ class AuditTests(unittest.TestCase):
     def test_global_audit_access_roles(self) -> None:
         with self.sessions() as db:
             self.create_event(db)
-        for user_id in (1, 2, 3):
+        self.current_user_id = 1
+        response = self.client.get("/audit/events")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()), 1)
+        for user_id in (2, 3, 4):
             self.current_user_id = user_id
-            response = self.client.get("/audit/events")
-            self.assertEqual(response.status_code, 200, response.text)
-            self.assertEqual(len(response.json()), 1)
-        self.current_user_id = 4
-        self.assertEqual(self.client.get("/audit/events").status_code, 403)
+            self.assertEqual(self.client.get("/audit/events").status_code, 403)
 
 
 if __name__ == "__main__":

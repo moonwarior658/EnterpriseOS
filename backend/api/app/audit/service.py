@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.audit import AuditEvent
 from app.models.employee import Employee, EmployeeIikoShift
 from app.models.supply import Department
-from app.models.user import User
+from app.models.user import User, UserAccountType
 
 if TYPE_CHECKING:
     from app.core.action_context import ActionContext
@@ -59,7 +59,17 @@ def record_audit_event(
         reason = reason.strip()
         if not reason:
             raise ValueError("Audit reason must not be empty")
-    if source == "HUMAN" and (actor_user is None or context is None):
+    own_password_without_employee = (
+        event_type == "USER_PASSWORD_CHANGED"
+        and entity_type == "User"
+        and operation == "CHANGE_PASSWORD"
+        and actor_user is not None
+        and actor_user.account_type == UserAccountType.HUMAN
+        and str(actor_user.id) == str(entity_id)
+    )
+    if source == "HUMAN" and (
+        actor_user is None or (context is None and not own_password_without_employee)
+    ):
         raise ValueError("Human audit event requires actor and ActionContext")
     if source == "SYSTEM" and actor_user is not None:
         raise ValueError("System audit event cannot have a human actor")

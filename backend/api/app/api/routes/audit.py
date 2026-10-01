@@ -9,36 +9,18 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user
 from app.api.routes.action_context import action_context_http_error
 from app.audit.service import audit_query
-from app.core.action_context import ActionContextError, resolve_action_context
+from app.core.action_context import ActionContextError
+from app.core.authorization import Capability, authorize
 from app.db.session import get_db
 from app.models.audit import AuditEvent
-from app.models.employee import EmployeeRole
 from app.models.user import User
 from app.schemas.audit import AuditEventRead
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
-AUDIT_READER_ROLES = frozenset({
-    EmployeeRole.ADMIN,
-    EmployeeRole.DIRECTOR,
-    EmployeeRole.DEPUTY_DIRECTOR,
-})
-AUDIT_READER_PRECEDENCE = (
-    EmployeeRole.ADMIN,
-    EmployeeRole.DIRECTOR,
-    EmployeeRole.DEPUTY_DIRECTOR,
-)
-
-
 def require_audit_reader(db: Session, user: User) -> None:
     try:
-        resolve_action_context(
-            db,
-            user,
-            required_roles=AUDIT_READER_ROLES,
-            role_precedence=AUDIT_READER_PRECEDENCE,
-            write=False,
-        )
+        authorize(db, user, Capability.AUDIT_READ)
     except ActionContextError as error:
         raise action_context_http_error(error) from error
 
