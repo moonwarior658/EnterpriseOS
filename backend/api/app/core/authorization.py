@@ -9,9 +9,16 @@ from app.core.action_context import ActionContext, ActionContextError, resolve_a
 from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment
 from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User
+from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    REPAIR_READ = "REPAIR_READ"
+    REPAIR_CREATE = "REPAIR_CREATE"
+    REPAIR_TAKE = "REPAIR_TAKE"
+    REPAIR_OPERATE = "REPAIR_OPERATE"
+    REPAIR_REOPEN = "REPAIR_REOPEN"
+    CONTRACTOR_MANAGE = "CONTRACTOR_MANAGE"
     EMPLOYEE_READ = "EMPLOYEE_READ"
     EMPLOYEE_WRITE = "EMPLOYEE_WRITE"
     EMPLOYEE_LIFECYCLE = "EMPLOYEE_LIFECYCLE"
@@ -37,6 +44,33 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
+    Capability.REPAIR_READ: tuple((role, scope) for role, scope in (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
+        (EmployeeRole.HANDYMAN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION), (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.PRIMARY_DEPARTMENT), (EmployeeRole.DRIVER, Scope.ASSIGNED_OBJECTS),
+        (EmployeeRole.CONFECTIONER, Scope.ASSIGNED_OBJECTS), (EmployeeRole.BAKER, Scope.ASSIGNED_OBJECTS),
+    )),
+    Capability.REPAIR_CREATE: tuple((role, scope) for role, scope in (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION), (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.ACTUAL_SHIFT_DEPARTMENT), (EmployeeRole.DRIVER, Scope.PRIMARY_DEPARTMENT),
+        (EmployeeRole.CONFECTIONER, Scope.PRODUCTION), (EmployeeRole.BAKER, Scope.PRODUCTION),
+        (EmployeeRole.HANDYMAN, Scope.ALL_COMPANY),
+    )),
+    Capability.REPAIR_TAKE: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.HANDYMAN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.REPAIR_OPERATE: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.HANDYMAN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.REPAIR_REOPEN: tuple((role, scope) for role, scope in (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION), (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.PRIMARY_DEPARTMENT), (EmployeeRole.DEPUTY_DIRECTOR, Scope.ASSIGNED_OBJECTS),
+        (EmployeeRole.DRIVER, Scope.ASSIGNED_OBJECTS), (EmployeeRole.CONFECTIONER, Scope.ASSIGNED_OBJECTS),
+        (EmployeeRole.BAKER, Scope.ASSIGNED_OBJECTS),
+    )),
+    Capability.CONTRACTOR_MANAGE: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
     Capability.EMPLOYEE_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
         (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
@@ -213,3 +247,53 @@ def linked_employee(db: Session, user: User) -> Employee | None:
     return db.scalar(select(Employee).where(
         Employee.tenant_id == user.tenant_id, Employee.linked_user_id == user.id,
     ))
+
+
+def repair_authorize(
+    db: Session, user: User, capability: Capability, *,
+    repair: WorkRequest | None = None, department_id=None, write: bool = False,
+    only_roles: frozenset[EmployeeRole] | None = None,
+) -> ActionContext:
+    """Return the single role authorizing this repair action and its context."""
+    base = resolve_action_context(db, user, write=False)
+    own = repair is not None and repair.creator_employee_id == base.employee_id
+    target_department = repair.department_id if repair is not None else department_id
+    for role, scope in GRANTS[capability]:
+        if role not in base.roles or (only_roles is not None and role not in only_roles):
+            continue
+        if scope == Scope.ALL_COMPANY:
+            allowed = True
+        elif scope == Scope.ASSIGNED_OBJECTS:
+            allowed = own
+        elif scope == Scope.ECLAIR_POINTS:
+            allowed = target_department in scoped_department_ids(db, user, scope, base)
+        elif scope == Scope.PRODUCTION:
+            allowed = target_department in scoped_department_ids(db, user, scope, base)
+        elif scope in {Scope.PRIMARY_DEPARTMENT, Scope.ACTUAL_SHIFT_DEPARTMENT}:
+            if role == EmployeeRole.SELLER:
+                seller = resolve_action_context(
+                    db, user, required_roles=frozenset({role}),
+                    role_precedence=(role,), write=write,
+                )
+                shift_department = db.get(Department, seller.actual_department_id) if seller.shift_id else None
+                expected = (seller.actual_department_id if shift_department is not None
+                            and shift_department.tenant_id == user.tenant_id
+                            and shift_department.business_type == DepartmentBusinessType.RETAIL_POINT
+                            else seller.primary_department_id)
+                allowed = target_department == expected
+            else:
+                allowed = target_department == base.primary_department_id
+        else:
+            allowed = False
+        if role == EmployeeRole.DRIVER and capability == Capability.REPAIR_CREATE:
+            department = db.get(Department, target_department) if target_department else None
+            allowed = bool(allowed and department and department.business_type == DepartmentBusinessType.AUTO)
+        if capability in {Capability.REPAIR_TAKE, Capability.REPAIR_OPERATE} and repair is not None:
+            allowed = allowed and (role == EmployeeRole.ADMIN or role.value == repair.responsible_role)
+        if not allowed:
+            continue
+        return resolve_action_context(
+            db, user, required_roles=frozenset({role}),
+            role_precedence=(role,), write=write,
+        )
+    raise ActionContextError("PERMISSION_DENIED", "Недостаточно прав для действия")

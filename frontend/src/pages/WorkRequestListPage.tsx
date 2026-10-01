@@ -37,7 +37,7 @@ function WorkRequestListPage() {
   }, [])
 
   const active = requests.filter(isActiveRequest)
-  const closed = requests.filter((request) => !isActiveRequest(request)).slice(0, 20)
+  const closed = requests.filter((request) => !isActiveRequest(request))
 
   function renderRows(items: WorkRequest[]) {
     return (
@@ -103,7 +103,7 @@ function WorkRequestListPage() {
         )}
         {state === 'ready' && closed.length > 0 && (
           <section className="request-list-section">
-            <h2>Последние завершённые и отменённые</h2>
+            <h2>Завершённые и отменённые</h2>
             {renderRows(closed)}
           </section>
         )}

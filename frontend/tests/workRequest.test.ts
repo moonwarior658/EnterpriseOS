@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
-  createPublicRepairRequest,
+  createRepairRequest,
   getWorkRequests,
-  type PublicRepairRequestInput,
+  type RepairRequestInput,
   type WorkRequest,
 } from '../src/services/requests.ts'
 import {
@@ -12,12 +12,11 @@ import {
   activeRequestCountLabel,
   createSubmissionGuard,
   DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS,
-  DEPARTMENTS,
   formatFileSize,
   priorityLabel,
   sortWorkRequests,
   statusLabel,
-  submitPublicRepairRequest,
+  submitRepairRequest,
   validateRepairPhotos,
 } from '../src/pages/workRequestLogic.ts'
 
@@ -35,14 +34,27 @@ const REPAIR: WorkRequest = {
   created_by_name: 'Подразделение: Бар ГХ',
   attachment_count: 0,
   attachments: [],
+  department_id: null,
+  responsible_role: null,
+  responsible_employee_id: null,
+  responsibility_started_at: null,
+  contractor_id: null,
+  contractor_name: null,
+  contractor_phone: null,
+  specialization_id: null,
+  specialization_name: null,
+  responsible_employee_name: null,
+  visit_at: null,
+  closed_at: null,
+  allowed_actions: [],
 }
 
-test('формирует публичный payload ремонта и передаёт фотографии', async () => {
-  let received: PublicRepairRequestInput | undefined
+test('формирует payload ремонта с Department ID и передаёт фотографии', async () => {
+  let received: RepairRequestInput | undefined
   let receivedPhotos: File[] = []
   const photo = new File(['photo'], 'machine.jpg', { type: 'image/jpeg' })
 
-  const result = await submitPublicRepairRequest(
+  const result = await submitRepairRequest(
     {
       department: 'Бар ГХ',
       category: 'Кофемашина',
@@ -61,7 +73,7 @@ test('формирует публичный payload ремонта и перед
   assert.equal(result.status, 'success')
   assert.deepEqual(received, {
     request_type: 'repair',
-    department: 'Бар ГХ',
+    department_id: 'Бар ГХ',
     description: 'Не включается',
     repair_category: 'Кофемашина',
     priority: 'urgent',
@@ -71,7 +83,7 @@ test('формирует публичный payload ремонта и перед
 
 test('валидирует обязательные поля и защищает от двойной отправки', async () => {
   let calls = 0
-  const invalid = await submitPublicRepairRequest(
+  const invalid = await submitRepairRequest(
     { department: '', category: '', priority: '', description: ' ' },
     [],
     async () => {
@@ -98,8 +110,8 @@ test('валидирует обязательные поля и защищает
     calls += 1
     return pending
   }
-  const first = submitPublicRepairRequest(values, [], create, guard)
-  const second = await submitPublicRepairRequest(values, [], create, guard)
+  const first = submitRepairRequest(values, [], create, guard)
+  const second = await submitRepairRequest(values, [], create, guard)
   assert.deepEqual(second, { status: 'busy' })
   assert.ok(resolveRequest)
   resolveRequest(REPAIR)
@@ -148,7 +160,8 @@ test('форма ремонта использует EOS Select и доступ�
     'utf8',
   )
   assert.equal((form.match(/<EosSelect/g) ?? []).length, 3)
-  assert.equal((detail.match(/<EosSelect/g) ?? []).length, 4)
+  assert.match(detail, /allowed_actions/)
+  assert.doesNotMatch(detail, /updateWorkRequestStatus/)
   assert.match(form, /Перетащите фотографии сюда/)
   assert.match(form, /onDrop=\{handleDrop\}/)
   assert.match(form, /URL\.revokeObjectURL/)
@@ -175,6 +188,8 @@ test('legacy warehouse UI удалён, а недельный redirect испо�
 
 test('repair API сохраняет multipart upload-контракт', async () => {
   const originalFetch = globalThis.fetch
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: () => 'test-token' } })
   let call: { url: string; options: RequestInit } | undefined
   globalThis.fetch = async (input, options = {}) => {
     call = { url: String(input), options }
@@ -184,10 +199,10 @@ test('repair API сохраняет multipart upload-контракт', async ()
     })
   }
   try {
-    await createPublicRepairRequest(
+    await createRepairRequest(
       {
         request_type: 'repair',
-        department: 'Авто',
+        department_id: 'd0000000-0000-4000-8000-000000000000',
         description: 'Не заводится',
         repair_category: 'Другое',
         priority: 'important',
@@ -196,16 +211,16 @@ test('repair API сохраняет multipart upload-контракт', async ()
     )
   } finally {
     globalThis.fetch = originalFetch
+    if (storageDescriptor) Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor)
+    else Reflect.deleteProperty(globalThis, 'sessionStorage')
   }
-  assert.equal(call?.url, '/api/public/requests')
+  assert.equal(call?.url, '/api/repairs')
   assert.ok(call?.options.body instanceof FormData)
   assert.equal((call?.options.body as FormData).getAll('photos').length, 1)
+  assert.equal((call?.options.body as FormData).get('department_id'), 'd0000000-0000-4000-8000-000000000000')
 })
 
 test('сохраняет общую repair/Dashboard логику и cache protection', async () => {
-  assert.deepEqual(DEPARTMENTS, [
-    'М15', 'М35', 'М6А', 'Цех ГХ', 'Бар ГХ', 'Кухня', 'Авто',
-  ])
   assert.equal(activeRequestCountLabel(2), '2 активные заявки')
   assert.equal(statusLabel('in_progress'), 'В работе')
   assert.equal(priorityLabel('urgent'), 'Срочно')

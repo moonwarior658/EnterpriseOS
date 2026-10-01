@@ -15,6 +15,7 @@ from app.api.routes.iiko_incoming_receipts import (
     receipt_router as iiko_incoming_receipts_router,
 )
 from app.api.routes.public_requests import router as public_requests_router
+from app.api.routes.repairs import router as repairs_router
 from app.api.routes.public_supply import router as public_supply_router
 from app.api.routes.purchase_requests import router as purchase_requests_router
 from app.api.routes.procurement_cash_flow import router as procurement_cash_flow_router
@@ -52,6 +53,7 @@ app.include_router(audit_router)
 app.include_router(employees_router)
 app.include_router(users_router)
 app.include_router(public_requests_router)
+app.include_router(repairs_router)
 app.include_router(public_supply_router)
 app.include_router(requests_router)
 app.include_router(supply_router)

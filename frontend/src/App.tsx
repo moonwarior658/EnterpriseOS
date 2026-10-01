@@ -24,6 +24,7 @@ import AuditPage from './pages/AuditPage'
 import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
 import WorkRequestListPage from './pages/WorkRequestListPage'
+import RepairContractorsPage from './pages/RepairContractorsPage'
 import './App.css'
 
 function App() {
@@ -35,7 +36,7 @@ function App() {
       />
       <Route
         path="/public/requests/repair"
-        element={<ReadOnlyMutationGuard><WorkRequestFormPage /></ReadOnlyMutationGuard>}
+        element={<Navigate to="/requests/repair/new" replace />}
       />
       <Route
         path="/request/warehouse"
@@ -64,17 +65,19 @@ function App() {
 
         <Route
           path="/requests/repair/new"
-          element={<Navigate to="/public/requests/repair" replace />}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER', 'HANDYMAN']}><WorkRequestFormPage /></ProtectedRoute>}
         />
 
         <Route
           path="/requests/repair"
-          element={<ProtectedRoute requestViewOnly><WorkRequestListPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'HANDYMAN', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER']}><WorkRequestListPage /></ProtectedRoute>}
         />
+
+        <Route path="/repairs/contractors" element={<ProtectedRoute allowedRoles={['ADMIN', 'SUPPLY_MANAGER']}><RepairContractorsPage /></ProtectedRoute>} />
 
         <Route
           path="/requests/:requestId"
-          element={<ProtectedRoute requestViewOnly><WorkRequestDetailPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'HANDYMAN', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER']}><WorkRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route

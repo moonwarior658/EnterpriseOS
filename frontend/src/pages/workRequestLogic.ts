@@ -1,21 +1,11 @@
 import type {
-  PublicRepairRequestInput,
+  RepairRequestInput,
   RepairPriority,
   WorkRequest,
   WorkRequestStatus,
 } from '../services/requests.ts'
 
 export const DASHBOARD_REQUESTS_REFRESH_INTERVAL_MS = 10_000
-
-export const DEPARTMENTS = [
-  'М15',
-  'М35',
-  'М6А',
-  'Цех ГХ',
-  'Бар ГХ',
-  'Кухня',
-  'Авто',
-] as const
 
 export const REPAIR_CATEGORIES = [
   'Сантехника',
@@ -44,7 +34,10 @@ export const REQUEST_STATUSES: Array<{
 }> = [
   { value: 'new', label: 'Новая' },
   { value: 'in_progress', label: 'В работе' },
+  { value: 'waiting_external', label: 'Ожидается внешний мастер' },
+  { value: 'escalated', label: 'Передано снабжению' },
   { value: 'completed', label: 'Выполнена' },
+  { value: 'reopened', label: 'Переоткрыта' },
   { value: 'cancelled', label: 'Отменена' },
 ]
 
@@ -142,11 +135,11 @@ export function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`
 }
 
-export async function submitPublicRepairRequest(
+export async function submitRepairRequest(
   values: WorkRequestFormValues,
   photos: File[],
   createRepair: (
-    input: PublicRepairRequestInput,
+    input: RepairRequestInput,
     photos: File[],
   ) => Promise<WorkRequest>,
   guard: SubmissionGuard,
@@ -181,7 +174,7 @@ export async function submitPublicRepairRequest(
     const request = await createRepair(
       {
         request_type: 'repair',
-        department: values.department,
+        department_id: values.department,
         description,
         repair_category: values.category,
         priority: values.priority as RepairPriority,
@@ -226,7 +219,7 @@ export function activeRequestCountLabel(count: number): string {
 }
 
 export function isActiveRequest(request: WorkRequest): boolean {
-  return request.status === 'new' || request.status === 'in_progress'
+  return request.status !== 'completed' && request.status !== 'cancelled'
 }
 
 export function sortWorkRequests(requests: WorkRequest[]): WorkRequest[] {

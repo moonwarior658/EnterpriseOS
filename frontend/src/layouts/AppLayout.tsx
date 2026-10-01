@@ -28,6 +28,8 @@ function AppLayout() {
   const showAudit = canReadAudit(roles)
   const showEmployees = canReadEmployees(roles) || Boolean(bootstrapAvailable && user && bootstrapAvailable.userId === user.id && bootstrapAvailable.available)
   const showUsers = canReadUsers(roles)
+  const repairReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'HANDYMAN', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER']
+  const repairCreators = ['ADMIN', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER', 'HANDYMAN']
 
   useEffect(() => {
     let active = true
@@ -136,11 +138,11 @@ function AppLayout() {
             <span>→</span>
           </NavLink>
 
-          {user?.is_admin && (
+          {roles.some((role) => repairCreators.includes(role)) && (
             <>
               <p className="menu-section-label">Создать заявку</p>
               <NavLink
-                to="/public/requests/repair"
+                to="/requests/repair/new"
                 onClick={closeMenu}
                 className={({ isActive }) =>
                   isActive ? 'menu-link menu-link-active' : 'menu-link'
@@ -152,7 +154,7 @@ function AppLayout() {
             </>
           )}
 
-          {(user?.is_admin || user?.can_view_requests) && (
+          {roles.some((role) => repairReaders.includes(role)) && (
             <>
               <p className="menu-section-label">Работа с заявками</p>
               <NavLink
@@ -165,17 +167,24 @@ function AppLayout() {
                 <span>Заявки на ремонт</span>
                 <span>→</span>
               </NavLink>
-              <NavLink
-                to="/supply/requests"
-                onClick={closeMenu}
-                className={({ isActive }) =>
-                  isActive ? 'menu-link menu-link-active' : 'menu-link'
-                }
-              >
-                <span>Заявки снабжения</span>
-                <span>→</span>
-              </NavLink>
             </>
+          )}
+
+          {(user?.is_admin || user?.can_view_requests) && (
+            <NavLink
+              to="/supply/requests"
+              onClick={closeMenu}
+              className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}
+            >
+              <span>Заявки снабжения</span>
+              <span>→</span>
+            </NavLink>
+          )}
+
+          {roles.some((role) => ['ADMIN', 'SUPPLY_MANAGER'].includes(role)) && (
+            <NavLink to="/repairs/contractors" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}>
+              <span>Подрядчики ремонта</span><span>→</span>
+            </NavLink>
           )}
 
           {user?.is_admin && (

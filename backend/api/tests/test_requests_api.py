@@ -1,364 +1,110 @@
+"""Repair compatibility at the legacy /requests read path."""
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-os.environ.setdefault("POSTGRES_DB", "test")
-os.environ.setdefault("POSTGRES_USER", "test")
-os.environ.setdefault("POSTGRES_PASSWORD", "test")
-os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
+os.environ.setdefault('POSTGRES_DB', 'test')
+os.environ.setdefault('POSTGRES_USER', 'test')
+os.environ.setdefault('POSTGRES_PASSWORD', 'test')
+os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.api.dependencies import get_current_user
 from app.core.config import settings
-from app.db.session import get_db
 from app.main import app
-from app.models.user import User
 from app.models.work_request import (
-    WorkRequest,
-    WorkRequestAttachment,
-    WorkRequestComment,
+    ContractorSpecialization, ContractorSpecializationLink, ExternalContractor,
+    WorkRequest, WorkRequestAttachment, WorkRequestComment,
 )
-from app.schemas.work_request import DEPARTMENTS
-
-
-REPAIR_PAYLOAD = {
-    "request_type": "repair",
-    "department": "Бар ГХ",
-    "description": "Не включается кофемашина",
-    "repair_category": "Кофемашина",
-    "priority": "urgent",
-}
-
-WAREHOUSE_PAYLOAD = {
-    "request_type": "warehouse",
-    "department": "М15",
-    "description": "Картофель 10 кг",
-    "warehouse_category": "products",
-}
+from tests import test_employees_api as fixture
 
 
 class WorkRequestsApiTests(unittest.TestCase):
-    def setUp(self) -> None:
-        app.dependency_overrides.clear()
-        app.openapi_schema = None
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.previous_upload_dir = settings.work_request_upload_dir
-        settings.work_request_upload_dir = self.temp_dir.name
-        self.engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        User.__table__.create(self.engine)
+    setUp = fixture.EmployeesApiTests.setUp
+    tearDown = fixture.EmployeesApiTests.tearDown
+
+    def setup_repair_tables(self):
+        ExternalContractor.__table__.create(self.engine)
+        ContractorSpecialization.__table__.create(self.engine)
+        ContractorSpecializationLink.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
         WorkRequestAttachment.__table__.create(self.engine)
         WorkRequestComment.__table__.create(self.engine)
-        self.session_factory = sessionmaker(
-            bind=self.engine,
-            expire_on_commit=False,
-        )
-        with self.session_factory.begin() as session:
-            session.add_all([
-                User(
-                    id=1,
-                    username="employee",
-                    display_name="Сотрудник",
-                    hashed_password="unused",
-                    is_active=True,
-                    is_admin=False,
-                    can_view_requests=True,
-                ),
-                User(
-                    id=2,
-                    username="admin",
-                    display_name="Администратор",
-                    hashed_password="unused",
-                    is_active=True,
-                    is_admin=True,
-                ),
-            ])
-        self.current_user_id = 2
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.previous_upload_dir = settings.work_request_upload_dir
+        settings.work_request_upload_dir = self.temp_dir.name
+        self.addCleanup(lambda: setattr(settings, 'work_request_upload_dir', self.previous_upload_dir))
+        self.addCleanup(self.temp_dir.cleanup)
 
-        def override_get_db():
-            with self.session_factory() as session:
-                yield session
+    def payload(self):
+        return {
+            'department_id': str(self.department_id),
+            'description': 'Не включается кофемашина',
+            'repair_category': 'Кофемашина',
+            'priority': 'urgent',
+        }
 
-        def override_current_user():
-            with self.session_factory() as session:
-                return session.get(User, self.current_user_id)
-
-        self.override_current_user = override_current_user
-        app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = override_current_user
-        self.client = TestClient(app)
-
-    def tearDown(self) -> None:
-        app.dependency_overrides.clear()
-        app.openapi_schema = None
-        settings.work_request_upload_dir = self.previous_upload_dir
-        self.engine.dispose()
-        self.temp_dir.cleanup()
-
-    def create_repair(self) -> dict:
-        response = self.client.post("/requests", json=REPAIR_PAYLOAD)
-        self.assertEqual(response.status_code, 201, response.text)
-        return response.json()
-
-    def create_public_repair(self, files: list[tuple] | None = None) -> dict:
-        response = self.client.post(
-            "/public/requests",
-            data=REPAIR_PAYLOAD,
-            files=files,
-        )
-        self.assertEqual(response.status_code, 201, response.text)
-        return response.json()
-
-    def test_creates_repair_and_public_repair_without_jwt(self) -> None:
-        authenticated = self.create_repair()
-        self.assertEqual(authenticated["request_type"], "repair")
-        self.assertEqual(authenticated["created_by_name"], "Администратор")
-
-        app.dependency_overrides.pop(get_current_user)
-        public = self.client.post("/public/requests", data=REPAIR_PAYLOAD)
-        app.dependency_overrides[get_current_user] = self.override_current_user
-        self.assertEqual(public.status_code, 201, public.text)
-        self.assertEqual(
-            public.json()["created_by_name"],
-            "Подразделение: Бар ГХ",
-        )
-
-    def test_warehouse_creation_is_removed(self) -> None:
-        self.assertEqual(
-            self.client.post("/requests", json=WAREHOUSE_PAYLOAD).status_code,
-            422,
-        )
-        app.dependency_overrides.pop(get_current_user)
-        response = self.client.post(
-            "/public/requests",
-            json=WAREHOUSE_PAYLOAD,
-        )
-        app.dependency_overrides[get_current_user] = self.override_current_user
-        self.assertEqual(response.status_code, 422)
-
-    def test_historical_warehouse_rows_are_archived_from_active_api(self) -> None:
-        with self.session_factory.begin() as session:
-            archived = WorkRequest(
-                request_type="warehouse",
-                department="М15",
-                description="Архив склада",
-                status="new",
-                warehouse_category="products",
-                created_by_user_id=1,
-            )
-            session.add(archived)
-            session.flush()
-            archived_id = archived.id
-        repair = self.create_repair()
-
-        listed = self.client.get("/requests")
-        self.assertEqual(listed.status_code, 200)
-        self.assertEqual([item["id"] for item in listed.json()], [repair["id"]])
-        self.assertEqual(
-            self.client.get(f"/requests/{archived_id}").status_code,
-            404,
-        )
-
-    def test_list_cache_headers_and_authentication(self) -> None:
-        self.create_repair()
-        response = self.client.get("/requests?_ts=123")
-        self.assertEqual(response.headers["cache-control"], (
-            "no-store, no-cache, must-revalidate, max-age=0"
-        ))
-        app.dependency_overrides.pop(get_current_user)
-        self.assertEqual(self.client.get("/requests").status_code, 401)
-        app.dependency_overrides[get_current_user] = self.override_current_user
-
-    def test_admin_updates_all_repair_fields_and_status(self) -> None:
-        request_id = self.create_repair()["id"]
-        self.current_user_id = 2
-        response = self.client.patch(
-            f"/requests/{request_id}",
-            json={
-                "department": "Авто",
-                "description": "Новая формулировка",
-                "repair_category": "Другое",
-                "priority": "important",
-                "status": "in_progress",
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["department"], "Авто")
-        self.assertEqual(response.json()["status"], "in_progress")
-
-    def test_regular_user_cannot_edit_or_comment(self) -> None:
-        request_id = self.create_repair()["id"]
-        self.current_user_id = 1
-        self.assertEqual(
-            self.client.post("/requests", json=REPAIR_PAYLOAD).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.patch(
-                f"/requests/{request_id}",
-                json={"status": "completed"},
-            ).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.post(
-                f"/requests/{request_id}/comments",
-                json={"body": "Комментарий"},
-            ).status_code,
-            403,
-        )
-
-    def test_read_only_user_reads_only_own_tenant(self) -> None:
-        own_request_id = self.create_repair()["id"]
-        with self.session_factory.begin() as session:
-            session.add(User(
-                id=3,
-                username="other-viewer",
-                display_name="Другой tenant",
-                hashed_password="unused",
-                is_active=True,
-                is_admin=False,
-                can_view_requests=True,
-                tenant_id="other",
-            ))
-            foreign_request = WorkRequest(
-                tenant_id="other",
-                request_type="repair",
-                department="М15",
-                description="Чужой ремонт",
-                status="new",
-                repair_category="Другое",
-                priority="routine",
-                created_by_user_id=3,
-            )
-            session.add(foreign_request)
-            session.flush()
-            foreign_request_id = foreign_request.id
-            foreign_attachment = WorkRequestAttachment(
-                work_request_id=foreign_request.id,
-                original_filename="foreign.jpg",
-                stored_filename="foreign-tenant.jpg",
-                content_type="image/jpeg",
-                size_bytes=7,
-            )
-            session.add(foreign_attachment)
-            session.flush()
-            foreign_attachment_id = foreign_attachment.id
-        (Path(self.temp_dir.name) / "foreign-tenant.jpg").write_bytes(
-            b"foreign"
-        )
-
-        self.current_user_id = 1
-        listed = self.client.get("/requests")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(
-            [item["id"] for item in listed.json()], [own_request_id]
-        )
-        self.assertEqual(
-            self.client.get(f"/requests/{own_request_id}").status_code,
-            200,
-        )
-        self.assertEqual(
-            self.client.get(f"/requests/{foreign_request_id}").status_code,
-            404,
-        )
-        self.assertEqual(
-            self.client.get(
-                f"/requests/{foreign_request_id}/attachments/"
-                f"{foreign_attachment_id}"
-            ).status_code,
-            404,
-        )
-        self.assertEqual(
-            self.client.get(
-                f"/requests/{own_request_id}/attachments/"
-                f"{foreign_attachment_id}"
-            ).status_code,
-            404,
-        )
-
-        self.current_user_id = 2
-        self.assertEqual(self.client.get("/requests").status_code, 200)
-        self.assertEqual(
-            self.client.get(f"/requests/{own_request_id}").status_code,
-            200,
-        )
-
-    def test_admin_adds_and_reads_repair_comment(self) -> None:
-        request_id = self.create_repair()["id"]
-        self.current_user_id = 2
-        created = self.client.post(
-            f"/requests/{request_id}/comments",
-            json={"body": " Взяли в работу "},
-        )
+    def test_authenticated_creation_and_legacy_routes_fail_closed(self):
+        self.setup_repair_tables()
+        created = self.client.post('/repairs', json=self.payload())
         self.assertEqual(created.status_code, 201, created.text)
-        self.assertEqual(created.json()["body"], "Взяли в работу")
-        self.assertEqual(
-            self.client.get(f"/requests/{request_id}/comments").json()[0][
-                "author_name"
-            ],
-            "Администратор",
-        )
+        repair_id = created.json()['id']
+        self.assertEqual(created.json()['responsible_role'], 'HANDYMAN')
+        self.assertEqual(self.client.post('/public/requests', json={'request_type': 'repair'}).status_code, 403)
+        self.assertEqual(self.client.post('/requests', json={'request_type': 'repair'}).status_code, 422)
+        self.assertEqual(self.client.patch(f'/requests/{repair_id}', json={'status': 'completed'}).status_code, 405)
+        self.assertEqual(self.client.patch(f'/requests/{repair_id}/status', json={'status': 'completed'}).status_code, 405)
 
-    def test_upload_contract_and_validation_are_preserved(self) -> None:
-        created = self.create_public_repair([
-            ("photos", ("machine.jpg", b"jpeg-data", "image/jpeg")),
-        ])
-        self.assertEqual(created["attachment_count"], 1)
-        attachment = created["attachments"][0]
-        stored_files = list(Path(self.temp_dir.name).iterdir())
-        self.assertEqual(len(stored_files), 1)
+    def test_list_excludes_archived_warehouse_and_other_tenant(self):
+        self.setup_repair_tables()
+        own_id = self.client.post('/repairs', json=self.payload()).json()['id']
+        with self.sessions.begin() as session:
+            session.add_all([
+                WorkRequest(request_type='warehouse', department='М15', description='Архив', status='new', warehouse_category='products', tenant_id='eclair'),
+                WorkRequest(request_type='repair', department='М15', description='Чужой', status='new', repair_category='Другое', priority='routine', tenant_id='other'),
+            ])
+        listed = self.client.get('/requests?_ts=123')
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual([item['id'] for item in listed.json()], [own_id])
+        self.assertEqual(listed.headers['cache-control'], 'no-store, no-cache, must-revalidate, max-age=0')
+        app.dependency_overrides.pop(get_current_user)
+        self.assertEqual(self.client.get('/requests').status_code, 401)
 
-        bad_type = self.client.post(
-            "/public/requests",
-            data=REPAIR_PAYLOAD,
-            files=[("photos", ("note.txt", b"text", "text/plain"))],
-        )
-        self.assertEqual(bad_type.status_code, 422)
-        too_many = [
-            ("photos", (f"{index}.jpg", b"x", "image/jpeg"))
-            for index in range(6)
-        ]
-        self.assertEqual(
-            self.client.post(
-                "/public/requests",
-                data=REPAIR_PAYLOAD,
-                files=too_many,
-            ).status_code,
-            422,
-        )
-
-        response = self.client.get(
-            f"/requests/{created['id']}/attachments/{attachment['id']}",
-        )
+    def test_authenticated_multipart_and_attachment_read(self):
+        self.setup_repair_tables()
+        created = self.client.post('/repairs', data=self.payload(), files=[('photos', ('machine.jpg', b'jpeg-data', 'image/jpeg'))])
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()['attachment_count'], 1)
+        attachment = created.json()['attachments'][0]
+        self.assertEqual(len(list(Path(self.temp_dir.name).iterdir())), 1)
+        response = self.client.get(f"/requests/{created.json()['id']}/attachments/{attachment['id']}")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"jpeg-data")
+        self.assertEqual(response.content, b'jpeg-data')
+        added = self.client.post(f"/repairs/{created.json()['id']}/photos", files={'photo': ('later.png', b'png-data', 'image/png')})
+        self.assertEqual(added.status_code, 201, added.text)
+        self.assertEqual(self.client.get(f"/requests/{created.json()['id']}").json()['attachment_count'], 2)
+        invalid = self.client.post('/repairs', data=self.payload(), files=[('photos', ('note.txt', b'text', 'text/plain'))])
+        self.assertEqual(invalid.status_code, 409)
 
-    def test_department_list_is_exact(self) -> None:
-        self.assertEqual(
-            DEPARTMENTS,
-            {"М15", "М35", "М6А", "Цех ГХ", "Бар ГХ", "Кухня", "Авто"},
-        )
+    def test_legacy_repair_is_readable_without_guessed_responsibility(self):
+        self.setup_repair_tables()
+        with self.sessions.begin() as session:
+            legacy = WorkRequest(tenant_id='eclair', request_type='repair', department='Кафе',
+                description='Исторический ремонт', status='completed', repair_category='Другое',
+                priority='routine')
+            session.add(legacy)
+            session.flush()
+            legacy_id = legacy.id
+        card = self.client.get(f'/requests/{legacy_id}')
+        self.assertEqual(card.status_code, 200, card.text)
+        self.assertEqual(card.json()['department'], 'Кафе')
+        self.assertIsNone(card.json()['department_id'])
+        self.assertIsNone(card.json()['responsible_role'])
+        self.assertEqual(card.json()['allowed_actions'], [])
 
-    def test_migrations_have_single_head(self) -> None:
-        config = Config()
-        config.set_main_option(
-            "script_location",
-            str(Path(__file__).resolve().parents[1] / "alembic"),
-        )
-        self.assertEqual(len(ScriptDirectory.from_config(config).get_heads()), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_migrations_have_single_head(self):
+        config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
+        scripts = ScriptDirectory.from_config(config)
+        self.assertEqual(scripts.get_heads(), ['20261001_0064'])

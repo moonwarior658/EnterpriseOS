@@ -50,7 +50,7 @@ from app.models.employee import (
     EmployeeRoleAssignment,
     ShiftDepartmentConfirmation,
 )
-from app.models.work_request import WorkRequest
+from app.models.work_request import WorkRequest, ExternalContractor, ContractorSpecialization
 from app.schemas.supply import SupplyRequestCreate
 from app.supply.service import create_supply_request
 
@@ -103,6 +103,8 @@ class SupplyApiTests(unittest.TestCase):
         SupplyProduct.__table__.create(self.engine)
         SupplyProductAlias.__table__.create(self.engine)
         SupplyDepartmentProductMapping.__table__.create(self.engine)
+        ExternalContractor.__table__.create(self.engine)
+        ContractorSpecialization.__table__.create(self.engine)
         WorkRequest.__table__.create(self.engine)
         SupplyRequest.__table__.create(self.engine)
         SupplyRequestLine.__table__.create(self.engine)

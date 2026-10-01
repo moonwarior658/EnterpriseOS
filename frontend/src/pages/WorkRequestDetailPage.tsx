@@ -1,367 +1,176 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { EosSelect } from '../components/EosFormControls'
-import { useAuth } from '../contexts/AuthContext'
 import {
-  createWorkRequestComment,
-  getWorkRequest,
-  getWorkRequestAttachmentUrl,
-  getWorkRequestComments,
-  updateWorkRequest,
-  type RepairPriority,
-  type WorkRequest,
-  type WorkRequestAttachment,
-  type WorkRequestComment,
-  type WorkRequestStatus,
+  createWorkRequestComment, getRepairContractors, getRepairSpecializations,
+  addRepairPhoto,
+  getRepairTimeline, getWorkRequest, getWorkRequestAttachmentUrl,
+  getWorkRequestComments, repairAction,
+  updateRepairDetails,
+  type RepairContractor, type RepairSpecialization, type RepairTimelineEvent,
+  type WorkRequest, type WorkRequestAttachment, type WorkRequestComment,
 } from '../services/requests'
-import {
-  DEPARTMENTS,
-  PRIORITIES,
-  REPAIR_CATEGORIES,
-  REQUEST_STATUSES,
-  priorityLabel,
-  statusLabel,
-} from './workRequestLogic'
+import { PRIORITIES, REPAIR_CATEGORIES, priorityLabel, statusLabel } from './workRequestLogic'
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(value))
 }
 
-function AttachmentPreview({
-  requestId,
-  attachment,
-}: {
-  requestId: number
-  attachment: WorkRequestAttachment
-}) {
+function Photo({ requestId, attachment }: { requestId: number; attachment: WorkRequestAttachment }) {
   const [url, setUrl] = useState('')
-
   useEffect(() => {
-    let active = true
+    let alive = true
     let objectUrl = ''
-    getWorkRequestAttachmentUrl(requestId, attachment.id)
-      .then((nextUrl) => {
-        objectUrl = nextUrl
-        if (active) setUrl(nextUrl)
-        else URL.revokeObjectURL(nextUrl)
-      })
-      .catch(() => setUrl(''))
-    return () => {
-      active = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [attachment.id, requestId])
-
-  if (!url) {
-    return <div className="attachment-loading">Загружаем фото…</div>
-  }
-
-  return (
-    <a href={url} target="_blank" rel="noreferrer">
-      <img src={url} alt={attachment.original_filename} />
-      <span>{attachment.original_filename}</span>
-    </a>
-  )
+    getWorkRequestAttachmentUrl(requestId, attachment.id).then((value) => {
+      objectUrl = value
+      if (alive) setUrl(value)
+      else URL.revokeObjectURL(value)
+    }).catch(() => setUrl(''))
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [requestId, attachment.id])
+  return url ? <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={attachment.original_filename} /><span>{attachment.original_filename}</span></a> : <span>Загружаем фото…</span>
 }
 
 function WorkRequestDetailPage() {
-  const { requestId } = useParams()
-  const numericRequestId = Number(requestId)
-  const hasValidRequestId =
-    Number.isInteger(numericRequestId) && numericRequestId > 0
-  const { user } = useAuth()
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>(
-    hasValidRequestId ? 'loading' : 'error',
-  )
-  const [request, setRequest] = useState<WorkRequest | null>(null)
-  const [department, setDepartment] = useState('')
-  const [description, setDescription] = useState('')
-  const [category, setCategory] = useState('')
-  const [priority, setPriority] = useState('')
-  const [status, setStatus] = useState<WorkRequestStatus>('new')
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState('')
-  const [saveError, setSaveError] = useState('')
+  const requestId = Number(useParams().requestId)
+  const [repair, setRepair] = useState<WorkRequest | null>(null)
   const [comments, setComments] = useState<WorkRequestComment[]>([])
-  const [commentsError, setCommentsError] = useState('')
-  const [commentBody, setCommentBody] = useState('')
-  const [isCommenting, setIsCommenting] = useState(false)
+  const [events, setEvents] = useState<RepairTimelineEvent[]>([])
+  const [contractors, setContractors] = useState<RepairContractor[]>([])
+  const [specializations, setSpecializations] = useState<RepairSpecialization[]>([])
+  const [contractorId, setContractorId] = useState('')
+  const [specializationId, setSpecializationId] = useState('')
+  const [visitAt, setVisitAt] = useState('')
+  const [reason, setReason] = useState('')
+  const [comment, setComment] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editCategory, setEditCategory] = useState('')
+  const [editPriority, setEditPriority] = useState<'routine' | 'important' | 'urgent'>('routine')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function reload() {
+    const [item, nextComments, nextEvents] = await Promise.all([
+      getWorkRequest(requestId), getWorkRequestComments(requestId), getRepairTimeline(requestId),
+    ])
+    setRepair(item)
+    setComments(nextComments)
+    setEvents(nextEvents)
+    setEditDescription(item.description)
+    setEditCategory(item.repair_category ?? '')
+    setEditPriority(item.priority ?? 'routine')
+  }
 
   useEffect(() => {
-    if (!hasValidRequestId) return
-    getWorkRequest(numericRequestId)
-      .then((item) => {
-        if (item.request_type !== 'repair') {
-          setState('error')
-          return
+    if (!Number.isInteger(requestId) || requestId <= 0) return
+    let alive = true
+    Promise.all([getWorkRequest(requestId), getWorkRequestComments(requestId), getRepairTimeline(requestId)])
+      .then(([item, nextComments, nextEvents]) => {
+        if (!alive) return
+        setRepair(item)
+        setComments(nextComments)
+        setEvents(nextEvents)
+        setContractorId(item.contractor_id ?? '')
+        setSpecializationId(item.specialization_id ?? '')
+        setEditDescription(item.description)
+        setEditCategory(item.repair_category ?? '')
+        setEditPriority(item.priority ?? 'routine')
+        if (item.allowed_actions.includes('assign_contractor') || item.allowed_actions.includes('schedule_external_visit')) {
+          getRepairContractors().then((rows) => { if (alive) setContractors(rows) }).catch(() => {})
+          getRepairSpecializations().then((rows) => { if (alive) setSpecializations(rows) }).catch(() => {})
         }
-        setRequest(item)
-        setDepartment(item.department)
-        setDescription(item.description)
-        setCategory(item.repair_category ?? '')
-        setPriority(item.priority ?? '')
-        setStatus(item.status)
-        setState('ready')
-        getWorkRequestComments(item.id)
-          .then(setComments)
-          .catch(() =>
-            setCommentsError('Не удалось загрузить комментарии'),
-          )
-      })
-      .catch(() => setState('error'))
-  }, [hasValidRequestId, numericRequestId])
+      }).catch(() => { if (alive) setError('Ремонт не найден или недоступен') })
+    return () => { alive = false }
+  }, [requestId])
 
-  async function saveChanges(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!request || isSaving) return
-    setIsSaving(true)
-    setSaveMessage('')
-    setSaveError('')
-
+  async function run(action: 'take' | 'assign-contractor' | 'schedule-external-visit' | 'escalate-to-supply' | 'close' | 'reopen', body?: object) {
+    if (!repair || busy) return
+    setBusy(true)
+    setError('')
     try {
-      const updated = await updateWorkRequest(request.id, {
-        department,
-        description: description.trim(),
-        status,
-        repair_category: category,
-        priority: priority as RepairPriority,
-      })
-      setRequest(updated)
-      setSaveMessage('Изменения сохранены')
+      await repairAction(repair.id, action, body)
+      await reload()
+      if (action === 'reopen') setReason('')
     } catch {
-      setSaveError('Не удалось сохранить изменения')
-    } finally {
-      setIsSaving(false)
-    }
+      setError('Не удалось выполнить действие. Обновите карточку и проверьте данные.')
+    } finally { setBusy(false) }
   }
 
   async function addComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const body = commentBody.trim()
-    if (!request || !body || isCommenting) return
-    setIsCommenting(true)
-    setCommentsError('')
+    if (!repair || !comment.trim() || busy) return
+    setBusy(true)
+    setError('')
     try {
-      const created = await createWorkRequestComment(request.id, body)
-      setComments((current) => [...current, created])
-      setCommentBody('')
-    } catch {
-      setCommentsError('Не удалось добавить комментарий')
-    } finally {
-      setIsCommenting(false)
-    }
+      await createWorkRequestComment(repair.id, comment.trim())
+      setComment('')
+      await reload()
+    } catch { setError('Не удалось добавить комментарий') }
+    finally { setBusy(false) }
   }
 
-  if (state === 'loading') {
-    return <p className="page-state">Загружаем заявку…</p>
-  }
-  if (state === 'error' || !request) {
-    return (
-      <section className="request-page">
-        <p className="request-message request-message-error">
-          Заявка не найдена или недоступна
-        </p>
-        <Link className="request-back-link" to="/dashboard">
-          ← На Dashboard
-        </Link>
-      </section>
-    )
+  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!repair || busy || !editDescription.trim() || !editCategory) return
+    setBusy(true); setError('')
+    try {
+      await updateRepairDetails(repair.id, { description: editDescription.trim(), repair_category: editCategory, priority: editPriority })
+      await reload()
+    } catch { setError('Не удалось сохранить описание ремонта') }
+    finally { setBusy(false) }
   }
 
-  return (
-    <section className="request-page request-detail-page">
-      <div className="request-panel">
-        <div className="request-heading">
-          <div>
-            <p className="eyebrow">Заявка на ремонт</p>
-            <h1>Заявка №{request.id}</h1>
-          </div>
-          <Link className="request-back-link" to="/requests/repair">
-            ← К списку
-          </Link>
-        </div>
+  if (!repair) return <section className="request-page"><p className="page-state">{error || 'Загружаем ремонт…'}</p></section>
+  const can = (action: string) => repair.allowed_actions.includes(action)
+  const availableSpecializations = specializations.filter((item) => item.is_active && contractors.find((contractor) => contractor.id === contractorId)?.specialization_ids.includes(item.id))
 
-        <dl className="request-facts">
-          <div><dt>Подразделение</dt><dd>{request.department}</dd></div>
-          <div><dt>Отправитель</dt><dd>{request.created_by_name}</dd></div>
-          <div><dt>Создана</dt><dd>{formatDate(request.created_at)}</dd></div>
-          <div><dt>Изменена</dt><dd>{formatDate(request.updated_at)}</dd></div>
-          <div><dt>Статус</dt><dd>{statusLabel(request.status)}</dd></div>
-          <div>
-            <dt>Категория</dt>
-            <dd>
-              {request.repair_category}
-            </dd>
-          </div>
-          <div><dt>Приоритет</dt><dd>{priorityLabel(request.priority)}</dd></div>
-        </dl>
-
-        {!user?.is_admin && (
-          <section className="request-description">
-            <h2>Описание</h2>
-            <p>{request.description}</p>
-          </section>
-        )}
-
-        {user?.is_admin && (
-          <form
-            className="request-form request-edit-form"
-            onSubmit={(event) => void saveChanges(event)}
-          >
-            <label className="request-field">
-              <span>Подразделение</span>
-              <EosSelect
-                value={department}
-                disabled={isSaving}
-                onChange={(event) => setDepartment(event.target.value)}
-              >
-                {DEPARTMENTS.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </EosSelect>
-            </label>
-            <label className="request-field">
-              <span>Статус</span>
-              <EosSelect
-                value={status}
-                disabled={isSaving}
-                onChange={(event) =>
-                  setStatus(event.target.value as WorkRequestStatus)
-                }
-              >
-                {REQUEST_STATUSES.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </EosSelect>
-            </label>
-            <label className="request-field">
-              <span>Категория</span>
-              <EosSelect
-                value={category}
-                disabled={isSaving}
-                onChange={(event) => setCategory(event.target.value)}
-              >
-                {REPAIR_CATEGORIES.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </EosSelect>
-            </label>
-            <label className="request-field">
-              <span>Приоритет</span>
-              <EosSelect
-                value={priority}
-                disabled={isSaving}
-                onChange={(event) => setPriority(event.target.value)}
-              >
-                {PRIORITIES.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </EosSelect>
-            </label>
-            <label className="request-field request-field-wide">
-              <span>Описание</span>
-              <textarea
-                value={description}
-                maxLength={5000}
-                required
-                disabled={isSaving}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </label>
-            {saveMessage && (
-              <p className="request-message request-message-success">
-                {saveMessage}
-              </p>
-            )}
-            {saveError && (
-              <p className="request-message request-message-error">
-                {saveError}
-              </p>
-            )}
-            <button
-              className="primary-action request-submit"
-              type="submit"
-              disabled={isSaving || !description.trim()}
-            >
-              {isSaving ? 'Сохраняем…' : 'Сохранить изменения'}
-            </button>
-          </form>
-        )}
-
-        <>
-            <section className="request-detail-section">
-              <h2>Фотографии</h2>
-              {request.attachments.length === 0 ? (
-                <p className="page-state">Фотографии не приложены</p>
-              ) : (
-                <div className="attachment-grid">
-                  {request.attachments.map((attachment) => (
-                    <AttachmentPreview
-                      key={attachment.id}
-                      requestId={request.id}
-                      attachment={attachment}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="request-detail-section">
-              <h2>Комментарии</h2>
-              {comments.length === 0 && !commentsError && (
-                <p className="page-state">Комментариев пока нет</p>
-              )}
-              <div className="request-comments">
-                {comments.map((comment) => (
-                  <article key={comment.id}>
-                    <p>{comment.body}</p>
-                    <small>
-                      {comment.author_name} · {formatDate(comment.created_at)}
-                    </small>
-                  </article>
-                ))}
-              </div>
-              {commentsError && (
-                <p className="request-message request-message-error">
-                  {commentsError}
-                </p>
-              )}
-              {user?.is_admin && (
-                <form
-                  className="comment-form"
-                  onSubmit={(event) => void addComment(event)}
-                >
-                  <label className="request-field">
-                    <span>Добавить комментарий</span>
-                    <textarea
-                      value={commentBody}
-                      maxLength={2000}
-                      disabled={isCommenting}
-                      placeholder="Что происходит с заявкой?"
-                      onChange={(event) => setCommentBody(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    className="primary-action"
-                    type="submit"
-                    disabled={isCommenting || !commentBody.trim()}
-                  >
-                    {isCommenting ? 'Добавляем…' : 'Добавить комментарий'}
-                  </button>
-                </form>
-              )}
-            </section>
-        </>
-      </div>
-    </section>
-  )
+  return <section className="request-page request-detail-page"><div className="request-panel">
+    <div className="request-heading"><div><p className="eyebrow">РЕМОНТ</p><h1>Заявка №{repair.id}</h1></div><Link className="request-back-link" to="/requests/repair">← К списку</Link></div>
+    <dl className="request-facts">
+      <div><dt>Подразделение</dt><dd>{repair.department}</dd></div>
+      <div><dt>Инициатор</dt><dd>{repair.created_by_name}</dd></div>
+      <div><dt>Создана</dt><dd>{formatDate(repair.created_at)}</dd></div>
+      <div><dt>Статус</dt><dd>{statusLabel(repair.status)}</dd></div>
+      <div><dt>Ответственный контур</dt><dd>{repair.responsible_role === 'HANDYMAN' ? 'Мастер по ремонту' : repair.responsible_role === 'SUPPLY_MANAGER' ? 'Руководитель снабжения' : 'Историческая заявка'}</dd></div>
+      {repair.responsible_employee_name && <div><dt>Исполнитель</dt><dd>{repair.responsible_employee_name}</dd></div>}
+      {repair.responsibility_started_at && <div><dt>Ответственность с</dt><dd>{formatDate(repair.responsibility_started_at)}</dd></div>}
+      <div><dt>Категория</dt><dd>{repair.repair_category}</dd></div>
+      <div><dt>Приоритет</dt><dd>{priorityLabel(repair.priority)}</dd></div>
+      {repair.visit_at && <div><dt>Визит мастера</dt><dd>{formatDate(repair.visit_at)}</dd></div>}
+      {repair.contractor_id && <div><dt>Подрядчик</dt><dd>{repair.contractor_name} · {repair.contractor_phone}{repair.specialization_name ? ` · ${repair.specialization_name}` : ''}</dd></div>}
+    </dl>
+    <section className="request-description"><h2>Описание</h2><p>{repair.description}</p></section>
+    {can('edit_details') && <section className="request-detail-section"><h2>Уточнить заявку</h2><form className="request-form" onSubmit={(event) => void saveDetails(event)}>
+      <label className="request-field"><span>Категория</span><select value={editCategory} disabled={busy} onChange={(event) => setEditCategory(event.target.value)}>{REPAIR_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label className="request-field"><span>Приоритет</span><select value={editPriority} disabled={busy} onChange={(event) => setEditPriority(event.target.value as 'routine' | 'important' | 'urgent')}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label className="request-field request-field-wide"><span>Описание</span><textarea value={editDescription} maxLength={5000} required disabled={busy} onChange={(event) => setEditDescription(event.target.value)} /></label>
+      <button className="primary-action" type="submit" disabled={busy || !editDescription.trim()}>Сохранить изменения</button>
+    </form></section>}
+    <section className="request-detail-section"><h2>Фотографии</h2>{repair.attachments.length ? <div className="attachment-grid">{repair.attachments.map((item) => <Photo key={item.id} requestId={repair.id} attachment={item} />)}</div> : <p className="page-state">Фотографий нет</p>}</section>
+    {can('add_photo') && <label className="request-field"><span>Добавить фотографию</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => {
+      const file = event.target.files?.[0]
+      if (!file || busy) return
+      if (file.size > 8 * 1024 * 1024) { setError('Фотография должна быть не больше 8 МБ'); return }
+      setBusy(true); setError('')
+      addRepairPhoto(repair.id, file).then(() => reload()).catch(() => setError('Не удалось добавить фотографию')).finally(() => setBusy(false))
+      event.target.value = ''
+    }} /></label>}
+    {(can('take') || can('close') || can('escalate_to_supply')) && <section className="request-detail-section"><h2>Действия</h2>
+      {can('take') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('take')}>Взять в работу</button>}
+      {can('close') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('close')}>Закрыть ремонт</button>}
+      {can('escalate_to_supply') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('escalate-to-supply')}>Не смог назначить время — передать руководителю</button>}
+    </section>}
+    {(can('assign_contractor') || can('schedule_external_visit')) && <section className="request-detail-section"><h2>Внешний мастер</h2><div className="request-form">
+      <label className="request-field"><span>Подрядчик</span><select value={contractorId} disabled={busy} onChange={(event) => { setContractorId(event.target.value); setSpecializationId('') }}><option value="">Выберите подрядчика</option>{contractors.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.phone}</option>)}</select></label>
+      <label className="request-field"><span>Специализация</span><select value={specializationId} disabled={busy} onChange={(event) => setSpecializationId(event.target.value)}><option value="">Выберите специализацию</option>{availableSpecializations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="request-field"><span>Время визита</span><input type="datetime-local" value={visitAt} disabled={busy} onChange={(event) => setVisitAt(event.target.value)} /></label>
+      {can('assign_contractor') && <button type="button" disabled={busy || !contractorId || !specializationId} onClick={() => void run('assign-contractor', { contractor_id: contractorId, specialization_id: specializationId })}>Нужен внешний мастер · сохранить подрядчика</button>}
+      {can('schedule_external_visit') && <button type="button" className="primary-action" disabled={busy || !contractorId || !specializationId || !visitAt} onClick={() => void run('schedule-external-visit', { contractor_id: contractorId, specialization_id: specializationId, visit_at: new Date(visitAt).toISOString() })}>Мастер придёт</button>}
+    </div></section>}
+    {can('reopen') && <section className="request-detail-section"><h2>Не приняли результат?</h2><label className="request-field"><span>Причина переоткрытия</span><textarea value={reason} maxLength={1000} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label><button type="button" className="primary-action" disabled={busy || !reason.trim()} onClick={() => void run('reopen', { reason: reason.trim() })}>Переоткрыть</button></section>}
+    <section className="request-detail-section"><h2>История</h2>{events.length ? <div className="request-comments">{events.map((item, index) => <article key={`${item.at}-${index}`}><p>{item.details}{item.reason ? `: ${item.reason}` : ''}</p><small>{item.actor || 'Система'} · {formatDate(item.at)}{item.role ? ` · ${item.role}` : ''}</small></article>)}</div> : <p className="page-state">Для старой заявки история действий не записывалась</p>}</section>
+    <section className="request-detail-section"><h2>Комментарии</h2><div className="request-comments">{comments.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_name} · {formatDate(item.created_at)}</small></article>)}</div>{can('comment') && <form className="comment-form" onSubmit={(event) => void addComment(event)}><label className="request-field"><span>Добавить комментарий</span><textarea value={comment} maxLength={2000} disabled={busy} onChange={(event) => setComment(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !comment.trim()}>Добавить комментарий</button></form>}</section>
+    {error && <p className="request-message request-message-error">{error}</p>}
+  </div></section>
 }
 
 export default WorkRequestDetailPage

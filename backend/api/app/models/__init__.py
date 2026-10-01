@@ -84,6 +84,9 @@ from app.models.supply import (
     SupplyUnit,
 )
 from app.models.work_request import (
+    ContractorSpecialization,
+    ContractorSpecializationLink,
+    ExternalContractor,
     WorkRequest,
     WorkRequestAttachment,
     WorkRequestComment,

@@ -3,26 +3,21 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin, require_request_view_access
+from app.api.dependencies import get_current_user
+from app.core.action_context import ActionContextError
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
+from app.requests.repair import visible_repair, visible_repairs, repair_read, add_comment
 from app.models.work_request import WorkRequest, WorkRequestComment
 from app.requests.service import (
     WorkRequestAttachmentNotFoundError,
     WorkRequestNotFoundError,
     WorkRequestTypeError,
-    create_work_request,
-    create_work_request_comment,
-    get_work_request,
     get_work_request_attachment,
     list_work_request_comments,
-    list_work_requests,
-    update_work_request,
-    update_work_request_status,
 )
 from app.schemas.work_request import (
     WorkRequestCommentCreate,
@@ -52,41 +47,38 @@ def _not_found() -> HTTPException:
 def create_request(
     payload: WorkRequestCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_user)],
 ) -> WorkRequest:
-    return create_work_request(
-        db,
-        payload,
-        created_by_user_id=current_admin.id,
-        tenant_id=current_admin.tenant_id,
-    )
+    raise HTTPException(status_code=405, detail="Используйте создание ремонта с выбором подразделения")
 
 
 @router.get("", response_model=list[WorkRequestRead])
 def read_requests(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[WorkRequest]:
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    return list_work_requests(db, tenant_id=current_user.tenant_id)
+    try:
+        return [repair_read(db, current_user, item) for item in visible_repairs(db, current_user)]
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра ремонтов") from error
 
 
 @router.get("/{request_id}", response_model=WorkRequestRead)
 def read_request(
     request_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> WorkRequest:
     try:
-        return get_work_request(
-            db, request_id, tenant_id=current_user.tenant_id
-        )
-    except WorkRequestNotFoundError as error:
+        item = visible_repair(db, current_user, request_id)
+        return repair_read(db, current_user, item)
+    except (WorkRequestNotFoundError, ActionContextError) as error:
         raise _not_found() from error
 
 
@@ -95,19 +87,9 @@ def change_request(
     request_id: int,
     payload: WorkRequestUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_user)],
 ) -> WorkRequest:
-    try:
-        return update_work_request(
-            db, request_id, payload, tenant_id=current_admin.tenant_id
-        )
-    except WorkRequestNotFoundError as error:
-        raise _not_found() from error
-    except ValidationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Check the request fields",
-        ) from error
+    raise HTTPException(status_code=405, detail="Используйте действия ремонта")
 
 
 @router.patch("/{request_id}/status", response_model=WorkRequestRead)
@@ -115,14 +97,9 @@ def change_request_status(
     request_id: int,
     payload: WorkRequestStatusUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_user)],
 ) -> WorkRequest:
-    try:
-        return update_work_request_status(
-            db, request_id, payload, tenant_id=current_admin.tenant_id
-        )
-    except WorkRequestNotFoundError as error:
-        raise _not_found() from error
+    raise HTTPException(status_code=405, detail="Используйте действия ремонта")
 
 
 @router.get(
@@ -132,13 +109,14 @@ def change_request_status(
 def read_request_comments(
     request_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[WorkRequestComment]:
     try:
+        visible_repair(db, current_user, request_id)
         return list_work_request_comments(
             db, request_id, tenant_id=current_user.tenant_id
         )
-    except WorkRequestNotFoundError as error:
+    except (WorkRequestNotFoundError, ActionContextError) as error:
         raise _not_found() from error
     except WorkRequestTypeError as error:
         raise HTTPException(
@@ -156,18 +134,14 @@ def add_request_comment(
     request_id: int,
     payload: WorkRequestCommentCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_current_user)],
 ) -> WorkRequestComment:
     try:
-        return create_work_request_comment(
-            db,
-            request_id,
-            payload,
-            author_user_id=current_admin.id,
-            tenant_id=current_admin.tenant_id,
-        )
-    except WorkRequestNotFoundError as error:
+        return add_comment(db, current_admin, request_id, payload.body)
+    except (WorkRequestNotFoundError, ActionContextError) as error:
         raise _not_found() from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except WorkRequestTypeError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -180,16 +154,17 @@ def read_request_attachment(
     request_id: int,
     attachment_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> FileResponse:
     try:
+        visible_repair(db, current_user, request_id)
         attachment = get_work_request_attachment(
             db,
             request_id,
             attachment_id,
             tenant_id=current_user.tenant_id,
         )
-    except WorkRequestNotFoundError as error:
+    except (WorkRequestNotFoundError, ActionContextError) as error:
         raise _not_found() from error
     except WorkRequestAttachmentNotFoundError as error:
         raise HTTPException(

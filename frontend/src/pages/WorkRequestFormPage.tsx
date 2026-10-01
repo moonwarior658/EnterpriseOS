@@ -8,16 +8,15 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { EosSelect } from '../components/EosFormControls'
-import { createPublicRepairRequest } from '../services/requests'
+import { createRepairRequest, getRepairDepartments, type RepairDepartment } from '../services/requests'
 import {
   addRepairPhotos,
   createSubmissionGuard,
-  DEPARTMENTS,
   EMPTY_WORK_REQUEST_FORM,
   formatFileSize,
   PRIORITIES,
   REPAIR_CATEGORIES,
-  submitPublicRepairRequest,
+  submitRepairRequest,
   type WorkRequestFormErrors,
   type WorkRequestFormValues,
 } from './workRequestLogic'
@@ -28,6 +27,8 @@ type PhotoPreview = {
 }
 
 function WorkRequestFormPage() {
+  const [departments, setDepartments] = useState<RepairDepartment[]>([])
+  useEffect(() => { getRepairDepartments().then(setDepartments).catch(() => setDepartments([])) }, [])
   const [values, setValues] = useState<WorkRequestFormValues>({
     ...EMPTY_WORK_REQUEST_FORM,
   })
@@ -125,10 +126,10 @@ function WorkRequestFormPage() {
     setSubmitError('')
     setIsSubmitting(true)
 
-    const result = await submitPublicRepairRequest(
+    const result = await submitRepairRequest(
       values,
       previews.map((preview) => preview.file),
-      createPublicRepairRequest,
+      createRepairRequest,
       guardRef.current,
     )
 
@@ -162,11 +163,10 @@ function WorkRequestFormPage() {
         <div className="request-panel">
           <div className="request-heading">
             <div>
-              <p className="eyebrow">ПУБЛИЧНАЯ ФОРМА</p>
+              <p className="eyebrow">РЕМОНТ</p>
               <h1>Заявка на ремонт</h1>
               <p className="request-intro">
-                Заполните форму — заявка сразу появится у администратора
-                EnterpriseOS.
+                Заявка будет передана ответственному за ремонт.
               </p>
             </div>
           </div>
@@ -186,8 +186,8 @@ function WorkRequestFormPage() {
                 onChange={(event) => updateValue('department', event.target.value)}
               >
                 <option value="">Выберите подразделение</option>
-                {DEPARTMENTS.map((department) => (
-                  <option key={department} value={department}>{department}</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>{department.name}</option>
                 ))}
               </EosSelect>
               {errors.department && <small>{errors.department}</small>}

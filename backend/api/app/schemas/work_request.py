@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -12,7 +13,10 @@ class RequestType(StrEnum):
 class RequestStatus(StrEnum):
     NEW = "new"
     IN_PROGRESS = "in_progress"
+    WAITING_EXTERNAL = "waiting_external"
+    ESCALATED = "escalated"
     COMPLETED = "completed"
+    REOPENED = "reopened"
     CANCELLED = "cancelled"
 
 
@@ -140,6 +144,19 @@ class WorkRequestRead(BaseModel):
     created_by_name: str
     attachment_count: int
     attachments: list[WorkRequestAttachmentRead] = Field(default_factory=list)
+    department_id: UUID | None = None
+    responsible_role: str | None = None
+    responsible_employee_id: UUID | None = None
+    responsibility_started_at: datetime | None = None
+    contractor_id: UUID | None = None
+    contractor_name: str | None = None
+    contractor_phone: str | None = None
+    specialization_id: UUID | None = None
+    specialization_name: str | None = None
+    responsible_employee_name: str | None = None
+    visit_at: datetime | None = None
+    closed_at: datetime | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -165,3 +182,50 @@ class WorkRequestCommentRead(BaseModel):
     author_name: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RepairCreate(BaseModel):
+    department_id: UUID
+    description: str = Field(min_length=1, max_length=5000)
+    repair_category: str
+    priority: RepairPriority
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("repair_category")
+    @classmethod
+    def category_valid(cls, value: str) -> str:
+        if value not in REPAIR_CATEGORIES:
+            raise ValueError("Unknown repair category")
+        return value
+
+
+class RepairVisit(BaseModel):
+    contractor_id: UUID
+    specialization_id: UUID
+    visit_at: datetime
+    model_config = ConfigDict(extra="forbid")
+
+
+class RepairContractorAssignment(BaseModel):
+    contractor_id: UUID
+    specialization_id: UUID
+    model_config = ConfigDict(extra="forbid")
+
+
+class RepairDetailsUpdate(BaseModel):
+    description: str = Field(min_length=1, max_length=5000)
+    repair_category: str
+    priority: RepairPriority
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("repair_category")
+    @classmethod
+    def category_valid(cls, value: str) -> str:
+        if value not in REPAIR_CATEGORIES:
+            raise ValueError("Unknown repair category")
+        return value
+
+
+class RepairReopen(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+    model_config = ConfigDict(extra="forbid")
