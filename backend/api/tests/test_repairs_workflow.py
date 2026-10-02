@@ -130,11 +130,26 @@ class RepairWorkflowTests(unittest.TestCase):
         self.current_user_id = 37
         specialization = self.client.post('/repairs/specializations', json={'name': 'Электрик'})
         self.assertEqual(specialization.status_code, 201, specialization.text)
+        second_specialization = self.client.post('/repairs/specializations', json={'name': 'Сантехник'})
+        self.assertEqual(second_specialization.status_code, 201, second_specialization.text)
         contractor = self.client.post('/repairs/contractors', json={'name': 'Мастер', 'phone': '+7',
             'price_notes': '1 200 ₽/час', 'specialization_ids': [specialization.json()['id']]})
         self.assertEqual(contractor.status_code, 201, contractor.text)
+        multi = self.client.post('/repairs/contractors', json={'name': 'Универсал', 'phone': '+8',
+            'specialization_ids': [specialization.json()['id'], second_specialization.json()['id']]})
+        self.assertEqual(multi.status_code, 201, multi.text)
+        without_specialization = self.client.post('/repairs/contractors', json={
+            'name': 'Без специализации', 'phone': '+9', 'specialization_ids': [],
+        })
+        self.assertEqual(without_specialization.status_code, 201, without_specialization.text)
         catalog = self.client.get('/repairs/contractors').json()
-        self.assertEqual(catalog[0]['price_notes'], '1 200 ₽/час')
+        by_id = {item['id']: item for item in catalog}
+        self.assertEqual(by_id[contractor.json()['id']]['price_notes'], '1 200 ₽/час')
+        self.assertEqual(by_id[contractor.json()['id']]['specialization_ids'], [specialization.json()['id']])
+        self.assertEqual(set(by_id[multi.json()['id']]['specialization_ids']), {
+            specialization.json()['id'], second_specialization.json()['id'],
+        })
+        self.assertEqual(by_id[without_specialization.json()['id']]['specialization_ids'], [])
         self.current_user_id = 36
         self.assertEqual(self.client.post('/repairs/contractors', json={'name': 'Нет', 'phone': '+7'}).status_code, 403)
         self.assertEqual(self.client.post(f'/repairs/{repair_id}/take').status_code, 200)
@@ -151,6 +166,8 @@ class RepairWorkflowTests(unittest.TestCase):
         self.assertEqual(visit.status_code, 200, visit.text)
         self.assertEqual(visit.json()['status'], 'waiting_external')
         self.assertEqual(visit.json()['responsible_role'], 'HANDYMAN')
+        self.assertEqual(visit.json()['contractor_id'], contractor.json()['id'])
+        self.assertEqual(visit.json()['specialization_id'], specialization.json()['id'])
         self.current_user_id = 1
         second_id = self.create_repair().json()['id']
         self.current_user_id = 36
@@ -169,6 +186,9 @@ class RepairWorkflowTests(unittest.TestCase):
         })
         self.assertEqual(deactivated.status_code, 200, deactivated.text)
         self.current_user_id = 36
+        active_catalog = self.client.get('/repairs/contractors').json()
+        self.assertNotIn(contractor.json()['id'], {item['id'] for item in active_catalog})
+        self.assertIn(without_specialization.json()['id'], {item['id'] for item in active_catalog})
         self.assertEqual(self.client.post(f'/repairs/{repair_id}/assign-contractor', json={
             'contractor_id': contractor.json()['id'], 'specialization_id': specialization.json()['id'],
         }).status_code, 409)

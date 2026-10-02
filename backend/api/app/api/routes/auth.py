@@ -74,8 +74,6 @@ def change_own_password(
     user = db.get(User, current_user.id)
     if user is None or not user.is_active or user.account_type != UserAccountType.HUMAN:
         raise HTTPException(status_code=403, detail="Личная смена пароля доступна только сотруднику")
-    if not verify_password(payload.current_password, user.hashed_password):
-        raise HTTPException(status_code=403, detail="Текущий пароль указан неверно")
     try:
         context = resolve_action_context(
             db, user, required_roles=frozenset(EmployeeRole),

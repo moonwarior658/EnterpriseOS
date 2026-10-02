@@ -10,6 +10,7 @@ import { getActionContext, type ActionContext } from '../services/actionContext'
 import { canReadAudit, canReadEmployees, canReadUsers } from '../services/employeePermissions'
 import { getEmployeeBootstrapStatus } from '../services/employees'
 import { changeOwnPassword } from '../services/users'
+import { EosDialog } from '../components/EosDialog'
 import type { FormEvent } from 'react'
 
 function AppLayout() {
@@ -19,8 +20,8 @@ function AppLayout() {
   const [actionContext, setActionContext] = useState<ActionContext | null>(null)
   const [bootstrapAvailable, setBootstrapAvailable] = useState<{ userId: number; available: boolean } | null>(null)
   const [passwordFormOpen, setPasswordFormOpen] = useState(false)
-  const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [passwordError, setPasswordError] = useState('')
   const [passwordChanged, setPasswordChanged] = useState(false)
@@ -60,12 +61,14 @@ function AppLayout() {
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (passwordBusy) return
+    if (!newPassword || !confirmPassword) { setPasswordError('Заполните оба поля'); return }
+    if (newPassword !== confirmPassword) { setPasswordError('Пароли не совпадают'); return }
     setPasswordBusy(true)
     setPasswordError('')
     try {
-      await changeOwnPassword(currentPassword, newPassword)
-      setCurrentPassword('')
+      await changeOwnPassword(newPassword)
       setNewPassword('')
+      setConfirmPassword('')
       setPasswordChanged(true)
       setPasswordFormOpen(false)
     } catch (error) {
@@ -309,13 +312,7 @@ function AppLayout() {
             <span>@{user?.username}</span>
           </div>
 
-          {user?.account_type === 'HUMAN' && <button type="button" onClick={() => { setPasswordFormOpen((open) => !open); setPasswordError(''); setPasswordChanged(false) }}>Сменить пароль</button>}
-          {passwordFormOpen && <form onSubmit={submitPassword}>
-            <label>Текущий пароль<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
-            <label>Новый пароль<input type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></label>
-            {passwordError && <p role="alert">{passwordError}</p>}
-            <button type="submit" disabled={passwordBusy}>{passwordBusy ? 'Сохраняем…' : 'Сохранить пароль'}</button>
-          </form>}
+          {user?.account_type === 'HUMAN' && <button className="secondary-action" type="button" onClick={() => { setPasswordFormOpen(true); setPasswordError(''); setPasswordChanged(false) }}>Сменить пароль</button>}
           {passwordChanged && <p role="status">Пароль изменён</p>}
 
           <button type="button" onClick={handleLogout}>
@@ -327,6 +324,14 @@ function AppLayout() {
       <main className="workspace-content">
         <Outlet />
       </main>
+      {passwordFormOpen && <EosDialog title="Смена пароля" onClose={() => { if (!passwordBusy) setPasswordFormOpen(false) }}>
+        <form className="password-change-form" onSubmit={submitPassword}>
+          <label><span>Новый пароль</span><input type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required autoFocus /></label>
+          <label><span>Подтвердите пароль</span><input type="password" autoComplete="new-password" minLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></label>
+          {passwordError && <p className="field-error" role="alert">{passwordError}</p>}
+          <div className="user-actions"><button className="primary-action" type="submit" disabled={passwordBusy}>{passwordBusy ? 'Сохраняем…' : 'Сохранить'}</button><button className="secondary-action" type="button" disabled={passwordBusy} onClick={() => setPasswordFormOpen(false)}>Отмена</button></div>
+        </form>
+      </EosDialog>}
     </div>
   )
 }

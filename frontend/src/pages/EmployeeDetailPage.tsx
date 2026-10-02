@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { EosSelect } from '../components/EosFormControls'
+import { EosCheckbox, EosSelect } from '../components/EosFormControls'
+import { EosDialog } from '../components/EosDialog'
 import { GeneratedCredentialsPanel } from '../components/GeneratedCredentialsPanel'
 import { getActionContext, type EmployeeRole as AccessRole } from '../services/actionContext'
-import { assignableRoles, canCreateEmployee, canCreateHumanUser, canDismissEmployee } from '../services/employeePermissions'
+import { assignableRoles, canCreateEmployee, canDismissEmployee } from '../services/employeePermissions'
 import {
   assignEmployeeDepartment, assignEmployeeRole, dismissEmployee,
   correctEmployeeIikoLink, createEmployeeIikoLink, findEmployeeIikoCandidates,
@@ -21,6 +22,7 @@ import {
 import {
   ROLE_LABELS, activeAt, assignableDepartments, availableHumanUsers, departmentName, employeeErrorMessage,
 } from './employeeAdminLogic'
+import { formatDateOnly } from '../utils/dateFormat'
 
 const localDateTime = () => {
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
@@ -71,7 +73,9 @@ function EmployeeDetailPage() {
   const [accessRoles, setAccessRoles] = useState<AccessRole[]>([])
   const canWrite = canCreateEmployee(accessRoles)
   const canLifecycle = canDismissEmployee(accessRoles)
-  const canManageUser = canCreateHumanUser(accessRoles)
+  const canManageUser = employee ? employee.allowed_actions.includes(
+    employee.linked_user_id ? 'manage_user_access' : 'create_human_user',
+  ) : false
   const isAdmin = accessRoles.includes('ADMIN')
   const canReadShifts = accessRoles.some((role) => ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'SUPPLY_MANAGER'].includes(role))
   const canViewFull = accessRoles.some((role) => ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER'].includes(role))
@@ -90,7 +94,7 @@ function EmployeeDetailPage() {
   const [actorEmployeeId, setActorEmployeeId] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [avatarReason, setAvatarReason] = useState('')
+  const [avatarOpen, setAvatarOpen] = useState(false)
   const [editReason, setEditReason] = useState('')
   const [role, setRole] = useState<EmployeeRole>('SELLER')
   const [roleFrom, setRoleFrom] = useState(localDateTime())
@@ -111,7 +115,7 @@ function EmployeeDetailPage() {
   const [iikoError, setIikoError] = useState('')
   const [dialog, setDialog] = useState<null | { kind: 'dismiss' | 'reactivate' | 'unlink' | 'link' | 'resetPassword' | 'endRole' | 'endDepartment'; assignmentId?: string }>(null)
   const [generatedCredentials, setGeneratedCredentials] = useState<GeneratedCredentials | null>(null)
-  const [accessMode, setAccessMode] = useState<'create' | 'link'>('create')
+  const [accessDialog, setAccessDialog] = useState<'create' | 'link' | null>(null)
   const [newUsername, setNewUsername] = useState('')
 
   const load = useCallback(async () => {
@@ -179,7 +183,7 @@ function EmployeeDetailPage() {
     return () => window.clearTimeout(timeout)
   }, [loadShifts, canReadShifts])
   useEffect(() => {
-    if (!employee?.photo_url) { setAvatarUrl(''); return }
+    if (!employee?.photo_url) return
     let active = true; let objectUrl = ''
     getEmployeeAvatar(employeeId).then((blob) => {
       if (!active) return
@@ -187,6 +191,7 @@ function EmployeeDetailPage() {
     }).catch(() => { if (active && employee.photo_url !== 'employee-avatar') setAvatarUrl(employee.photo_url ?? '') })
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [employee?.photo_url, employeeId])
+  const visibleAvatarUrl = employee?.photo_url ? avatarUrl : ''
   const usersById = useMemo(() => new Map(users.map((item) => [item.id, item])), [users])
   const candidates = useMemo(() => availableHumanUsers(users, employees, employeeId), [users, employees, employeeId])
   const linkedUser = employee?.linked_user_id ? usersById.get(employee.linked_user_id) : undefined
@@ -278,15 +283,14 @@ function EmployeeDetailPage() {
   }
 
   async function saveAvatar() {
-    if (!avatarFile || !avatarReason.trim()) { setError('Выберите фото и укажите причину изменения'); return }
-    await mutation(() => uploadEmployeeAvatar(employeeId, avatarFile, avatarReason.trim()), 'Не удалось загрузить фото')
-    setAvatarFile(null); setAvatarReason('')
+    if (!avatarFile) { setError('Выберите фотографию'); return }
+    await mutation(() => uploadEmployeeAvatar(employeeId, avatarFile), 'Не удалось загрузить фото')
+    setAvatarFile(null)
   }
 
   async function removeAvatar() {
-    if (!avatarReason.trim()) { setError('Укажите причину удаления фото'); return }
-    await mutation(() => deleteEmployeeAvatar(employeeId, avatarReason.trim()), 'Не удалось удалить фото')
-    setAvatarReason('')
+    await mutation(() => deleteEmployeeAvatar(employeeId), 'Не удалось удалить фото')
+    setAvatarOpen(false)
   }
 
   async function createAccess() {
@@ -297,7 +301,7 @@ function EmployeeDetailPage() {
         is_admin: false, can_view_requests: false, account_type: 'HUMAN', employee_id: employee.id })
       if (!created.temporary_password) throw new Error('Пароль не создан')
       setGeneratedCredentials({ username: created.username, temporary_password: created.temporary_password })
-      setNewUsername(''); await load()
+      setNewUsername(''); setAccessDialog(null); await load()
     } catch (requestError) { setError(employeeErrorMessage(requestError, 'Не удалось создать доступ')) }
     finally { setBusy(false) }
   }
@@ -317,21 +321,23 @@ function EmployeeDetailPage() {
     {employee.profile_level === 'FULL' && missingAssignments && <p className="employee-warning">Сотрудник активен, но ему ещё не назначены актуальные роль и основное подразделение.</p>}
 
     <section className="employee-card"><div className="employee-section-heading"><h2>Основное</h2>{canWrite && <button className="secondary-action" type="button" onClick={() => setEditing((value) => !value)}>{editing ? 'Отмена' : 'Редактировать'}</button>}</div>
-      {avatarUrl && <img className="employee-avatar-image" src={avatarUrl} alt={`Фото ${employee.full_name}`} width="96" height="96" />}
-      {(canWrite || actorEmployeeId === employee.id) && <div className="employee-avatar-actions"><label className="secondary-action employee-avatar-picker">{employee.photo_url ? 'Изменить фото' : 'Загрузить фото'}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} /></label>{avatarFile && <span>{avatarFile.name}</span>}<label><span>Причина изменения фото</span><input value={avatarReason} maxLength={1000} onChange={(event) => setAvatarReason(event.target.value)} /></label>{avatarFile && <button className="primary-action" type="button" disabled={busy || !avatarReason.trim()} onClick={() => void saveAvatar()}>Сохранить фото</button>}{employee.photo_url && <button className="danger-action" type="button" disabled={busy || !avatarReason.trim()} onClick={() => void removeAvatar()}>Удалить фото</button>}</div>}
-      {editing ? <form className="employee-form-grid" onSubmit={saveBasic}>
+      <div className="employee-profile-layout"><button className="employee-avatar-preview" type="button" aria-label="Открыть фотографию сотрудника" onClick={() => setAvatarOpen(true)}>
+        {visibleAvatarUrl ? <img className="employee-avatar-image" src={visibleAvatarUrl} alt={`Фото ${employee.full_name}`} /> : <span className="employee-avatar-placeholder">{employee.full_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>}
+      </button>
+      {editing ? <form className="employee-form-grid employee-profile-details" onSubmit={saveBasic}>
         <label><span>ФИО</span><input value={fullName} onChange={(e) => setFullName(e.target.value)} required /></label>
         <label><span>Дата рождения</span><input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} required /></label>
         <label><span>Телефон</span><input value={phone} onChange={(e) => setPhone(e.target.value)} required /></label>
         <label><span>Адрес</span><input value={address} onChange={(e) => setAddress(e.target.value)} required /></label>
         <label><span>Причина изменения</span><input value={editReason} onChange={(e) => setEditReason(e.target.value)} required /></label>
         <button className="primary-action" type="submit" disabled={busy}>Сохранить</button>
-      </form> : <dl className="employee-facts">{employee.profile_level === 'FULL' && <><div><dt>Статус</dt><dd>{employee.status === 'ACTIVE' ? 'Активен' : 'Уволен'}</dd></div><div><dt>Дата рождения</dt><dd>{employee.birth_date}</dd></div></>}<div><dt>Телефон</dt><dd>{employee.phone}</dd></div>{employee.profile_level === 'FULL' && <><div><dt>Адрес</dt><dd>{employee.residence_address}</dd></div><div><dt>Дата увольнения</dt><dd>{employee.dismissal_date ?? '—'}</dd></div><div><dt>Причина увольнения</dt><dd>{employee.dismissal_reason ?? '—'}</dd></div></>}</dl>}
+      </form> : <dl className="employee-facts employee-profile-details">{employee.profile_level === 'FULL' && <><div><dt>Статус</dt><dd>{employee.status === 'ACTIVE' ? 'Активен' : 'Уволен'}</dd></div><div><dt>Дата рождения</dt><dd>{formatDateOnly(employee.birth_date)}</dd></div></>}<div><dt>Телефон</dt><dd>{employee.phone}</dd></div>{employee.profile_level === 'FULL' && <><div><dt>Адрес</dt><dd>{employee.residence_address}</dd></div><div><dt>Дата увольнения</dt><dd>{formatDateOnly(employee.dismissal_date)}</dd></div><div><dt>Причина увольнения</dt><dd>{employee.dismissal_reason ?? '—'}</dd></div></>}</dl>}
+      </div>
     </section>
 
     {(isAdmin || accessRoles.includes('DIRECTOR') || accessRoles.includes('DEPUTY_DIRECTOR') || canManageUser) && <section className="employee-card"><h2>Доступ в EOS</h2>
       {linkedUser ? <div className="employee-access"><div><strong>@{linkedUser.username}</strong><span>{linkedUser.display_name}</span><span>{linkedUser.is_active ? 'Доступ активен' : 'Доступ заблокирован'}</span></div>{canManageUser && <div className="user-actions"><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'resetPassword' })}>Сбросить пароль</button><button className="secondary-action" type="button" disabled={busy} onClick={() => setDialog({ kind: 'unlink' })}>Отвязать User</button></div>}</div>
-        : <div className="employee-access"><div><strong>Нет доступа</strong><span>Employee существует без учётной записи</span></div>{canManageUser && <div className="employee-access-onboarding"><div className="user-actions"><button className={accessMode === 'create' ? 'primary-action' : 'secondary-action'} type="button" onClick={() => setAccessMode('create')}>Создать доступ</button><button className="secondary-action" type="button" onClick={() => setAccessMode('link')}>Привязать существующий User</button></div>{accessMode === 'create' ? <div className="employee-access-create"><label><span>Логин</span><input value={newUsername} minLength={3} maxLength={64} placeholder="ivanov.ii" onChange={(event) => setNewUsername(event.target.value)} /></label><label><span>Отображаемое имя</span><input value={employee.full_name} disabled /></label><button className="primary-action" type="button" disabled={!newUsername.trim() || busy} onClick={() => void createAccess()}>Создать HUMAN User</button></div> : <div className="user-actions"><EosSelect value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}><option value="">Выберите HUMAN User</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}</EosSelect><button className="primary-action" type="button" disabled={!selectedUserId || busy} onClick={() => setDialog({ kind: 'link' })}>Связать</button></div>}</div>}</div>}
+        : <div className="employee-access"><div><strong>Нет доступа</strong><span>Employee существует без учётной записи</span></div>{canManageUser && <div className="user-actions"><button className="primary-action" type="button" onClick={() => setAccessDialog('create')}>Создать доступ</button><button className="secondary-action" type="button" onClick={() => setAccessDialog('link')}>Привязать существующий User</button></div>}</div>}
       {generatedCredentials && <GeneratedCredentialsPanel username={generatedCredentials.username} temporaryPassword={generatedCredentials.temporary_password} onClose={() => setGeneratedCredentials(null)} />}
     </section>}
 
@@ -352,18 +358,32 @@ function EmployeeDetailPage() {
     {employee.profile_level === 'BASIC' && <section className="employee-card"><h2>Рабочий профиль</h2><p>Роли: {employee.roles?.map((role) => ROLE_LABELS[role]).join(', ') || '—'}</p><p>Подразделения: {employee.department_ids?.map((id) => departmentName(departments, id)).join(', ') || '—'}</p></section>}
 
     {canViewFull && employee.profile_level === 'FULL' && <section className="employee-card"><h2>Роли</h2>
-      {roleChoices.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={selectedRole} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{roleChoices.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить роль</button></form>}
-      <div className="employee-history">{[...employee.role_assignments].reverse().map((item) => <article key={item.id}><div><strong>{ROLE_LABELS[item.role]}</strong><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && allowedRoles.includes(item.role) && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endRole', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
+      {roleChoices.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form employee-role-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={selectedRole} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{roleChoices.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить роль</button></form>}
+      <div className="employee-history">{[...employee.role_assignments].reverse().map((item) => <article key={item.id}><div><strong>{ROLE_LABELS[item.role]}</strong><span>{formatDateOnly(item.valid_from)} — {formatDateOnly(item.valid_to, 'по настоящее время')}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && allowedRoles.includes(item.role) && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endRole', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
     </section>}
 
     {employee.profile_level === 'FULL' && <section className="employee-card"><h2>Подразделения</h2>
-      {canWrite && employee.status === 'ACTIVE' && <form className="employee-assignment-form" onSubmit={addDepartment}><label><span>Подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required><option value="">Выберите</option>{departmentChoices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={departmentFrom} onChange={(e) => setDepartmentFrom(e.target.value)} required /></label><label className="employee-check"><input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} /> Основное</label><label><span>Причина изменения</span><input value={departmentReason} onChange={(e) => setDepartmentReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить подразделение</button></form>}
-      <p className="employee-help">Чтобы сменить основное подразделение, завершите текущее назначение и создайте новое как основное. Backend не поддерживает отдельную атомарную операцию смены primary.</p>
-      <div className="employee-history">{[...employee.department_assignments].reverse().map((item) => <article key={item.id}><div><strong>{departmentName(departments, item.department_id)} {item.is_primary && <b className="badge">Основное</b>}</strong><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endDepartment', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
+      {canWrite && employee.status === 'ACTIVE' && <form className="employee-assignment-form employee-department-assignment-form" onSubmit={addDepartment}><label><span>Подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required><option value="">Выберите</option>{departmentChoices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={departmentFrom} onChange={(e) => setDepartmentFrom(e.target.value)} required /></label><EosCheckbox className="employee-primary-checkbox" label="Основное" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} /><label className="employee-assignment-reason"><span>Причина изменения</span><input value={departmentReason} onChange={(e) => setDepartmentReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить подразделение</button></form>}
+      <p className="employee-help">Чтобы сменить основное подразделение, сначала завершите текущее назначение.</p>
+      <div className="employee-history">{[...employee.department_assignments].reverse().map((item) => <article key={item.id}><div><strong>{departmentName(departments, item.department_id)} {item.is_primary && <b className="badge">Основное</b>}</strong><span>{formatDateOnly(item.valid_from)} — {formatDateOnly(item.valid_to, 'по настоящее время')}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endDepartment', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
     </section>}
 
-    {canViewFull && employee.profile_level === 'FULL' && <section className="employee-card"><h2>История жизненного цикла</h2><div className="employee-history">{[...employee.lifecycle_events].reverse().map((item) => <article key={item.id}><div><strong>{({ CREATED: 'Создан', UPDATED: 'Данные изменены', DISMISSED: 'Уволен', REACTIVATED: 'Восстановлен', USER_LINKED: 'User связан', USER_UNLINKED: 'User отвязан' } as const)[item.event_type]}</strong><span>{item.effective_date}</span><span>{item.reason}</span></div></article>)}</div></section>}
+    {canViewFull && employee.profile_level === 'FULL' && <section className="employee-card"><h2>История жизненного цикла</h2><div className="employee-history">{[...employee.lifecycle_events].reverse().map((item) => <article key={item.id}><div><strong>{({ CREATED: 'Создан', UPDATED: 'Данные изменены', DISMISSED: 'Уволен', REACTIVATED: 'Восстановлен', USER_LINKED: 'User связан', USER_UNLINKED: 'User отвязан' } as const)[item.event_type]}</strong><span>{formatDateOnly(item.effective_date)}</span><span>{item.reason}</span></div></article>)}</div></section>}
   </div>
+  {avatarOpen && <EosDialog title="Фотография сотрудника" className="employee-avatar-dialog" onClose={() => { if (!busy) { setAvatarOpen(false); setAvatarFile(null) } }}>
+    <div className="employee-avatar-dialog-preview">{visibleAvatarUrl ? <img src={visibleAvatarUrl} alt={`Фото ${employee.full_name}`} /> : <span className="employee-avatar-placeholder">{employee.full_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>}</div>
+    {(canWrite || actorEmployeeId === employee.id) && <div className="employee-avatar-dialog-actions"><label className="secondary-action employee-avatar-picker">{employee.photo_url ? 'Изменить' : 'Загрузить фото'}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} /></label>{employee.photo_url && <button className="danger-action" type="button" disabled={busy} onClick={() => void removeAvatar()}>Удалить</button>}</div>}
+    {avatarFile && <div className="employee-avatar-file"><span>{avatarFile.name}</span><button className="primary-action" type="button" disabled={busy} onClick={() => void saveAvatar()}>Сохранить фото</button></div>}
+  </EosDialog>}
+  {accessDialog === 'create' && <EosDialog title="Создать доступ в EOS" onClose={() => { if (!busy) setAccessDialog(null) }}>
+    <label><span>Логин</span><input value={newUsername} minLength={3} maxLength={64} placeholder="ivanov.ii" onChange={(event) => setNewUsername(event.target.value)} autoFocus /></label>
+    <label><span>Имя</span><input value={employee.full_name} disabled /></label>
+    <div className="user-actions"><button className="primary-action" type="button" disabled={!newUsername.trim() || busy} onClick={() => void createAccess()}>{busy ? 'Создаём…' : 'Создать'}</button><button className="secondary-action" type="button" disabled={busy} onClick={() => setAccessDialog(null)}>Отмена</button></div>
+  </EosDialog>}
+  {accessDialog === 'link' && <EosDialog title="Привязать существующий User" onClose={() => setAccessDialog(null)}>
+    <label><span>Учётная запись</span><EosSelect value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}><option value="">Выберите HUMAN User</option>{candidates.map((item) => <option key={item.id} value={item.id}>@{item.username} — {item.display_name}</option>)}</EosSelect></label>
+    <div className="user-actions"><button className="primary-action" type="button" disabled={!selectedUserId || busy} onClick={() => { setAccessDialog(null); setDialog({ kind: 'link' }) }}>Продолжить</button><button className="secondary-action" type="button" onClick={() => setAccessDialog(null)}>Отмена</button></div>
+  </EosDialog>}
   {dialog && <ReasonDialog reasonRequired={dialog.kind !== 'resetPassword'} title={({ dismiss: 'Уволить сотрудника', reactivate: 'Восстановить сотрудника', unlink: 'Отвязать User', link: 'Связать User', resetPassword: 'Сбросить пароль', endRole: 'Завершить назначение роли', endDepartment: 'Завершить назначение подразделения' } as const)[dialog.kind]} confirmLabel={({ dismiss: 'Уволить', reactivate: 'Восстановить', unlink: 'Отвязать', link: 'Связать', resetPassword: 'Сбросить пароль', endRole: 'Завершить', endDepartment: 'Завершить' } as const)[dialog.kind]} dateLabel={dialog.kind === 'dismiss' ? 'Дата увольнения' : dialog.kind === 'reactivate' ? 'Дата восстановления' : dialog.kind.startsWith('end') ? 'Действует до' : undefined} dateType={dialog.kind === 'dismiss' || dialog.kind === 'reactivate' ? 'date' : 'datetime-local'} busy={busy} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />}
   </main>
 }

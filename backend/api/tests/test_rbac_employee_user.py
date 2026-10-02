@@ -407,6 +407,9 @@ class RbacEmployeeUserTests(unittest.TestCase):
                 "role": role, "valid_from": datetime.now(UTC).isoformat(),
                 "reason": "Escalation",
             }).status_code, 403)
+        profile = self.client.get(f"/employees/{new_id}")
+        self.assertEqual(profile.status_code, 200, profile.text)
+        self.assertIn("create_human_user", profile.json()["allowed_actions"])
         human = self.client.post("/users", json={
             "username": "network.human", "display_name": "Network Human",
             "account_type": "HUMAN", "employee_id": new_id,
@@ -433,11 +436,17 @@ class RbacEmployeeUserTests(unittest.TestCase):
         self.assertEqual(service_attempt.status_code, 403, service_attempt.text)
         self.actor(70, EmployeeRole.DEPUTY_DIRECTOR)
         self.current_user_id = 70
+        self.assertNotIn("create_human_user", self.client.get(f"/employees/{own}").json()["allowed_actions"])
         deputy_attempt = self.client.post("/users", json={
             "username": "deputy.human", "display_name": "Deputy attempt",
             "account_type": "HUMAN", "employee_id": own,
         })
         self.assertEqual(deputy_attempt.status_code, 403, deputy_attempt.text)
+        self.actor(71, EmployeeRole.DIRECTOR)
+        self.current_user_id = 71
+        self.assertNotIn("create_human_user", self.client.get(f"/employees/{own}").json()["allowed_actions"])
+        self.current_user_id = 1
+        self.assertIn("create_human_user", self.client.get(f"/employees/{own}").json()["allowed_actions"])
         self.current_user_id = 16
         self.assertEqual(self.client.post(f"/employees/{new_id}/password-reset", json={}).status_code, 200)
         self.assertEqual(self.client.patch(f"/users/{human.json()['id']}", json={
@@ -482,29 +491,34 @@ class RbacEmployeeUserTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/employees/{production_id}/iiko/shifts/active").status_code, 200)
         self.assertEqual(self.client.get(f"/employees/{retail_id}/iiko/shifts").status_code, 403)
 
-    def test_human_can_change_own_password_with_current_password(self) -> None:
+    def test_human_can_change_own_password_without_current_password(self) -> None:
         self.actor(15, EmployeeRole.SELLER, department_id=self.department_id)
         with self.sessions.begin() as session:
             session.get(User, 15).hashed_password = hash_password("old-password-123")
         self.current_user_id = 15
         self.assertEqual(self.client.post("/auth/change-password", json={
-            "current_password": "wrong-password", "new_password": "new-password-123",
-        }).status_code, 403)
+            "new_password": "new-password-123", "user_id": 1,
+        }).status_code, 422)
         changed = self.client.post("/auth/change-password", json={
-            "current_password": "old-password-123", "new_password": "new-password-123",
+            "new_password": "new-password-123",
         })
         self.assertEqual(changed.status_code, 204, changed.text)
         with self.sessions() as session:
             self.assertTrue(verify_password("new-password-123", session.get(User, 15).hashed_password))
             audit = session.scalar(select(AuditEvent).where(AuditEvent.event_type == "USER_PASSWORD_CHANGED"))
             self.assertEqual(audit.authorized_as, "SELLER")
+            self.assertEqual(audit.actor_user_id, 15)
+            self.assertEqual(audit.entity_id, "15")
+            self.assertEqual(audit.before, {})
+            self.assertEqual(audit.after, {})
+            self.assertNotIn("password", str(audit).lower())
 
     def test_legacy_unlinked_human_can_change_own_password(self) -> None:
         with self.sessions.begin() as session:
             session.get(User, 2).hashed_password = hash_password("old-password-123")
         self.current_user_id = 2
         changed = self.client.post("/auth/change-password", json={
-            "current_password": "old-password-123", "new_password": "new-password-123",
+            "new_password": "new-password-123",
         })
         self.assertEqual(changed.status_code, 204, changed.text)
         with self.sessions() as session:
@@ -512,6 +526,14 @@ class RbacEmployeeUserTests(unittest.TestCase):
             audit = session.scalar(select(AuditEvent).where(AuditEvent.event_type == "USER_PASSWORD_CHANGED"))
             self.assertEqual(audit.actor_user_id, 2)
             self.assertIsNone(audit.authorized_as)
+
+    def test_service_user_cannot_use_self_password_change(self) -> None:
+        with self.sessions.begin() as session:
+            session.get(User, 2).account_type = "SERVICE"
+        self.current_user_id = 2
+        self.assertEqual(self.client.post("/auth/change-password", json={
+            "new_password": "new-password-123",
+        }).status_code, 403)
 
 
 if __name__ == "__main__":

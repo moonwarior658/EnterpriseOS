@@ -18,7 +18,7 @@ const EMPLOYEE: Employee = {
   profile_level: 'FULL',
   id: 'employee-1', full_name: 'Иванов Иван Иванович', birth_date: '1990-01-01',
   photo_url: null, phone: '+7 900 000-00-00', residence_address: 'Екатеринбург',
-  status: 'ACTIVE', dismissal_date: null, dismissal_reason: null, linked_user_id: null,
+  status: 'ACTIVE', dismissal_date: null, dismissal_reason: null, linked_user_id: null, allowed_actions: [],
   created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:00:00Z',
   role_assignments: [{ id: 'r1', role: 'SELLER', valid_from: '2026-09-28T10:00:00Z', valid_to: null, reason: 'Приём', ended_reason: null }],
   department_assignments: [{ id: 'd1', department_id: 'dep-1', is_primary: true, valid_from: '2026-09-28T10:00:00Z', valid_to: null, reason: 'Приём', ended_reason: null }],

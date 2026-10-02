@@ -68,9 +68,22 @@ def get_current_employee_user(
     return current_user
 
 
-def employee_read(db: Session, employee: Employee) -> EmployeeRead:
+def employee_read(db: Session, employee: Employee, actor: User | None = None) -> EmployeeRead:
     result = EmployeeRead.model_validate(employee)
     result.linked_user_id = service.linked_user_id(db, employee.id, employee.tenant_id)
+    if actor is not None:
+        if result.linked_user_id is None:
+            try:
+                authorize(db, actor, Capability.USER_CREATE, target=employee, write=False)
+                result.allowed_actions.append("create_human_user")
+            except ActionContextError:
+                pass
+        else:
+            try:
+                authorize(db, actor, Capability.USER_RESET_PASSWORD, target=employee, write=False)
+                result.allowed_actions.append("manage_user_access")
+            except ActionContextError:
+                pass
     return result
 
 
@@ -95,7 +108,7 @@ def authorized_employee_read(db: Session, user: User, employee: Employee) -> Emp
         raise action_context_http_error(error) from error
     if context.authorized_as in {EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.SUPPLY_MANAGER}:
         return employee_basic_read(employee, context.determined_at)
-    return employee_read(db, employee)
+    return employee_read(db, employee, user)
 
 
 def _employee_photo_context(db: Session, user: User, employee: Employee):
@@ -254,9 +267,9 @@ def get_employee_avatar(
 async def upload_employee_avatar(
     employee_id: UUID,
     photo: Annotated[UploadFile, File()],
-    reason: Annotated[str, Form(min_length=1, max_length=1000)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_employee_user)],
+    reason: Annotated[str | None, Form(max_length=1000)] = None,
 ) -> EmployeeRead:
     employee = service.get_employee(db, employee_id, current_user.tenant_id, lock=True)
     context = _employee_photo_context(db, current_user, employee)
@@ -287,7 +300,8 @@ async def upload_employee_avatar(
         db, tenant_id=current_user.tenant_id, event_type="EMPLOYEE_AVATAR_UPDATED",
         entity_type="Employee", entity_id=employee.id, operation="UPDATE_AVATAR",
         context=context, actor_user=current_user, before=before,
-        after={"photo_url": employee.photo_url}, reason=reason.strip(),
+        after={"photo_url": employee.photo_url},
+        reason=(reason.strip() or None) if reason else None,
     )
     try:
         db.commit()
@@ -305,9 +319,9 @@ async def upload_employee_avatar(
 @router.delete("/{employee_id}/avatar", response_model=EmployeeRead)
 def delete_employee_avatar(
     employee_id: UUID,
-    reason: Annotated[str, Query(min_length=1, max_length=1000)],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_employee_user)],
+    reason: Annotated[str | None, Query(max_length=1000)] = None,
 ) -> EmployeeRead:
     employee = service.get_employee(db, employee_id, current_user.tenant_id, lock=True)
     context = _employee_photo_context(db, current_user, employee)
@@ -317,7 +331,8 @@ def delete_employee_avatar(
         db, tenant_id=current_user.tenant_id, event_type="EMPLOYEE_AVATAR_REMOVED",
         entity_type="Employee", entity_id=employee.id, operation="REMOVE_AVATAR",
         context=context, actor_user=current_user, before=before,
-        after={"photo_url": None}, reason=reason.strip(),
+        after={"photo_url": None},
+        reason=(reason.strip() or None) if reason else None,
     )
     db.commit()
     _avatar_path(employee).unlink(missing_ok=True)

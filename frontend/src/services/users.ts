@@ -70,10 +70,10 @@ async function authorizedRequest<T>(
   return response.json() as Promise<T>
 }
 
-export function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+export function changeOwnPassword(newPassword: string): Promise<void> {
   return authorizedRequest<void>('/auth/change-password', {
     method: 'POST',
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    body: JSON.stringify({ new_password: newPassword }),
   })
 }
 

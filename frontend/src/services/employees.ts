@@ -50,6 +50,7 @@ export type Employee = {
   dismissal_date: string | null
   dismissal_reason: string | null
   linked_user_id: number | null
+  allowed_actions: string[]
   created_at: string
   updated_at: string
   role_assignments: RoleAssignment[]
@@ -67,7 +68,7 @@ function employeeView(item: Employee | BasicEmployee): Employee {
   if (item.profile_level !== 'BASIC') return item as Employee
   return {
     ...item, birth_date: '', status: null, residence_address: '', dismissal_date: null, dismissal_reason: null,
-    linked_user_id: null, created_at: '', updated_at: '',
+    linked_user_id: null, allowed_actions: [], created_at: '', updated_at: '',
     role_assignments: [], department_assignments: [], lifecycle_events: [],
   }
 }
@@ -260,11 +261,12 @@ export const refreshEmployeeIikoShifts = (id: string) =>
   employeeRequest<EmployeeIikoSyncResult>(`/employees/${id}/iiko/shifts/refresh`, { method: 'POST' })
 export const getEmployeeAvatar = (id: string) =>
   employeeBinaryRequest(`/employees/${id}/avatar`).then((response) => response.blob())
-export const uploadEmployeeAvatar = (id: string, photo: File, reason: string) => {
-  const body = new FormData(); body.append('photo', photo); body.append('reason', reason)
+export const uploadEmployeeAvatar = (id: string, photo: File, reason?: string) => {
+  const body = new FormData(); body.append('photo', photo)
+  if (reason?.trim()) body.append('reason', reason.trim())
   return employeeBinaryRequest(`/employees/${id}/avatar`, { method: 'POST', body })
     .then((response) => response.json() as Promise<Employee>)
 }
-export const deleteEmployeeAvatar = (id: string, reason: string) =>
-  employeeBinaryRequest(`/employees/${id}/avatar?reason=${encodeURIComponent(reason)}`, { method: 'DELETE' })
+export const deleteEmployeeAvatar = (id: string, reason?: string) =>
+  employeeBinaryRequest(`/employees/${id}/avatar${reason?.trim() ? `?reason=${encodeURIComponent(reason.trim())}` : ''}`, { method: 'DELETE' })
     .then((response) => response.json() as Promise<Employee>)

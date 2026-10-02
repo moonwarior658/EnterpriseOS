@@ -10,9 +10,21 @@ import {
   type WorkRequest, type WorkRequestAttachment, type WorkRequestComment,
 } from '../services/requests'
 import { PRIORITIES, REPAIR_CATEGORIES, priorityLabel, statusLabel } from './workRequestLogic'
+import { EosSelect } from '../components/EosFormControls'
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(value))
+}
+
+function contractorSpecializations(contractorId: string, contractors: RepairContractor[], specializations: RepairSpecialization[]) {
+  const ids = contractors.find((item) => item.id === contractorId)?.specialization_ids ?? []
+  return specializations.filter((item) => item.is_active && ids.includes(item.id))
+}
+
+function selectedSpecialization(current: string, contractorId: string, contractors: RepairContractor[], specializations: RepairSpecialization[]) {
+  const available = contractorSpecializations(contractorId, contractors, specializations)
+  if (available.some((item) => item.id === current)) return current
+  return available.length === 1 ? available[0].id : ''
 }
 
 function Photo({ requestId, attachment }: { requestId: number; attachment: WorkRequestAttachment }) {
@@ -58,6 +70,16 @@ function WorkRequestDetailPage() {
     setEditDescription(item.description)
     setEditCategory(item.repair_category ?? '')
     setEditPriority(item.priority ?? 'routine')
+    if (item.allowed_actions.includes('assign_contractor') || item.allowed_actions.includes('schedule_external_visit')) {
+      const [nextContractors, nextSpecializations] = await Promise.all([
+        getRepairContractors(), getRepairSpecializations(),
+      ])
+      setContractors(nextContractors)
+      setSpecializations(nextSpecializations)
+      setSpecializationId((current) => selectedSpecialization(
+        current, item.contractor_id ?? contractorId, nextContractors, nextSpecializations,
+      ))
+    }
   }
 
   useEffect(() => {
@@ -75,8 +97,13 @@ function WorkRequestDetailPage() {
         setEditCategory(item.repair_category ?? '')
         setEditPriority(item.priority ?? 'routine')
         if (item.allowed_actions.includes('assign_contractor') || item.allowed_actions.includes('schedule_external_visit')) {
-          getRepairContractors().then((rows) => { if (alive) setContractors(rows) }).catch(() => {})
-          getRepairSpecializations().then((rows) => { if (alive) setSpecializations(rows) }).catch(() => {})
+          Promise.all([getRepairContractors(), getRepairSpecializations()]).then(([nextContractors, nextSpecializations]) => {
+            if (!alive) return
+            setContractors(nextContractors); setSpecializations(nextSpecializations)
+            setSpecializationId((current) => selectedSpecialization(
+              current, item.contractor_id ?? '', nextContractors, nextSpecializations,
+            ))
+          }).catch(() => {})
         }
       }).catch(() => { if (alive) setError('Ремонт не найден или недоступен') })
     return () => { alive = false }
@@ -121,7 +148,7 @@ function WorkRequestDetailPage() {
 
   if (!repair) return <section className="request-page"><p className="page-state">{error || 'Загружаем ремонт…'}</p></section>
   const can = (action: string) => repair.allowed_actions.includes(action)
-  const availableSpecializations = specializations.filter((item) => item.is_active && contractors.find((contractor) => contractor.id === contractorId)?.specialization_ids.includes(item.id))
+  const availableSpecializations = contractorSpecializations(contractorId, contractors, specializations)
 
   return <section className="request-page request-detail-page"><div className="request-panel">
     <div className="request-heading"><div><p className="eyebrow">РЕМОНТ</p><h1>Заявка №{repair.id}</h1></div><Link className="request-back-link" to="/requests/repair">← К списку</Link></div>
@@ -160,8 +187,8 @@ function WorkRequestDetailPage() {
       {can('escalate_to_supply') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('escalate-to-supply')}>Не смог назначить время — передать руководителю</button>}
     </section>}
     {(can('assign_contractor') || can('schedule_external_visit')) && <section className="request-detail-section"><h2>Внешний мастер</h2><div className="request-form">
-      <label className="request-field"><span>Подрядчик</span><select value={contractorId} disabled={busy} onChange={(event) => { setContractorId(event.target.value); setSpecializationId('') }}><option value="">Выберите подрядчика</option>{contractors.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.phone}</option>)}</select></label>
-      <label className="request-field"><span>Специализация</span><select value={specializationId} disabled={busy} onChange={(event) => setSpecializationId(event.target.value)}><option value="">Выберите специализацию</option>{availableSpecializations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="request-field"><span>Подрядчик</span><EosSelect value={contractorId} disabled={busy} onChange={(event) => { const nextId = event.target.value; setContractorId(nextId); setSpecializationId(selectedSpecialization('', nextId, contractors, specializations)) }}><option value="">Выберите подрядчика</option>{contractors.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.phone}</option>)}</EosSelect></label>
+      <label className="request-field"><span>Специализация</span><EosSelect value={specializationId} disabled={busy || !contractorId || availableSpecializations.length === 0} onChange={(event) => setSpecializationId(event.target.value)}><option value="">Выберите специализацию</option>{availableSpecializations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect>{contractorId && availableSpecializations.length === 0 && <small className="field-error">У подрядчика нет активных специализаций</small>}</label>
       <label className="request-field"><span>Время визита</span><input type="datetime-local" value={visitAt} disabled={busy} onChange={(event) => setVisitAt(event.target.value)} /></label>
       {can('assign_contractor') && <button type="button" disabled={busy || !contractorId || !specializationId} onClick={() => void run('assign-contractor', { contractor_id: contractorId, specialization_id: specializationId })}>Нужен внешний мастер · сохранить подрядчика</button>}
       {can('schedule_external_visit') && <button type="button" className="primary-action" disabled={busy || !contractorId || !specializationId || !visitAt} onClick={() => void run('schedule-external-visit', { contractor_id: contractorId, specialization_id: specializationId, visit_at: new Date(visitAt).toISOString() })}>Мастер придёт</button>}
