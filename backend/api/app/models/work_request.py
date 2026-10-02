@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    Numeric,
     Uuid,
     UniqueConstraint,
     func,
@@ -60,6 +62,7 @@ class WorkRequest(Base):
         CheckConstraint("responsible_role IS NULL OR responsible_role IN ('HANDYMAN', 'SUPPLY_MANAGER')", name="ck_work_requests_responsible_role"),
         Index("ix_work_requests_tenant_department", "tenant_id", "department_id"),
         Index("ix_work_requests_tenant_contractor", "tenant_id", "contractor_id"),
+        CheckConstraint("repair_cost IS NULL OR repair_cost > 0", name="ck_work_requests_repair_cost_positive"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -102,6 +105,7 @@ class WorkRequest(Base):
     contractor_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     specialization_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     visit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    repair_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -144,6 +148,7 @@ class WorkRequest(Base):
 
 class WorkRequestAttachment(Base):
     __tablename__ = "work_request_attachments"
+    __table_args__ = (CheckConstraint("kind IN ('PHOTO', 'INVOICE', 'ACT')", name="ck_work_request_attachments_kind"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     work_request_id: Mapped[int] = mapped_column(
@@ -158,6 +163,7 @@ class WorkRequestAttachment(Base):
         nullable=False,
     )
     content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="PHOTO", default="PHOTO")
     size_bytes: Mapped[int] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

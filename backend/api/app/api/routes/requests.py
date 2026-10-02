@@ -172,6 +172,11 @@ def read_request_attachment(
             detail="Attachment not found",
         ) from error
 
+    if attachment.kind != "PHOTO":
+        from app.requests.repair import can_read_finance
+        if not can_read_finance(db, current_user):
+            raise _not_found()
+
     upload_root = Path(settings.work_request_upload_dir).resolve()
     file_path = (upload_root / attachment.stored_filename).resolve()
     if file_path.parent != upload_root or not file_path.is_file():

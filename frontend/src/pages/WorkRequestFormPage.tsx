@@ -270,7 +270,7 @@ function WorkRequestFormPage() {
                 }}
                 onDrop={handleDrop}
               >
-                <span className="repair-dropzone-icon" aria-hidden="true">▧</span>
+                <span className="repair-dropzone-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2.5" y="5" width="19" height="15" rx="2"/><circle cx="12" cy="12" r="3.2"/><path d="M8 5l1-2h6l1 2"/></svg></span>
                 <strong>Перетащите фотографии сюда</strong>
                 <span>или выберите файлы</span>
                 <button

@@ -203,6 +203,47 @@ class RepairWorkflowTests(unittest.TestCase):
         self.current_user_id = 36
         self.assertEqual(self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history").status_code, 403)
 
+    def test_external_repair_cost_documents_attention_and_finance_visibility(self):
+        self.create_tables()
+        repair_id = self.create_repair().json()['id']
+        specialization = self.client.post('/repairs/specializations', json={'name': 'Мастер кофемашин'}).json()
+        contractor = self.client.post('/repairs/contractors', json={
+            'name': 'Внешний мастер', 'phone': '+7', 'specialization_ids': [specialization['id']],
+        }).json()
+        self.assertEqual(self.client.post(f'/repairs/{repair_id}/take').status_code, 200)
+        visit_at = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        scheduled = self.client.post(f'/repairs/{repair_id}/schedule-external-visit', json={
+            'contractor_id': contractor['id'], 'specialization_id': specialization['id'], 'visit_at': visit_at,
+        })
+        self.assertEqual(scheduled.status_code, 200, scheduled.text)
+        self.assertEqual(scheduled.json()['status'], 'waiting_external')
+        self.assertIsNotNone(scheduled.json()['visit_at'])
+        closed = self.client.post(f'/repairs/{repair_id}/close')
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertTrue(closed.json()['needs_action'])
+        self.assertEqual(closed.json()['status'], 'completed')
+        cost = self.client.put(f'/repairs/{repair_id}/external-cost', json={'amount': '1250.00'})
+        self.assertEqual(cost.status_code, 200, cost.text)
+        self.assertTrue(cost.json()['needs_action'])
+        for kind, filename in [('INVOICE', 'invoice.pdf'), ('ACT', 'act.pdf')]:
+            uploaded = self.client.post(f'/repairs/{repair_id}/external-documents/{kind}',
+                files={'document': (filename, b'%PDF-1.4 test', 'application/pdf')})
+            self.assertEqual(uploaded.status_code, 201, uploaded.text)
+        card = self.client.get(f'/requests/{repair_id}')
+        self.assertEqual(card.status_code, 200, card.text)
+        self.assertFalse(card.json()['needs_action'])
+        self.assertEqual(card.json()['repair_cost'], '1250.00')
+        history = self.client.get(f"/repairs/contractors/{contractor['id']}/history")
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(history.json()[0]['repair_cost'], 1250.0)
+        self.actor(39, EmployeeRole.SELLER, department_id=self.department_id)
+        self.current_user_id = 39
+        seller_card = self.client.get(f'/requests/{repair_id}')
+        self.assertEqual(seller_card.status_code, 200, seller_card.text)
+        self.assertIsNone(seller_card.json()['repair_cost'])
+        self.assertEqual(seller_card.json()['attachments'], [])
+        self.assertFalse(seller_card.json()['needs_action'])
+
     def test_seller_read_without_shift_and_write_with_shift(self):
         self.create_tables()
         repair_id = self.create_repair().json()['id']

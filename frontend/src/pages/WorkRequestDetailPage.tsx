@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   createWorkRequestComment, getRepairContractors, getRepairSpecializations,
-  addRepairPhoto,
+  addRepairPhoto, addRepairExternalDocument, setRepairExternalCost,
   getRepairTimeline, getWorkRequest, getWorkRequestAttachmentUrl,
   getWorkRequestComments, repairAction,
   updateRepairDetails,
@@ -11,9 +11,10 @@ import {
 } from '../services/requests'
 import { PRIORITIES, REPAIR_CATEGORIES, priorityLabel, statusLabel } from './workRequestLogic'
 import { EosSelect } from '../components/EosFormControls'
+import { formatDateTime } from '../utils/dateFormat'
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(value))
+  return formatDateTime(value)
 }
 
 function contractorSpecializations(contractorId: string, contractors: RepairContractor[], specializations: RepairSpecialization[]) {
@@ -42,6 +43,21 @@ function Photo({ requestId, attachment }: { requestId: number; attachment: WorkR
   return url ? <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={attachment.original_filename} /><span>{attachment.original_filename}</span></a> : <span>Загружаем фото…</span>
 }
 
+function DocumentLink({ requestId, attachment }: { requestId: number; attachment: WorkRequestAttachment }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    let alive = true
+    let objectUrl = ''
+    getWorkRequestAttachmentUrl(requestId, attachment.id).then((value) => {
+      objectUrl = value
+      if (alive) setUrl(value)
+      else URL.revokeObjectURL(value)
+    }).catch(() => setUrl(''))
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [requestId, attachment.id])
+  return url ? <a className="secondary-action" href={url} target="_blank" rel="noreferrer">{attachment.original_filename}</a> : <span>Загружаем документ…</span>
+}
+
 function WorkRequestDetailPage() {
   const requestId = Number(useParams().requestId)
   const [repair, setRepair] = useState<WorkRequest | null>(null)
@@ -57,6 +73,7 @@ function WorkRequestDetailPage() {
   const [editDescription, setEditDescription] = useState('')
   const [editCategory, setEditCategory] = useState('')
   const [editPriority, setEditPriority] = useState<'routine' | 'important' | 'urgent'>('routine')
+  const [externalCost, setExternalCost] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -67,6 +84,7 @@ function WorkRequestDetailPage() {
     setRepair(item)
     setComments(nextComments)
     setEvents(nextEvents)
+    setExternalCost(item.repair_cost ?? '')
     setEditDescription(item.description)
     setEditCategory(item.repair_category ?? '')
     setEditPriority(item.priority ?? 'routine')
@@ -93,6 +111,7 @@ function WorkRequestDetailPage() {
         setEvents(nextEvents)
         setContractorId(item.contractor_id ?? '')
         setSpecializationId(item.specialization_id ?? '')
+        setExternalCost(item.repair_cost ?? '')
         setEditDescription(item.description)
         setEditCategory(item.repair_category ?? '')
         setEditPriority(item.priority ?? 'routine')
@@ -146,6 +165,24 @@ function WorkRequestDetailPage() {
     finally { setBusy(false) }
   }
 
+  async function saveExternalCost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!repair || busy || Number(externalCost) <= 0) return
+    setBusy(true); setError('')
+    try { await setRepairExternalCost(repair.id, externalCost); await reload() }
+    catch { setError('Не удалось сохранить сумму ремонта') }
+    finally { setBusy(false) }
+  }
+
+  async function uploadExternal(kind: 'INVOICE' | 'ACT', file: File) {
+    if (!repair || busy) return
+    if (file.size > 8 * 1024 * 1024) { setError('Документ должен быть не больше 8 МБ'); return }
+    setBusy(true); setError('')
+    try { await addRepairExternalDocument(repair.id, kind, file); await reload() }
+    catch { setError('Не удалось добавить документ') }
+    finally { setBusy(false) }
+  }
+
   if (!repair) return <section className="request-page"><p className="page-state">{error || 'Загружаем ремонт…'}</p></section>
   const can = (action: string) => repair.allowed_actions.includes(action)
   const availableSpecializations = contractorSpecializations(contractorId, contractors, specializations)
@@ -172,7 +209,7 @@ function WorkRequestDetailPage() {
       <label className="request-field request-field-wide"><span>Описание</span><textarea value={editDescription} maxLength={5000} required disabled={busy} onChange={(event) => setEditDescription(event.target.value)} /></label>
       <button className="primary-action" type="submit" disabled={busy || !editDescription.trim()}>Сохранить изменения</button>
     </form></section>}
-    <section className="request-detail-section"><h2>Фотографии</h2>{repair.attachments.length ? <div className="attachment-grid">{repair.attachments.map((item) => <Photo key={item.id} requestId={repair.id} attachment={item} />)}</div> : <p className="page-state">Фотографий нет</p>}</section>
+    <section className="request-detail-section"><h2>Фотографии</h2>{repair.attachments.some((item) => item.kind === 'PHOTO') ? <div className="attachment-grid">{repair.attachments.filter((item) => item.kind === 'PHOTO').map((item) => <Photo key={item.id} requestId={repair.id} attachment={item} />)}</div> : <p className="page-state">Фотографий нет</p>}</section>
     {can('add_photo') && <label className="request-field"><span>Добавить фотографию</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => {
       const file = event.target.files?.[0]
       if (!file || busy) return
@@ -184,15 +221,20 @@ function WorkRequestDetailPage() {
     {(can('take') || can('close') || can('escalate_to_supply')) && <section className="request-detail-section"><h2>Действия</h2>
       {can('take') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('take')}>Взять в работу</button>}
       {can('close') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('close')}>Закрыть ремонт</button>}
-      {can('escalate_to_supply') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('escalate-to-supply')}>Не смог назначить время — передать руководителю</button>}
+      {can('escalate_to_supply') && <button type="button" className="primary-action" disabled={busy} onClick={() => void run('escalate-to-supply')}>Передать руководителю</button>}
     </section>}
     {(can('assign_contractor') || can('schedule_external_visit')) && <section className="request-detail-section"><h2>Внешний мастер</h2><div className="request-form">
       <label className="request-field"><span>Подрядчик</span><EosSelect value={contractorId} disabled={busy} onChange={(event) => { const nextId = event.target.value; setContractorId(nextId); setSpecializationId(selectedSpecialization('', nextId, contractors, specializations)) }}><option value="">Выберите подрядчика</option>{contractors.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.phone}</option>)}</EosSelect></label>
       <label className="request-field"><span>Специализация</span><EosSelect value={specializationId} disabled={busy || !contractorId || availableSpecializations.length === 0} onChange={(event) => setSpecializationId(event.target.value)}><option value="">Выберите специализацию</option>{availableSpecializations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect>{contractorId && availableSpecializations.length === 0 && <small className="field-error">У подрядчика нет активных специализаций</small>}</label>
       <label className="request-field"><span>Время визита</span><input type="datetime-local" value={visitAt} disabled={busy} onChange={(event) => setVisitAt(event.target.value)} /></label>
-      {can('assign_contractor') && <button type="button" disabled={busy || !contractorId || !specializationId} onClick={() => void run('assign-contractor', { contractor_id: contractorId, specialization_id: specializationId })}>Нужен внешний мастер · сохранить подрядчика</button>}
+      {can('assign_contractor') && <button type="button" disabled={busy || !contractorId || !specializationId} className="secondary-action" onClick={() => void run('assign-contractor', { contractor_id: contractorId, specialization_id: specializationId })}>Сохранить подрядчика</button>}
       {can('schedule_external_visit') && <button type="button" className="primary-action" disabled={busy || !contractorId || !specializationId || !visitAt} onClick={() => void run('schedule-external-visit', { contractor_id: contractorId, specialization_id: specializationId, visit_at: new Date(visitAt).toISOString() })}>Мастер придёт</button>}
     </div></section>}
+    {repair.contractor_id && (repair.repair_cost !== null || can('set_external_cost')) && <section className="request-detail-section"><h2>Стоимость и документы внешнего ремонта</h2>
+      {repair.needs_action && <p className="request-message">Требует действий: укажите сумму, добавьте счёт и акт</p>}
+      {can('set_external_cost') ? <form className="request-form" onSubmit={(event) => void saveExternalCost(event)}><label className="request-field"><span>Сумма ремонта, ₽</span><input type="number" min="0.01" step="0.01" value={externalCost} disabled={busy} onChange={(event) => setExternalCost(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || Number(externalCost) <= 0}>Сохранить сумму</button></form> : <p>Сумма ремонта: {repair.repair_cost ? `${repair.repair_cost} ₽` : '—'}</p>}
+      {(['INVOICE', 'ACT'] as const).map((kind) => <div key={kind} className="repair-document-row"><strong>{kind === 'INVOICE' ? 'Счёт' : 'Акт выполненных работ'}</strong><div>{repair.attachments.filter((item) => item.kind === kind).map((item) => <DocumentLink key={item.id} requestId={repair.id} attachment={item} />)}</div>{can('add_external_document') && <label className="secondary-action">Добавить {kind === 'INVOICE' ? 'счёт' : 'акт'}<input type="file" accept="application/pdf,image/jpeg,image/png" disabled={busy} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadExternal(kind, file); event.target.value = '' }} /></label>}</div>)}
+    </section>}
     {can('reopen') && <section className="request-detail-section"><h2>Не приняли результат?</h2><label className="request-field"><span>Причина переоткрытия</span><textarea value={reason} maxLength={1000} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label><button type="button" className="primary-action" disabled={busy || !reason.trim()} onClick={() => void run('reopen', { reason: reason.trim() })}>Переоткрыть</button></section>}
     <section className="request-detail-section"><h2>История</h2>{events.length ? <div className="request-comments">{events.map((item, index) => <article key={`${item.at}-${index}`}><p>{item.details}{item.reason ? `: ${item.reason}` : ''}</p><small>{item.actor || 'Система'} · {formatDate(item.at)}{item.role ? ` · ${item.role}` : ''}</small></article>)}</div> : <p className="page-state">Для старой заявки история действий не записывалась</p>}</section>
     <section className="request-detail-section"><h2>Комментарии</h2><div className="request-comments">{comments.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_name} · {formatDate(item.created_at)}</small></article>)}</div>{can('comment') && <form className="comment-form" onSubmit={(event) => void addComment(event)}><label className="request-field"><span>Добавить комментарий</span><textarea value={comment} maxLength={2000} disabled={busy} onChange={(event) => setComment(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !comment.trim()}>Добавить комментарий</button></form>}</section>

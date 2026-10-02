@@ -1,5 +1,6 @@
 """Authorized repair workflow on the historical work_requests table."""
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 from uuid import uuid4
@@ -41,11 +42,40 @@ def _details_context(db: Session, user: User, repair: WorkRequest):
         return seller
 
 
+FINANCE_ROLES = frozenset({EmployeeRole.ADMIN, EmployeeRole.DIRECTOR, EmployeeRole.DEPUTY_DIRECTOR, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.ACCOUNTANT})
+FINANCE_WRITE_ROLES = frozenset({EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.ACCOUNTANT})
+
+
+def can_read_finance(db: Session, user: User) -> bool:
+    return bool(resolve_action_context(db, user, write=False).roles & FINANCE_ROLES)
+
+
+def _finance_context(db: Session, user: User, repair: WorkRequest):
+    if repair.contractor_id is None:
+        raise RepairConflict("У ремонта нет внешнего подрядчика")
+    repair_authorize(db, user, Capability.REPAIR_READ, repair=repair)
+    return resolve_action_context(db, user, required_roles=FINANCE_WRITE_ROLES,
+        role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.ACCOUNTANT), write=True)
+
+
+def repair_needs_action(repair: WorkRequest) -> bool:
+    if repair.status != "completed" or repair.contractor_id is None:
+        return False
+    kinds = {item.kind for item in repair.attachments}
+    return repair.repair_cost is None or "INVOICE" not in kinds or "ACT" not in kinds
+
+
 def repair_read(db: Session, user: User, repair: WorkRequest) -> dict:
     contractor = db.get(ExternalContractor, repair.contractor_id) if repair.contractor_id else None
     specialization = db.get(ContractorSpecialization, repair.specialization_id) if repair.specialization_id else None
     responsible = db.get(Employee, repair.responsible_employee_id) if repair.responsible_employee_id else None
-    return dict(WorkRequestRead.model_validate(repair).model_dump(),
+    finance = can_read_finance(db, user)
+    data = WorkRequestRead.model_validate(repair).model_dump()
+    if not finance:
+        data["repair_cost"] = None
+        data["attachments"] = [item for item in data["attachments"] if item["kind"] == "PHOTO"]
+    return dict(data,
+        needs_action=finance and repair_needs_action(repair),
         allowed_actions=allowed_actions(db, user, repair),
         contractor_name=contractor.name if contractor else None,
         contractor_phone=contractor.phone if contractor else None,
@@ -115,6 +145,8 @@ def allowed_actions(db: Session, user: User, repair: WorkRequest) -> list[str]:
         elif action == "comment" and repair.status not in {"completed", "cancelled"}:
             result.append(action)
             result.append("add_photo")
+    if repair.contractor_id is not None and base.roles & FINANCE_WRITE_ROLES:
+        result.extend(("set_external_cost", "add_external_document"))
     if repair.status not in {"completed", "cancelled"}:
         try:
             _details_context(db, user, repair)
@@ -324,6 +356,50 @@ def add_photo(db: Session, user: User, repair_id: int, attachment: PendingAttach
             entity_type="WorkRequest", entity_id=repair_id, operation="ADD_PHOTO",
             context=context, actor_user=user, after={"attachment_id": item.id,
                 "filename": item.original_filename})
+        db.commit()
+    except Exception:
+        db.rollback()
+        path.unlink(missing_ok=True)
+        raise
+    return item
+
+
+def set_external_cost(db: Session, user: User, repair_id: int, amount: Decimal) -> WorkRequest:
+    repair = visible_repair(db, user, repair_id)
+    repair = db.scalar(select(WorkRequest).where(WorkRequest.id == repair_id,
+        WorkRequest.tenant_id == user.tenant_id).with_for_update().execution_options(populate_existing=True))
+    context = _finance_context(db, user, repair)
+    if amount <= 0:
+        raise RepairConflict("Сумма должна быть больше нуля")
+    before = {"repair_cost": str(repair.repair_cost) if repair.repair_cost is not None else None}
+    repair.repair_cost = amount
+    record_audit_event(db, tenant_id=user.tenant_id, event_type="REPAIR_EXTERNAL_COST_UPDATED",
+        entity_type="WorkRequest", entity_id=repair.id, operation="SET_EXTERNAL_COST",
+        context=context, actor_user=user, before=before, after={"repair_cost": str(amount)})
+    db.commit()
+    return visible_repair(db, user, repair_id)
+
+
+def add_external_document(db: Session, user: User, repair_id: int, kind: str,
+                          attachment: PendingAttachment, upload_dir: Path) -> WorkRequestAttachment:
+    repair = visible_repair(db, user, repair_id)
+    context = _finance_context(db, user, repair)
+    if kind not in {"INVOICE", "ACT"}:
+        raise RepairConflict("Выберите тип документа")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    suffix = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png"}[attachment.content_type]
+    path = upload_dir.resolve() / f"{uuid4().hex}{suffix}"
+    path.write_bytes(attachment.content)
+    item = WorkRequestAttachment(work_request_id=repair_id, kind=kind,
+        original_filename=attachment.original_filename[:255], stored_filename=path.name,
+        content_type=attachment.content_type, size_bytes=len(attachment.content))
+    try:
+        db.add(item)
+        db.flush()
+        record_audit_event(db, tenant_id=user.tenant_id, event_type="REPAIR_EXTERNAL_DOCUMENT_ADDED",
+            entity_type="WorkRequest", entity_id=repair_id, operation="ADD_EXTERNAL_DOCUMENT",
+            context=context, actor_user=user, after={"attachment_id": item.id,
+                "kind": kind, "filename": item.original_filename})
         db.commit()
     except Exception:
         db.rollback()

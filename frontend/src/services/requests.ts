@@ -14,6 +14,7 @@ export type RepairPriority = 'routine' | 'important' | 'urgent'
 
 export type WorkRequestAttachment = {
   id: number
+  kind: 'PHOTO' | 'INVOICE' | 'ACT'
   original_filename: string
   content_type: string
   size_bytes: number
@@ -46,6 +47,8 @@ export type WorkRequest = {
   responsible_employee_name: string | null
   visit_at: string | null
   closed_at: string | null
+  repair_cost: string | null
+  needs_action: boolean
   allowed_actions: string[]
 }
 
@@ -171,7 +174,7 @@ export function updateRepairContractor(id: string, input: object): Promise<Repai
   return authorizedRequest(`/repairs/contractors/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 
-export type ContractorHistory = { repair_id: number; created_at: string; department: string; category: string; description: string; specialization: string | null; visit_at: string | null; status: WorkRequestStatus; closed_at: string | null; reopened: boolean }
+export type ContractorHistory = { repair_cost: string | null; repair_id: number; created_at: string; department: string; category: string; description: string; specialization: string | null; visit_at: string | null; status: WorkRequestStatus; closed_at: string | null; reopened: boolean }
 export function getContractorHistory(id: string): Promise<ContractorHistory[]> {
   return authorizedRequest(`/repairs/contractors/${id}/history`)
 }
@@ -192,6 +195,16 @@ export function addRepairPhoto(id: number, photo: File): Promise<WorkRequestAtta
   const body = new FormData()
   body.append('photo', photo)
   return authorizedRequest(`/repairs/${id}/photos`, { method: 'POST', body })
+}
+
+export function setRepairExternalCost(id: number, amount: string): Promise<WorkRequest> {
+  return authorizedRequest(`/repairs/${id}/external-cost`, { method: 'PUT', body: JSON.stringify({ amount }) })
+}
+
+export function addRepairExternalDocument(id: number, kind: 'INVOICE' | 'ACT', file: File): Promise<WorkRequestAttachment> {
+  const body = new FormData()
+  body.append('document', file)
+  return authorizedRequest(`/repairs/${id}/external-documents/${kind}`, { method: 'POST', body })
 }
 
 export function getWorkRequests(): Promise<WorkRequest[]> {

@@ -1,6 +1,7 @@
 """Explicit repair actions and the external contractor directory."""
 from pathlib import Path
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -22,7 +23,7 @@ from app.models.audit import AuditEvent
 from app.models.supply import Department
 from app.models.user import User
 from app.models.work_request import ExternalContractor, ContractorSpecialization, ContractorSpecializationLink, WorkRequest
-from app.requests.repair import RepairConflict, add_photo, create_repair, edit_details, repair_read, timeline, transition
+from app.requests.repair import RepairConflict, add_photo, add_external_document, can_read_finance, create_repair, edit_details, repair_read, set_external_cost, timeline, transition
 from app.requests.service import PendingAttachment, WorkRequestNotFoundError
 from app.schemas.work_request import RepairContractorAssignment, RepairCreate, RepairDetailsUpdate, RepairReopen, RepairVisit, WorkRequestAttachmentRead, WorkRequestRead
 
@@ -314,7 +315,8 @@ def contractor_history(contractor_id: UUID, db: Annotated[Session, Depends(get_d
             "description": repair.description,
             "specialization": specialization.name if specialization else None,
             "visit_at": repair.visit_at,
-            "status": repair.status, "closed_at": repair.closed_at, "reopened": reopened})
+            "status": repair.status, "closed_at": repair.closed_at, "reopened": reopened,
+            "repair_cost": repair.repair_cost if can_read_finance(db, user) else None})
     return result
 
 
@@ -371,6 +373,37 @@ async def upload_photo(repair_id: int, photo: Annotated[UploadFile, File()], db:
     try:
         return add_photo(db, user, repair_id, PendingAttachment(Path(photo.filename or 'photo').name,
             photo.content_type, content), Path(settings.work_request_upload_dir))
+    except (ActionContextError, WorkRequestNotFoundError, RepairConflict) as error:
+        _error(error)
+
+
+class ExternalCostInput(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    model_config = {"extra": "forbid"}
+
+
+@router.put("/{repair_id}/external-cost", response_model=WorkRequestRead)
+def update_external_cost(repair_id: int, payload: ExternalCostInput,
+                         db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
+    try:
+        return _repair_read(db, user, set_external_cost(db, user, repair_id, payload.amount))
+    except (ActionContextError, WorkRequestNotFoundError, RepairConflict) as error:
+        _error(error)
+
+
+@router.post("/{repair_id}/external-documents/{kind}", response_model=WorkRequestAttachmentRead, status_code=201)
+async def upload_external_document(repair_id: int, kind: str, document: Annotated[UploadFile, File()],
+                                   db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
+    if kind not in {"INVOICE", "ACT"} or document.content_type not in {"application/pdf", "image/jpeg", "image/png"}:
+        raise HTTPException(status_code=422, detail="Допустимы счёт или акт в PDF, JPEG или PNG")
+    content = await document.read(8 * 1024 * 1024 + 1)
+    await document.close()
+    if not content or len(content) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="Проверьте размер документа")
+    try:
+        return add_external_document(db, user, repair_id, kind,
+            PendingAttachment(Path(document.filename or 'document').name, document.content_type, content),
+            Path(settings.work_request_upload_dir))
     except (ActionContextError, WorkRequestNotFoundError, RepairConflict) as error:
         _error(error)
 

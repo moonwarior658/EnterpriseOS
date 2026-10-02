@@ -56,7 +56,8 @@ function WorkRequestListPage() {
                   {request.repair_category}
                 </span>
                 <span>{priorityLabel(request.priority)}</span>
-                <span>Фото: {request.attachment_count}</span>
+                <span>Фото: {request.attachments.filter((item) => item.kind === 'PHOTO').length}</span>
+                {request.needs_action && <b className="badge">Требует действий</b>}
               </div>
               <p>{request.description}</p>
               <small>
@@ -81,9 +82,7 @@ function WorkRequestListPage() {
               Активных заявок: {active.length}
             </p>
           </div>
-          <Link className="request-back-link" to="/dashboard">
-            ← На Dashboard
-          </Link>
+          <div className="user-actions"><Link className="primary-action" to="/requests/repair/new">+ Добавить ремонт</Link><Link className="secondary-action" to="/dashboard">Назад</Link></div>
         </div>
 
         {state === 'loading' && <p className="page-state">Загружаем заявки…</p>}

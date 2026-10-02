@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
@@ -122,6 +123,7 @@ class WorkRequestStatusUpdate(BaseModel):
 
 class WorkRequestAttachmentRead(BaseModel):
     id: int
+    kind: str = "PHOTO"
     original_filename: str
     content_type: str
     size_bytes: int
@@ -156,6 +158,8 @@ class WorkRequestRead(BaseModel):
     responsible_employee_name: str | None = None
     visit_at: datetime | None = None
     closed_at: datetime | None = None
+    repair_cost: Decimal | None = None
+    needs_action: bool = False
     allowed_actions: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

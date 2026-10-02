@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { EosCheckbox } from '../components/EosFormControls'
+import { EosDialog } from '../components/EosDialog'
 import {
   createRepairContractor, createRepairSpecialization, getContractorHistory,
   getRepairContractors, getRepairSpecializations, updateRepairContractor,
@@ -41,7 +42,7 @@ function RepairContractorsPage() {
     setContractors(nextContractors); setSpecializations(nextSpecializations)
   }
 
-  useEffect(() => { void reload().catch(() => setError('Не удалось загрузить справочник')) }, [])
+  useEffect(() => { const timeout = window.setTimeout(() => { void reload().catch(() => setError('Не удалось загрузить справочник')) }, 0); return () => window.clearTimeout(timeout) }, [])
 
   async function open(item: RepairContractor) {
     setSelectedId(item.id); setEditing(false); setCreating(false); setError(''); setReason('')
@@ -75,7 +76,7 @@ function RepairContractorsPage() {
     setBusy(true); setError('')
     try {
       await updateRepairContractor(selected.id, { is_active: !selected.is_active, reason: reason.trim() })
-      await reload(); setReason('')
+      await reload(); setReason(''); setEditing(false)
     } catch { setError('Не удалось изменить состояние подрядчика') }
     finally { setBusy(false) }
   }
@@ -105,18 +106,17 @@ function RepairContractorsPage() {
   </form>
 
   return <section className="request-page"><div className="request-panel contractor-page">
-    <div className="request-heading"><div><p className="eyebrow">РЕМОНТ</p><h1>Внешние подрядчики</h1></div><Link className="request-back-link" to="/requests/repair">← К ремонтам</Link></div>
+    <div className="request-heading"><div><p className="eyebrow">РЕМОНТ</p><h1>Внешние подрядчики</h1></div><div className="user-actions"><button className="primary-action" type="button" onClick={startCreate}>+ Добавить подрядчика</button><Link className="secondary-action" to="/requests/repair">Назад</Link></div></div>
     {error && <p className="request-message request-message-error">{error}</p>}
-    <button className="primary-action" type="button" onClick={startCreate}>+ Добавить подрядчика</button>
-    {creating && <section className="request-detail-section"><h2>Новый подрядчик</h2>{form}</section>}
+    {editing && <EosDialog title={creating ? 'Новый подрядчик' : 'Изменить подрядчика'} onClose={() => { if (!busy) { setEditing(false); setCreating(false) } }}>{form}{selected && <div className="contractor-state-action"><label className="request-field"><span>Причина изменения состояния</span><textarea value={reason} maxLength={1000} onChange={(event) => setReason(event.target.value)} /></label><button className={selected.is_active ? 'danger-action' : 'primary-action'} type="button" disabled={busy || !reason.trim()} onClick={() => void changeActive()}>{selected.is_active ? 'Деактивировать' : 'Активировать'}</button></div>}</EosDialog>}
     <section className="request-detail-section"><h2>Каталог</h2><div className="contractor-catalog">
-      {contractors.map((item) => <button key={item.id} type="button" className="contractor-card" onClick={() => void open(item)}><span className="contractor-card-heading"><strong>{item.name}</strong><b className={`badge ${item.is_active ? 'badge-active' : ''}`}>{item.is_active ? 'Активен' : 'Неактивен'}</b></span><span>{item.phone}</span><span>{item.specialization_ids.map((id) => names.get(id)).filter(Boolean).join(', ') || 'Специализации не указаны'}</span>{item.notes && <small>{item.notes}</small>}</button>)}
+      {contractors.map((item) => <article key={item.id} className="contractor-card"><span className="contractor-card-heading"><strong>{item.name}</strong><b className={`badge ${item.is_active ? 'badge-active' : ''}`}>{item.is_active ? 'Активен' : 'Неактивен'}</b></span><span>{item.phone}</span><span>{item.specialization_ids.map((id) => names.get(id)).filter(Boolean).join(', ') || 'Специализации не указаны'}</span>{item.notes && <small>{item.notes}</small>}<span className="user-actions"><button className="secondary-action" type="button" onClick={() => void open(item)}>Открыть</button><button className="secondary-action" type="button" onClick={() => { void open(item); setEditing(true) }}>Изменить</button></span></article>)}
     </div></section>
-    {selected && <section className="request-detail-section contractor-detail"><div className="employee-section-heading"><h2>{selected.name}</h2><button className="secondary-action" type="button" onClick={() => setEditing((value) => !value)}>{editing ? 'Отмена' : 'Редактировать'}</button></div>
-      {editing ? form : <><dl className="employee-facts"><div><dt>Телефон</dt><dd>{selected.phone}</dd></div><div><dt>Статус</dt><dd>{selected.is_active ? 'Активен' : 'Неактивен'}</dd></div><div><dt>Специализации</dt><dd>{selected.specialization_ids.map((id) => names.get(id)).filter(Boolean).join(', ') || '—'}</dd></div><div><dt>Комментарий</dt><dd>{selected.notes || '—'}</dd></div><div><dt>Прайс / условия</dt><dd className="preserve-lines">{selected.price_notes || '—'}</dd></div></dl>
-        <div className="contractor-state-action"><label className="request-field"><span>Причина изменения состояния</span><textarea value={reason} maxLength={1000} onChange={(event) => setReason(event.target.value)} /></label><button className={selected.is_active ? 'danger-action' : 'primary-action'} type="button" disabled={busy || !reason.trim()} onClick={() => void changeActive()}>{selected.is_active ? 'Деактивировать' : 'Активировать'}</button></div></>}
+    {selected && <section className="request-detail-section contractor-detail"><div className="employee-section-heading"><h2>{selected.name}</h2><button className="secondary-action" type="button" onClick={() => setEditing(true)}>Изменить</button></div>
+      <><dl className="employee-facts"><div><dt>Телефон</dt><dd>{selected.phone}</dd></div><div><dt>Статус</dt><dd>{selected.is_active ? 'Активен' : 'Неактивен'}</dd></div><div><dt>Специализации</dt><dd>{selected.specialization_ids.map((id) => names.get(id)).filter(Boolean).join(', ') || '—'}</dd></div><div><dt>Комментарий</dt><dd>{selected.notes || '—'}</dd></div><div><dt>Прайс / условия</dt><dd className="preserve-lines">{selected.price_notes || '—'}</dd></div></dl>
+      </>
       <div className="contractor-history-summary"><span>Всего ремонтов: <strong>{summary.total}</strong></span><span>Закрыто: <strong>{summary.closed}</strong></span><span>Переоткрыто: <strong>{summary.reopened}</strong></span></div>
-      <div className="request-comments">{history.map((item) => <article key={item.repair_id}><strong>Ремонт №{item.repair_id}</strong><p>{new Date(item.created_at).toLocaleDateString('ru-RU')} · {item.department} · {item.category} · {statusLabel(item.status)}</p><p>{item.description}</p>{item.visit_at && <small>Визит: {new Date(item.visit_at).toLocaleString('ru-RU')}</small>}{item.closed_at && <small>Закрыт: {new Date(item.closed_at).toLocaleString('ru-RU')}</small>}{item.reopened && <b className="badge">Переоткрывался</b>}<Link to={`/requests/${item.repair_id}`}>Открыть ремонт</Link></article>)}</div>
+      <div className="request-comments">{history.map((item) => <article key={item.repair_id}><strong>Ремонт №{item.repair_id}</strong><p>{new Date(item.created_at).toLocaleDateString('ru-RU')} · {item.department} · {item.category} · {statusLabel(item.status)}</p><p>{item.description}</p>{item.visit_at && <small>Визит: {new Date(item.visit_at).toLocaleString('ru-RU')}</small>}{item.closed_at && <small>Закрыт: {new Date(item.closed_at).toLocaleString('ru-RU')}</small>}{item.reopened && <b className="badge">Переоткрывался</b>}{item.repair_cost && <p>Стоимость: {item.repair_cost} ₽</p>}<Link className="secondary-action" to={`/requests/${item.repair_id}`}>Открыть ремонт</Link></article>)}</div>
     </section>}
   </div></section>
 }

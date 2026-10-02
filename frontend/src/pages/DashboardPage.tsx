@@ -144,6 +144,8 @@ function DashboardPage() {
   }, [access.readRepairs, access.readSupplySummary])
 
   const active = activeRequestsByType(requests)
+  const repairAttention = requests.filter((item) => item.request_type === 'repair' && item.needs_action)
+  const assignedEvents = requests.filter((item) => item.request_type === 'repair' && item.status === 'waiting_external' && item.visit_at).sort((a, b) => Date.parse(a.visit_at!) - Date.parse(b.visit_at!)).slice(0, 5)
   const widgetConfig = buildDashboardWidgetConfig(
     0,
     access.readRepairs ? active.repair.length : 0,
@@ -225,7 +227,7 @@ function DashboardPage() {
   )
   const activeDirectionCount =
     activeDashboardDirectionCount(widgetConfig)
-  const requestedView = dashboardViewMode(activeDirectionCount)
+  const requestedView = repairAttention.length || assignedEvents.length ? 'active' : dashboardViewMode(activeDirectionCount)
 
   useEffect(() => {
     if (requestedView === displayedView) {
@@ -299,6 +301,8 @@ function DashboardPage() {
           </p>
         )}
 
+        {access.readRepairs && repairAttention.length > 0 && <section className="dashboard-repair-events"><h2>Требует действий: {repairAttention.length}</h2><div>{repairAttention.slice(0, 5).map((item) => <Link key={item.id} to={`/requests/${item.id}`}>Ремонт №{item.id} · {item.department}</Link>)}</div></section>}
+        {access.readRepairs && assignedEvents.length > 0 && <section className="dashboard-repair-events"><h2>Назначенные события</h2><div>{assignedEvents.map((item) => <Link key={item.id} to={`/requests/${item.id}`}>{new Date(item.visit_at!).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · Визит внешнего мастера · Ремонт №{item.id}</Link>)}</div></section>}
         <DashboardGrid widgets={widgets} />
       </div>
 
