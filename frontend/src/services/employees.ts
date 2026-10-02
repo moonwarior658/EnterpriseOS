@@ -253,8 +253,15 @@ export const correctEmployeeIikoLink = (id: string, iikoUserId: string, reason: 
   employeeRequest<IikoEmployeeLink>(`/employees/${id}/iiko/link/correct`, {
     method: 'POST', body: JSON.stringify({ iiko_user_id: iikoUserId, reason }),
   })
-export const getEmployeeIikoShifts = (id: string) =>
-  employeeRequest<EmployeeIikoShift[]>(`/employees/${id}/iiko/shifts`)
+export const getEmployeeIikoShifts = (id: string, limit = 3) =>
+  employeeRequest<EmployeeIikoShift[]>(`/employees/${id}/iiko/shifts?limit=${limit}`)
+export type EmployeeIikoShiftPage = { items: EmployeeIikoShift[]; total: number; offset: number; limit: number }
+export const getEmployeeIikoShiftPage = (id: string, dateFrom: string, dateTo: string, offset: number) => {
+  const params = new URLSearchParams({ limit: '10', offset: String(offset) })
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  return employeeRequest<EmployeeIikoShiftPage>(`/employees/${id}/iiko/shifts/page?${params}`)
+}
 export const getEmployeeActiveIikoShift = (id: string) =>
   employeeRequest<EmployeeIikoShift | null>(`/employees/${id}/iiko/shifts/active`)
 export const refreshEmployeeIikoShifts = (id: string) =>

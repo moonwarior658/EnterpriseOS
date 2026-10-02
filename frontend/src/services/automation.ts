@@ -331,6 +331,10 @@ export async function createAutomationSchedule(
   return schedule
 }
 
+export async function deleteAutomationSchedule(scheduleId: number): Promise<void> {
+  await authorizedRequest<void>(`/automation/schedules/${scheduleId}`, { method: 'DELETE' })
+}
+
 export async function updateAutomationSchedule(
   scheduleId: number,
   input: AutomationScheduleUpdateInput,

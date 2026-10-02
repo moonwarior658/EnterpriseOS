@@ -298,7 +298,7 @@ class IikoApiTests(unittest.TestCase):
         )
 
     def test_invalid_configuration_is_safe_conflict(self) -> None:
-        self.config = IikoSettings(enabled=True)
+        self.config = IikoSettings(enabled=True, base_url=None, login=None, password=None)
         response = self.client.post("/integrations/iiko/test-connection")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"], "IIKO_NOT_CONFIGURED")

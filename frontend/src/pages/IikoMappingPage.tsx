@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   EosCheckbox,
@@ -19,7 +19,6 @@ import {
   confirmUnitMapping,
   confirmWarehouseMapping,
   generateMappingCandidates,
-  getConfirmedSourceWarehouseMappings,
   getProductMappings,
   getUnitMappings,
   getWarehouseMappings,
@@ -27,7 +26,6 @@ import {
   IikoMappingApiError,
   mappingQuery,
   syncIikoReferenceData,
-  takeIikoStockBalanceSnapshot,
   unmapMapping,
   type IikoMappingKind,
   type IikoMappingStatus,
@@ -35,17 +33,13 @@ import {
   type IikoCatalogBootstrapResult,
   type IikoProductMapping,
   type IikoReferenceSyncResult,
-  type IikoStockBalanceSnapshotRun,
   type IikoUnitMapping,
   type IikoWarehouseMapping,
   type IikoWarehouseDestinationType,
   type IikoWarehouseRole,
 } from '../services/iikoMapping'
 import {
-  acquireIikoStockSnapshotGuard,
-  deduplicateIikoWarehouseMappings,
   iikoMappingStatusLabel,
-  iikoStockSnapshotStatusLabel,
   iikoWarehouseDestinationTypeLabel,
   iikoWarehouseRoleLabel,
   iikoLegalContourLabel,
@@ -89,17 +83,11 @@ function IikoMappingPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
-  const stockSnapshotInFlight = useRef(false)
   const [referenceReady, setReferenceReady] = useState(false)
   const [syncResult, setSyncResult] =
     useState<IikoReferenceSyncResult | null>(null)
   const [bootstrapResult, setBootstrapResult] =
     useState<IikoCatalogBootstrapResult | null>(null)
-  const [snapshotDepartmentId, setSnapshotDepartmentId] = useState('')
-  const [stockSnapshotResult, setStockSnapshotResult] = useState<{
-    run: IikoStockBalanceSnapshotRun
-    sources: IikoWarehouseMapping[]
-  } | null>(null)
   const [units, setUnits] = useState<SupplyUnit[]>([])
   const [departments, setDepartments] = useState<SupplyReference[]>([])
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
@@ -213,11 +201,6 @@ function IikoMappingPage() {
   useEffect(() => {
     void getSupplyDepartments().then((nextDepartments) => {
       setDepartments(nextDepartments)
-      setSnapshotDepartmentId((current) => current || (
-        nextDepartments.find((department) => (
-          department.is_active && department.legal_contour
-        ))?.id ?? ''
-      ))
     }).catch(() => setError('Не удалось загрузить подразделения'))
   }, [])
 
@@ -275,49 +258,6 @@ function IikoMappingPage() {
     } catch {
       setError('Не удалось обновить данные iiko. Повторите попытку')
     } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function takeStockSnapshot() {
-    const department = departments.find(
-      (item) => item.id === snapshotDepartmentId,
-    )
-    if (!department?.is_active || !department.legal_contour) {
-      setError('Выберите активное подразделение с юридическим контуром')
-      return
-    }
-    if (!acquireIikoStockSnapshotGuard(stockSnapshotInFlight)) return
-    setBusyId('stock-snapshot')
-    setError('')
-    setStockSnapshotResult(null)
-    try {
-      const confirmedSources = await getConfirmedSourceWarehouseMappings()
-      const contourSources = deduplicateIikoWarehouseMappings(
-        confirmedSources.filter(
-          (source) => source.legal_contour === department.legal_contour,
-        ),
-      )
-      if (contourSources.length === 0) {
-        setError(
-          `Для контура ${iikoLegalContourLabel(department.legal_contour)}`
-          + ' нет активных подтверждённых SOURCE',
-        )
-        return
-      }
-      const run = await takeIikoStockBalanceSnapshot(
-        department.id,
-        contourSources.map((source) => source.id),
-      )
-      setStockSnapshotResult({ run, sources: contourSources })
-    } catch (actionError) {
-      setError(
-        actionError instanceof IikoMappingApiError
-          ? actionError.message
-          : 'Не удалось снять остатки',
-      )
-    } finally {
-      stockSnapshotInFlight.current = false
       setBusyId(null)
     }
   }
@@ -408,22 +348,15 @@ function IikoMappingPage() {
     ))
   }
 
-  const failedSnapshotSources = stockSnapshotResult
-    ? stockSnapshotResult.sources.filter((source) => (
-        stockSnapshotResult.run.parameters
-          .failed_source_warehouse_mapping_ids.includes(source.id)
-      ))
-    : []
-
   return (
     <section className="request-page supply-admin-page iiko-mapping-page">
       <div className="request-panel">
         <div className="request-heading">
           <div>
             <p className="eyebrow">IIKO ↔ EOS</p>
-            <h1>Явный mapping</h1>
+            <h1>Сопоставление iiko</h1>
             <p className="request-intro">
-              Автоматические совпадения требуют подтверждения администратора.
+              Связи между справочниками iiko и EOS
             </p>
           </div>
           <Link className="request-back-link" to="/dashboard">← На Dashboard</Link>
@@ -483,93 +416,6 @@ function IikoMappingPage() {
             </button>
           </div>
         </div>
-
-        <div className="iiko-stock-snapshot-panel">
-          <div>
-            <strong>Снимок остатков</strong>
-            <p>
-              Склады отгрузки подбираются автоматически по юридическому контуру.
-            </p>
-          </div>
-          <label className="iiko-stock-snapshot-department">
-            <span>Подразделение</span>
-            <EosSelect
-              aria-label="Подразделение для снимка остатков"
-              value={snapshotDepartmentId}
-              disabled={busyId !== null}
-              onChange={(event) => {
-                setSnapshotDepartmentId(event.target.value)
-                setStockSnapshotResult(null)
-              }}
-            >
-              <option value="">Выберите подразделение</option>
-              {departments.filter((department) => department.is_active).map(
-                (department) => (
-                  <option
-                    key={department.id}
-                    value={department.id}
-                    disabled={!department.legal_contour}
-                  >
-                    {department.name}
-                    {department.legal_contour
-                      ? ` · ${iikoLegalContourLabel(department.legal_contour)}`
-                      : ' · контур не настроен'}
-                  </option>
-                ),
-              )}
-            </EosSelect>
-          </label>
-          <button
-            type="button"
-            className="primary-action"
-            disabled={busyId !== null || !snapshotDepartmentId}
-            onClick={() => void takeStockSnapshot()}
-          >
-            {busyId === 'stock-snapshot'
-              ? 'Снимаем остатки…'
-              : 'Снять остатки'}
-          </button>
-        </div>
-
-        {stockSnapshotResult && (
-          <div
-            className={[
-              'iiko-stock-snapshot-result',
-              `status-${stockSnapshotResult.run.status.toLowerCase()}`,
-            ].join(' ')}
-            aria-live="polite"
-          >
-            <p>
-              <strong>Статус: {stockSnapshotResult.run.status}</strong>
-              {' — '}{iikoStockSnapshotStatusLabel(
-                stockSnapshotResult.run.status,
-              )}
-            </p>
-            <p>
-              Создано строк остатков:{' '}
-              <strong>{stockSnapshotResult.run.records_created}</strong>.
-            </p>
-            {failedSnapshotSources.length === 0
-              && stockSnapshotResult.run.records_failed === 0 ? (
-                <p>Все SOURCE обработаны.</p>
-              ) : (
-                <p>
-                  Не обработаны SOURCE:{' '}
-                  {failedSnapshotSources.length > 0
-                    ? failedSnapshotSources.map(
-                        (source) => source.source_name,
-                      ).join(', ')
-                    : stockSnapshotResult.run.records_failed}.
-                </p>
-              )}
-            {stockSnapshotResult.run.status === 'PARTIALLY_SUCCEEDED' && (
-              <p>
-                Частичный снимок сохранён для аудита,
-                но не используется в Supply-расчётах.
-              </p>
-            )}
-          </div>
-        )}
 
         {syncResult && (
           <>

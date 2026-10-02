@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+﻿from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -102,6 +102,8 @@ def employee_basic_read(employee: Employee, at: datetime) -> EmployeeBasicRead:
 
 
 def authorized_employee_read(db: Session, user: User, employee: Employee) -> EmployeeRead | EmployeeBasicRead:
+    if employee.linked_user_id == user.id:
+        return employee_read(db, employee, user)
     try:
         context = authorize(db, user, Capability.EMPLOYEE_READ, target=employee)
     except ActionContextError as error:
@@ -172,6 +174,12 @@ def list_employee_departments(
         allowed_ids = scoped_department_ids(db, current_user, Scope.PRODUCTION, context)
         return [department for department in departments if department.id in allowed_ids]
     visible_ids = set()
+    own_employee = db.scalar(select(Employee).where(
+        Employee.tenant_id == current_user.tenant_id,
+        Employee.linked_user_id == current_user.id,
+    ))
+    if own_employee is not None:
+        visible_ids.update(item.department_id for item in own_employee.department_assignments)
     for employee in db.scalars(service._employee_query(current_user.tenant_id)).all():
         try:
             profile = authorized_employee_read(db, current_user, employee)
@@ -503,6 +511,21 @@ def get_iiko_shifts(
     employee = service.get_employee(db, employee_id, current_user.tenant_id)
     authorized_employee_read(db, current_user, employee)
     return iiko_employee_service.list_shifts(db, employee, limit=limit)
+
+
+@router.get("/{employee_id}/iiko/shifts/page")
+def get_iiko_shift_page(employee_id: UUID, db: Annotated[Session, Depends(get_db)],
+                        current_user: Annotated[User, Depends(get_current_employee_user)],
+                        date_from: date | None = None, date_to: date | None = None,
+                        offset: Annotated[int, Query(ge=0)] = 0,
+                        limit: Annotated[int, Query(ge=1, le=10)] = 10):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="Проверьте период смен")
+    employee = service.get_employee(db, employee_id, current_user.tenant_id)
+    authorized_employee_read(db, current_user, employee)
+    page = iiko_employee_service.shift_page(db, employee, date_from=date_from,
+        date_to=date_to, offset=offset, limit=limit)
+    return {**page, "items": [EmployeeIikoShiftRead.model_validate(item).model_dump(mode="json") for item in page["items"]]}
 
 
 @router.get("/{employee_id}/iiko/shifts/active", response_model=EmployeeIikoShiftRead | None)

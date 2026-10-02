@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -518,6 +518,22 @@ def list_shifts(db: Session, employee: Employee, *, limit: int = 50) -> list[Emp
         EmployeeIikoShift.tenant_id == employee.tenant_id,
         EmployeeIikoShift.employee_id == employee.id,
     ).order_by(EmployeeIikoShift.opened_at.desc()).limit(limit)).all())
+
+
+def shift_page(db: Session, employee: Employee, *, date_from: date | None,
+               date_to: date | None, offset: int, limit: int) -> dict:
+    query = select(EmployeeIikoShift).where(
+        EmployeeIikoShift.tenant_id == employee.tenant_id,
+        EmployeeIikoShift.employee_id == employee.id,
+    )
+    if date_from is not None:
+        query = query.where(EmployeeIikoShift.opened_at >= datetime.combine(date_from, time.min, tzinfo=UTC))
+    if date_to is not None:
+        query = query.where(EmployeeIikoShift.opened_at < datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=UTC))
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    items = list(db.scalars(query.order_by(EmployeeIikoShift.opened_at.desc(),
+        EmployeeIikoShift.id.desc()).offset(offset).limit(limit)).all())
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 def active_shift(db: Session, employee: Employee) -> EmployeeIikoShift | None:

@@ -7,6 +7,7 @@ import {
 } from 'react'
 import {
   createAutomationSchedule,
+  deleteAutomationSchedule,
   updateAutomationSchedule,
   type AutomationSchedule,
   type AutomationScopeType,
@@ -28,6 +29,8 @@ import {
   type ScheduleFormValues,
 } from './automationScheduleFormLogic'
 import { automationTypeOptions } from './automationTypeCatalogLogic'
+import { EosSelect } from '../components/EosFormControls'
+import { EosDialog } from '../components/EosDialog'
 
 const WEEKDAYS = [
   { value: 0, label: 'Пн' },
@@ -56,6 +59,7 @@ type AutomationScheduleFormProps = {
   automationTypesError: string
   onCancel: () => void
   onSaved: (schedule: AutomationSchedule, isCreated: boolean) => void
+  onDeleted: (scheduleId: number) => void
 }
 
 function AutomationScheduleForm({
@@ -65,6 +69,7 @@ function AutomationScheduleForm({
   automationTypesError,
   onCancel,
   onSaved,
+  onDeleted,
 }: AutomationScheduleFormProps) {
   const initialValues = useMemo(
     () =>
@@ -81,6 +86,7 @@ function AutomationScheduleForm({
   const [errors, setErrors] = useState<ScheduleFormErrors>({})
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [directions, setDirections] = useState<SupplyDirection[]>([])
   const [directionsError, setDirectionsError] = useState('')
   const guardRef = useRef(createSubmissionGuard())
@@ -273,6 +279,7 @@ function AutomationScheduleForm({
       ?.label ?? 'области'
 
   return (
+    <>
     <form
       className="automation-schedule-form"
       aria-labelledby="automation-form-title"
@@ -321,7 +328,7 @@ function AutomationScheduleForm({
 
         <label className="automation-form-field automation-form-field-wide">
           <span>Тип автоматизации</span>
-          <select
+          <EosSelect
             value={values.automationType}
             disabled={automationTypesLoading || Boolean(automationTypesError)}
             aria-invalid={Boolean(errors.automationType)}
@@ -344,7 +351,7 @@ function AutomationScheduleForm({
                 {automationType.displayName}
               </option>
             ))}
-          </select>
+          </EosSelect>
           {errors.automationType ? (
             <small
               id="automation-type-error"
@@ -369,7 +376,7 @@ function AutomationScheduleForm({
 
         <label className="automation-form-field">
           <span>Область действия</span>
-          <select
+          <EosSelect
             value={values.scopeType}
             onChange={(event) => {
               const scopeType = event.target.value as AutomationScopeType
@@ -385,7 +392,7 @@ function AutomationScheduleForm({
                 {option.label}
               </option>
             ))}
-          </select>
+          </EosSelect>
         </label>
 
         {values.scopeType !== 'company' && (
@@ -411,7 +418,7 @@ function AutomationScheduleForm({
 
         <label className="automation-form-field">
           <span>Периодичность</span>
-          <select
+          <EosSelect
             value={values.scheduleType}
             disabled={isEnsureCycle}
             onChange={(event) =>
@@ -424,7 +431,7 @@ function AutomationScheduleForm({
             <option value="daily">Каждый день</option>
             <option value="weekly">В выбранные дни недели</option>
             <option value="interval">Через равные интервалы</option>
-          </select>
+          </EosSelect>
           {errors.scheduleType && (
             <small className="automation-field-error">
               {errors.scheduleType}
@@ -505,7 +512,7 @@ function AutomationScheduleForm({
           <>
             <label className="automation-form-field automation-form-field-wide">
               <span>Направление</span>
-              <select
+              <EosSelect
                 value={values.directionCode}
                 disabled={directionsLoading}
                 aria-invalid={Boolean(errors.directionCode)}
@@ -527,7 +534,7 @@ function AutomationScheduleForm({
                     {direction.code} — {direction.name}
                   </option>
                 ))}
-              </select>
+              </EosSelect>
               {errors.directionCode ? (
                 <small className="automation-field-error">
                   {errors.directionCode}
@@ -697,16 +704,12 @@ function AutomationScheduleForm({
               ? 'Сохранить изменения'
               : 'Создать регламент'}
         </button>
-        <button
-          className="secondary-action"
-          type="button"
-          disabled={isSubmitting}
-          onClick={requestClose}
-        >
-          Отмена
-        </button>
+        <button className="secondary-action" type="button" disabled={isSubmitting} onClick={requestClose}>Отмена</button>
+        {schedule && <button className="danger-action" type="button" disabled={isSubmitting} onClick={() => setDeleteConfirm(true)}>Удалить задачу</button>}
       </div>
     </form>
+    {deleteConfirm && schedule && <EosDialog title="Удалить регламентную задачу?" onClose={() => { if (!isSubmitting) setDeleteConfirm(false) }}><p>Задача «{schedule.name}» будет удалена. История действий сохранится.</p>{submitError && <p className="automation-form-error">{submitError}</p>}<div className="user-actions"><button className="danger-action" type="button" disabled={isSubmitting} onClick={() => { setIsSubmitting(true); setSubmitError(''); void deleteAutomationSchedule(schedule.id).then(() => { setDeleteConfirm(false); onDeleted(schedule.id) }).catch(() => setSubmitError('Не удалось удалить задачу')).finally(() => setIsSubmitting(false)) }}>Удалить задачу</button><button className="secondary-action" type="button" disabled={isSubmitting} onClick={() => setDeleteConfirm(false)}>Отмена</button></div></EosDialog>}
+    </>
   )
 }
 

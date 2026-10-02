@@ -84,22 +84,9 @@ test('admin UI содержит три mapping-раздела и все явны
   assert.doesNotMatch(page, /setProducts\(/)
   assert.match(page, /Игнорировать/)
   assert.match(page, /Снять связь/)
-  assert.match(page, /Снять остатки/)
-  assert.match(page, /Подразделение для снимка остатков/)
-  assert.match(page, /getConfirmedSourceWarehouseMappings/)
-  assert.match(page, /void getSupplyDepartments\(\)\.then/)
-  assert.match(page, /stockSnapshotInFlight = useRef\(false\)/)
-  assert.match(page, /source\.legal_contour === department\.legal_contour/)
-  assert.match(page, /takeIikoStockBalanceSnapshot/)
-  assert.match(page, /records_created/)
-  assert.match(page, /failed_source_warehouse_mapping_ids/)
-  assert.match(page, /Частичный снимок сохранён для аудита/)
+  assert.doesNotMatch(page, /takeIikoStockBalanceSnapshot/)
   assert.match(page, /Показывать удалённые/)
   assert.match(page, /Только конфликты/)
-  assert.match(
-    page,
-    /Склады отгрузки подбираются автоматически по юридическому контуру/,
-  )
   assert.doesNotMatch(page, /SOURCE подбираются автоматически/)
   assert.match(app, /ProtectedRoute adminOnly><IikoMappingPage/)
 })

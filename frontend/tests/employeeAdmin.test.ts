@@ -37,7 +37,7 @@ test('Employee routes use role access and delete Employee is absent', () => {
   const list = readFileSync(new URL('../src/pages/EmployeesPage.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/EmployeeDetailPage.tsx', import.meta.url), 'utf8')
   assert.match(app, /path="\/employees" element={<ProtectedRoute allowBootstrap allowedRoles=/)
-  assert.match(app, /path="\/employees\/:employeeId" element={<ProtectedRoute allowedRoles=/)
+  assert.match(app, /path="\/employees\/:employeeId" element={<EmployeeDetailPage \/>/)
   assert.match(layout, /\{showEmployees && <NavLink to="\/employees"/)
   assert.match(layout, /Сотрудники/)
   assert.doesNotMatch(`${list}\n${detail}`, /deleteEmployee\b|['"]Удалить сотрудника['"]/)
@@ -148,7 +148,7 @@ test('reason обязателен в формах, User conflict перевод�
 test('карточка и API client покрывают iiko identity, correction и personal shifts', async () => {
   const detail = readFileSync(new URL('../src/pages/EmployeeDetailPage.tsx', import.meta.url), 'utf8')
   assert.match(detail, /Исправить связь с iiko/)
-  assert.match(detail, /Подразделение iiko не сопоставлено/)
+  assert.match(detail, /Точка смены не определена/)
   assert.match(detail, /Активная смена/)
   const calls: Array<{ url: string; options: RequestInit }> = []
   const originalFetch = globalThis.fetch

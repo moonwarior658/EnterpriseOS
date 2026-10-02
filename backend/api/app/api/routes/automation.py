@@ -9,6 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_admin
+from app.audit.service import record_audit_event
+from app.core.action_context import resolve_action_context
+from app.models.employee import EmployeeRole
 from app.automation.audit import (
     DEFAULT_AUDIT_LIMIT,
     count_schedule_audit_events,
@@ -227,13 +230,21 @@ def update_automation_schedule(
 def delete_automation_schedule(
     schedule_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    actor: Annotated[User, Depends(get_current_admin)],
 ) -> None:
     schedule = get_schedule(db, schedule_id)
 
     if schedule is None:
         raise schedule_not_found()
 
+    context = resolve_action_context(db, actor,
+        required_roles=frozenset({EmployeeRole.ADMIN}),
+        role_precedence=(EmployeeRole.ADMIN,), write=True)
+    record_audit_event(db, tenant_id=actor.tenant_id, event_type="AUTOMATION_SCHEDULE_DELETED",
+        entity_type="AutomationSchedule", entity_id=schedule.id, operation="DELETE",
+        context=context, actor_user=actor,
+        before={"name": schedule.name, "automation_type": schedule.automation_type,
+                "is_enabled": schedule.is_enabled}, after={})
     delete_schedule(db, schedule)
 
 

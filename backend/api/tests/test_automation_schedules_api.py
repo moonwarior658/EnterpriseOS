@@ -169,6 +169,12 @@ class AutomationSchedulesApiTestCase(unittest.TestCase):
         self.session = FakeSession()
         self.admin = make_user(is_admin=True)
         self.employee = make_user(is_admin=False)
+        self.audit_context_patch = patch("app.api.routes.automation.resolve_action_context")
+        self.audit_event_patch = patch("app.api.routes.automation.record_audit_event")
+        self.audit_context = self.audit_context_patch.start()
+        self.audit_event = self.audit_event_patch.start()
+        self.addCleanup(self.audit_context_patch.stop)
+        self.addCleanup(self.audit_event_patch.stop)
 
         def override_get_db():
             yield self.session
@@ -695,6 +701,9 @@ class AutomationScheduleDeleteApiTests(AutomationSchedulesApiTestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.content, b"")
         service.assert_called_once_with(self.session, schedule)
+        self.audit_event.assert_called_once()
+        self.assertEqual(self.audit_event.call_args.kwargs["event_type"], "AUTOMATION_SCHEDULE_DELETED")
+        self.assertEqual(self.audit_event.call_args.kwargs["entity_id"], schedule.id)
 
     def test_missing_schedule_returns_404(self) -> None:
         with (

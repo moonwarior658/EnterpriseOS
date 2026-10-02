@@ -3,20 +3,23 @@ import {
   NavLink,
   Outlet,
   useNavigate,
+  useLocation,
 } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getActionContext, type ActionContext } from '../services/actionContext'
-import { canReadAudit, canReadEmployees, canReadUsers } from '../services/employeePermissions'
-import { getEmployeeBootstrapStatus } from '../services/employees'
+import { canReadAudit, canReadEmployees } from '../services/employeePermissions'
+import { getEmployeeAvatar, getEmployeeBootstrapStatus } from '../services/employees'
 import { changeOwnPassword } from '../services/users'
 import { EosDialog } from '../components/EosDialog'
 import type { FormEvent } from 'react'
 
 function AppLayout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [actionContext, setActionContext] = useState<ActionContext | null>(null)
   const [bootstrapAvailable, setBootstrapAvailable] = useState<{ userId: number; available: boolean } | null>(null)
   const [passwordFormOpen, setPasswordFormOpen] = useState(false)
@@ -28,7 +31,6 @@ function AppLayout() {
   const roles = actionContext && user && actionContext.user_id === user.id ? actionContext.roles : []
   const showAudit = canReadAudit(roles)
   const showEmployees = canReadEmployees(roles) || Boolean(bootstrapAvailable && user && bootstrapAvailable.userId === user.id && bootstrapAvailable.available)
-  const showUsers = canReadUsers(roles)
   const repairReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'HANDYMAN', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER']
   const repairCreators = ['ADMIN', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER', 'HANDYMAN']
   const supplyRequestReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'SUPPLY_MANAGER', 'ACCOUNTANT']
@@ -48,6 +50,23 @@ function AppLayout() {
     })
     return () => { active = false }
   }, [user])
+
+  useEffect(() => {
+    const employeeId = actionContext && user && actionContext.user_id === user.id
+      ? actionContext.employee_id : null
+    if (!employeeId) return
+    let active = true
+    let objectUrl: string | null = null
+    getEmployeeAvatar(employeeId).then((blob) => {
+      if (!active) return
+      objectUrl = URL.createObjectURL(blob)
+      setAvatarUrl(objectUrl)
+    }).catch(() => { if (active) setAvatarUrl(null) })
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [actionContext, user, location.pathname])
 
   function closeMenu() {
     setMenuOpen(false)
@@ -102,12 +121,15 @@ function AppLayout() {
           </button>
         </div>
 
-        <div className="workspace-user">
+        <button className="workspace-user" type="button"
+          disabled={!actionContext?.employee_id}
+          onClick={() => navigate(`/employees/${actionContext?.employee_id}`)}
+          aria-label="Открыть свой профиль">
           <span className="workspace-avatar">
-            {user?.display_name.charAt(0).toUpperCase()}
+            {avatarUrl ? <img src={avatarUrl} alt="" /> : user?.display_name.split(/\s+/).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('')}
           </span>
           <span>{user?.display_name}</span>
-        </div>
+        </button>
       </header>
 
       {menuOpen && (
@@ -291,7 +313,6 @@ function AppLayout() {
             </>
           )}
           {showEmployees && <NavLink to="/employees" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Сотрудники</span><span>→</span></NavLink>}
-          {showUsers && <NavLink to="/users" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Пользователи</span><span>→</span></NavLink>}
           {showAudit && (
             <NavLink
               to="/audit"

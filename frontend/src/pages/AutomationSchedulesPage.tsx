@@ -17,6 +17,7 @@ import {
   type ScheduleConfig,
 } from '../services/automation'
 import AutomationScheduleForm from './AutomationScheduleForm'
+import { EosSelect } from '../components/EosFormControls'
 import {
   createManualRunGuard,
   runScheduleNow,
@@ -608,6 +609,7 @@ function AutomationSchedulesPage() {
               automationTypesError={automationTypesError}
               onCancel={closeForm}
               onSaved={handleScheduleSaved}
+              onDeleted={(scheduleId) => { setSchedules((current) => current.filter((item) => item.id !== scheduleId)); closeForm(); setNotice('Регламентная задача удалена') }}
             />
           )}
 
@@ -627,7 +629,7 @@ function AutomationSchedulesPage() {
 
             <label>
               <span>Состояние</span>
-              <select
+              <EosSelect
                 value={stateFilter}
                 onChange={(event) => {
                   setStateFilter(event.target.value as StateFilter)
@@ -639,12 +641,12 @@ function AutomationSchedulesPage() {
                 <option value="inactive">Выключенные</option>
                 <option value="errors">С ошибками</option>
                 <option value="successful">Успешные</option>
-              </select>
+              </EosSelect>
             </label>
 
             <label>
               <span>Подразделение / scope</span>
-              <select
+              <EosSelect
                 value={scopeFilter}
                 onChange={(event) => {
                   setScopeFilter(event.target.value)
@@ -657,12 +659,12 @@ function AutomationSchedulesPage() {
                     {label}
                   </option>
                 ))}
-              </select>
+              </EosSelect>
             </label>
 
             <label>
               <span>Тип автоматизации</span>
-              <select
+              <EosSelect
                 value={typeFilter}
                 disabled={
                   automationTypesLoading || Boolean(automationTypesError)
@@ -695,7 +697,7 @@ function AutomationSchedulesPage() {
                     {automationType.display_name}
                   </option>
                 ))}
-              </select>
+              </EosSelect>
             </label>
           </div>
 

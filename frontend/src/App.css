@@ -4012,3 +4012,31 @@ input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
     width: 100%;
   }
 }
+
+.employee-dialog-backdrop { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.employee-dialog { min-width: 0; max-height: calc(100dvh - 2rem); overflow-x: hidden; overflow-y: auto; }
+
+.workspace-user { border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; transform: none; }
+.workspace-user:hover, .workspace-user:focus-visible { color: var(--color-text-primary, #191a1d); transform: none; }
+.workspace-user:disabled { cursor: default; opacity: 1; }
+.workspace-avatar { flex: 0 0 36px; overflow: hidden; }
+.workspace-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.dashboard-repair-events { margin: 1rem 0; padding: 1rem; background: var(--color-surface, #fff); border: 1px solid #ddd; border-radius: 0.85rem; }
+.dashboard-repair-events h2 { margin: 0 0 0.6rem; font-size: 1rem; }
+.dashboard-repair-events > div { display: grid; gap: 0.4rem; }
+.dashboard-repair-events a { color: inherit; text-decoration: none; padding: 0.5rem; border-radius: 0.5rem; background: #f5f5f2; }
+.dashboard-repair-events a:hover { text-decoration: underline; }
+.repair-document-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; margin: 0.8rem 0; }
+.repair-document-row > div { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.iiko-mapping-row { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, auto); }
+.iiko-mapping-target, .iiko-mapping-actions { min-width: 0; }
+.iiko-mapping-actions { flex-wrap: wrap; }
+@media (max-width: 850px) { .iiko-mapping-row { grid-template-columns: minmax(0, 1fr); } }
+
+.employee-settings-dialog { width: min(900px, calc(100vw - 2rem)); max-height: calc(100dvh - 3rem); overflow: auto; }
+.employee-settings-tabs, .employee-shift-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0 1rem; }
+.employee-settings-tabs .is-active { background: #242424; color: #fff; }
+.employee-profile-layout { align-items: start; }
+.employee-avatar-preview { width: min(220px, 100%); aspect-ratio: 1; overflow: hidden; }
+.employee-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }

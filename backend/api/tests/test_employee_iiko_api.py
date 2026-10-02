@@ -1,8 +1,10 @@
 import unittest
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from app.api.routes.iiko import get_iiko_provider
 from app.integrations.iiko.schemas import IikoEmployeeDto, IikoPersonalShiftDto
-from app.models.employee import EmployeeIikoShift, IikoEmployeeLink
+from app.models.employee import EmployeeIikoShift, EmployeeIikoShiftStatus, IikoEmployeeLink
 from tests.test_employees_api import EmployeesApiTests
 
 
@@ -24,6 +26,30 @@ class EmployeeIikoApiTests(EmployeesApiTests):
         app_provider = FakeIikoProvider()
         from app.main import app
         app.dependency_overrides[get_iiko_provider] = lambda: app_provider
+
+    def test_shift_page_filters_and_server_pagination(self) -> None:
+        employee_id = UUID(self.create_employee()['id'])
+        now = datetime(2026, 9, 20, tzinfo=UTC)
+        with self.sessions.begin() as session:
+            for index in range(13):
+                opened = now - timedelta(days=index)
+                session.add(EmployeeIikoShift(
+                    tenant_id='eclair', employee_id=employee_id, iiko_user_id='iiko-1',
+                    opened_at=opened, closed_at=opened + timedelta(hours=8),
+                    first_seen_at=opened, last_seen_at=opened + timedelta(hours=8),
+                    status=EmployeeIikoShiftStatus.CLOSED, duration_minutes=480,
+                    reconciliation_key=f'page-{index}',
+                ))
+        first = self.client.get(f'/employees/{employee_id}/iiko/shifts/page?limit=10&offset=0')
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()['total'], 13)
+        self.assertEqual(len(first.json()['items']), 10)
+        second = self.client.get(f'/employees/{employee_id}/iiko/shifts/page?limit=10&offset=10')
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(len(second.json()['items']), 3)
+        dated = self.client.get(f'/employees/{employee_id}/iiko/shifts/page?date_from=2026-09-18&date_to=2026-09-20')
+        self.assertEqual(dated.status_code, 200, dated.text)
+        self.assertEqual(dated.json()['total'], 3)
 
     def test_admin_candidate_link_history_and_shift_reads(self) -> None:
         employee = self.create_employee()
