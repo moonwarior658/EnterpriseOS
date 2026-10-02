@@ -24,6 +24,7 @@ class SellerWindowRead(BaseModel):
     cycle_id: UUID | None = None
     department: SellerDepartmentRead | None = None
     allowed_departments: list[SellerDepartmentRead] = Field(default_factory=list)
+    supported_units: list[str] = Field(default_factory=list)
     request: SellerRequestRead | None = None
     reason: str | None = None
 

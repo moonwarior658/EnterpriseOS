@@ -29,7 +29,7 @@ import {
   type ScheduleFormValues,
 } from './automationScheduleFormLogic'
 import { automationTypeOptions } from './automationTypeCatalogLogic'
-import { EosSelect } from '../components/EosFormControls'
+import { EosCheckbox, EosSelect } from '../components/EosFormControls'
 import { EosDialog } from '../components/EosDialog'
 
 const WEEKDAYS = [
@@ -621,21 +621,10 @@ function AutomationScheduleForm({
               )}
             </label>
 
-            <label className="automation-enabled-field">
-              <input
-                type="checkbox"
-                checked={values.hardCloseNextDay}
-                onChange={(event) =>
-                  updateValue('hardCloseNextDay', event.target.checked)
-                }
-              />
-              <span>
-                <strong>Окончательное закрытие на следующий день</strong>
-                <small>
-                  Например, 00:10 будет относиться к следующей дате.
-                </small>
-              </span>
-            </label>
+            <div className="automation-enabled-field">
+              <EosCheckbox label="Окончательное закрытие на следующий день" checked={values.hardCloseNextDay} onChange={(event) => updateValue('hardCloseNextDay', event.target.checked)} />
+              <small>Например, 00:10 будет относиться к следующей дате.</small>
+            </div>
           </>
         )}
 
@@ -663,21 +652,10 @@ function AutomationScheduleForm({
           )}
         </label>
 
-        <label className="automation-enabled-field">
-          <input
-            type="checkbox"
-            checked={values.isEnabled}
-            onChange={(event) =>
-              updateValue('isEnabled', event.target.checked)
-            }
-          />
-          <span>
-            <strong>Активировать после сохранения</strong>
-            <small>
-              Следующий запуск рассчитает EnterpriseOS после сохранения.
-            </small>
-          </span>
-        </label>
+        <div className="automation-enabled-field">
+          <EosCheckbox label="Активировать после сохранения" checked={values.isEnabled} onChange={(event) => updateValue('isEnabled', event.target.checked)} />
+          <small>Следующий запуск рассчитает EnterpriseOS после сохранения.</small>
+        </div>
       </div>
 
       {(isEnsureCycle || isCloseCycles) && supplySummary && (

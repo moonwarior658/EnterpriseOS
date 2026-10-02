@@ -568,6 +568,7 @@ export type SupplySupplierPayment = {
   currency: 'RUB'
   payment_order_number: string | null
   payment_order_date: string | null
+  photo_original_name: string | null
   comment: string | null
   recorded_by_user_id: number | null
   recorded_by_display_name: string | null
@@ -1857,6 +1858,22 @@ export function getAvailablePaymentOrders(supplierId: string): Promise<Available
 
 export function createSupplySupplierPayment(input: SupplySupplierPaymentInput): Promise<SupplySupplierPayment> {
   return request('/supply/supplier-payments', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function uploadSupplySupplierPaymentPhoto(paymentId: string, file: File): Promise<SupplySupplierPayment> {
+  const body = new FormData()
+  body.append('file', file)
+  return request(`/supply/supplier-payments/${paymentId}/photo`, { method: 'POST', body })
+}
+
+export async function getSupplySupplierPaymentPhotoUrl(paymentId: string): Promise<string> {
+  const token = getStoredToken()
+  if (!token) throw new SupplyApiError('Сессия не найдена', null, null)
+  const response = await fetch(`/api/supply/supplier-payments/${paymentId}/photo`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) throw new SupplyApiError('Не удалось открыть фото', null, null, response.status)
+  return URL.createObjectURL(await response.blob())
 }
 
 export function updateSupplySupplierPayment(

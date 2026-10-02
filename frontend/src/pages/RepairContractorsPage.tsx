@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { EosCheckbox } from '../components/EosFormControls'
 import { EosDialog } from '../components/EosDialog'
+import { formatDateTime } from '../utils/dateFormat'
 import {
   createRepairContractor, createRepairSpecialization, getContractorHistory,
   getRepairContractors, getRepairSpecializations, updateRepairContractor,
@@ -116,7 +117,7 @@ function RepairContractorsPage() {
       <><dl className="employee-facts"><div><dt>Телефон</dt><dd>{selected.phone}</dd></div><div><dt>Статус</dt><dd>{selected.is_active ? 'Активен' : 'Неактивен'}</dd></div><div><dt>Специализации</dt><dd>{selected.specialization_ids.map((id) => names.get(id)).filter(Boolean).join(', ') || '—'}</dd></div><div><dt>Комментарий</dt><dd>{selected.notes || '—'}</dd></div><div><dt>Прайс / условия</dt><dd className="preserve-lines">{selected.price_notes || '—'}</dd></div></dl>
       </>
       <div className="contractor-history-summary"><span>Всего ремонтов: <strong>{summary.total}</strong></span><span>Закрыто: <strong>{summary.closed}</strong></span><span>Переоткрыто: <strong>{summary.reopened}</strong></span></div>
-      <div className="request-comments">{history.map((item) => <article key={item.repair_id}><strong>Ремонт №{item.repair_id}</strong><p>{new Date(item.created_at).toLocaleDateString('ru-RU')} · {item.department} · {item.category} · {statusLabel(item.status)}</p><p>{item.description}</p>{item.visit_at && <small>Визит: {new Date(item.visit_at).toLocaleString('ru-RU')}</small>}{item.closed_at && <small>Закрыт: {new Date(item.closed_at).toLocaleString('ru-RU')}</small>}{item.reopened && <b className="badge">Переоткрывался</b>}{item.repair_cost && <p>Стоимость: {item.repair_cost} ₽</p>}<Link className="secondary-action" to={`/requests/${item.repair_id}`}>Открыть ремонт</Link></article>)}</div>
+      <div className="request-comments">{history.map((item) => <article key={item.repair_id}><strong>Ремонт №{item.repair_id}</strong><p>{formatDateTime(item.created_at).slice(0, 10)} · {item.department} · {item.category} · {statusLabel(item.status)}</p><p>{item.description}</p>{item.visit_at && <small>Визит: {formatDateTime(item.visit_at)}</small>}{item.closed_at && <small>Закрыт: {formatDateTime(item.closed_at)}</small>}{item.reopened && <b className="badge">Переоткрывался</b>}{item.repair_cost && <p>Стоимость: {item.repair_cost} ₽</p>}<Link className="secondary-action" to={`/requests/${item.repair_id}`}>Открыть ремонт</Link></article>)}</div>
     </section>}
   </div></section>
 }

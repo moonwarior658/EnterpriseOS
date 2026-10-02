@@ -32,7 +32,10 @@ const EVENT_LABELS: Record<string, string> = {
   SUPPLIER_ORDER_READY: 'Заказ готов к отправке', SUPPLIER_ORDER_CANCELLED: 'Заказ поставщику отменён',
   SUPPLIER_PAYMENT_CREATED: 'Создана оплата поставщику', SUPPLIER_PAYMENT_UPDATED: 'Изменена оплата поставщику',
   SUPPLIER_PAYMENT_RECORDED: 'Оплата поставщику зафиксирована', SUPPLIER_PAYMENT_CANCELLED: 'Оплата поставщику отменена',
+  SUPPLIER_PAYMENT_PHOTO_ADDED: 'Прикреплено фото оплаты',
   AUTOMATION_SCHEDULE_DELETED: 'Удалена регламентная задача',
+  FIRST_ADMIN_BOOTSTRAPPED: 'Создан первый администратор',
+  SUPPLY_REQUEST_SELLER_EDITED: 'Изменена заявка продавца',
 }
 const ENTITY_LABELS: Record<string, string> = {
   WorkRequest: 'Ремонт', ExternalContractor: 'Подрядчик', ContractorSpecialization: 'Специализация',
@@ -50,6 +53,11 @@ const FIELD_LABELS: Record<string, string> = {
   department_id: 'Подразделение', department_name: 'Подразделение', role: 'Роль',
   amount: 'Сумма', payment_date: 'Дата оплаты', need_date: 'Дата потребности',
   is_enabled: 'Активность', number: 'Номер', comment: 'Комментарий',
+  account_type: 'Тип учётной записи', employee_id: 'Сотрудник', linked_user_id: 'Учётная запись',
+  iiko_display_name: 'Имя в iiko', iiko_user_id: 'Сотрудник iiko', is_primary: 'Основная связь',
+  notes: 'Примечание', photo_url: 'Фотография', primary_department_id: 'Основное подразделение',
+  responsibility_started_at: 'Дата назначения', specialization_ids: 'Специализации',
+  valid_from: 'Дата начала', created_at: 'Дата создания', photo_original_name: 'Фото оплаты',
 }
 const VALUE_LABELS: Record<string, string> = {
   new: 'Новая', in_progress: 'В работе', waiting_external: 'Ожидается внешний мастер',
@@ -57,7 +65,11 @@ const VALUE_LABELS: Record<string, string> = {
   DRAFT: 'Черновик', READY: 'Готово', SENT: 'Отправлено', RECORDED: 'Зафиксировано',
   SUBMITTED: 'Подтверждено', OPEN: 'Открыто', CLOSED: 'Закрыто',
   HANDYMAN: 'Мастер по ремонту', SUPPLY_MANAGER: 'Руководитель снабжения',
-  ADMIN: 'Администратор', SELLER: 'Продавец', ACCOUNTANT: 'Бухгалтер',
+  ADMIN: 'Администратор', DIRECTOR: 'Директор', DEPUTY_DIRECTOR: 'Заместитель директора',
+  NETWORK_MANAGER: 'Управляющий сетью', HEAD_OF_PRODUCTION: 'Заведующий производством',
+  CHEF_CONFECTIONER: 'Шеф-кондитер', CONFECTIONER: 'Кондитер', BAKER: 'Пекарь',
+  DRIVER: 'Водитель', SELLER: 'Продавец', ACCOUNTANT: 'Бухгалтер',
+  HUMAN: 'Сотрудник', SERVICE: 'Сервисная запись', ACTIVE: 'Активен', DISMISSED: 'Уволен',
   routine: 'Обычный', important: 'Важный', urgent: 'Срочный',
   true: 'Да', false: 'Нет',
 }
@@ -66,6 +78,9 @@ const technicalKeys = new Set(['id', 'tenant_id', 'shift_id', 'created_by_user_i
 function labelEvent(value: string) { return EVENT_LABELS[value] ?? 'Действие в системе' }
 function valueText(value: unknown, key: string): string {
   if (value === null || value === undefined || value === '') return '—'
+  if (key === 'photo_url') return 'Есть фото'
+  if (key === 'specialization_ids' && Array.isArray(value)) return `${value.length} специализаций`
+  if (key.endsWith('_id')) return 'Связано'
   if (typeof value === 'boolean') return value ? 'Да' : 'Нет'
   if (typeof value === 'string') {
     if (VALUE_LABELS[value]) return VALUE_LABELS[value]
@@ -81,6 +96,7 @@ function valueText(value: unknown, key: string): string {
 function eventDiff(event: AuditEvent) {
   return Array.from(new Set([...Object.keys(event.before), ...Object.keys(event.after)]))
     .sort().filter((key) => !technicalKeys.has(key) && JSON.stringify(event.before[key] ?? null) !== JSON.stringify(event.after[key] ?? null))
+    .filter((key) => key in FIELD_LABELS)
     .filter((key) => !(key.endsWith('_id') && (`${key.slice(0, -3)}_name_snapshot` in event.after || `${key.slice(0, -3)}_name_snapshot` in event.before)))
     .map((key) => ({ key, label: FIELD_LABELS[key] ?? key.replaceAll('_', ' '), before: valueText(event.before[key], key), after: valueText(event.after[key], key) }))
 }

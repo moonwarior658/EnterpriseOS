@@ -6,7 +6,6 @@ import DashboardGrid, {
   type DashboardWidgetDefinition,
 } from '../components/dashboard/DashboardGrid'
 import DashboardMascots from '../components/dashboard/DashboardMascots'
-import DashboardSystemStatus from '../components/dashboard/DashboardSystemStatus'
 import { getApiHealth, type ApiHealth } from '../services/api'
 import {
   getWorkRequests,
@@ -31,6 +30,8 @@ import {
   type DashboardViewMode,
 } from './dashboardWidgetLogic'
 import { dashboardAccess } from './dashboardAccess'
+import { buildAttentionItems, upcomingExternalVisits } from './dashboardOverviewLogic'
+import { formatDateTime } from '../utils/dateFormat'
 
 type RequestsState = 'loading' | 'ready' | 'error'
 const DASHBOARD_EMPTY_TRANSITION_MS = 280
@@ -145,7 +146,9 @@ function DashboardPage() {
 
   const active = activeRequestsByType(requests)
   const repairAttention = requests.filter((item) => item.request_type === 'repair' && item.needs_action)
-  const assignedEvents = requests.filter((item) => item.request_type === 'repair' && item.status === 'waiting_external' && item.visit_at).sort((a, b) => Date.parse(a.visit_at!) - Date.parse(b.visit_at!)).slice(0, 5)
+  const attentionItems = buildAttentionItems(repairAttention.length, supplySummary, access)
+  const attentionTotal = attentionItems.length
+  const assignedEvents = upcomingExternalVisits(requests)
   const widgetConfig = buildDashboardWidgetConfig(
     0,
     access.readRepairs ? active.repair.length : 0,
@@ -227,7 +230,7 @@ function DashboardPage() {
   )
   const activeDirectionCount =
     activeDashboardDirectionCount(widgetConfig)
-  const requestedView = repairAttention.length || assignedEvents.length ? 'active' : dashboardViewMode(activeDirectionCount)
+  const requestedView = attentionTotal || assignedEvents.length ? 'active' : dashboardViewMode(activeDirectionCount)
 
   useEffect(() => {
     if (requestedView === displayedView) {
@@ -287,10 +290,7 @@ function DashboardPage() {
   return (
     <section className="dashboard-view dashboard-view-active">
       <div className="dashboard-summary">
-        <DashboardSystemStatus
-          activeDirectionCount={activeDirectionCount}
-          connectionState={connectionState}
-        />
+        <div className="dashboard-overview-heading"><div><p className="eyebrow">ENTERPRISEOS</p><h1>Обзор</h1></div>{connectionState === 'offline' && <span className="dashboard-connection-warning" role="status">Нет связи с системой</span>}</div>
 
         {requestsState === 'loading' && (
           <p className="dashboard-loading">Загружаем заявки…</p>
@@ -301,8 +301,16 @@ function DashboardPage() {
           </p>
         )}
 
-        {access.readRepairs && repairAttention.length > 0 && <section className="dashboard-repair-events"><h2>Требует действий: {repairAttention.length}</h2><div>{repairAttention.slice(0, 5).map((item) => <Link key={item.id} to={`/requests/${item.id}`}>Ремонт №{item.id} · {item.department}</Link>)}</div></section>}
-        {access.readRepairs && assignedEvents.length > 0 && <section className="dashboard-repair-events"><h2>Назначенные события</h2><div>{assignedEvents.map((item) => <Link key={item.id} to={`/requests/${item.id}`}>{new Date(item.visit_at!).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · Визит внешнего мастера · Ремонт №{item.id}</Link>)}</div></section>}
+        <div className="dashboard-overview-grid">
+          <section className="dashboard-overview-card dashboard-overview-card-warning" aria-labelledby="dashboard-attention-title">
+            <div className="dashboard-overview-card-heading"><h2 id="dashboard-attention-title">Требует внимания</h2><span className="dashboard-attention-count">{attentionTotal}</span></div>
+            {attentionItems.length ? <div className="dashboard-attention-list">{attentionItems.map((item) => <Link key={item.to} to={item.to}><span>{item.label}</span><strong>{item.count}</strong></Link>)}</div> : <p className="dashboard-overview-empty">Сейчас нет задач, требующих внимания.</p>}
+          </section>
+          <section className="dashboard-overview-card" aria-labelledby="dashboard-events-title">
+            <div className="dashboard-overview-card-heading"><h2 id="dashboard-events-title">Назначенные события</h2></div>
+            {assignedEvents.length ? <div className="dashboard-event-list">{assignedEvents.map((item) => <article key={item.id} className="dashboard-event-item"><time dateTime={item.visit_at!}>{formatDateTime(item.visit_at)}</time><strong>Визит внешнего мастера</strong><span>Ремонт №{item.id} · {item.department}</span><Link className="secondary-action" to={`/requests/${item.id}`}>Открыть ремонт</Link></article>)}</div> : <p className="dashboard-overview-empty">Ближайших визитов нет.</p>}
+          </section>
+        </div>
         <DashboardGrid widgets={widgets} />
       </div>
 

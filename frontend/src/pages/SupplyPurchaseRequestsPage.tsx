@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { EosDialog } from '../components/EosDialog'
 import { EosDateField } from '../components/EosFormControls'
+import { formatDateOnly } from '../utils/dateFormat'
 import {
   createSupplyPurchaseRequest,
   getSupplyPurchaseRequests,
@@ -14,10 +15,6 @@ import { useSupplyPermissions } from '../services/useSupplyPermissions'
 const STATUS_LABELS = {
   DRAFT: 'Черновик', READY: 'Зафиксирован', CANCELLED: 'Отменён',
 } as const
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('ru-RU').format(new Date(`${value}T00:00:00`))
-}
 
 export default function SupplyPurchaseRequestsPage() {
   const { canOperate } = useSupplyPermissions()
@@ -102,7 +99,7 @@ export default function SupplyPurchaseRequestsPage() {
               <tbody>{items.map((item) => (
                 <tr key={item.id}>
                   <td><Link to={`/supply/purchase-requests/${item.id}`}>{item.number}</Link></td>
-                  <td>{formatDate(item.need_date)}</td>
+                  <td>{formatDateOnly(item.need_date)}</td>
                   <td><span className={`purchase-status purchase-status-${item.status.toLowerCase()}`}>{STATUS_LABELS[item.status]}</span></td>
                   <td>{item.line_count}</td>
                   <td>{new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.updated_at))}</td>

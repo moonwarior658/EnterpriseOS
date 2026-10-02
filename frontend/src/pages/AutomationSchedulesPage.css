@@ -733,3 +733,7 @@
   }
 }
 
+
+.automation-enabled-field { display: grid; gap: .25rem; align-content: center; cursor: default; }
+.automation-enabled-field .eos-checkbox { width: fit-content; }
+.automation-enabled-field > small { margin-left: 1.8rem; }

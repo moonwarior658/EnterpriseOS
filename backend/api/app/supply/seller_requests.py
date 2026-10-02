@@ -11,9 +11,10 @@ from app.integrations.iiko.document_routing import outgoing_invoice_flows_for_de
 from app.models.employee import EmployeeRole
 from app.models.supply import (
     Department, DepartmentBusinessType, SupplyRequest, SupplyRequestCycle,
-    SupplyRequestDirection, SupplyRequestLine,
+    SupplyRequestDirection, SupplyRequestLine, SupplyUnit,
 )
 from app.models.user import User
+from app.supply.parser import supported_unit_labels
 from app.schemas.seller_supply import (
     SellerDepartmentRead, SellerRequestConfirm, SellerRequestRead,
     SellerRequestSave, SellerWindowRead,
@@ -118,6 +119,9 @@ def current_window(db: Session, user: User, department_id: UUID | None = None, *
     if cycle is None:
         return SellerWindowRead(is_open=False, can_write=False, reason='Приём заявок сейчас закрыт')
     existing = _existing(db, user.tenant_id, cycle, department) if department else None
+    catalog_codes = set(db.scalars(select(SupplyUnit.code).where(
+        SupplyUnit.tenant_id == user.tenant_id, SupplyUnit.is_active.is_(True),
+    )).all())
     return SellerWindowRead(
         is_open=True, can_write=context.shift_id is not None and department is not None,
         closes_at=cycle.hard_closes_at or cycle.closes_at,
@@ -125,6 +129,7 @@ def current_window(db: Session, user: User, department_id: UUID | None = None, *
         cycle_id=cycle.id,
         department=SellerDepartmentRead(id=department.id, name=department.name) if department else None,
         allowed_departments=[SellerDepartmentRead(id=item.id, name=item.name) for item in allowed] if context.shift_id and base_is_unresolved(context) else [],
+        supported_units=supported_unit_labels(catalog_codes),
         request=_request_read(existing) if existing and existing.created_by_user_id == user.id else None,
         reason='Для заявки требуется открытая смена iiko' if context.shift_id is None else None,
     )

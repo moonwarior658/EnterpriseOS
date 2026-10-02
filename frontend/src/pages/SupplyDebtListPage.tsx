@@ -205,11 +205,12 @@ function SupplyDebtListPage() {
         ) : items.length > 0 && (
           <div className="supply-debt-list">
             {items.map((debt) => (
+              <div className="supply-debt-list-item" key={debt.id}>
               <button
                 type="button"
                 className={`supply-debt-row supply-debt-${debt.severity.toLowerCase()}`}
-                key={debt.id}
-                onClick={() => openDebt(debt.id)}
+                aria-expanded={selected?.id === debt.id}
+                onClick={() => selected?.id === debt.id ? closeDebtCard() : openDebt(debt.id)}
               >
                 <strong>{debt.department.name} · {debt.working_name}</strong>
                 <span>{debt.outstanding_quantity} {debt.unit.short_name_ru}</span>
@@ -217,10 +218,7 @@ function SupplyDebtListPage() {
                 <span>{formatDate(debt.opened_at)}</span>
                 <span>{STATUS_LABELS[debt.status]}</span>
               </button>
-            ))}
-          </div>
-        )}
-        {selected && (
+              {selected?.id === debt.id && (
           <article className="supply-debt-detail">
             <header>
               <div>
@@ -242,7 +240,7 @@ function SupplyDebtListPage() {
                 Требуется ручное сопоставление товара EOS. Откройте первую
                 заявку и сопоставьте строку долга.
               </p>
-            )}
+                  )}
             {canOperate && selected.status === 'ACTIVE' && (
               <div className="supply-card-actions">
                 <button type="button" disabled={busy} onClick={() => void cancelDebt(selected)}>
@@ -263,6 +261,11 @@ function SupplyDebtListPage() {
             </ol>
           </article>
         )}
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </section>
   )

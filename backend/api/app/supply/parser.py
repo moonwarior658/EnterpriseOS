@@ -52,6 +52,15 @@ _EMBEDDED_QUANTITY_UNIT_PATTERN = re.compile(
 )
 
 
+def supported_unit_labels(active_catalog_codes: set[str]) -> list[str]:
+    """Short parser forms whose units are active in the tenant catalog."""
+    labels: dict[str, str] = {}
+    for form, (code, _allows_fraction) in _UNIT_FORMS.items():
+        if code in active_catalog_codes and (code not in labels or len(form) < len(labels[code])):
+            labels[code] = form
+    return list(labels.values())
+
+
 def _parse_quantity_and_unit(
     match: re.Match[str],
 ) -> tuple[Decimal, str] | None:

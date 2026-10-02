@@ -18,6 +18,7 @@ import {
 } from '../services/automation'
 import AutomationScheduleForm from './AutomationScheduleForm'
 import { EosSelect } from '../components/EosFormControls'
+import { formatDateTime } from '../utils/dateFormat'
 import {
   createManualRunGuard,
   runScheduleNow,
@@ -58,23 +59,7 @@ type StateFilter =
   | 'successful'
 
 function formatDate(value: string | null): string {
-  if (!value) {
-    return '—'
-  }
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return '—'
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return formatDateTime(value)
 }
 
 function formatDuration(value: number | null): string {

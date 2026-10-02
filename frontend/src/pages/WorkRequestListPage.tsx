@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { formatDateTime } from '../utils/dateFormat'
 import {
   getWorkRequests,
   type WorkRequest,
@@ -10,13 +11,6 @@ import {
   sortWorkRequests,
   statusLabel,
 } from './workRequestLogic'
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(value))
-}
 
 function WorkRequestListPage() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>(
@@ -61,7 +55,7 @@ function WorkRequestListPage() {
               </div>
               <p>{request.description}</p>
               <small>
-                {formatDate(request.created_at)} · {request.created_by_name}
+                {formatDateTime(request.created_at)} · {request.created_by_name}
               </small>
             </div>
             <span aria-hidden="true">→</span>

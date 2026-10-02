@@ -6,25 +6,17 @@ import {
   BusinessActionError, confirmSellerRequest, getSellerWindow, saveSellerRequest,
   type SellerWindow,
 } from '../services/actionContext'
-import { getSupplyUnits, type SupplyUnit } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
 
 export default function SellerSupplyRequestPage() {
   const [windowInfo, setWindowInfo] = useState<SellerWindow | null>(null)
   const [allowedDepartments, setAllowedDepartments] = useState<SellerWindow['allowed_departments']>([])
   const [departmentId, setDepartmentId] = useState('')
-  const [units, setUnits] = useState<SupplyUnit[]>([])
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(true)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-
-  useEffect(() => {
-    let active = true
-    getSupplyUnits().then((rows) => { if (active) setUnits(rows) }).catch(() => undefined)
-    return () => { active = false }
-  }, [])
 
   useEffect(() => {
     let active = true
@@ -89,12 +81,11 @@ export default function SellerSupplyRequestPage() {
       {windowInfo.is_open ? <>
         {windowInfo.department && <p>Точка: <strong>{windowInfo.department.name}</strong></p>}
         {windowInfo.closes_at && <p>Приём заявок до: <strong>{formatDateTime(windowInfo.closes_at)}</strong></p>}
-        {windowInfo.need_date && <p>Дата потребности: {windowInfo.need_date.split('-').reverse().join('-')}</p>}
         {!windowInfo.department && allowedDepartments.length > 0 && <label className="eos-field"><span>Точка</span><EosSelect value={departmentId} disabled={busy} onChange={(event) => setDepartmentId(event.target.value)}><option value="">Выберите торговую точку</option>{allowedDepartments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label>}
         <form onSubmit={(event) => void save(event)}>
           <label className="eos-field"><span>Что нужно</span><textarea value={text} disabled={!windowInfo.can_write || !editing || busy} rows={8} maxLength={10000} onChange={(event) => setText(event.target.value)} /></label>
           <p className="employee-help">Каждый товар укажите с новой строки.<br />Формат: Название — количество — фасовка.<br />Примеры:<br />Сливки 33% — 6 л<br />Молоко — 12 шт<br />Клубника — 5 кг<br />Стаканы 300 мл — 4 кор</p>
-          {units.length > 0 && <p className="employee-help">Единицы каталога: {units.map((item) => item.short_name_ru).join(', ')}</p>}
+          {windowInfo.supported_units.length > 0 && <p className="employee-help">Поддерживаемые единицы и фасовки: {windowInfo.supported_units.join(', ')}</p>}
           {windowInfo.can_write && <div className="purchase-actions">
             {windowInfo.request?.status === 'SUBMITTED' && !editing
               ? <button className="secondary-action" type="button" onClick={() => setEditing(true)}>Изменить</button>

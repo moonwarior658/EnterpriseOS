@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
+from uuid import uuid4
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -118,6 +120,7 @@ def payment_read(session: Session, payment: SupplySupplierPayment) -> SupplySupp
         currency=payment.currency,
         payment_order_number=payment.payment_order_number,
         payment_order_date=payment.payment_order_date,
+        photo_original_name=payment.photo_original_name,
         comment=payment.comment,
         recorded_by_user_id=payment.recorded_by_user_id,
         recorded_by_display_name=recorder_name,
@@ -454,3 +457,41 @@ def order_prepayment_summary(
         unallocated_prepayment_count=len(unallocated),
         unallocated_prepayment_amount=unallocated_amount,
     )
+
+
+def attach_payment_photo(
+    session: Session, payment_id: UUID, *, tenant_id: str, filename: str,
+    content_type: str, content: bytes, upload_dir: Path,
+    audit_context: ActionContext, actor_user: User,
+) -> SupplySupplierPaymentRead:
+    payment = _get_payment(session, payment_id, tenant_id=tenant_id, lock=True)
+    if payment.status != "DRAFT" or payment.photo_filename is not None:
+        raise SupplierPaymentStateError
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[content_type]
+    stored_name = f"{uuid4().hex}{extension}"
+    path = upload_dir / stored_name
+    try:
+        path.write_bytes(content)
+        payment.photo_filename = stored_name
+        payment.photo_original_name = Path(filename).name[:255] or "Фото оплаты"
+        payment.photo_content_type = content_type
+        record_audit_event(
+            session, tenant_id=tenant_id, event_type="SUPPLIER_PAYMENT_PHOTO_ADDED",
+            entity_type="SupplySupplierPayment", entity_id=payment.id,
+            operation="UPDATE", context=audit_context, actor_user=actor_user,
+            before={}, after={"photo_original_name": payment.photo_original_name},
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        path.unlink(missing_ok=True)
+        raise
+    return read_payment(session, payment_id, tenant_id=tenant_id)
+
+
+def payment_photo(session: Session, payment_id: UUID, *, tenant_id: str) -> tuple[str, str]:
+    payment = _get_payment(session, payment_id, tenant_id=tenant_id)
+    if not payment.photo_filename or not payment.photo_content_type:
+        raise SupplierPaymentNotFoundError
+    return payment.photo_filename, payment.photo_content_type

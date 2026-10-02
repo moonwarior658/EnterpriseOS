@@ -114,6 +114,7 @@ export type SellerWindow = {
   cycle_id: string | null
   department: { id: string; name: string } | null
   allowed_departments: { id: string; name: string }[]
+  supported_units: string[]
   request: SellerRequest | null
   reason: string | null
 }

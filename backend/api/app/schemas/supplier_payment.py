@@ -111,6 +111,7 @@ class SupplySupplierPaymentRead(BaseModel):
     currency: str
     payment_order_number: str | None
     payment_order_date: date | None
+    photo_original_name: str | None
     comment: str | None
     recorded_by_user_id: int | None
     recorded_by_display_name: str | None

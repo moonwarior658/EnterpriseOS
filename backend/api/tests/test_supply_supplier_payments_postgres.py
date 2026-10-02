@@ -117,6 +117,9 @@ class SupplySupplierPaymentsPostgresTests(unittest.TestCase):
 
         command.upgrade(self.config, "20260917_0053")
         self.assertEqual(self.revision(), "20260917_0053")
+        # Current payment service uses columns introduced after the historical constraint revision.
+        command.upgrade(self.config, "20261002_0068")
+        self.assertEqual(self.revision(), "20261002_0068")
 
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         payload = SupplySupplierPaymentCreate(

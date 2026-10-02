@@ -1,12 +1,15 @@
 from datetime import date
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_supply_reader, get_payment_writer
 from app.core.authorization import Capability, authorize
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_payment import (
@@ -25,6 +28,8 @@ from app.supply.supplier_payments import (
     SupplierPaymentStateError,
     SupplierPaymentValidationError,
     available_orders,
+    attach_payment_photo,
+    payment_photo,
     cancel_payment,
     create_payment,
     list_payments,
@@ -164,3 +169,46 @@ def cancel_supplier_payment(
                               audit_context=context, actor_user=admin, reason=payload.reason)
     except (SupplierPaymentNotFoundError, SupplierPaymentStateError) as error:
         raise _error(error) from error
+
+
+@router.post("/{payment_id}/photo", response_model=SupplySupplierPaymentRead)
+async def upload_supplier_payment_photo(
+    payment_id: UUID, file: Annotated[UploadFile, File()],
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_payment_writer)],
+) -> SupplySupplierPaymentRead:
+    allowed = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG\r\n\x1a\n", "image/webp": b"RIFF"}
+    content = await file.read(10 * 1024 * 1024 + 1)
+    await file.close()
+    if file.content_type not in allowed or not content.startswith(allowed[file.content_type]) or not content:
+        raise HTTPException(status_code=422, detail="Допустимы фотографии JPEG, PNG и WebP")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Фото не должно превышать 10 МБ")
+    if file.content_type == "image/webp" and content[8:12] != b"WEBP":
+        raise HTTPException(status_code=422, detail="Некорректный файл WebP")
+    try:
+        context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
+        return attach_payment_photo(
+            db, payment_id, tenant_id=admin.tenant_id,
+            filename=file.filename or "photo", content_type=file.content_type,
+            content=content, upload_dir=Path(settings.supplier_document_upload_dir) / "payments",
+            audit_context=context, actor_user=admin,
+        )
+    except (SupplierPaymentNotFoundError, SupplierPaymentStateError) as error:
+        raise _error(error) from error
+
+
+@router.get("/{payment_id}/photo")
+def read_supplier_payment_photo(
+    payment_id: UUID, db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_supply_reader)],
+) -> FileResponse:
+    try:
+        filename, content_type = payment_photo(db, payment_id, tenant_id=admin.tenant_id)
+    except SupplierPaymentNotFoundError as error:
+        raise _error(error) from error
+    root = (Path(settings.supplier_document_upload_dir) / "payments").resolve()
+    path = (root / filename).resolve()
+    if path.parent != root or not path.is_file():
+        raise HTTPException(status_code=404, detail="Фото оплаты не найдено")
+    return FileResponse(path, media_type=content_type)

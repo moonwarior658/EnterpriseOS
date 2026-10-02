@@ -204,8 +204,8 @@ function WorkRequestDetailPage() {
     </dl>
     <section className="request-description"><h2>Описание</h2><p>{repair.description}</p></section>
     {can('edit_details') && <section className="request-detail-section"><h2>Уточнить заявку</h2><form className="request-form" onSubmit={(event) => void saveDetails(event)}>
-      <label className="request-field"><span>Категория</span><select value={editCategory} disabled={busy} onChange={(event) => setEditCategory(event.target.value)}>{REPAIR_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-      <label className="request-field"><span>Приоритет</span><select value={editPriority} disabled={busy} onChange={(event) => setEditPriority(event.target.value as 'routine' | 'important' | 'urgent')}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+      <label className="request-field"><span>Категория</span><EosSelect value={editCategory} disabled={busy} onChange={(event) => setEditCategory(event.target.value)}>{REPAIR_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}</EosSelect></label>
+      <label className="request-field"><span>Приоритет</span><EosSelect value={editPriority} disabled={busy} onChange={(event) => setEditPriority(event.target.value as 'routine' | 'important' | 'urgent')}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</EosSelect></label>
       <label className="request-field request-field-wide"><span>Описание</span><textarea value={editDescription} maxLength={5000} required disabled={busy} onChange={(event) => setEditDescription(event.target.value)} /></label>
       <button className="primary-action" type="submit" disabled={busy || !editDescription.trim()}>Сохранить изменения</button>
     </form></section>}

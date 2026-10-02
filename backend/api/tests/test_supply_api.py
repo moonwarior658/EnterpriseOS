@@ -731,9 +731,17 @@ class SupplyApiTests(unittest.TestCase):
         self.current_user_id = 2
         _, direction_id = self.reference_ids()
         cycle_id = self.create_cycle(direction_id)
+        with self.session_factory.begin() as session:
+            session.add_all([
+                SupplyUnit(tenant_id="eclair", code="KG", name_ru="Килограмм", short_name_ru="кг", is_active=True),
+                SupplyUnit(tenant_id="eclair", code="PCS", name_ru="Штука", short_name_ru="шт", is_active=True),
+                SupplyUnit(tenant_id="eclair", code="BOX", name_ru="Коробка", short_name_ru="кор", is_active=False),
+                SupplyUnit(tenant_id="eclair", code="G", name_ru="Грамм", short_name_ru="г", is_active=True),
+            ])
         self.current_user_id = 3
         opened = self.client.get("/supply/seller/window")
         self.assertTrue(opened.json()["is_open"])
+        self.assertEqual(opened.json()["supported_units"], ["кг", "шт"])
         self.assertFalse(opened.json()["can_write"])
         self.assertEqual(opened.json()["cycle_id"], cycle_id)
         self.assertEqual(opened.json()["need_date"], "2026-01-03")

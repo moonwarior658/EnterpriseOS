@@ -1,5 +1,8 @@
 import os
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -34,6 +37,9 @@ from app.supply.supplier_payments import (
     SupplierPaymentLinkError,
     SupplierPaymentValidationError,
     SupplierPaymentStateError,
+    attach_payment_photo,
+    payment_photo,
+    SupplierPaymentNotFoundError,
     cancel_payment,
     create_payment,
     order_prepayment_summary,
@@ -177,6 +183,27 @@ class SupplySupplierPaymentsTests(unittest.TestCase):
             cancel_payment(session, first.id, tenant_id="payment-test")
             replacement = create_payment(session, self.payload("10", order_number="777"), tenant_id="payment-test", user_id=1)
         self.assertEqual(replacement.status, "DRAFT")
+
+    def test_payment_photo_is_saved_for_draft_and_tenant_scoped(self) -> None:
+        with TemporaryDirectory() as directory, self.sessions() as session:
+            draft = create_payment(session, self.payload("10"), tenant_id="payment-test", user_id=1)
+            actor = session.get(User, 1)
+            with patch("app.supply.supplier_payments.record_audit_event"):
+                updated = attach_payment_photo(
+                    session, draft.id, tenant_id="payment-test", filename="receipt.png",
+                    content_type="image/png", content=b"\x89PNG\r\n\x1a\nexample",
+                    upload_dir=Path(directory), audit_context=MagicMock(), actor_user=actor,
+                )
+            filename, content_type = payment_photo(session, draft.id, tenant_id="payment-test")
+            self.assertEqual(updated.photo_original_name, "receipt.png")
+            self.assertEqual(content_type, "image/png")
+            self.assertEqual((Path(directory) / filename).read_bytes(), b"\x89PNG\r\n\x1a\nexample")
+            with self.assertRaises(SupplierPaymentStateError):
+                attach_payment_photo(session, draft.id, tenant_id="payment-test", filename="again.png",
+                                     content_type="image/png", content=b"second", upload_dir=Path(directory),
+                                     audit_context=MagicMock(), actor_user=actor)
+            with self.assertRaises(SupplierPaymentNotFoundError):
+                payment_photo(session, draft.id, tenant_id="other")
 
     def test_nullable_due_date_has_unknown_overdue_state(self) -> None:
         with self.sessions() as session:
