@@ -270,7 +270,7 @@ function EmployeeDetailPage() {
         <label><span>Ссылка на фото</span><input type="url" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} /></label>
         <label><span>Причина изменения</span><input value={editReason} onChange={(e) => setEditReason(e.target.value)} required /></label>
         <button className="primary-action" type="submit" disabled={busy}>Сохранить</button>
-      </form> : <dl className="employee-facts">{employee.profile_level === 'FULL' && <div><dt>Статус</dt><dd>{employee.status === 'ACTIVE' ? 'Активен' : 'Уволен'}</dd></div>}<div><dt>Дата рождения</dt><dd>{employee.birth_date}</dd></div><div><dt>Телефон</dt><dd>{employee.phone}</dd></div>{employee.profile_level === 'FULL' && <><div><dt>Адрес</dt><dd>{employee.residence_address}</dd></div><div><dt>Дата увольнения</dt><dd>{employee.dismissal_date ?? '—'}</dd></div><div><dt>Причина увольнения</dt><dd>{employee.dismissal_reason ?? '—'}</dd></div></>}</dl>}
+      </form> : <dl className="employee-facts">{employee.profile_level === 'FULL' && <><div><dt>Статус</dt><dd>{employee.status === 'ACTIVE' ? 'Активен' : 'Уволен'}</dd></div><div><dt>Дата рождения</dt><dd>{employee.birth_date}</dd></div></>}<div><dt>Телефон</dt><dd>{employee.phone}</dd></div>{employee.profile_level === 'FULL' && <><div><dt>Адрес</dt><dd>{employee.residence_address}</dd></div><div><dt>Дата увольнения</dt><dd>{employee.dismissal_date ?? '—'}</dd></div><div><dt>Причина увольнения</dt><dd>{employee.dismissal_reason ?? '—'}</dd></div></>}</dl>}
     </section>
 
     {(isAdmin || accessRoles.includes('DIRECTOR') || accessRoles.includes('DEPUTY_DIRECTOR') || canManageUser) && <section className="employee-card"><h2>Доступ в EOS</h2>

@@ -351,7 +351,7 @@ class RbacEmployeeUserTests(unittest.TestCase):
         profile = self.client.get(f"/employees/{production}")
         self.assertEqual(profile.status_code, 200, profile.text)
         self.assertEqual(profile.json()["profile_level"], "BASIC")
-        for field in ("residence_address", "role_assignments", "lifecycle_events", "linked_user_id"):
+        for field in ("birth_date", "residence_address", "role_assignments", "lifecycle_events", "linked_user_id"):
             self.assertNotIn(field, profile.json())
         self.assertEqual(self.client.get(f"/employees/{driver}").status_code, 403)
         self.current_user_id = 18
@@ -359,6 +359,7 @@ class RbacEmployeeUserTests(unittest.TestCase):
         self.assertEqual(profile.status_code, 200, profile.text)
         self.assertEqual(profile.json()["profile_level"], "BASIC")
         self.assertEqual(profile.json()["roles"], ["DRIVER"])
+        self.assertNotIn("birth_date", profile.json())
         self.assertNotIn("residence_address", profile.json())
         self.assertEqual(self.client.get(f"/employees/{production}").status_code, 403)
 

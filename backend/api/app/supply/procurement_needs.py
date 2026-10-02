@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.audit.service import record_current_action_event
 
 from app.models.supply import (
     SupplyDepartmentDebt,
@@ -20,12 +21,18 @@ from app.models.supply import (
 )
 
 
-def _close(need: SupplyProcurementNeed, now: datetime) -> None:
+def _need_snapshot(need: SupplyProcurementNeed) -> dict:
+    return {"status": need.status.value if hasattr(need.status, "value") else need.status, "quantity": need.quantity, "need_date": need.need_date, "product_id": need.product_id, "unit_id": need.unit_id, "version": need.version}
+
+
+def _close(session: Session, need: SupplyProcurementNeed, now: datetime) -> None:
     if need.status != SupplyProcurementNeedStatus.OPEN:
         return
+    before = _need_snapshot(need)
     need.status = SupplyProcurementNeedStatus.CLOSED
     need.closed_at = now
     need.version += 1
+    record_current_action_event(session, entity=need, operation="CLOSE", before=before, after=_need_snapshot(need))
 
 
 def invalidate_open_request_need(
@@ -47,7 +54,7 @@ def invalidate_open_request_need(
         .with_for_update(of=SupplyProcurementNeed)
     )
     if need is not None:
-        _close(need, now or datetime.now(timezone.utc))
+        _close(session, need, now or datetime.now(timezone.utc))
 
 
 def invalidate_open_request_needs(
@@ -75,7 +82,7 @@ def invalidate_open_request_needs(
     ).all()
     closed_at = now or datetime.now(timezone.utc)
     for need in needs:
-        _close(need, closed_at)
+        _close(session, need, closed_at)
 
 
 def reconcile_confirmed_stock_calculation_needs(
@@ -132,11 +139,11 @@ def reconcile_confirmed_stock_calculation_needs(
             or deficit <= Decimal("0")
         ):
             if need is not None:
-                _close(need, changed_at)
+                _close(session, need, changed_at)
             continue
 
         if need is None:
-            session.add(SupplyProcurementNeed(
+            created = SupplyProcurementNeed(
                 tenant_id=request.tenant_id,
                 source_type=SupplyProcurementNeedSourceType.REQUEST_LINE,
                 supply_request_line_id=line.id,
@@ -150,7 +157,10 @@ def reconcile_confirmed_stock_calculation_needs(
                 reason=SupplyProcurementNeedReason.INTERNAL_STOCK_DEFICIT,
                 version=1,
                 reserved_purchase_request_id=None,
-            ))
+            )
+            session.add(created)
+            session.flush()
+            record_current_action_event(session, entity=created, operation="CREATE", after=_need_snapshot(created))
             continue
 
         changed = (
@@ -161,16 +171,18 @@ def reconcile_confirmed_stock_calculation_needs(
             or need.need_date != request.need_date
         )
         if changed:
+            before = _need_snapshot(need)
             need.basis_stock_calculation_line_id = basis.id
             need.product_id = basis.product_id
             need.unit_id = basis.requested_unit_id
             need.quantity = deficit
             need.need_date = request.need_date
             need.version += 1
+            record_current_action_event(session, entity=need, operation="RECONCILE", before=before, after=_need_snapshot(need))
 
     for line_id, need in existing.items():
         if line_id not in basis_line_ids:
-            _close(need, changed_at)
+            _close(session, need, changed_at)
 
 
 def reconcile_department_debt_need(
@@ -222,7 +234,7 @@ def reconcile_department_debt_need(
     )
     if not eligible:
         if existing is not None:
-            _close(existing, changed_at)
+            _close(session, existing, changed_at)
         return None
     if existing is None:
         existing = SupplyProcurementNeed(
@@ -241,6 +253,8 @@ def reconcile_department_debt_need(
             reserved_purchase_request_id=None,
         )
         session.add(existing)
+        session.flush()
+        record_current_action_event(session, entity=existing, operation="CREATE", after=_need_snapshot(existing))
         return existing
     if (
         existing.product_id != debt.product_id
@@ -248,9 +262,11 @@ def reconcile_department_debt_need(
         or existing.quantity != debt.outstanding_quantity
         or existing.need_date != need_date
     ):
+        before = _need_snapshot(existing)
         existing.product_id = debt.product_id
         existing.unit_id = debt.unit_id
         existing.quantity = debt.outstanding_quantity
         existing.need_date = need_date
         existing.version += 1
+        record_current_action_event(session, entity=existing, operation="RECONCILE", before=before, after=_need_snapshot(existing))
     return existing

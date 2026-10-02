@@ -1,7 +1,7 @@
 ﻿import {
   getStoredToken,
   type CurrentUser,
-} from './auth'
+} from './auth.ts'
 
 export type UserRecord = CurrentUser
 
@@ -94,9 +94,10 @@ export function resetEmployeePassword(
   employeeId: string,
   reason?: string,
 ): Promise<GeneratedCredentials> {
+  const trimmedReason = reason?.trim()
   return authorizedRequest<GeneratedCredentials>(`/employees/${employeeId}/password-reset`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(trimmedReason ? { reason: trimmedReason } : {}),
   })
 }
 

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from app.audit.service import record_current_action_event
 
 from app.models.supply import (
     SupplySupplierConfirmation,
@@ -360,6 +361,7 @@ def create_document(
         )
         session.add(obligation)
         session.flush()
+        record_current_action_event(session, entity=obligation, operation="CREATE", after={"status": obligation.status, "supplier_order_id": str(order.id)})
         obligation_id = obligation.id
     elif obligation_id is not None:
         obligation = session.scalar(select(SupplySupplierObligation).where(
@@ -403,6 +405,7 @@ def create_document(
             ]
         session.flush()
         _recalculate_total(document)
+        record_current_action_event(session, entity=document, operation="CREATE", after={"status": document.status, "document_type": document.document_type, "total_amount": document.total_amount, "obligation_id": document.obligation_id})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -422,6 +425,8 @@ def update_document(
         raise SupplierDocumentStateError
     values = payload.model_dump(exclude_unset=True)
     create_obligation = values.pop("create_obligation", False)
+    before = {field: getattr(document, field) for field in values}
+    before["obligation_id"] = document.obligation_id
     if create_obligation:
         if values.get("obligation_id") is not None:
             raise SupplierDocumentValidationError
@@ -432,6 +437,7 @@ def update_document(
         )
         session.add(obligation)
         session.flush()
+        record_current_action_event(session, entity=obligation, operation="CREATE", after={"status": obligation.status, "supplier_order_id": str(document.supplier_order_id)})
         values["obligation_id"] = obligation.id
     if "obligation_id" in values and values["obligation_id"] is not None:
         obligation = session.scalar(select(SupplySupplierObligation).where(
@@ -448,6 +454,7 @@ def update_document(
             raise SupplierDocumentValidationError
         setattr(document, field, value.value if hasattr(value, "value") else value)
     try:
+        record_current_action_event(session, entity=document, operation="UPDATE", before=before, after={field: getattr(document, field) for field in before})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -578,6 +585,7 @@ def create_document_line(
         session.flush()
         session.expire(document, ["lines"])
         _recalculate_total(document)
+        record_current_action_event(session, entity=line, operation="CREATE", after={"supplier_document_id": str(document.id), "quantity_base": line.quantity_base, "line_amount": line.line_amount})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -612,11 +620,13 @@ def update_document_line(
     }
     values.update(payload.model_dump(exclude_unset=True))
     normalized = _line_values(session, document, values)
+    before = {field: getattr(line, field) for field in normalized}
     for field, value in normalized.items():
         setattr(line, field, value)
     try:
         session.flush()
         _recalculate_total(document)
+        record_current_action_event(session, entity=line, operation="UPDATE", before=before, after={field: getattr(line, field) for field in normalized})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -633,6 +643,7 @@ def delete_document_line(
     line = next((item for item in document.lines if item.id == line_id), None)
     if line is None:
         raise SupplierDocumentNotFoundError
+    record_current_action_event(session, entity=line, operation="DELETE", before={"supplier_document_id": str(document.id), "quantity_base": line.quantity_base, "line_amount": line.line_amount})
     session.delete(line)
     session.flush()
     session.expire(document, ["lines"])
@@ -682,6 +693,7 @@ def record_document(
     document.recorded_by_user_id = user_id
     document.recorded_at = datetime.now(timezone.utc)
     try:
+        record_current_action_event(session, entity=document, operation="RECORD", before={"status": "DRAFT"}, after={"status": document.status, "total_amount": document.total_amount, "recorded_by_user_id": user_id})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -695,6 +707,7 @@ def cancel_document(
     document = _get_document(session, document_id, tenant_id=tenant_id, lock=True)
     if document.status != "DRAFT":
         raise SupplierDocumentStateError
+    record_current_action_event(session, entity=document, operation="CANCEL", before={"status": document.status}, after={"status": "CANCELLED"})
     document.status = "CANCELLED"
     session.commit()
     return read_document(session, document.id, tenant_id=tenant_id)
@@ -734,7 +747,7 @@ def create_attachment(
 
     try:
         target.write_bytes(content)
-        session.add(SupplySupplierDocumentAttachment(
+        attachment = SupplySupplierDocumentAttachment(
             tenant_id=tenant_id,
             supplier_document_id=document.id,
             original_filename=Path(original_filename).name[:255] or "document",
@@ -742,7 +755,10 @@ def create_attachment(
             content_type=content_type,
             size_bytes=len(content),
             created_by_user_id=user_id,
-        ))
+        )
+        session.add(attachment)
+        session.flush()
+        record_current_action_event(session, entity=attachment, operation="CREATE", after={"supplier_document_id": str(document.id), "original_filename": attachment.original_filename, "size_bytes": attachment.size_bytes})
         session.commit()
     except Exception:
         session.rollback()
@@ -785,6 +801,7 @@ def delete_attachment(
     if attachment is None:
         raise SupplierDocumentNotFoundError
     stored_filename = attachment.stored_filename
+    record_current_action_event(session, entity=attachment, operation="DELETE", before={"supplier_document_id": str(document.id), "original_filename": attachment.original_filename, "size_bytes": attachment.size_bytes})
     session.delete(attachment)
     session.commit()
 

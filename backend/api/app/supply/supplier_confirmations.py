@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from app.audit.service import record_current_action_event
 
 from app.models.supply import (
     SupplySupplierConfirmation,
@@ -264,6 +265,7 @@ def create_confirmation(
         if not sources:
             raise SupplierConfirmationValidationError
         session.add_all([_copy_line(confirmation, source) for source in sources])
+        record_current_action_event(session, entity=confirmation, operation="CREATE", after={"status": confirmation.status, "revision_number": revision, "supplier_order_id": str(order_id)})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -280,8 +282,10 @@ def update_confirmation(
     confirmation = get_confirmation(session, confirmation_id, tenant_id=tenant_id, lock=True)
     if confirmation.status != "DRAFT":
         raise SupplierConfirmationStateError
+    before = {field: getattr(confirmation, field) for field in payload.model_fields_set}
     for field in payload.model_fields_set:
         setattr(confirmation, field, getattr(payload, field))
+    record_current_action_event(session, entity=confirmation, operation="UPDATE", before=before, after={field: getattr(confirmation, field) for field in payload.model_fields_set})
     session.commit()
     return read_confirmation(session, confirmation_id, tenant_id=tenant_id)
 
@@ -296,6 +300,8 @@ def update_confirmation_line(
     line = next((item for item in confirmation.lines if item.id == line_id), None)
     if line is None:
         raise SupplierConfirmationNotFoundError
+    audit_fields = set(payload.model_fields_set) | {"confirmed_packages_count", "confirmed_package_quantity", "confirmed_package_unit_id", "confirmed_quantity_base", "confirmed_price_per_package", "confirmed_planned_amount"}
+    before = {field: getattr(line, field) for field in audit_fields}
     if (
         "confirmed_package_unit_id" in payload.model_fields_set
         and payload.confirmed_package_unit_id is not None
@@ -324,6 +330,7 @@ def update_confirmation_line(
                 Decimal(line.confirmed_packages_count) * Decimal(line.confirmed_price_per_package)
             )
     try:
+        record_current_action_event(session, entity=line, operation="UPDATE", before=before, after={field: getattr(line, field) for field in audit_fields})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -502,6 +509,7 @@ def record_confirmation(
     ).with_for_update(of=SupplySupplierConfirmation))
     try:
         if previous is not None:
+            record_current_action_event(session, entity=previous, operation="SUPERSEDE", before={"status": previous.status}, after={"status": "SUPERSEDED"})
             previous.status = "SUPERSEDED"
             session.flush()
         confirmation.status = "RECORDED"
@@ -509,6 +517,7 @@ def record_confirmation(
         confirmation.recorded_at = datetime.now(timezone.utc)
         confirmation.recorded_by_user_id = user_id
         generate_deviations(session, confirmation)
+        record_current_action_event(session, entity=confirmation, operation="RECORD", before={"status": "DRAFT"}, after={"status": confirmation.status, "response_type": response_type, "recorded_by_user_id": user_id})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -536,12 +545,14 @@ def decide_deviation(
         raise SupplierConfirmationDecisionError
     if deviation.status != "OPEN":
         raise SupplierConfirmationDecisionConflictError
+    before = {"status": deviation.status, "decision_type": deviation.decision_type, "decision_comment": deviation.decision_comment}
     deviation.status = "RESOLVED"
     deviation.decision_type = payload.decision.value
     deviation.decision_comment = payload.comment
     deviation.decided_by_user_id = user_id
     deviation.decided_at = datetime.now(timezone.utc)
     try:
+        record_current_action_event(session, entity=deviation, operation="DECIDE", before=before, after={"status": deviation.status, "decision_type": deviation.decision_type, "decision_comment": deviation.decision_comment})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -553,6 +564,7 @@ def cancel_confirmation(session: Session, confirmation_id: UUID, *, tenant_id: s
     confirmation = get_confirmation(session, confirmation_id, tenant_id=tenant_id, lock=True)
     if confirmation.status != "DRAFT":
         raise SupplierConfirmationStateError
+    record_current_action_event(session, entity=confirmation, operation="CANCEL", before={"status": confirmation.status}, after={"status": "CANCELLED"})
     confirmation.status = "CANCELLED"
     session.commit()
     return read_confirmation(session, confirmation_id, tenant_id=tenant_id)

@@ -239,7 +239,6 @@ class EmployeeBasicRead(BaseModel):
     profile_level: Literal["BASIC"] = "BASIC"
     id: UUID
     full_name: str
-    birth_date: date
     photo_url: str | None
     phone: str
     roles: list[EmployeeRole]

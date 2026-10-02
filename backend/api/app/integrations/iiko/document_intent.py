@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.audit.service import record_current_action_event
 
 from app.integrations.iiko.document_write import (
     IikoDocumentLineInput,
@@ -559,8 +560,11 @@ def _record_failure(
             raise IikoDocumentIntentStateError(
                 "IIKO_DOCUMENT_INTENT_STATE_CHANGED"
             )
+        previous_status = intent.status
         intent.status = _failure_status(error)
         intent.last_error = _safe_error_code(error)
+        if intent.document_type == IikoDocumentType.INTERNAL_TRANSFER:
+            record_current_action_event(session, entity=intent, operation="FAIL", before={"status": previous_status.value}, after={"status": intent.status.value, "error_code": intent.last_error})
 
 
 async def create_persistent_outgoing_invoice(
@@ -768,6 +772,7 @@ async def create_persistent_internal_transfer(
         )
         session.add(intent)
         session.flush()
+        record_current_action_event(session, entity=intent, operation="CREATE", after={"document_type": intent.document_type.value, "status": intent.status.value, "supply_request_id": str(supply_request_id)})
         intent_id = intent.id
 
     try:
@@ -786,6 +791,7 @@ async def create_persistent_internal_transfer(
                 )
             intent.iiko_document_id = created.id
             intent.iiko_document_number = created.document_number
+            record_current_action_event(session, entity=intent, operation="IDENTIFY", before={"iiko_document_id": None}, after={"iiko_document_id": str(created.id), "iiko_document_number": created.document_number})
 
         authoritative = await provider.get_internal_transfer_by_id(created.id)
         if not _matches_internal_transfer(
@@ -814,5 +820,6 @@ async def create_persistent_internal_transfer(
         intent.expected_payload = _normalized_internal_transfer(authoritative)
         intent.status = IikoDocumentWriteStatus.CREATED
         intent.last_error = None
+        record_current_action_event(session, entity=intent, operation="VERIFY", before={"status": IikoDocumentWriteStatus.PENDING.value}, after={"status": intent.status.value, "iiko_document_id": str(intent.iiko_document_id)})
 
     return intent

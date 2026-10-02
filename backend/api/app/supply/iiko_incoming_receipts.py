@@ -5,9 +5,10 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from app.audit.service import record_current_action_event
 
 from app.integrations.iiko.provider import IikoProvider
 from app.integrations.iiko.schemas import (
@@ -58,6 +59,24 @@ class IncomingReceiptReadinessError(ValueError):
         self.reasons = reasons
         super().__init__("READINESS_BLOCKED")
 class IncomingReceiptConflictError(ValueError): pass
+
+
+def _commit_receipt(session: Session, receipt: SupplyIikoIncomingReceipt) -> None:
+    """Commit one receipt transition together with its explicit audit snapshot."""
+    state = inspect(receipt)
+    fields = ("status", "iiko_document_id", "iiko_status", "last_error_code", "create_attempt_count", "process_attempt_count")
+    if state.pending:
+        before = None
+        after = {field: getattr(receipt, field) for field in fields if getattr(receipt, field) is not None}
+        operation = "CREATE"
+    else:
+        changed = {field: state.attrs[field].history for field in fields if state.attrs[field].history.has_changes()}
+        before = {field: history.deleted[0] if history.deleted else None for field, history in changed.items()}
+        after = {field: getattr(receipt, field) for field in changed}
+        operation = f"STATUS_{receipt.status}" if "status" in changed else "UPDATE"
+    if after:
+        record_current_action_event(session, entity=receipt, operation=operation, before=before, after=after)
+    session.commit()
 
 
 def _receipt_options():
@@ -517,7 +536,7 @@ def prepare_receipt(
     _replace_lines(session, receipt, acceptance, readiness)
     session.add(receipt)
     try:
-        session.commit()
+        _commit_receipt(session, receipt)
     except IntegrityError:
         session.rollback()
         existing = session.scalar(select(SupplyIikoIncomingReceipt).where(
@@ -554,7 +573,7 @@ def mark_receipt_ready(session: Session, receipt_id: UUID, *, tenant_id: str):
     receipt.status = "READY"
     receipt.last_error_code = None
     receipt.last_error_message = None
-    session.commit()
+    _commit_receipt(session, receipt)
     return read_receipt(session, receipt.id, tenant_id=tenant_id)
 
 
@@ -644,7 +663,7 @@ async def create_receipt(
     receipt.create_started_at = datetime.now(timezone.utc)
     receipt.last_error_code = None
     receipt.last_error_message = None
-    session.commit()
+    _commit_receipt(session, receipt)
 
     validation = None
     network_error: Exception | None = None
@@ -660,7 +679,7 @@ async def create_receipt(
     receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
     if invoice is not None:
         _capture_identity(session, receipt_id, invoice)
-        session.commit()
+        _commit_receipt(session, receipt)
         if invoice.status.value == "PROCESSED":
             return await _finalize_posted(
                 session, provider, receipt_id, tenant_id=tenant_id, invoice=invoice
@@ -680,7 +699,7 @@ async def create_receipt(
         receipt.last_error_message = (
             safe_error_message(network_error) if network_error else "Документ пока не найден в iiko"
         )
-    session.commit()
+    _commit_receipt(session, receipt)
     return read_receipt(session, receipt_id, tenant_id=tenant_id)
 
 
@@ -727,7 +746,7 @@ async def _finalize_posted(
     for line in receipt.lines:
         line.accounted_quantity = line.quantity
         line.accounted_sum = line.allocated_sum
-    session.commit()
+    _commit_receipt(session, receipt)
     receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id)
     try:
         await _stock_refresh(provider, receipt)
@@ -735,7 +754,7 @@ async def _finalize_posted(
         receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
         receipt.last_error_code = "STOCK_REFRESH_FAILED"
         receipt.last_error_message = "Приход проведён, но свежие остатки iiko не получены"
-        session.commit()
+        _commit_receipt(session, receipt)
     return read_receipt(session, receipt_id, tenant_id=tenant_id)
 
 
@@ -756,7 +775,7 @@ async def process_receipt(
     receipt.process_started_at = datetime.now(timezone.utc)
     receipt.last_error_code = None
     receipt.last_error_message = None
-    session.commit()
+    _commit_receipt(session, receipt)
 
     validation = None
     warning_message: str | None = None
@@ -800,7 +819,7 @@ async def process_receipt(
         receipt.last_error_message = (
             safe_error_message(process_error) if process_error else "Статус PROCESSED не подтверждён"
         )
-    session.commit()
+    _commit_receipt(session, receipt)
     return read_receipt(session, receipt_id, tenant_id=tenant_id)
 
 
@@ -817,7 +836,7 @@ async def retry_receipt(
         return _read(session, receipt)
     if receipt.iiko_document_id is not None:
         document_id = receipt.iiko_document_id
-        session.commit()
+        _commit_receipt(session, receipt)
         try:
             invoice = await provider.get_incoming_invoice_by_id(
                 document_id,
@@ -830,7 +849,7 @@ async def retry_receipt(
             )
             receipt.last_error_code = "PROCESS_RESULT_UNKNOWN"
             receipt.last_error_message = safe_error_message(error)
-            session.commit()
+            _commit_receipt(session, receipt)
             return read_receipt(session, receipt_id, tenant_id=tenant_id)
         if _verify_final(invoice, preview, document_id):
             return await _finalize_posted(
@@ -842,16 +861,16 @@ async def retry_receipt(
             receipt.iiko_status = "NEW"
             receipt.last_error_code = None
             receipt.last_error_message = None
-            session.commit()
+            _commit_receipt(session, receipt)
             return read_receipt(session, receipt_id, tenant_id=tenant_id)
         receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
         receipt.status = "FAILED"
         receipt.last_error_code = "FINAL_VERIFY_FAILED"
         receipt.last_error_message = "Документ iiko не прошёл recovery-сверку"
-        session.commit()
+        _commit_receipt(session, receipt)
         return read_receipt(session, receipt_id, tenant_id=tenant_id)
 
-    session.commit()
+    _commit_receipt(session, receipt)
     try:
         outcome, invoice = await _reconcile(provider, preview)
     except Exception as error:
@@ -860,12 +879,12 @@ async def retry_receipt(
         )
         receipt.last_error_code = "WRITE_RESULT_UNKNOWN"
         receipt.last_error_message = safe_error_message(error)
-        session.commit()
+        _commit_receipt(session, receipt)
         return read_receipt(session, receipt_id, tenant_id=tenant_id)
     if invoice is not None:
         receipt = _get_receipt(session, receipt_id, tenant_id=tenant_id, lock=True)
         _capture_identity(session, receipt.id, invoice)
-        session.commit()
+        _commit_receipt(session, receipt)
         if invoice.status.value == "PROCESSED":
             return await _finalize_posted(
                 session, provider, receipt_id, tenant_id=tenant_id, invoice=invoice
@@ -877,18 +896,18 @@ async def retry_receipt(
         receipt.status = "FAILED"
         receipt.last_error_code = outcome
         receipt.last_error_message = "Recovery-сверка iiko неоднозначна"
-        session.commit()
+        _commit_receipt(session, receipt)
         return read_receipt(session, receipt_id, tenant_id=tenant_id)
     if previous_code not in {"READBACK_NOT_FOUND", "WRITE_REJECTED"}:
         receipt.status = "FAILED"
         receipt.last_error_code = "READBACK_NOT_FOUND"
         receipt.last_error_message = "Документ не найден; повторная отправка требует ещё одного явного действия"
-        session.commit()
+        _commit_receipt(session, receipt)
         return read_receipt(session, receipt_id, tenant_id=tenant_id)
     receipt.status = "READY"
     receipt.last_error_code = None
     receipt.last_error_message = None
-    session.commit()
+    _commit_receipt(session, receipt)
     return await create_receipt(session, provider, receipt_id, tenant_id=tenant_id)
 
 
@@ -903,5 +922,5 @@ def cancel_receipt(session: Session, receipt_id: UUID, *, tenant_id: str):
     receipt.status = "CANCELLED"
     receipt.last_error_code = None
     receipt.last_error_message = None
-    session.commit()
+    _commit_receipt(session, receipt)
     return read_receipt(session, receipt_id, tenant_id=tenant_id)

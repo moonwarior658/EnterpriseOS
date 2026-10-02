@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.audit.service import record_current_action_event
 from app.models.supply import (
     SupplySupplier,
     SupplySupplierAcceptance,
@@ -81,7 +82,11 @@ def create_obligation(
         tenant_id=tenant_id, supplier_id=supplier_id, supplier_order_id=order_id,
         status="ACTIVE", created_by_user_id=user_id,
     )
-    session.add(row); session.commit(); session.refresh(row)
+    session.add(row); session.flush()
+    record_current_action_event(session, entity=row, operation="CREATE",
+                                before={}, after={"supplier_id": supplier_id,
+                                                  "supplier_order_id": order_id, "status": row.status})
+    session.commit(); session.refresh(row)
     return SupplySupplierObligationRead.model_validate(row, from_attributes=True)
 
 
@@ -156,7 +161,13 @@ def create_allocation(
         amount=amount, status="ACTIVE", created_by_user_id=user_id,
     )
     try:
-        session.add(row); session.commit(); session.refresh(row)
+        session.add(row); session.flush()
+        record_current_action_event(session, entity=row, operation="CREATE",
+                                    before={}, after={"payment_id": row.payment_id,
+                                                      "supplier_document_id": row.supplier_document_id,
+                                                      "obligation_id": row.obligation_id,
+                                                      "amount": row.amount, "status": row.status})
+        session.commit(); session.refresh(row)
     except IntegrityError as error:
         session.rollback(); raise SupplierSettlementConflictError from error
     return allocation_read(row)
@@ -205,15 +216,23 @@ def reverse_allocation(
     row.reversed_by_user_id = user_id
     row.reversed_at = datetime.now(timezone.utc)
     row.reverse_reason = reason
+    remaining_amount = _money(Decimal(row.amount) - reversed_amount)
     if reversed_amount < _money(row.amount):
         session.flush()
-        session.add(SupplySupplierPaymentAllocation(
+        remainder = SupplySupplierPaymentAllocation(
             tenant_id=row.tenant_id, supplier_id=row.supplier_id,
             payment_id=row.payment_id, supplier_document_id=row.supplier_document_id,
             obligation_id=row.obligation_id,
-            amount=_money(Decimal(row.amount) - reversed_amount), status="ACTIVE",
+            amount=remaining_amount, status="ACTIVE",
             created_by_user_id=user_id,
-        ))
+        )
+        session.add(remainder)
+        session.flush()
+    record_current_action_event(session, entity=row, operation="REVERSE",
+                                before={"status": "ACTIVE", "reversed_amount": None},
+                                after={"status": row.status, "reversed_amount": row.reversed_amount,
+                                       "remaining_amount": remaining_amount if remaining_amount > 0 else None},
+                                reason=reason)
     try:
         session.commit(); session.refresh(row)
     except IntegrityError as error:
@@ -252,7 +271,15 @@ def create_adjustment(
         comment=payload.comment, status="RECORDED", created_by_user_id=user_id,
     )
     try:
-        session.add(row); session.commit(); session.refresh(row)
+        session.add(row); session.flush()
+        record_current_action_event(session, entity=row, operation="CREATE",
+                                    before={}, after={"supplier_id": row.supplier_id,
+                                                      "supplier_payment_id": row.supplier_payment_id,
+                                                      "type": row.type, "direction": row.direction,
+                                                      "amount": row.amount, "effective_date": row.effective_date,
+                                                      "status": row.status},
+                                    reason=payload.comment if payload.type.value == "MANUAL_CORRECTION" else None)
+        session.commit(); session.refresh(row)
     except IntegrityError as error:
         session.rollback(); raise SupplierSettlementConflictError from error
     return SupplySupplierSettlementAdjustmentRead.model_validate(row, from_attributes=True)

@@ -6,6 +6,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.audit.service import record_current_action_event
 from app.models.supply import (
     SupplyProduct,
     SupplyProductSupplier,
@@ -29,6 +30,23 @@ from app.schemas.purchase_allocation import (
 
 QUANTITY_QUANTUM = Decimal("0.000001")
 PRICE_QUANTUM = Decimal("0.000001")
+
+
+def _allocation_audit_snapshot(allocation: SupplyPurchaseAllocation) -> dict:
+    return {
+        "purchase_request_line_id": allocation.purchase_request_line_id,
+        "product_supplier_id": allocation.product_supplier_id,
+        "packages_count": allocation.packages_count,
+        "quantity_base": allocation.quantity_base,
+        "price_per_package_snapshot": allocation.price_per_package_snapshot,
+        "planned_amount": allocation.planned_amount,
+        "status": allocation.status,
+        "sources": sorted(
+            ({"source_id": str(source.purchase_request_line_source_id),
+              "quantity": source.allocated_quantity} for source in allocation.sources),
+            key=lambda item: item["source_id"],
+        ),
+    }
 
 
 class PurchaseAllocationNotFoundError(LookupError):
@@ -199,6 +217,8 @@ def create_purchase_allocation(
         session.add(allocation)
         session.flush()
         _autofill_single_source(session, line, allocation)
+        record_current_action_event(session, entity=allocation, operation="CREATE",
+                                    before={}, after=_allocation_audit_snapshot(allocation))
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -235,12 +255,15 @@ def update_purchase_allocation(
         raise PurchaseAllocationStateError
     relation = _get_relation(session, allocation.product_supplier_id, tenant_id=tenant_id)
     _require_eligible(relation, line)
+    before = _allocation_audit_snapshot(allocation)
     for key, value in _snapshot_values(allocation, packages_count).items():
         setattr(allocation, key, value)
     if len(line.sources) == 1:
         _autofill_single_source(session, line, allocation)
     else:
         allocation.sources.clear()
+    record_current_action_event(session, entity=allocation, operation="UPDATE",
+                                before=before, after=_allocation_audit_snapshot(allocation))
     session.commit()
     return get_purchase_allocation_workspace(session, request_id, tenant_id=tenant_id)
 
@@ -254,6 +277,8 @@ def delete_purchase_allocation(
     allocation = _get_allocation(session, line, allocation_id)
     if allocation.status != "DRAFT":
         raise PurchaseAllocationStateError
+    record_current_action_event(session, entity=allocation, operation="DELETE",
+                                before=_allocation_audit_snapshot(allocation), after={})
     session.delete(allocation)
     session.commit()
     return get_purchase_allocation_workspace(session, request_id, tenant_id=tenant_id)
@@ -272,6 +297,10 @@ def confirm_purchase_allocation(
     _require_eligible(relation, line)
     _validate_source_distribution(session, line, allocation, lock=True)
     allocation.status = "CONFIRMED"
+    record_current_action_event(session, entity=allocation, operation="CONFIRM",
+                                before={"status": "DRAFT"},
+                                after={"status": allocation.status,
+                                       "sources": _allocation_audit_snapshot(allocation)["sources"]})
     session.commit()
     return get_purchase_allocation_workspace(session, request_id, tenant_id=tenant_id)
 
@@ -400,6 +429,7 @@ def update_purchase_allocation_sources(
         raise PurchaseAllocationStateError
     if len({value.purchase_request_line_source_id for value in values}) != len(values):
         raise PurchaseAllocationStateError
+    before = _allocation_audit_snapshot(allocation)
     allocation.sources.clear()
     session.flush()
     for value in values:
@@ -409,6 +439,8 @@ def update_purchase_allocation_sources(
             allocated_quantity=value.allocated_quantity,
         ))
     _validate_source_distribution(session, line, allocation, lock=True)
+    record_current_action_event(session, entity=allocation, operation="UPDATE_SOURCES",
+                                before=before, after=_allocation_audit_snapshot(allocation))
     session.commit()
     return get_purchase_allocation_workspace(session, request_id, tenant_id=tenant_id)
 

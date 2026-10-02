@@ -57,7 +57,7 @@ export type Employee = {
   lifecycle_events: LifecycleEvent[]
 }
 
-type BasicEmployee = Pick<Employee, 'id' | 'full_name' | 'birth_date' | 'photo_url' | 'phone'> & {
+type BasicEmployee = Pick<Employee, 'id' | 'full_name' | 'photo_url' | 'phone'> & {
   profile_level: 'BASIC'
   roles: EmployeeRole[]
   department_ids: string[]
@@ -66,7 +66,7 @@ type BasicEmployee = Pick<Employee, 'id' | 'full_name' | 'birth_date' | 'photo_u
 function employeeView(item: Employee | BasicEmployee): Employee {
   if (item.profile_level !== 'BASIC') return item as Employee
   return {
-    ...item, status: null, residence_address: '', dismissal_date: null, dismissal_reason: null,
+    ...item, birth_date: '', status: null, residence_address: '', dismissal_date: null, dismissal_reason: null,
     linked_user_id: null, created_at: '', updated_at: '',
     role_assignments: [], department_assignments: [], lifecycle_events: [],
   }

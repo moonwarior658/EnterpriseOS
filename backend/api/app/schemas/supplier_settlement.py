@@ -28,7 +28,7 @@ class SupplySupplierPaymentAllocationCreate(BaseModel):
 
 
 class SupplySupplierPaymentAllocationReverse(BaseModel):
-    reason: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=1000)
     amount: Decimal | None = Field(default=None, gt=0)
     model_config = ConfigDict(extra="forbid")
 
@@ -71,7 +71,7 @@ class SupplySupplierSettlementAdjustmentCreate(BaseModel):
     direction: SupplySupplierSettlementCorrectionDirection | None = None
     amount: Decimal = Field(gt=0)
     effective_date: date
-    comment: str | None = Field(default=None, max_length=2000)
+    comment: str | None = Field(default=None, max_length=1000)
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("comment")

@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from app.audit.service import record_current_action_event
 
 from app.models.iiko import (
     IikoMappingStatus,
@@ -666,7 +667,7 @@ def resolve_acceptance_resolution(
             if resolution.issue_type == "SHORTAGE"
             else SupplyProcurementNeedReason.SUPPLIER_REJECTION
         )
-        session.add(SupplyProcurementNeed(
+        need = SupplyProcurementNeed(
             tenant_id=tenant_id,
             source_type=SupplyProcurementNeedSourceType.ACCEPTANCE_RESOLUTION,
             acceptance_resolution_id=resolution.id,
@@ -676,13 +677,18 @@ def resolve_acceptance_resolution(
             need_date=need_date,
             status=SupplyProcurementNeedStatus.OPEN,
             reason=reason,
-        ))
+        )
+        session.add(need)
+        session.flush()
+        record_current_action_event(session, entity=need, operation="CREATE", after={"source_type": str(need.source_type), "quantity": need.quantity, "status": str(need.status)})
+    before = {"status": resolution.status, "resolution_type": resolution.resolution_type}
     resolution.status = "RESOLVED"
     resolution.resolution_type = resolution_type
     resolution.comment = (payload.comment or "").strip() or None
     resolution.resolved_by_user_id = user_id
     resolution.resolved_at = datetime.now(timezone.utc)
     try:
+        record_current_action_event(session, entity=resolution, operation="RESOLVE", before=before, after={"status": resolution.status, "resolution_type": resolution.resolution_type, "comment": resolution.comment})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -939,6 +945,7 @@ def create_acceptance(session: Session, order_id: UUID, payload: SupplySupplierA
     for line in acceptance.lines:
         _autofill_acceptance_single_source(session, line)
     try:
+        record_current_action_event(session, entity=acceptance, operation="CREATE", after={"status": acceptance.status, "supplier_order_id": str(order_id), "supplier_document_id": acceptance.supplier_document_id})
         session.commit()
     except IntegrityError as error:
         session.rollback(); raise SupplierAcceptanceConflictError from error
@@ -948,6 +955,7 @@ def create_acceptance(session: Session, order_id: UUID, payload: SupplySupplierA
 def update_acceptance(session: Session, acceptance_id: UUID, payload: SupplySupplierAcceptanceUpdate, *, tenant_id: str):
     acceptance = _get(session, acceptance_id, tenant_id=tenant_id, lock=True)
     if acceptance.status != "DRAFT": raise SupplierAcceptanceStateError
+    before = {field: getattr(acceptance, field) for field in payload.model_fields_set}
     if "destination_mapping_id" in payload.model_fields_set:
         destination = _destination_mapping(
             session, payload.destination_mapping_id, tenant_id=tenant_id
@@ -955,6 +963,7 @@ def update_acceptance(session: Session, acceptance_id: UUID, payload: SupplySupp
         acceptance.destination_mapping_id = destination.id if destination else None
     for field in payload.model_fields_set - {"destination_mapping_id"}:
         setattr(acceptance, field, getattr(payload, field))
+    record_current_action_event(session, entity=acceptance, operation="UPDATE", before=before, after={field: getattr(acceptance, field) for field in before})
     session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
@@ -977,14 +986,17 @@ def create_line(session: Session, acceptance_id: UUID, payload: SupplySupplierAc
     if payload.product_id and session.scalar(select(SupplyProduct.id).where(SupplyProduct.id == payload.product_id, SupplyProduct.tenant_id == tenant_id)) is None:
         raise SupplierAcceptanceLinkError
     values = payload.model_dump(); received, accepted, rejected, reason, comment, amount = _validate_values(values)
-    acceptance.lines.append(SupplySupplierAcceptanceLine(
+    line = SupplySupplierAcceptanceLine(
         tenant_id=tenant_id, supplier_order_id=acceptance.supplier_order_id,
         product_name_snapshot=payload.product_name_snapshot.strip(), product_id=payload.product_id,
         unit_id=unit.id, unit_name_snapshot=unit.short_name_ru,
         received_quantity=received, accepted_quantity=accepted, rejected_quantity=rejected,
         accepted_unit_price=payload.accepted_unit_price, accepted_amount=amount, currency="RUB",
         rejection_reason=reason, comment=comment,
-    ))
+    )
+    acceptance.lines.append(line)
+    session.flush()
+    record_current_action_event(session, entity=line, operation="CREATE", after={"supplier_acceptance_id": str(acceptance_id), "received_quantity": line.received_quantity, "accepted_quantity": line.accepted_quantity, "rejected_quantity": line.rejected_quantity})
     session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
@@ -994,6 +1006,7 @@ def update_line(session: Session, acceptance_id: UUID, line_id: UUID, payload: S
     line = next((item for item in acceptance.lines if item.id == line_id), None)
     if line is None: raise SupplierAcceptanceNotFoundError
     values = {"received_quantity": line.received_quantity, "accepted_quantity": line.accepted_quantity, "rejected_quantity": line.rejected_quantity, "accepted_unit_price": line.accepted_unit_price, "rejection_reason": line.rejection_reason, "comment": line.comment}
+    before = dict(values)
     values.update(payload.model_dump(exclude_unset=True))
     received, accepted, rejected, reason, comment, amount = _validate_values(values)
     line.received_quantity=received; line.accepted_quantity=accepted; line.rejected_quantity=rejected
@@ -1004,6 +1017,7 @@ def update_line(session: Session, acceptance_id: UUID, line_id: UUID, payload: S
             _autofill_acceptance_single_source(session, line)
         else:
             line.sources.clear()
+    record_current_action_event(session, entity=line, operation="UPDATE", before=before, after={field: getattr(line, field) for field in before})
     session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
@@ -1019,6 +1033,7 @@ def update_acceptance_line_sources(
         raise SupplierAcceptanceNotFoundError
     if len({value.supplier_order_line_source_id for value in values}) != len(values):
         raise SupplierAcceptanceValidationError
+    before = [{"source_id": str(source.supplier_order_line_source_id), "accepted_quantity": source.accepted_quantity} for source in line.sources]
     line.sources.clear()
     session.flush()
     for value in values:
@@ -1028,6 +1043,7 @@ def update_acceptance_line_sources(
             accepted_quantity=value.accepted_quantity,
         ))
     _validate_acceptance_distribution(session, line, lock=True)
+    record_current_action_event(session, entity=line, operation="UPDATE_SOURCES", before={"sources": before}, after={"sources": [{"source_id": str(source.supplier_order_line_source_id), "accepted_quantity": source.accepted_quantity} for source in line.sources]})
     session.commit()
     return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
@@ -1037,6 +1053,7 @@ def delete_line(session: Session, acceptance_id: UUID, line_id: UUID, *, tenant_
     if acceptance.status != "DRAFT": raise SupplierAcceptanceStateError
     line = next((item for item in acceptance.lines if item.id == line_id), None)
     if line is None: raise SupplierAcceptanceNotFoundError
+    record_current_action_event(session, entity=line, operation="DELETE", before={"supplier_acceptance_id": str(acceptance_id), "accepted_quantity": line.accepted_quantity})
     session.delete(line); session.commit(); return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
 
 
@@ -1078,6 +1095,7 @@ def record_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str, 
     acceptance.status="RECORDED"; acceptance.recorded_by_user_id=user_id
     acceptance.recorded_at=datetime.now(timezone.utc); acceptance.accepted_at=acceptance.recorded_at
     _generate_resolution_issues(session, acceptance)
+    record_current_action_event(session, entity=acceptance, operation="RECORD", before={"status": "DRAFT"}, after={"status": acceptance.status, "recorded_by_user_id": user_id})
     try: session.commit()
     except IntegrityError as error: session.rollback(); raise SupplierAcceptanceConflictError from error
     return read_acceptance(session, acceptance_id, tenant_id=tenant_id)
@@ -1086,5 +1104,6 @@ def record_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str, 
 def cancel_acceptance(session: Session, acceptance_id: UUID, *, tenant_id: str):
     acceptance = _get(session, acceptance_id, tenant_id=tenant_id, lock=True)
     if acceptance.status != "DRAFT": raise SupplierAcceptanceStateError
+    record_current_action_event(session, entity=acceptance, operation="CANCEL", before={"status": acceptance.status}, after={"status": "CANCELLED"})
     acceptance.status="CANCELLED"; session.commit()
     return read_acceptance(session, acceptance_id, tenant_id=tenant_id)

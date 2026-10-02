@@ -260,6 +260,23 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def test_purchase_request_audit_is_atomic_and_has_authorized_role(self):
+        app.dependency_overrides.pop(get_supply_operator)
+        request_id = self.create_request()["id"]
+        line_response = self.add_line(request_id)
+        self.assertEqual(line_response.status_code, 201, line_response.text)
+        ready = self.client.post(f"/supply/purchase-requests/{request_id}/ready")
+        self.assertEqual(ready.status_code, 200, ready.text)
+        with self.sessions() as session:
+            events = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.tenant_id == "eclair",
+                AuditEvent.entity_id == request_id,
+            )).all())
+            self.assertEqual({event.operation for event in events}, {"CREATE", "MARK_READY"})
+            self.assertTrue(all(event.actor_user_id == 2 and event.actor_employee_id
+                                and event.authorized_as == "ADMIN" for event in events))
+            self.assertTrue(all(event.before is not None and event.after is not None for event in events))
+
     def add_line(self, request_id, **changes):
         payload = {
             "product_id": str(self.product.id), "quantity": "80.000",
@@ -1265,6 +1282,39 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             stored.status = "SENT"
             stored.sent_at = datetime.now(timezone.utc)
         return self.client.get(f"/supply/supplier-orders/{order['id']}").json()
+
+    def test_downstream_audit_has_actor_and_failed_write_leaves_no_event(self):
+        app.dependency_overrides.pop(get_supply_operator)
+        order = self._sent_order()
+        confirmation = self.client.post(f"/supply/supplier-orders/{order['id']}/confirmations")
+        self.assertEqual(confirmation.status_code, 200, confirmation.text)
+        document = self._create_supplier_document(order, document_type="DELIVERY_NOTE")
+        acceptance = self.client.post(f"/supply/supplier-orders/{order['id']}/acceptances", json={
+            "destination_mapping_id": str(self.destination_mapping.id),
+        })
+        self.assertEqual(acceptance.status_code, 201, acceptance.text)
+        duplicate = self.client.post(f"/supply/supplier-orders/{order['id']}/documents", json={
+            "document_type": "DELIVERY_NOTE", "document_number": document["document_number"],
+            "document_date": "2026-09-17",
+        })
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        with self.sessions() as session:
+            for entity_type, entity_id in (
+                ("SupplySupplierConfirmation", confirmation.json()["id"]),
+                ("SupplySupplierDocument", document["id"]),
+                ("SupplySupplierAcceptance", acceptance.json()["id"]),
+            ):
+                events = list(session.scalars(select(AuditEvent).where(
+                    AuditEvent.entity_type == entity_type, AuditEvent.entity_id == entity_id,
+                )).all())
+                self.assertEqual([event.operation for event in events], ["CREATE"])
+                self.assertEqual(events[0].actor_user_id, 2)
+                self.assertIsNotNone(events[0].actor_employee_id)
+                self.assertEqual(events[0].authorized_as, "ADMIN")
+                self.assertTrue(events[0].after)
+            self.assertEqual(session.scalar(select(func.count()).select_from(AuditEvent).where(
+                AuditEvent.entity_type == "SupplySupplierDocument", AuditEvent.operation == "CREATE",
+            )), 1)
 
     def _create_supplier_document(
         self, order: dict, *, document_type="INVOICE", number=None,

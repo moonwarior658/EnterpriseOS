@@ -1868,6 +1868,8 @@ Governing business spec: [STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](
 
 Исторические записи не должны теряться после блокировки пользователя, увольнения, возвращения или перевода сотрудника.
 
+**Срез реализации 01.10.2026:** immutable audit и ADMIN-only Audit Explorer работают; SupplyRequest, supplier и payment mutations имеют actor context. Для старой downstream цепочки добавлены события SupplierOrder create/update/ready/cancel. Покрытие ProcurementNeed, PurchaseRequest, Allocation, Confirmation, Document, Acceptance, iiko incoming receipt, transfer и settlement ещё не завершено; критерий полного audit trail остаётся открытым. Публичная Supply-форма отключена (см. статус 3.1A выше); reminder delivery и DRIVER assigned transports отложены до подтверждённых источников и отдельной реализации.
+
 ## 3.1P.6. Критерий готовности
 
 Stage 3.1P считается завершённым, когда выполнены критерии governing business spec и EOS может надёжно связать бизнес-действие с конкретным сотрудником, его ролью, фактическим подразделением и при необходимости личной сменой iiko, сохранив неизменяемую историю.

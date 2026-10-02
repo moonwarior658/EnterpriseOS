@@ -116,6 +116,38 @@ def record_audit_event(
     return audit_event
 
 
+def record_current_action_event(
+    db: Session,
+    *,
+    entity: Any,
+    operation: str,
+    before: dict[str, Any] | None = None,
+    after: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> AuditEvent | None:
+    """Record an explicit service transition in the current API transaction."""
+    context = db.info.get("action_context")
+    actor_user = db.info.get("action_user")
+    if context is None and actor_user is None:
+        # Existing internal service callers have no human actor.
+        return None
+    if context is None or actor_user is None or context.authorized_as is None:
+        raise ValueError("Business write requires a complete ActionContext")
+    return record_audit_event(
+        db,
+        tenant_id=actor_user.tenant_id,
+        event_type=f"{type(entity).__name__.upper()}_{operation}",
+        entity_type=type(entity).__name__,
+        entity_id=entity.id,
+        operation=operation,
+        context=context,
+        actor_user=actor_user,
+        before=before,
+        after=after,
+        reason=reason,
+    )
+
+
 def audit_query(
     *,
     tenant_id: str,

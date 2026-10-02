@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.audit.service import record_current_action_event
 from app.models.supply import (
     SupplyDepartmentDebt,
     SupplyProduct,
@@ -320,6 +321,12 @@ def create_purchase_request(
     )
     try:
         session.add(item)
+        session.flush()
+        record_current_action_event(session, entity=item, operation="CREATE",
+                                    before={}, after={"number": item.number,
+                                                      "need_date": item.need_date,
+                                                      "status": item.status,
+                                                      "created_by_user_id": user_id})
         session.commit()
     except Exception:
         session.rollback()
@@ -354,8 +361,12 @@ def update_purchase_request(
     payload: SupplyPurchaseRequestUpdate,
 ) -> SupplyPurchaseRequest:
     item = _lock_draft_request(session, item)
+    before = {field: getattr(item, field) for field in payload.model_fields_set}
     for field in payload.model_fields_set:
         setattr(item, field, getattr(payload, field))
+    record_current_action_event(session, entity=item, operation="UPDATE",
+                                before=before,
+                                after={field: getattr(item, field) for field in before})
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
 
@@ -406,8 +417,19 @@ def mark_purchase_request_ready(
                 session.rollback()
                 raise PurchaseRequestSourceConflictError
     for need in locked:
+        before_need = {"status": need.status.value if hasattr(need.status, "value") else need.status,
+                       "reserved_purchase_request_id": need.reserved_purchase_request_id}
         need.status = SupplyProcurementNeedStatus.IN_PURCHASE_REQUEST
+        record_current_action_event(session, entity=need, operation="MARK_IN_PURCHASE_REQUEST",
+                                    before=before_need,
+                                    after={"status": need.status.value,
+                                           "reserved_purchase_request_id": need.reserved_purchase_request_id})
     item.status = "READY"
+    record_current_action_event(session, entity=item, operation="MARK_READY",
+                                before={"status": "DRAFT",
+                                        "procurement_need_ids": [need.id for need in locked]},
+                                after={"status": item.status,
+                                       "procurement_need_status": "IN_PURCHASE_REQUEST"})
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
 
@@ -423,8 +445,17 @@ def cancel_purchase_request(
         ).with_for_update(of=SupplyProcurementNeed)
     ).all())
     for need in needs:
+        before_need = {"reserved_purchase_request_id": need.reserved_purchase_request_id}
         need.reserved_purchase_request_id = None
+        record_current_action_event(session, entity=need, operation="RELEASE_RESERVATION",
+                                    before=before_need,
+                                    after={"reserved_purchase_request_id": None})
     item.status = "CANCELLED"
+    record_current_action_event(session, entity=item, operation="CANCEL",
+                                before={"status": "DRAFT",
+                                        "reserved_need_ids": [need.id for need in needs]},
+                                after={"status": item.status,
+                                       "reserved_need_ids": []})
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
 
@@ -485,6 +516,9 @@ def add_purchase_request_line(
             for source in existing_line.sources
         ):
             raise DuplicatePurchaseRequestLineError
+        before_line = {"quantity": existing_line.quantity,
+                       "manual_future_quantity": existing_line.manual_future_quantity,
+                       "comment": existing_line.comment}
         existing_line.sources.append(SupplyPurchaseRequestLineSource(
             tenant_id=item.tenant_id, source_type="MANUAL_FUTURE",
             procurement_need_id=None, quantity=manual_quantity, unit_id=unit.id,
@@ -492,6 +526,11 @@ def add_purchase_request_line(
         existing_line.manual_future_quantity = manual_quantity
         existing_line.quantity += manual_quantity
         existing_line.comment = payload.comment
+        record_current_action_event(session, entity=existing_line, operation="ADD_MANUAL_SOURCE",
+                                    before=before_line,
+                                    after={"quantity": existing_line.quantity,
+                                           "manual_future_quantity": existing_line.manual_future_quantity,
+                                           "comment": existing_line.comment})
         session.commit()
         return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
     line = SupplyPurchaseRequestLine(
@@ -505,6 +544,13 @@ def add_purchase_request_line(
     ))
     try:
         session.add(line)
+        session.flush()
+        record_current_action_event(session, entity=line, operation="CREATE",
+                                    before={}, after={"purchase_request_id": item.id,
+                                                      "product_id": line.product_id,
+                                                      "unit_id": line.unit_id,
+                                                      "quantity": line.quantity,
+                                                      "manual_future_quantity": line.manual_future_quantity})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -521,6 +567,9 @@ def update_purchase_request_line(
 ) -> SupplyPurchaseRequest:
     item = _lock_draft_request(session, item)
     line = _get_line(session, item, line_id)
+    before_line = {"unit_id": line.unit_id, "quantity": line.quantity,
+                   "manual_future_quantity": line.manual_future_quantity,
+                   "comment": line.comment}
     fields = payload.model_fields_set
     manual_sources = [
         source for source in line.sources if source.source_type == "MANUAL_FUTURE"
@@ -551,6 +600,9 @@ def update_purchase_request_line(
     source.unit_id = line.unit_id
     line.quantity = sum((source.quantity for source in line.sources), Decimal("0"))
     try:
+        record_current_action_event(session, entity=line, operation="UPDATE",
+                                    before=before_line,
+                                    after={field: getattr(line, field) for field in before_line})
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -563,6 +615,9 @@ def delete_purchase_request_line(
 ) -> SupplyPurchaseRequest:
     item = _lock_draft_request(session, item)
     line = _get_line(session, item, line_id)
+    before_line = {"quantity": line.quantity,
+                   "manual_future_quantity": line.manual_future_quantity,
+                   "product_id": line.product_id, "unit_id": line.unit_id}
     auto_sources = [
         source for source in line.sources if source.source_type == "PROCUREMENT_NEED"
     ]
@@ -578,6 +633,11 @@ def delete_purchase_request_line(
         line.quantity = sum((source.quantity for source in auto_sources), Decimal("0"))
     else:
         session.delete(line)
+    record_current_action_event(session, entity=line, operation="DELETE_MANUAL_SOURCE",
+                                before=before_line,
+                                after={"quantity": line.quantity,
+                                       "manual_future_quantity": line.manual_future_quantity}
+                                if auto_sources else {})
     session.commit()
     return get_purchase_request(session, item.id, tenant_id=item.tenant_id)
 
@@ -601,6 +661,7 @@ def collect_purchase_request_needs(
         .with_for_update(of=SupplyProcurementNeed)
     ).all())
     eligible_by_id = {need.id: need for need in eligible}
+    previous_reservations = {need.id: need.reserved_purchase_request_id for need in eligible}
 
     lines = list(session.scalars(
         select(SupplyPurchaseRequestLine).where(
@@ -614,6 +675,7 @@ def collect_purchase_request_needs(
         for line in lines for source in line.sources
         if source.source_type == "PROCUREMENT_NEED"
     }
+    before_sources = sorted(str(need_id) for need_id in existing)
 
     for need_id, (line, source) in list(existing.items()):
         need = eligible_by_id.get(need_id)
@@ -621,6 +683,10 @@ def collect_purchase_request_needs(
             loaded_need = session.get(SupplyProcurementNeed, need_id)
             if loaded_need is not None and loaded_need.reserved_purchase_request_id == item.id:
                 loaded_need.reserved_purchase_request_id = None
+                record_current_action_event(session, entity=loaded_need,
+                                            operation="RELEASE_RESERVATION",
+                                            before={"reserved_purchase_request_id": item.id},
+                                            after={"reserved_purchase_request_id": None})
             session.delete(source)
             line.sources.remove(source)
             continue
@@ -632,6 +698,10 @@ def collect_purchase_request_needs(
 
     for need in eligible:
         need.reserved_purchase_request_id = item.id
+        if previous_reservations[need.id] != item.id:
+            record_current_action_event(session, entity=need, operation="RESERVE",
+                                        before={"reserved_purchase_request_id": previous_reservations[need.id]},
+                                        after={"reserved_purchase_request_id": item.id})
         if need.id in existing:
             continue
         key = (need.product_id, need.unit_id)
@@ -662,6 +732,14 @@ def collect_purchase_request_needs(
         )
         line.quantity = sum((source.quantity for source in active_sources), Decimal("0"))
     try:
+        after_sources = sorted(
+            str(source.procurement_need_id)
+            for line in lines for source in line.sources
+            if source.source_type == "PROCUREMENT_NEED" and source not in session.deleted
+        )
+        record_current_action_event(session, entity=item, operation="COLLECT_NEEDS",
+                                    before={"procurement_need_ids": before_sources},
+                                    after={"procurement_need_ids": after_sources})
         session.commit()
     except IntegrityError as error:
         session.rollback()

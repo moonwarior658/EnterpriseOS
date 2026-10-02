@@ -75,7 +75,7 @@ def employee_basic_read(employee: Employee, at: datetime) -> EmployeeBasicRead:
         return start <= at and (end is None or end > at)
 
     return EmployeeBasicRead(
-        id=employee.id, full_name=employee.full_name, birth_date=employee.birth_date,
+        id=employee.id, full_name=employee.full_name,
         photo_url=employee.photo_url, phone=employee.phone,
         roles=sorted({item.role for item in employee.role_assignments if active(item)}, key=lambda role: role.value),
         department_ids=sorted({item.department_id for item in employee.department_assignments if active(item)}, key=str),
