@@ -24,6 +24,7 @@ from app.supply.supplier_payments import (
     SupplierPaymentNotFoundError,
     SupplierPaymentStateError,
     SupplierPaymentValidationError,
+    available_orders,
     cancel_payment,
     create_payment,
     list_payments,
@@ -47,7 +48,10 @@ def _error(error: Exception) -> HTTPException:
             detail="Документ или заказ не соответствует поставщику",
         )
     if isinstance(error, SupplierPaymentValidationError):
-        return HTTPException(status_code=409, detail="Проверьте реквизиты и связи оплаты")
+        detail = "Сумма превышает остаток по заказу" if str(error) == "Сумма превышает остаток по заказу" else "Проверьте реквизиты и связи оплаты"
+        return HTTPException(status_code=409, detail=detail)
+    if isinstance(error, SupplierPaymentStateError) and str(error) in {"Заказ недоступен для оплаты", "Заказ уже оплачен"}:
+        return HTTPException(status_code=409, detail=str(error))
     return HTTPException(status_code=409, detail="Зафиксированную оплату изменить нельзя")
 
 
@@ -79,6 +83,12 @@ def read_payments(
     return SupplySupplierPaymentPage(items=items, total=total, limit=limit, offset=offset)
 
 
+@router.get("/available-orders")
+def list_available_payment_orders(supplier_id: UUID, db: Annotated[Session, Depends(get_db)],
+                                  admin: Annotated[User, Depends(get_payment_writer)]):
+    return available_orders(db, tenant_id=admin.tenant_id, supplier_id=supplier_id)
+
+
 @router.get("/{payment_id}", response_model=SupplySupplierPaymentRead)
 def read_supplier_payment(
     payment_id: UUID, db: Annotated[Session, Depends(get_db)],
@@ -100,7 +110,7 @@ def create_supplier_payment(
         context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
         return create_payment(db, payload, tenant_id=admin.tenant_id, user_id=admin.id,
                               audit_context=context, actor_user=admin)
-    except (SupplierPaymentConflictError, SupplierPaymentLinkError, SupplierPaymentValidationError) as error:
+    except (SupplierPaymentConflictError, SupplierPaymentLinkError, SupplierPaymentValidationError, SupplierPaymentStateError) as error:
         raise _error(error) from error
 
 

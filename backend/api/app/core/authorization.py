@@ -1,6 +1,7 @@
 """Capabilities and scopes for Employee and User administration."""
 
 from enum import StrEnum
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -314,6 +315,16 @@ def supply_request_authorize(
                        and department.business_type == DepartmentBusinessType.RETAIL_POINT)
         else:
             allowed = False
+        if request is not None and role == EmployeeRole.SELLER and write:
+            cycle = request.cycle
+            now = datetime.now(timezone.utc)
+            if cycle is None:
+                allowed = False
+            else:
+                opens_at = cycle.opens_at.replace(tzinfo=cycle.opens_at.tzinfo or timezone.utc)
+                closes = cycle.hard_closes_at or cycle.closes_at
+                closes_at = closes.replace(tzinfo=closes.tzinfo or timezone.utc)
+                allowed = allowed and cycle.status == "OPEN" and opens_at <= now <= closes_at
         if request is not None and capability == Capability.SUPPLY_REQUEST_EDIT:
             if role == EmployeeRole.SELLER:
                 allowed = allowed and request.created_by_user_id == user.id

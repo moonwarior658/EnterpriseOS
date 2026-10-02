@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { formatDateTime } from '../utils/dateFormat'
 import { useSupplyPermissions } from '../services/useSupplyPermissions'
 import {
   EosCheckbox,
@@ -11,22 +12,11 @@ import {
 import {
   getSupplyRequests,
   getSupplyDepartments,
-  getSupplyDirections,
-  getSupplyCycles,
-  type SupplyCycle,
   type SupplyReference,
   type SupplyRequestSummary,
 } from '../services/supplyAdmin'
 
 export const SUPPLY_REQUEST_PAGE_SIZE = 25
-
-function formatDate(value: string | null): string {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric', month: 'long', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  }).format(new Date(value))
-}
 
 function statusLabel(value: string): string {
   return ({
@@ -56,17 +46,11 @@ function SupplyRequestListPage() {
   const [departmentId, setDepartmentId] = useState(
     routeParams.get('department_id') ?? '',
   )
-  const [directionId, setDirectionId] = useState(
-    routeParams.get('direction_id') ?? '',
-  )
-  const [cycleId, setCycleId] = useState(routeParams.get('cycle_id') ?? '')
   const [dateFrom, setDateFrom] = useState(routeParams.get('date_from') ?? '')
   const [dateTo, setDateTo] = useState(routeParams.get('date_to') ?? '')
   const [offset, setOffset] = useState(Number(routeParams.get('offset')) || 0)
   const [total, setTotal] = useState(0)
   const [departments, setDepartments] = useState<SupplyReference[]>([])
-  const [directions, setDirections] = useState<SupplyReference[]>([])
-  const [cycles, setCycles] = useState<SupplyCycle[]>([])
   const activeRequest = useRef<AbortController | null>(null)
   const requestSequence = useRef(0)
   const hasData = useRef(false)
@@ -87,8 +71,6 @@ function SupplyRequestListPage() {
     if (needsReview) query.set('has_needs_review', 'true')
     if (duplicates) query.set('has_duplicates', 'true')
     if (departmentId) query.set('department_id', departmentId)
-    if (directionId) query.set('direction_id', directionId)
-    if (cycleId) query.set('cycle_id', cycleId)
     if (dateFrom) query.set('date_from', dateFrom)
     if (dateTo) query.set('date_to', dateTo)
     try {
@@ -108,15 +90,13 @@ function SupplyRequestListPage() {
       ) return
       if (!background || !hasData.current) setState('error')
     }
-  }, [cycleId, dateFrom, dateTo, departmentId, directionId, duplicates, needsReview, offset, search, status])
+  }, [dateFrom, dateTo, departmentId, duplicates, needsReview, offset, search, status])
 
   useEffect(() => {
     const next = new URLSearchParams()
     if (search.trim()) next.set('search', search.trim())
     if (status) next.set('status', status)
     if (departmentId) next.set('department_id', departmentId)
-    if (directionId) next.set('direction_id', directionId)
-    if (cycleId) next.set('cycle_id', cycleId)
     if (dateFrom) next.set('date_from', dateFrom)
     if (dateTo) next.set('date_to', dateTo)
     if (needsReview) next.set('has_needs_review', 'true')
@@ -124,19 +104,13 @@ function SupplyRequestListPage() {
     if (offset) next.set('offset', String(offset))
     setRouteParams(next, { replace: true })
   }, [
-    cycleId, dateFrom, dateTo, departmentId, directionId, duplicates,
+    dateFrom, dateTo, departmentId, duplicates,
     needsReview, offset, search, setRouteParams, status,
   ])
 
   useEffect(() => {
     if (!isAdmin) return
-    void Promise.all([
-      getSupplyDepartments(), getSupplyDirections(), getSupplyCycles(),
-    ]).then(([nextDepartments, nextDirections, nextCycles]) => {
-      setDepartments(nextDepartments)
-      setDirections(nextDirections)
-      setCycles(nextCycles.items)
-    }).catch(() => undefined)
+    void getSupplyDepartments().then(setDepartments).catch(() => undefined)
   }, [isAdmin])
 
   useEffect(() => {
@@ -163,7 +137,7 @@ function SupplyRequestListPage() {
             <h1>Реестр заявок</h1>
             <p className="request-intro">Заявок в выборке: {items.length}</p>
           </div>
-          <div className="purchase-actions">{canCreateRequest && <Link className="primary-action" to="/supply/requests/new">Создать заявку</Link>}<Link className="request-back-link" to="/dashboard">← На Dashboard</Link></div>
+          <div className="purchase-actions">{canCreateRequest && <Link className="primary-action" to="/supply/requests/new">Создать заявку</Link>}<Link className="request-back-link" to="/dashboard">Назад</Link></div>
         </div>
         <div className="supply-request-filters">
           <div className="supply-filter-row supply-filter-row-primary">
@@ -188,20 +162,10 @@ function SupplyRequestListPage() {
                 <option value="">Все подразделения</option>
                 {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </EosSelect>
-              <EosSelect aria-label="Направление" value={directionId} onChange={(event) => { setDirectionId(event.target.value); setOffset(0) }}>
-                <option value="">Все направления</option>
-                {directions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </EosSelect>
             </>
           )}
           </div>
           <div className="supply-filter-row supply-filter-row-secondary">
-          {isAdmin && (
-            <EosSelect aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
-              <option value="">Все циклы</option>
-              {cycles.map((item) => <option key={item.id} value={item.id}>{item.cycle_date}</option>)}
-            </EosSelect>
-          )}
           <EosDateField label="С" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setOffset(0) }} />
           <EosDateField label="По" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setOffset(0) }} />
           <button className="secondary-action" type="button" onClick={() => void load()}>Обновить</button>
@@ -222,12 +186,12 @@ function SupplyRequestListPage() {
                 className="supply-registry-row"
                 key={item.id}
                 title={item.public_number}
-                aria-label={`${item.department.name}, ${item.direction.name}, ${statusLabel(item.status)}, ${item.public_number}`}
+                aria-label={`${item.department.name}, ${item.direction.name !== 'Основной' ? `${item.direction.name}, ` : ''}${statusLabel(item.status)}, ${item.public_number}`}
               >
                 <div className="supply-registry-heading">
                   <strong>{item.department.name}</strong>
-                  <span>{item.direction.name}</span>
-                  <time>{formatDate(item.submitted_at ?? item.created_at)}</time>
+                  {item.direction.name !== 'Основной' && <span>{item.direction.name}</span>}
+                  <time>{formatDateTime(item.submitted_at ?? item.created_at)}</time>
                 </div>
                 <span>Позиций: {item.lines_total}</span>
                 <strong className="supply-status">{statusLabel(item.status)}</strong>

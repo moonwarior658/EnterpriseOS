@@ -94,7 +94,7 @@ class SupplyRbacTests(unittest.TestCase):
                 iiko_user_id="seller-33", department_id=retail, opened_at=now,
                 first_seen_at=now, last_seen_at=now, status=EmployeeIikoShiftStatus.OPEN,
                 reconciliation_key="seller-33-open"))
-        self.assertEqual(self.client.post("/supply/requests", json=self.payload(department_id=str(retail))).status_code, 201)
+        self.assertEqual(self.client.post("/supply/requests", json=self.payload(department_id=str(retail))).status_code, 403)
         self.actor(34, EmployeeRole.SUPPLY_MANAGER)
         self.current_user_id = 34
         no_reason = self.client.patch(f"/supply/requests/{request_id}/details", json={

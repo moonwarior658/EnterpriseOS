@@ -98,3 +98,46 @@ export function createEmployeeSupplyRequest(input: {
     }),
   })
 }
+
+export type SellerRequest = {
+  id: string
+  status: string
+  version: number
+  raw_input: string
+}
+
+export type SellerWindow = {
+  is_open: boolean
+  can_write: boolean
+  closes_at: string | null
+  need_date: string | null
+  cycle_id: string | null
+  department: { id: string; name: string } | null
+  allowed_departments: { id: string; name: string }[]
+  request: SellerRequest | null
+  reason: string | null
+}
+
+export function getSellerWindow(departmentId?: string): Promise<SellerWindow> {
+  const query = departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : ''
+  return actionRequest(`/supply/seller/window${query}`)
+}
+
+export function saveSellerRequest(input: {
+  department_id?: string
+  raw_input: string
+  expected_version?: number
+}): Promise<SellerRequest> {
+  return actionRequest('/supply/seller/request', {
+    method: 'PUT', body: JSON.stringify(input),
+  })
+}
+
+export function confirmSellerRequest(input: {
+  department_id?: string
+  expected_version: number
+}): Promise<SellerRequest> {
+  return actionRequest('/supply/seller/request/confirm', {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}

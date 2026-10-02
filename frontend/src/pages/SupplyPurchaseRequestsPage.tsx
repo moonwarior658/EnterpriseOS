@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { EosDialog } from '../components/EosDialog'
 import { EosDateField } from '../components/EosFormControls'
 import {
   createSupplyPurchaseRequest,
@@ -22,6 +23,7 @@ export default function SupplyPurchaseRequestsPage() {
   const { canOperate } = useSupplyPermissions()
   const navigate = useNavigate()
   const [items, setItems] = useState<SupplyPurchaseRequest[]>([])
+  const [createOpen, setCreateOpen] = useState(false)
   const [needDate, setNeedDate] = useState('')
   const [comment, setComment] = useState('')
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -65,10 +67,13 @@ export default function SupplyPurchaseRequestsPage() {
             <h1>Закупочные запросы</h1>
             <p className="subtitle">Внутренняя потребность компании на дату</p>
           </div>
-          <Link className="request-back-link" to="/supply/requests">К заявкам →</Link>
+          <div className="purchase-actions">
+            {canOperate && <button className="primary-action" type="button" onClick={() => { setMessage(''); setCreateOpen(true) }}>+ Создать запрос</button>}
+            <Link className="request-back-link" to="/supply/requests">Назад</Link>
+          </div>
         </div>
 
-        {canOperate && <form className="purchase-request-create" onSubmit={createRequest}>
+        {createOpen && <EosDialog title="Создать закупочный запрос" onClose={() => { if (!busy) setCreateOpen(false) }}><form className="purchase-request-create" onSubmit={createRequest}>
           <EosDateField
             label="Дата потребности" value={needDate} required
             disabled={busy} onChange={(event) => setNeedDate(event.target.value)}
@@ -84,8 +89,9 @@ export default function SupplyPurchaseRequestsPage() {
           <button className="primary-action" type="submit" disabled={busy || !needDate}>
             {busy ? 'Создаём…' : 'Создать запрос'}
           </button>
-        </form>}
-        {message && <p className="request-message request-message-error">{message}</p>}
+        <div className="purchase-actions"><button className="secondary-action" type="button" disabled={busy} onClick={() => setCreateOpen(false)}>Отмена</button></div>
+        {message && <p className="request-message request-message-error" role="alert">{message}</p>}
+        </form></EosDialog>}
         {state === 'loading' && <p className="page-state">Загружаем запросы…</p>}
         {state === 'error' && <p className="request-message request-message-error">Не удалось загрузить запросы</p>}
         {state === 'ready' && items.length === 0 && <p className="page-state">Закупочных запросов пока нет</p>}

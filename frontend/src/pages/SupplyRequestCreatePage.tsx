@@ -4,6 +4,7 @@ import { EosDateField, EosSelect } from '../components/EosFormControls'
 import { BusinessActionError, createEmployeeSupplyRequest } from '../services/actionContext'
 import { getSupplyCycles, getSupplyDepartments, getSupplyDirections, type SupplyCycle, type SupplyReference } from '../services/supplyAdmin'
 import { useSupplyPermissions } from '../services/useSupplyPermissions'
+import SellerSupplyRequestPage from './SellerSupplyRequestPage'
 import './SupplyPurchaseRequestsPage.css'
 
 export default function SupplyRequestCreatePage() {
@@ -55,6 +56,8 @@ export default function SupplyRequestCreatePage() {
       setMessage(error instanceof BusinessActionError ? error.message : 'Не удалось создать заявку')
     } finally { setBusy(false) }
   }
+
+  if (sellerOnly) return <SellerSupplyRequestPage />
 
   return <section className="request-page supply-admin-page purchase-request-page"><div className="request-panel">
     <div className="request-heading"><div><p className="eyebrow">СНАБЖЕНИЕ</p><h1>Новая заявка</h1></div><Link className="request-back-link" to="/supply/requests">К заявкам →</Link></div>

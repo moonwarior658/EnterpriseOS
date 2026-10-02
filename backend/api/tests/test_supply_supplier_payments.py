@@ -32,6 +32,7 @@ from app.supply.supplier_documents import read_document
 from app.supply.supplier_payments import (
     SupplierPaymentConflictError,
     SupplierPaymentLinkError,
+    SupplierPaymentValidationError,
     SupplierPaymentStateError,
     cancel_payment,
     create_payment,
@@ -142,16 +143,22 @@ class SupplySupplierPaymentsTests(unittest.TestCase):
             second = create_payment(session, self.payload("70", order_number="102"), tenant_id="payment-test", user_id=1)
             record_payment(session, second.id, tenant_id="payment-test", user_id=1)
             paid = read_document(session, self.document.id, tenant_id="payment-test")
-            third = create_payment(session, self.payload("5", order_number="103"), tenant_id="payment-test", user_id=1)
-            record_payment(session, third.id, tenant_id="payment-test", user_id=1)
-            overpaid = read_document(session, self.document.id, tenant_id="payment-test")
+            with self.assertRaises(SupplierPaymentStateError):
+                create_payment(session, self.payload("5", order_number="103"), tenant_id="payment-test", user_id=1)
         self.assertEqual(partial.payment_state, "PARTIALLY_PAID")
         self.assertEqual(partial.remaining_to_pay, Decimal("70.000000"))
         self.assertEqual(partial.overdue_state, "OVERDUE")
         self.assertEqual(paid.payment_state, "PAID")
         self.assertEqual(paid.overdue_state, "SETTLED")
-        self.assertEqual(overpaid.payment_state, "OVERPAID")
-        self.assertEqual(overpaid.remaining_to_pay, Decimal("-5.000000"))
+        self.assertEqual(paid.remaining_to_pay, Decimal("0.000000"))
+
+    def test_partial_payment_blocks_order_overpayment(self) -> None:
+        with self.sessions() as session:
+            first = create_payment(session, self.payload("30", order_number="201"), tenant_id="payment-test", user_id=1)
+            record_payment(session, first.id, tenant_id="payment-test", user_id=1)
+            excess = create_payment(session, self.payload("71", order_number="202"), tenant_id="payment-test", user_id=1)
+            with self.assertRaises(SupplierPaymentValidationError):
+                record_payment(session, excess.id, tenant_id="payment-test", user_id=1)
 
     def test_recorded_is_immutable_and_cannot_be_cancelled(self) -> None:
         with self.sessions() as session:

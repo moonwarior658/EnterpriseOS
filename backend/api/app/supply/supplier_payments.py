@@ -131,7 +131,7 @@ def payment_read(session: Session, payment: SupplySupplierPayment) -> SupplySupp
 def _validate_links(
     session: Session, *, tenant_id: str, supplier_id: UUID,
     payment_type: str, supplier_document_id: UUID | None,
-    supplier_order_id: UUID | None,
+    supplier_order_id: UUID | None, lock_order: bool = False,
 ) -> tuple[SupplySupplierDocument | None, SupplySupplierOrder | None]:
     supplier = session.scalar(select(SupplySupplier).where(
         SupplySupplier.id == supplier_id,
@@ -160,13 +160,44 @@ def _validate_links(
 
     order = None
     if supplier_order_id is not None:
-        order = session.scalar(select(SupplySupplierOrder).where(
+        statement = select(SupplySupplierOrder).where(
             SupplySupplierOrder.id == supplier_order_id,
             SupplySupplierOrder.tenant_id == tenant_id,
-        ))
+        )
+        if lock_order:
+            statement = statement.with_for_update(of=SupplySupplierOrder)
+        order = session.scalar(statement)
         if order is None or order.supplier_id != supplier_id or order.currency != "RUB":
             raise SupplierPaymentLinkError
+        if order.status not in {"READY", "SENT"}:
+            raise SupplierPaymentStateError("Заказ недоступен для оплаты")
+        recorded = Decimal(session.scalar(select(func.coalesce(func.sum(SupplySupplierPayment.amount), 0)).where(
+            SupplySupplierPayment.tenant_id == tenant_id,
+            SupplySupplierPayment.supplier_order_id == order.id,
+            SupplySupplierPayment.status == "RECORDED",
+        )) or 0)
+        if recorded >= Decimal(order.total_amount):
+            raise SupplierPaymentStateError("Заказ уже оплачен")
     return document, order
+
+
+def available_orders(session: Session, *, tenant_id: str, supplier_id: UUID) -> list[dict]:
+    orders = session.scalars(select(SupplySupplierOrder).where(
+        SupplySupplierOrder.tenant_id == tenant_id,
+        SupplySupplierOrder.supplier_id == supplier_id,
+        SupplySupplierOrder.status.in_(("READY", "SENT")),
+    ).order_by(SupplySupplierOrder.number)).all()
+    result = []
+    for order in orders:
+        recorded = Decimal(session.scalar(select(func.coalesce(func.sum(SupplySupplierPayment.amount), 0)).where(
+            SupplySupplierPayment.tenant_id == tenant_id,
+            SupplySupplierPayment.supplier_order_id == order.id,
+            SupplySupplierPayment.status == "RECORDED",
+        )) or 0)
+        remaining = Decimal(order.total_amount) - recorded
+        if remaining > 0:
+            result.append({"id": order.id, "number": order.number, "remaining_amount": remaining})
+    return result
 
 
 def _validate_order_fields(number: str | None, order_date) -> None:
@@ -321,8 +352,16 @@ def record_payment(
         supplier_id=payment.supplier_id,
         payment_type=payment.payment_type,
         supplier_document_id=payment.supplier_document_id,
-        supplier_order_id=payment.supplier_order_id,
+        supplier_order_id=payment.supplier_order_id, lock_order=True,
     )
+    if order is not None:
+        recorded = Decimal(session.scalar(select(func.coalesce(func.sum(SupplySupplierPayment.amount), 0)).where(
+            SupplySupplierPayment.tenant_id == tenant_id,
+            SupplySupplierPayment.supplier_order_id == order.id,
+            SupplySupplierPayment.status == "RECORDED",
+        )) or 0)
+        if recorded + Decimal(payment.amount) > Decimal(order.total_amount):
+            raise SupplierPaymentValidationError("Сумма превышает остаток по заказу")
     payment.supplier_document_id = document.id if document else None
     payment.supplier_order_id = order.id if order else None
     if payment.amount <= 0 or payment.currency != "RUB":

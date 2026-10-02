@@ -682,7 +682,8 @@ class SupplyApiTests(unittest.TestCase):
             session.flush()
             shift_id = shift.id
         self.current_user_id = 3
-        first = self.client.post("/supply/requests", json=payload)
+        seller_payload = {"raw_input": "Молоко — 10 л"}
+        first = self.client.put("/supply/seller/request", json=seller_payload)
         self.assertEqual(first.status_code, 403, first.text)
         self.assertEqual(
             first.json()["detail"]["code"],
@@ -693,14 +694,14 @@ class SupplyApiTests(unittest.TestCase):
             json={"shift_id": str(shift_id)},
         )
         self.assertEqual(confirmed.status_code, 200, confirmed.text)
-        created = self.client.post("/supply/requests", json=payload)
-        self.assertEqual(created.status_code, 201, created.text)
-        self.assertEqual(created.json()["department"]["id"], actual["id"])
+        created = self.client.put("/supply/seller/request", json=seller_payload)
+        self.assertEqual(created.status_code, 200, created.text)
+        with self.session_factory() as session:
+            self.assertEqual(session.get(SupplyRequest, UUID(created.json()["id"])).department_id, UUID(actual["id"]))
 
-        spoof_payload = {**payload, "department_id": primary["id"]}
-        spoofed = self.client.post("/supply/requests", json=spoof_payload)
+        spoofed = self.client.put("/supply/seller/request", json={**seller_payload, "department_id": primary["id"]})
         self.assertEqual(spoofed.status_code, 403, spoofed.text)
-        self.assertEqual(spoofed.json()["detail"]["code"], "PERMISSION_DENIED")
+        self.assertEqual(spoofed.json()["detail"]["code"], "DEPARTMENT_FORBIDDEN")
 
         history = self.client.get(f"/supply/requests/{created.json()['id']}/history")
         self.assertEqual(history.status_code, 200, history.text)
@@ -721,6 +722,97 @@ class SupplyApiTests(unittest.TestCase):
             self.assertEqual(str(audit.actual_department_id), actual["id"])
             self.assertEqual(audit.shift_id, shift_id)
             self.assertTrue(audit.shift_context_snapshot["substitution_confirmed"])
+
+    def test_seller_window_follows_cycle_and_blocks_without_shift(self) -> None:
+        self.current_user_id = 3
+        closed = self.client.get("/supply/seller/window")
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertFalse(closed.json()["is_open"])
+        self.current_user_id = 2
+        _, direction_id = self.reference_ids()
+        cycle_id = self.create_cycle(direction_id)
+        self.current_user_id = 3
+        opened = self.client.get("/supply/seller/window")
+        self.assertTrue(opened.json()["is_open"])
+        self.assertFalse(opened.json()["can_write"])
+        self.assertEqual(opened.json()["cycle_id"], cycle_id)
+        self.assertEqual(opened.json()["need_date"], "2026-01-03")
+        denied = self.client.put("/supply/seller/request", json={"raw_input": "Молоко — 10 л"})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        with self.session_factory.begin() as session:
+            session.get(SupplyRequestCycle, UUID(cycle_id)).status = "CLOSED"
+        closed_again = self.client.get("/supply/seller/window")
+        self.assertFalse(closed_again.json()["is_open"])
+
+    def test_seller_reconfirms_same_request_and_close_makes_it_read_only(self) -> None:
+        self.current_user_id = 2
+        _, direction_id = self.reference_ids()
+        cycle_id = self.create_cycle(direction_id)
+        with self.session_factory.begin() as session:
+            seller_id = session.scalar(select(Employee.id).where(Employee.linked_user_id == 3))
+            primary_id = session.scalar(select(Department.id).where(Department.code == "М15"))
+            session.add(EmployeeIikoShift(
+                tenant_id="eclair", employee_id=seller_id,
+                iiko_user_id="seller-iiko", external_shift_id="shift-reconfirm",
+                iiko_department_id="iiko-m15", department_id=primary_id,
+                opened_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                status="OPEN", reconciliation_key="shift-reconfirm",
+                first_seen_at=datetime.now(timezone.utc), last_seen_at=datetime.now(timezone.utc),
+            ))
+        self.current_user_id = 3
+        window = self.client.get("/supply/seller/window").json()
+        self.assertTrue(window["can_write"])
+        self.assertEqual(window["department"]["id"], str(primary_id))
+        first = self.client.put("/supply/seller/request", json={"raw_input": "Молоко — 10 л"})
+        self.assertEqual(first.status_code, 200, first.text)
+        confirmed = self.client.post("/supply/seller/request/confirm", json={"expected_version": first.json()["version"]})
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        edited = self.client.put("/supply/seller/request", json={
+            "raw_input": "Молоко — 12 л", "expected_version": confirmed.json()["version"],
+        })
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["id"], first.json()["id"])
+        latest = self.client.post("/supply/seller/request/confirm", json={"expected_version": edited.json()["version"]})
+        self.assertEqual(latest.status_code, 200, latest.text)
+        self.assertEqual(latest.json()["id"], first.json()["id"])
+        self.assertEqual(latest.json()["raw_input"], "Молоко — 12 л")
+        with self.session_factory.begin() as session:
+            session.get(SupplyRequestCycle, UUID(cycle_id)).status = "CLOSED"
+        denied = self.client.put("/supply/seller/request", json={
+            "raw_input": "Молоко — 20 л", "expected_version": latest.json()["version"],
+        })
+        self.assertEqual(denied.status_code, 409, denied.text)
+        with self.session_factory() as session:
+            requests = session.scalars(select(SupplyRequest).where(SupplyRequest.created_by_user_id == 3)).all()
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0].raw_input, "Молоко — 12 л")
+
+    def test_seller_unresolved_shift_uses_only_configured_retail_points(self) -> None:
+        self.current_user_id = 2
+        _, direction_id = self.reference_ids()
+        self.create_cycle(direction_id)
+        with self.session_factory.begin() as session:
+            seller_id = session.scalar(select(Employee.id).where(Employee.linked_user_id == 3))
+            session.add(EmployeeIikoShift(
+                tenant_id="eclair", employee_id=seller_id,
+                iiko_user_id="seller-iiko", external_shift_id="shift-unresolved",
+                iiko_department_id="unknown", department_id=None,
+                opened_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                status="OPEN", reconciliation_key="shift-unresolved",
+                first_seen_at=datetime.now(timezone.utc), last_seen_at=datetime.now(timezone.utc),
+            ))
+            chosen = session.scalar(select(Department.id).where(Department.code == "М35"))
+            forbidden = session.scalar(select(Department.id).where(Department.code == "ЦЕХ"))
+        self.current_user_id = 3
+        window = self.client.get("/supply/seller/window").json()
+        self.assertEqual(len(window["allowed_departments"]), 3)
+        self.assertFalse(window["can_write"])
+        denied = self.client.put("/supply/seller/request", json={"department_id": str(forbidden), "raw_input": "Молоко — 10 л"})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        created = self.client.put("/supply/seller/request", json={"department_id": str(chosen), "raw_input": "Молоко — 10 л"})
+        self.assertEqual(created.status_code, 200, created.text)
+        with self.session_factory() as session:
+            self.assertEqual(session.get(SupplyRequest, UUID(created.json()["id"])).department_id, chosen)
 
     def test_cancel_creates_meaningful_audit_with_reason(self) -> None:
         created = self.create_request()

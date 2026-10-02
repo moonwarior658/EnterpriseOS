@@ -1850,6 +1850,11 @@ export function getSupplySupplierPayments(filters: {
   return request(`/supply/supplier-payments${params.size ? `?${params}` : ''}`, { signal })
 }
 
+export type AvailablePaymentOrder = { id: string; number: string; remaining_amount: string }
+export function getAvailablePaymentOrders(supplierId: string): Promise<AvailablePaymentOrder[]> {
+  return request(`/supply/supplier-payments/available-orders?supplier_id=${encodeURIComponent(supplierId)}`)
+}
+
 export function createSupplySupplierPayment(input: SupplySupplierPaymentInput): Promise<SupplySupplierPayment> {
   return request('/supply/supplier-payments', { method: 'POST', body: JSON.stringify(input) })
 }

@@ -18,6 +18,8 @@ from app.api.dependencies import (
     get_supplier_editor,
 )
 from app.api.routes.action_context import action_context_http_error
+from app.schemas.seller_supply import SellerRequestConfirm, SellerRequestRead, SellerRequestSave, SellerWindowRead
+from app.supply.seller_requests import SellerWindowUnavailable, confirm_request as confirm_seller_request, current_window as seller_current_window, save_request as save_seller_request
 from app.api.routes.iiko import get_iiko_provider, integration_error
 from app.core.action_context import ActionContextError, resolve_action_context
 from app.audit.service import audit_query
@@ -1301,11 +1303,9 @@ def create_request(
             db, current_user, Capability.SUPPLY_REQUEST_CREATE,
             department_id=payload.department_id, write=True,
         )
-        authoritative_payload = payload.model_copy(update={
-            "department_id": (action_context.actual_department_id
-                              if action_context.authorized_as == EmployeeRole.SELLER
-                              else payload.department_id),
-        })
+        if action_context.authorized_as == EmployeeRole.SELLER:
+            raise HTTPException(status_code=403, detail="Используйте окно заявок продавца")
+        authoritative_payload = payload
         return create_supply_request(
             db,
             authoritative_payload,
@@ -2975,3 +2975,49 @@ def read_supply_dashboard_summary(
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return get_supply_dashboard_summary(db)
+
+
+@router.get("/seller/window", response_model=SellerWindowRead)
+def read_seller_window(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    department_id: UUID | None = None,
+) -> SellerWindowRead:
+    try:
+        return seller_current_window(db, current_user, department_id)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+    except SellerWindowUnavailable as error:
+        raise HTTPException(status_code=409, detail={"message": str(error)}) from error
+
+
+@router.put("/seller/request", response_model=SellerRequestRead)
+def put_seller_request(
+    payload: SellerRequestSave,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> SellerRequestRead:
+    try:
+        return save_seller_request(db, current_user, payload)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except (SellerWindowUnavailable, DuplicateSupplyRequestError, SupplyRequestCycleUnavailableError) as error:
+        raise HTTPException(status_code=409, detail={"message": str(error) or "Заявка сейчас недоступна"}) from error
+
+
+@router.post("/seller/request/confirm", response_model=SellerRequestRead)
+def post_seller_confirmation(
+    payload: SellerRequestConfirm,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> SellerRequestRead:
+    try:
+        return confirm_seller_request(db, current_user, payload)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except (SellerWindowUnavailable, SupplyRequestDuplicatesPresentError, SupplyRequestStateError) as error:
+        raise HTTPException(status_code=409, detail={"message": str(error) or "Заявку сейчас нельзя подтвердить"}) from error
