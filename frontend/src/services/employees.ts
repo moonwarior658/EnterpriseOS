@@ -165,6 +165,20 @@ async function employeeRequest<T>(path: string, options: RequestInit = {}): Prom
   return response.json() as Promise<T>
 }
 
+async function employeeBinaryRequest(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = getStoredToken()
+  if (!token) throw new EmployeeApiError('Сессия не найдена', 401)
+  const headers = new Headers(options.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  headers.set('Accept', 'application/json')
+  const response = await fetch(`/api${path}`, { ...options, headers })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new EmployeeApiError(typeof body?.detail === 'string' ? body.detail : '', response.status)
+  }
+  return response
+}
+
 export const getEmployees = (status?: EmployeeStatus) =>
   employeeRequest<(Employee | BasicEmployee)[]>(`/employees${status ? `?status=${status}` : ''}`)
     .then((items) => items.map(employeeView))
@@ -244,3 +258,13 @@ export const getEmployeeActiveIikoShift = (id: string) =>
   employeeRequest<EmployeeIikoShift | null>(`/employees/${id}/iiko/shifts/active`)
 export const refreshEmployeeIikoShifts = (id: string) =>
   employeeRequest<EmployeeIikoSyncResult>(`/employees/${id}/iiko/shifts/refresh`, { method: 'POST' })
+export const getEmployeeAvatar = (id: string) =>
+  employeeBinaryRequest(`/employees/${id}/avatar`).then((response) => response.blob())
+export const uploadEmployeeAvatar = (id: string, photo: File, reason: string) => {
+  const body = new FormData(); body.append('photo', photo); body.append('reason', reason)
+  return employeeBinaryRequest(`/employees/${id}/avatar`, { method: 'POST', body })
+    .then((response) => response.json() as Promise<Employee>)
+}
+export const deleteEmployeeAvatar = (id: string, reason: string) =>
+  employeeBinaryRequest(`/employees/${id}/avatar?reason=${encodeURIComponent(reason)}`, { method: 'DELETE' })
+    .then((response) => response.json() as Promise<Employee>)

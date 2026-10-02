@@ -62,6 +62,23 @@ class RepairWorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get(f'/requests/{repair_id}').status_code, 200)
         self.assertEqual(self.client.get(f'/requests/{repair_id}').json()['allowed_actions'], [])
 
+    def test_admin_gets_valid_actions_for_legacy_repair_without_responsibility(self):
+        self.create_tables()
+        repair_id = self.create_repair().json()['id']
+        with self.sessions.begin() as session:
+            repair = session.get(WorkRequest, repair_id)
+            repair.responsible_role = None
+            repair.responsible_employee_id = None
+        card = self.client.get(f'/requests/{repair_id}')
+        self.assertEqual(card.status_code, 200, card.text)
+        self.assertEqual(card.json()['allowed_actions'], ['take', 'comment', 'add_photo', 'edit_details'])
+        self.actor(51, EmployeeRole.HANDYMAN)
+        self.current_user_id = 51
+        self.assertEqual(self.client.get(f'/requests/{repair_id}').json()['allowed_actions'], [])
+        self.actor(52, EmployeeRole.DEPUTY_DIRECTOR)
+        self.current_user_id = 52
+        self.assertEqual(self.client.get(f'/requests/{repair_id}').json()['allowed_actions'], [])
+
     def test_handyman_escalation_and_manager_ownership(self):
         self.create_tables()
         repair_id = self.create_repair().json()['id']
@@ -113,8 +130,11 @@ class RepairWorkflowTests(unittest.TestCase):
         self.current_user_id = 37
         specialization = self.client.post('/repairs/specializations', json={'name': 'Электрик'})
         self.assertEqual(specialization.status_code, 201, specialization.text)
-        contractor = self.client.post('/repairs/contractors', json={'name': 'Мастер', 'phone': '+7', 'specialization_ids': [specialization.json()['id']]})
+        contractor = self.client.post('/repairs/contractors', json={'name': 'Мастер', 'phone': '+7',
+            'price_notes': '1 200 ₽/час', 'specialization_ids': [specialization.json()['id']]})
         self.assertEqual(contractor.status_code, 201, contractor.text)
+        catalog = self.client.get('/repairs/contractors').json()
+        self.assertEqual(catalog[0]['price_notes'], '1 200 ₽/час')
         self.current_user_id = 36
         self.assertEqual(self.client.post('/repairs/contractors', json={'name': 'Нет', 'phone': '+7'}).status_code, 403)
         self.assertEqual(self.client.post(f'/repairs/{repair_id}/take').status_code, 200)
@@ -157,6 +177,11 @@ class RepairWorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.patch(f"/repairs/contractors/{contractor.json()['id']}", json={
             'is_active': True, 'reason': 'Снова доступен',
         }).status_code, 200)
+        history = self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history")
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertEqual(history.json()[0]['description'], 'Сломалась кофемашина')
+        self.current_user_id = 36
+        self.assertEqual(self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history").status_code, 403)
 
     def test_seller_read_without_shift_and_write_with_shift(self):
         self.create_tables()

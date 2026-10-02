@@ -11,6 +11,53 @@
   color: #191a1d;
 }
 
+.contractor-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.9rem;
+}
+
+.contractor-card {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 150px;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #d9d6cf);
+  border-radius: 16px;
+  background: var(--surface-color, #fff);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transform: none;
+}
+
+.contractor-card:hover,
+.contractor-card:focus-visible { border-color: #767065; transform: none; }
+.contractor-card-heading { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; }
+.contractor-card small { color: var(--muted-color, #6d675f); }
+.contractor-form { margin-top: 1rem; }
+.contractor-field-heading { display: flex; align-items: center; justify-content: space-between; }
+.contractor-add-specialization { min-width: 2.5rem; padding: 0.45rem 0.75rem; }
+.contractor-multiselect { display: flex; flex-wrap: wrap; gap: 0.7rem 1rem; padding: 0.8rem; border: 1px solid #d9d6cf; border-radius: 12px; }
+.contractor-inline-create { display: flex; gap: 0.6rem; margin-top: 0.7rem; }
+.contractor-inline-create input { flex: 1; }
+.contractor-state-action { display: grid; grid-template-columns: minmax(240px, 1fr) auto; gap: 1rem; align-items: end; margin-top: 1rem; }
+.contractor-history-summary { display: flex; flex-wrap: wrap; gap: 0.7rem; margin: 1.2rem 0; }
+.contractor-history-summary span { padding: 0.65rem 0.8rem; border-radius: 10px; background: #f3f1ec; }
+.preserve-lines { white-space: pre-line; }
+.employee-avatar-image { display: block; border-radius: 18px; object-fit: cover; margin-bottom: 0.8rem; }
+.employee-avatar-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.7rem; margin-bottom: 1rem; }
+.employee-avatar-actions label:not(.employee-avatar-picker) { display: grid; gap: 0.35rem; min-width: 240px; }
+.employee-avatar-picker { display: inline-flex; align-items: center; cursor: pointer; }
+.employee-avatar-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.employee-access-onboarding, .employee-access-create { display: grid; gap: 0.8rem; }
+.employee-access-create { grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: end; }
+.employee-access-create label { display: grid; gap: 0.35rem; }
+
+@media (max-width: 720px) {
+  .contractor-state-action, .employee-access-create { grid-template-columns: 1fr; }
+}
+
 .background-glow {
   position: absolute;
   width: 420px;

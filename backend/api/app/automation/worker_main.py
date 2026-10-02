@@ -22,6 +22,7 @@ from app.automation.scheduler import (
 from app.automation.timeouts import expire_stale_executions
 from app.core.n8n_config import get_n8n_settings
 from app.db.session import SessionLocal
+from app.employees.iiko_sync import run_iiko_shift_sync_loop
 from app.models.automation import RuntimeComponent
 
 
@@ -236,6 +237,11 @@ async def run_worker() -> None:
         poll_seconds=scheduler_poll_seconds,
         batch_size=scheduler_batch_size,
     )
+    iiko_shift_sync_seconds = positive_float("IIKO_SHIFT_SYNC_SECONDS", 300.0)
+    iiko_shift_task = asyncio.create_task(
+        run_iiko_shift_sync_loop(stop_event, iiko_shift_sync_seconds),
+        name="iiko-shift-sync",
+    )
 
     try:
         async with N8nProvider(get_n8n_settings()) as provider:
@@ -307,6 +313,8 @@ async def run_worker() -> None:
                     await wait_or_stop(stop_event, poll_seconds)
     finally:
         await stop_scheduler_task(stop_event, scheduler_task)
+        iiko_shift_task.cancel()
+        await asyncio.gather(iiko_shift_task, return_exceptions=True)
 
     logger.info("Automation worker stopped")
 

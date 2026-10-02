@@ -155,6 +155,14 @@ def create_user(
             after={"account_type": user.account_type.value,
                    "employee_id": str(employee.id) if employee else None},
         )
+        if employee is not None:
+            record_audit_event(
+                db, tenant_id=current_admin.tenant_id, event_type="EMPLOYEE_USER_LINKED",
+                entity_type="Employee", entity_id=employee.id, operation="LINK_USER",
+                context=context, actor_user=current_admin, before={"linked_user_id": None},
+                after={"linked_user_id": user.id},
+                reason="Создание доступа EOS из карточки сотрудника",
+            )
         db.commit()
         db.refresh(user)
     except IntegrityError as error:

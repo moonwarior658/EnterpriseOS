@@ -8,4 +8,5 @@ alembic==1.16.2
 PyJWT==2.13.0
 pwdlib[argon2]==0.3.0
 python-multipart==0.0.32
+Pillow==11.3.0
 reportlab==4.4.3

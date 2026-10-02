@@ -41,7 +41,6 @@ function EmployeesPage() {
   const [birthDate, setBirthDate] = useState('')
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
-  const [photoUrl, setPhotoUrl] = useState('')
   const [departmentId, setDepartmentId] = useState('')
   const [roles, setRoles] = useState<EmployeeRole[]>([])
   const [reason, setReason] = useState(initialReason)
@@ -143,7 +142,7 @@ function EmployeesPage() {
       if (bootstrapStatus?.available) {
         created = await bootstrapFirstAdmin({
           full_name: fullName, birth_date: birthDate, phone,
-          residence_address: address, photo_url: photoUrl.trim() || null,
+          residence_address: address, photo_url: null,
           department_id: departmentId, reason: reason.trim(),
         })
         navigate(`/employees/${created.id}`)
@@ -151,7 +150,7 @@ function EmployeesPage() {
       }
       created = await createEmployee({
         full_name: fullName, birth_date: birthDate, phone,
-        residence_address: address, photo_url: photoUrl.trim() || null, reason: reason.trim(),
+        residence_address: address, photo_url: null, reason: reason.trim(),
         department_id: departmentId,
       })
       const validFrom = nowLocal()
@@ -213,7 +212,6 @@ function EmployeesPage() {
                 <label><span>Дата рождения</span><input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} required /></label>
                 <label><span>Телефон</span><input value={phone} onChange={(e) => setPhone(e.target.value)} required /></label>
                 <label className="employee-wide-field"><span>Адрес проживания</span><input value={address} onChange={(e) => setAddress(e.target.value)} required /></label>
-                <label><span>Ссылка на фото</span><input type="url" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} placeholder="Необязательно" /></label>
                 <label><span>Основное подразделение</span><EosSelect value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} required>
                   <option value="">Выберите</option>{assignableDepartments(departments, roles, accessRoles.includes('NETWORK_MANAGER') && !accessRoles.includes('ADMIN') && !accessRoles.includes('DEPUTY_DIRECTOR')).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </EosSelect></label>

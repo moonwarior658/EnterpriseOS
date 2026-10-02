@@ -40,7 +40,7 @@ test('Employee routes use role access and delete Employee is absent', () => {
   assert.match(app, /path="\/employees\/:employeeId" element={<ProtectedRoute allowedRoles=/)
   assert.match(layout, /\{showEmployees && <NavLink to="\/employees"/)
   assert.match(layout, /Сотрудники/)
-  assert.doesNotMatch(`${list}\n${detail}`, /Удалить сотрудника|deleteEmployee/)
+  assert.doesNotMatch(`${list}\n${detail}`, /deleteEmployee\b|['"]Удалить сотрудника['"]/)
 })
 
 test('реестр показывает Employee, фильтрует ФИО, статус, роль и primary department', () => {

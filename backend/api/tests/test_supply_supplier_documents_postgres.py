@@ -118,7 +118,7 @@ class SupplySupplierDocumentsPostgresTests(unittest.TestCase):
             connection.execute(text("INSERT INTO supply_supplier_order_lines (id, tenant_id, supplier_order_id, source_allocation_id, product_id, product_name_snapshot, packages_count, package_quantity_snapshot, package_unit_id_snapshot, quantity_base, price_per_package_snapshot, base_unit_price_snapshot, planned_amount, currency, is_active_owner) VALUES (:id, 'document-test', :order, :allocation, :product, 'Сахар document', 2, 12, :unit, 24, 100, 8.333333, 200, 'RUB', true)"), {"id": order_line_id, "order": order_id, "allocation": allocation_id, "product": product_id, "unit": unit_id})
 
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20261001_0065")
+        self.assertEqual(self.revision(), "20261002_0066")
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         payload = SupplySupplierDocumentCreate(
             document_type="INVOICE", document_number="INV-PG-1", document_date=date(2026, 9, 17),

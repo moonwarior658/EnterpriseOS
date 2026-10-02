@@ -102,9 +102,9 @@ class WorkRequestsApiTests(unittest.TestCase):
         self.assertEqual(card.json()['department'], 'Кафе')
         self.assertIsNone(card.json()['department_id'])
         self.assertIsNone(card.json()['responsible_role'])
-        self.assertEqual(card.json()['allowed_actions'], [])
+        self.assertEqual(card.json()['allowed_actions'], ['reopen'])
 
     def test_migrations_have_single_head(self):
         config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
         scripts = ScriptDirectory.from_config(config)
-        self.assertEqual(scripts.get_heads(), ['20261001_0065'])
+        self.assertEqual(scripts.get_heads(), ['20261002_0066'])
