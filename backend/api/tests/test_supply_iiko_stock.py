@@ -10,6 +10,8 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from tests.supply_legacy_api_fixture import install_supply_admin_overrides
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects import postgresql
@@ -21,6 +23,10 @@ from app.api.dependencies import get_current_admin
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.audit import AuditEvent
+from app.models.employee import (Employee, EmployeeRole, EmployeeRoleAssignment,
+                                 EmployeeDepartmentAssignment, EmployeeIikoShift,
+                                 ShiftDepartmentConfirmation)
 from app.models.iiko import (
     IikoMappingStatus,
     IikoProductMapping,
@@ -86,6 +92,12 @@ class SupplyIikoStockTests(unittest.TestCase):
         )
         for table in (
             User.__table__,
+            Employee.__table__,
+            EmployeeRoleAssignment.__table__,
+            EmployeeDepartmentAssignment.__table__,
+            EmployeeIikoShift.__table__,
+            ShiftDepartmentConfirmation.__table__,
+            AuditEvent.__table__,
             SupplyUnit.__table__,
             Department.__table__,
             SupplyRequestDirection.__table__,
@@ -134,6 +146,7 @@ class SupplyIikoStockTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_admin] = lambda: admin
+        install_supply_admin_overrides(app, lambda: app.dependency_overrides[get_current_admin]())
         self.client = TestClient(app)
 
         self.iiko_product_id = uuid4()
@@ -142,6 +155,17 @@ class SupplyIikoStockTests(unittest.TestCase):
         self.initial_sync_at = datetime(2026, 8, 3, 6, tzinfo=timezone.utc)
         with self.sessions.begin() as session:
             session.add(admin)
+            session.flush()
+            employee = Employee(tenant_id="tenant-a", linked_user_id=1,
+                                full_name="Администратор", birth_date=datetime(1990, 1, 1).date(),
+                                phone="internal", residence_address="private")
+            session.add(employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="tenant-a", employee_id=employee.id, role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                reason="Test fixture", assigned_by_user_id=1,
+            ))
             unit = SupplyUnit(
                 tenant_id="tenant-a",
                 code="KG",

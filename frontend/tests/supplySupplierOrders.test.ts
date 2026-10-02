@@ -23,7 +23,7 @@ import {
 } from '../src/services/supplyAdmin.ts'
 
 
-test('подключает admin-only список, карточку и формирование из allocation workspace', () => {
+test('подключает ролевой список, карточку и формирование из allocation workspace', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const layout = readFileSync(new URL('../src/layouts/AppLayout.tsx', import.meta.url), 'utf8')
   const workspace = readFileSync(new URL('../src/pages/SupplyPurchaseAllocationWorkspace.tsx', import.meta.url), 'utf8')
@@ -58,7 +58,7 @@ test('подключает admin-only список, карточку и форм
   assert.match(detail, /Текущий этап/)
   assert.match(detail, /История заказа/)
   assert.match(detail, /Проведите приход в iiko/)
-  assert.doesNotMatch(detail, /SupplierPaymentsPanel/)
+  assert.match(detail, /canWritePayment && <SupplierPaymentsPanel/)
   assert.doesNotMatch(detail, /SupplierSettlementPanel/)
   assert.match(confirmation, /Зафиксировать ответ поставщика/)
   assert.match(confirmation, /Подтверждённая дата поставки/)

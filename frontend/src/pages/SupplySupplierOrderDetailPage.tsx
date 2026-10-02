@@ -4,7 +4,9 @@ import { EosDateField } from '../components/EosFormControls'
 import SupplierConfirmationPanel from '../components/SupplierConfirmationPanel'
 import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
 import SupplierAcceptancesPanel from '../components/SupplierAcceptancesPanel'
+import SupplierPaymentsPanel from '../components/SupplierPaymentsPanel'
 import { useAuth } from '../contexts/AuthContext'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 import {
   cancelSupplySupplierOrder, getSupplySupplierOrder, readySupplySupplierOrder,
   prepareSupplySupplierOrderMessage, retrySupplySupplierOrderSend,
@@ -39,6 +41,7 @@ function deviationText(deviation: SupplySupplierConfirmationDeviation) {
 export default function SupplySupplierOrderDetailPage() {
   const { orderId = '' } = useParams()
   const { user } = useAuth()
+  const { canOperate, canWritePayment } = useSupplyPermissions()
   const [order, setOrder] = useState<SupplySupplierOrder | null>(null)
   const [deliveryDate, setDeliveryDate] = useState('')
   const [busy, setBusy] = useState(false)
@@ -169,13 +172,13 @@ export default function SupplySupplierOrderDetailPage() {
     <div className="request-heading"><div><p className="eyebrow">СНАБЖЕНИЕ · ЗАКАЗ ПОСТАВЩИКУ</p><h1>Заказ {order.number}</h1></div><Link className="request-back-link" to="/supply/supplier-orders">К списку →</Link></div>
     <div className="purchase-request-header supplier-order-header"><div><span className="field-label">Поставщик</span><strong>{order.supplier_display_name}</strong></div><div><span className="field-label">Закупочный запрос</span><Link to={`/supply/purchase-requests/${order.purchase_request_id}`}>{order.purchase_request_number}</Link></div><div><span className="field-label">Статус</span><span className="purchase-status">{businessLabels[order.business_status]}</span></div></div>
     <div className="supplier-current-step" aria-live="polite"><span>Текущий этап</span><strong>{currentStage}</strong></div>
-    {draft ? <EosDateField className="supplier-delivery-date" label="Плановая дата поставки" value={deliveryDate} disabled={busy} onChange={(event) => setDeliveryDate(event.target.value)} /> : <div className="supplier-order-fact"><span className="field-label">Плановая дата поставки</span><strong>{order.planned_delivery_date ? new Date(`${order.planned_delivery_date}T00:00:00`).toLocaleDateString('ru-RU') : 'Не указана'}</strong></div>}
+    {draft && canOperate ? <EosDateField className="supplier-delivery-date" label="Плановая дата поставки" value={deliveryDate} disabled={busy} onChange={(event) => setDeliveryDate(event.target.value)} /> : <div className="supplier-order-fact"><span className="field-label">Плановая дата поставки</span><strong>{order.planned_delivery_date ? new Date(`${order.planned_delivery_date}T00:00:00`).toLocaleDateString('ru-RU') : 'Не указана'}</strong></div>}
     {message && <p className="request-message">{message}</p>}
     <div className="supplier-table-wrap supplier-order-table-wrap"><table className="supplier-table supplier-order-lines"><thead><tr><th>Товар</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>{order.lines?.map((line) => <tr key={line.id}><td><strong>{line.product_name}</strong><small>{formatQuantity(line.package_quantity_snapshot)} {line.package_unit.short_name_ru} × {formatQuantity(line.packages_count)} уп.</small></td><td>{formatQuantity(line.quantity_base)} {line.package_unit.short_name_ru}</td><td>{formatMoney(line.price_per_package_snapshot)} / уп.</td><td>{formatMoney(line.planned_amount)}</td></tr>)}</tbody></table></div>
     <div className="supplier-order-total"><span>Итого</span><strong>{formatMoney(order.total_amount)}</strong><small>{order.minimum_order_status === 'BELOW_MINIMUM' ? `До минимальной суммы не хватает ${formatMoney(order.minimum_order_shortfall)}` : order.minimum_order_status === 'MET' ? 'Минимальная сумма выполнена' : 'Минимальная сумма не задана'}</small></div>
-    {draft && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={saveAndReady}>Зафиксировать заказ</button><button type="button" className="secondary-action" disabled={busy} onClick={cancel}>Отменить</button></div>}
+    {draft && canOperate && <div className="purchase-actions"><button type="button" className="primary-action" disabled={busy} onClick={saveAndReady}>Зафиксировать заказ</button><button type="button" className="secondary-action" disabled={busy} onClick={cancel}>Отменить</button></div>}
 
-    {order.status === 'READY' && <section className="supplier-message-panel">
+    {order.status === 'READY' && canOperate && <section className="supplier-message-panel">
       <div className="supplier-message-heading"><div><span className="field-label">ТЕКУЩИЙ ЭТАП</span><h2>Подготовить и отправить заказ</h2></div><span>Ответственный: {order.responsible_name_snapshot ?? user?.display_name}</span></div>
       <label className="eos-field"><span>Телефон ответственного</span><input value={responsiblePhone} disabled={busy || Boolean(order.responsible_phone_snapshot)} onChange={(event) => setResponsiblePhone(event.target.value)} placeholder="+7 900 000-00-00" /></label>
       {!order.planned_delivery_date && <p className="supplier-message-warning">Дата поставки не указана</p>}
@@ -186,9 +189,11 @@ export default function SupplySupplierOrderDetailPage() {
       {['PENDING', 'DISPATCHED'].includes(order.latest_delivery_attempt?.status ?? '') && <p>Заказ отправляется…</p>}
     </section>}
 
-    {sent && (!confirmationDone || decisionsOpen) && <SupplierConfirmationPanel order={order} onOrderRefresh={refreshOrder} />}
-    {sent && confirmationDone && !decisionsOpen && <SupplierDocumentsPanel order={order} onOrderRefresh={refreshOrder} />}
-    {sent && confirmationDone && !decisionsOpen && documentsDone && <SupplierAcceptancesPanel order={order} onOrderRefresh={refreshOrder} />}
+    {sent && canOperate && (!confirmationDone || decisionsOpen) && <SupplierConfirmationPanel order={order} onOrderRefresh={refreshOrder} />}
+    {sent && canOperate && confirmationDone && !decisionsOpen && <SupplierDocumentsPanel order={order} onOrderRefresh={refreshOrder} />}
+    {sent && canOperate && confirmationDone && !decisionsOpen && documentsDone && <SupplierAcceptancesPanel order={order} onOrderRefresh={refreshOrder} />}
+
+    {canWritePayment && <SupplierPaymentsPanel order={order} onOrderRefresh={refreshOrder} canSettle={canOperate} />}
 
     {history.length > 1 && <section className="supplier-order-history"><h2>История заказа</h2>{history.map((item, index) => <details key={`${item.title}-${index}`}><summary><span aria-hidden="true">✓</span><strong>{item.title}</strong><time>{item.value}</time></summary><div className="supplier-history-detail">{item.detail}</div></details>)}</section>}
   </div></section>

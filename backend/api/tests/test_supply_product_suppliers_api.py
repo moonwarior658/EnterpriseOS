@@ -9,6 +9,8 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from tests.supply_legacy_api_fixture import install_supply_admin_overrides
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -83,6 +85,7 @@ class SupplyProductSuppliersApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_user] = override_user
+        install_supply_admin_overrides(app, lambda: app.dependency_overrides[get_current_user]())
         self.client = TestClient(app)
 
     def tearDown(self) -> None:

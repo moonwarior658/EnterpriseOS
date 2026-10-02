@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_supply_operator
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_settlement import (
@@ -58,7 +58,7 @@ def _error(error: Exception) -> HTTPException:
 @router.post("/supplier-orders/{order_id}/obligations", response_model=SupplySupplierObligationRead, status_code=status.HTTP_201_CREATED)
 def create_supplier_obligation(
     order_id: UUID, payload: SupplySupplierObligationCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ):
     try:
         return create_obligation(db, order_id, tenant_id=admin.tenant_id, supplier_id=payload.supplier_id, user_id=admin.id)
@@ -69,7 +69,7 @@ def create_supplier_obligation(
 @router.get("/supplier-orders/{order_id}/obligations", response_model=list[SupplySupplierObligationRead])
 def read_supplier_obligations(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     return list_obligations(db, order_id, tenant_id=admin.tenant_id)
 
@@ -77,7 +77,7 @@ def read_supplier_obligations(
 @router.post("/supplier-payment-allocations", response_model=SupplySupplierPaymentAllocationRead, status_code=status.HTTP_201_CREATED)
 def create_supplier_payment_allocation(
     payload: SupplySupplierPaymentAllocationCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ):
     try:
         return create_allocation(db, payload, tenant_id=admin.tenant_id, user_id=admin.id)
@@ -88,7 +88,7 @@ def create_supplier_payment_allocation(
 @router.get("/supplier-payment-allocations/{allocation_id}", response_model=SupplySupplierPaymentAllocationRead)
 def read_supplier_payment_allocation(
     allocation_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return get_allocation(db, allocation_id, tenant_id=admin.tenant_id)
@@ -99,7 +99,7 @@ def read_supplier_payment_allocation(
 @router.post("/supplier-payment-allocations/{allocation_id}/reverse", response_model=SupplySupplierPaymentAllocationRead)
 def reverse_supplier_payment_allocation(
     allocation_id: UUID, payload: SupplySupplierPaymentAllocationReverse,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ):
     try:
         return reverse_allocation(
@@ -113,7 +113,7 @@ def reverse_supplier_payment_allocation(
 @router.post("/supplier-settlement-adjustments", response_model=SupplySupplierSettlementAdjustmentRead, status_code=status.HTTP_201_CREATED)
 def create_supplier_settlement_adjustment(
     payload: SupplySupplierSettlementAdjustmentCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ):
     try:
         return create_adjustment(db, payload, tenant_id=admin.tenant_id, user_id=admin.id)
@@ -124,7 +124,7 @@ def create_supplier_settlement_adjustment(
 @router.get("/suppliers/{supplier_id}/settlement", response_model=SupplySupplierSettlementSummary)
 def read_supplier_settlement(
     supplier_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return settlement_summary(db, supplier_id, tenant_id=admin.tenant_id)
@@ -135,7 +135,7 @@ def read_supplier_settlement(
 @router.get("/suppliers/{supplier_id}/settlement/statement", response_model=SupplySupplierSettlementStatement)
 def read_supplier_settlement_statement(
     supplier_id: UUID, date_from: date, date_to: date,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return settlement_statement(db, supplier_id, tenant_id=admin.tenant_id, date_from=date_from, date_to=date_to)
@@ -146,7 +146,7 @@ def read_supplier_settlement_statement(
 @router.get("/supplier-documents/{document_id}/settlement", response_model=SupplySupplierDocumentSettlementRead)
 def read_supplier_document_settlement(
     document_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return document_settlement(db, document_id, tenant_id=admin.tenant_id)
@@ -157,7 +157,7 @@ def read_supplier_document_settlement(
 @router.get("/supplier-payments/{payment_id}/settlement", response_model=SupplySupplierPaymentSettlementRead)
 def read_supplier_payment_settlement(
     payment_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return payment_settlement(db, payment_id, tenant_id=admin.tenant_id)

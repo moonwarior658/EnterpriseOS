@@ -1,12 +1,21 @@
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_current_user, get_supply_reader, get_supply_operator
+from app.core.action_context import ActionContextError, resolve_action_context
+from app.core.authorization import Capability, Scope, authorize, scoped_department_ids
 from app.db.session import get_db
-from app.models.supply import SupplyPurchaseRequest
+from app.models.employee import EmployeeRole
+from app.models.supply import (
+    SupplyPurchaseRequest, SupplyPurchaseRequestLine, SupplyPurchaseRequestLineSource,
+    SupplyPurchaseAllocationSource, SupplyPurchaseAllocation, SupplyProcurementNeed,
+    SupplyRequestLine, SupplyRequest,
+)
 from app.models.user import User
 from app.schemas.purchase_request import (
     SupplyPurchaseRequestCreate,
@@ -16,6 +25,7 @@ from app.schemas.purchase_request import (
     SupplyPurchaseRequestRead,
     SupplyPurchaseRequestCoverageRead,
     SupplyPurchaseRequestUpdate,
+    ProductionProcurementCardRead,
 )
 from app.schemas.purchase_allocation import (
     SupplyPurchaseAllocationCreate,
@@ -68,6 +78,72 @@ from app.supply.supplier_orders import (
 router = APIRouter(prefix="/supply/purchase-requests", tags=["supply"])
 
 
+def _production_procurement(db: Session, user: User, request_id: UUID | None = None):
+    try:
+        actor = resolve_action_context(db, user, write=False)
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail=error.message) from error
+    if not actor.roles.intersection({EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.CHEF_CONFECTIONER}):
+        raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра закупок производства")
+    departments = scoped_department_ids(db, user, Scope.PRODUCTION, actor)
+    if not departments:
+        return []
+    query = (select(SupplyPurchaseRequest, SupplyPurchaseRequestLineSource)
+             .join(SupplyPurchaseRequestLine, SupplyPurchaseRequestLine.purchase_request_id == SupplyPurchaseRequest.id)
+             .join(SupplyPurchaseRequestLineSource, SupplyPurchaseRequestLineSource.purchase_request_line_id == SupplyPurchaseRequestLine.id)
+             .join(SupplyProcurementNeed, SupplyProcurementNeed.id == SupplyPurchaseRequestLineSource.procurement_need_id)
+             .join(SupplyRequestLine, SupplyRequestLine.id == SupplyProcurementNeed.supply_request_line_id)
+             .join(SupplyRequest, SupplyRequest.id == SupplyRequestLine.request_id)
+             .where(SupplyPurchaseRequest.tenant_id == user.tenant_id,
+                    SupplyRequest.tenant_id == user.tenant_id,
+                    SupplyRequest.department_id.in_(departments),
+                    SupplyProcurementNeed.source_type == "REQUEST_LINE"))
+    if request_id is not None:
+        query = query.where(SupplyPurchaseRequest.id == request_id)
+    rows = db.execute(query.order_by(SupplyPurchaseRequest.created_at.desc())).all()
+    cards = {}
+    for purchase, source in rows:
+        line = source.line
+        card = cards.setdefault(purchase.id, {
+            "id": purchase.id, "number": purchase.number,
+            "need_date": purchase.need_date, "status": purchase.status, "lines": {},
+        })
+        scoped_line = card["lines"].setdefault(line.id, {
+            "product_name": line.product.name, "quantity": Decimal(0),
+            "unit_name": line.unit.short_name_ru, "allocations": [],
+        })
+        scoped_line["quantity"] += source.quantity
+        for allocated_source in source.allocation_sources:
+            allocation = allocated_source.allocation
+            quantity = allocated_source.allocated_quantity
+            scoped_line["allocations"].append({
+                "quantity": quantity,
+                "unit_price": allocation.base_unit_price_snapshot,
+                "amount": quantity * allocation.base_unit_price_snapshot,
+            })
+    return [{**card, "lines": list(card["lines"].values())} for card in cards.values()]
+
+
+@router.get("/production", response_model=list[ProductionProcurementCardRead])
+def read_production_procurement(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> list[ProductionProcurementCardRead]:
+    return _production_procurement(db, user)
+
+
+@router.get("/production/{request_id}", response_model=ProductionProcurementCardRead)
+def read_production_procurement_card(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> ProductionProcurementCardRead:
+    cards = _production_procurement(db, user, request_id)
+    if not cards:
+        raise _not_found()
+    return cards[0]
+
+
 @router.post(
     "/{request_id}/supplier-orders",
     response_model=SupplySupplierOrderCreationResult,
@@ -76,11 +152,13 @@ router = APIRouter(prefix="/supply/purchase-requests", tags=["supply"])
 def create_orders_from_allocations(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderCreationResult:
     try:
+        context = authorize(db, admin, Capability.SUPPLY_OPERATE, write=True)
         return SupplySupplierOrderCreationResult(orders=create_supplier_orders(
             db, request_id, tenant_id=admin.tenant_id, user_id=admin.id,
+            audit_context=context, actor_user=admin,
         ))
     except SupplierOrderNotFoundError as error:
         raise _not_found() from error
@@ -113,7 +191,7 @@ def _get(
 @router.get("", response_model=SupplyPurchaseRequestPage)
 def read_purchase_requests(
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> SupplyPurchaseRequestPage:
@@ -132,7 +210,7 @@ def read_purchase_requests(
 def create_request(
     payload: SupplyPurchaseRequestCreate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     return create_purchase_request(
         db, payload, tenant_id=admin.tenant_id, user_id=admin.id
@@ -143,7 +221,7 @@ def create_request(
 def read_purchase_request(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyPurchaseRequest:
     return _get(db, request_id, admin)
 
@@ -152,7 +230,7 @@ def read_purchase_request(
 def read_purchase_request_coverage(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyPurchaseRequestCoverageRead:
     try:
         return get_purchase_request_coverage(db, request_id, tenant_id=admin.tenant_id)
@@ -165,7 +243,7 @@ def update_request(
     request_id: UUID,
     payload: SupplyPurchaseRequestUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return update_purchase_request(db, _get(db, request_id, admin), payload)
@@ -177,7 +255,7 @@ def update_request(
 def ready_request(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return mark_purchase_request_ready(db, _get(db, request_id, admin))
@@ -199,7 +277,7 @@ def ready_request(
 def collect_needs(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return collect_purchase_request_needs(db, _get(db, request_id, admin))
@@ -216,7 +294,7 @@ def collect_needs(
 def cancel_request(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return cancel_purchase_request(db, _get(db, request_id, admin))
@@ -232,7 +310,7 @@ def add_line(
     request_id: UUID,
     payload: SupplyPurchaseRequestLineCreate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return add_purchase_request_line(db, _get(db, request_id, admin), payload)
@@ -257,7 +335,7 @@ def update_line(
     line_id: UUID,
     payload: SupplyPurchaseRequestLineUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return update_purchase_request_line(
@@ -293,7 +371,7 @@ def delete_line(
     request_id: UUID,
     line_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseRequest:
     try:
         return delete_purchase_request_line(
@@ -339,7 +417,7 @@ def _allocation_error(error: Exception) -> HTTPException:
 def read_allocations(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return get_purchase_allocation_workspace(db, request_id, tenant_id=admin.tenant_id)
@@ -355,7 +433,7 @@ def read_allocations(
 def create_allocation(
     request_id: UUID, line_id: UUID, payload: SupplyPurchaseAllocationCreate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return create_purchase_allocation(
@@ -377,7 +455,7 @@ def update_allocation(
     request_id: UUID, line_id: UUID, allocation_id: UUID,
     payload: SupplyPurchaseAllocationUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return update_purchase_allocation(
@@ -398,7 +476,7 @@ def update_allocation(
 def delete_allocation(
     request_id: UUID, line_id: UUID, allocation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return delete_purchase_allocation(
@@ -415,7 +493,7 @@ def delete_allocation(
 def confirm_allocation(
     request_id: UUID, line_id: UUID, allocation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return confirm_purchase_allocation(
@@ -436,7 +514,7 @@ def update_allocation_sources(
     request_id: UUID, line_id: UUID, allocation_id: UUID,
     payload: SupplyPurchaseAllocationSourcesUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyPurchaseAllocationWorkspaceRead:
     try:
         return update_purchase_allocation_sources(

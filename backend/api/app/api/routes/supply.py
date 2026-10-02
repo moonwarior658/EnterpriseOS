@@ -11,14 +11,19 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
     get_current_user,
-    get_current_admin,
-    require_request_view_access,
+    get_supply_technical_admin,
+    get_supply_reader,
+    get_supply_request_viewer,
+    get_supply_operator,
+    get_supplier_editor,
 )
 from app.api.routes.action_context import action_context_http_error
 from app.api.routes.iiko import get_iiko_provider, integration_error
 from app.core.action_context import ActionContextError, resolve_action_context
 from app.audit.service import audit_query
-from app.core.authorization import has_request_view_access
+from app.core.authorization import (
+    Capability, authorize, supply_request_authorize, supply_visible_departments,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.iiko.document_routing import (
@@ -99,6 +104,7 @@ from app.schemas.supply import (
     SupplyRequestLineRead,
     SupplyRequestListItem,
     SupplyRequestRead,
+    SupplyRequestDetailsUpdate,
     SupplyIikoSourceWarehouseSelect,
     SupplyIikoDocumentRead,
     SupplyPrintCallback,
@@ -111,6 +117,7 @@ from app.schemas.supply import (
     SupplySupplierPage,
     SupplySupplierRead,
     SupplySupplierUpdate,
+    SupplySupplierStatusReason,
     SupplyProductSourceAssign,
     SupplyProductSourceBootstrapRead,
     SupplyProductSourceMappingRead,
@@ -193,6 +200,7 @@ from app.supply.service import (
     create_supply_supplier,
     create_supply_product_supplier,
     create_supply_request,
+    edit_supply_request_details,
     delete_supply_product_alias,
     disable_supply_product_alias,
     get_supply_product_category,
@@ -304,6 +312,28 @@ from app.supply.stock_calculation import (
 
 router = APIRouter(prefix="/supply", tags=["supply"])
 print_service_bearer = HTTPBearer(auto_error=False)
+
+
+def _request_actions(db: Session, user: User, item: SupplyRequest) -> list[str]:
+    actions = []
+    try:
+        authorize(db, user, Capability.SUPPLY_OPERATE, write=True)
+    except ActionContextError:
+        pass
+    else:
+        actions.append("OPERATE")
+    for action, capability, states in (
+        ("EDIT", Capability.SUPPLY_REQUEST_EDIT, {"DRAFT", "SUBMITTED", "IN_REVIEW"}),
+        ("CANCEL", Capability.SUPPLY_REQUEST_CANCEL, {"SUBMITTED", "IN_REVIEW"}),
+    ):
+        if item.status not in states:
+            continue
+        try:
+            supply_request_authorize(db, user, capability, request=item, write=True)
+        except ActionContextError:
+            continue
+        actions.append(action)
+    return actions
 
 
 def _not_found() -> HTTPException:
@@ -425,7 +455,7 @@ def _debt_version_conflict(
 )
 def read_supply_request_cycles(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_request_viewer)],
     direction_id: UUID | None = None,
     cycle_status: Annotated[
         SupplyRequestCycleStatus | None,
@@ -461,7 +491,7 @@ def read_supply_request_cycles(
 def create_request_cycle(
     payload: SupplyRequestCycleCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequestCycle:
     try:
         return create_supply_request_cycle(db, payload)
@@ -485,7 +515,7 @@ def create_request_cycle(
 def read_supply_request_cycle(
     cycle_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_request_viewer)],
 ) -> SupplyRequestCycle:
     try:
         return get_supply_request_cycle(db, cycle_id)
@@ -504,7 +534,7 @@ def update_request_cycle(
     cycle_id: UUID,
     payload: SupplyRequestCycleUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequestCycle:
     try:
         return update_supply_request_cycle(db, cycle_id, payload)
@@ -537,7 +567,7 @@ def update_request_cycle(
 @router.get("/units", response_model=list[SupplyUnitRead])
 def read_supply_units(
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_request_viewer)],
 ) -> list[SupplyUnit]:
     return list_supply_units(db, tenant_id=current_admin.tenant_id)
 
@@ -545,7 +575,7 @@ def read_supply_units(
 @router.get("/product-categories", response_model=SupplyReferencePage)
 def read_supply_product_categories(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
     active: bool | None = None,
     search: Annotated[str | None, Query(max_length=160)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -574,7 +604,7 @@ def read_supply_product_categories(
 def create_product_category(
     payload: SupplyReferenceCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductCategory:
     try:
         return create_supply_product_category(db, payload)
@@ -591,7 +621,7 @@ def create_product_category(
 def read_supply_product_category(
     category_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductCategory:
     try:
         return get_supply_product_category(db, category_id)
@@ -607,7 +637,7 @@ def update_product_category(
     category_id: UUID,
     payload: SupplyReferenceUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductCategory:
     try:
         return update_supply_product_category(db, category_id, payload)
@@ -622,7 +652,7 @@ def update_product_category(
 @router.get("/storage-zones", response_model=SupplyReferencePage)
 def read_supply_storage_zones(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
     active: bool | None = None,
     search: Annotated[str | None, Query(max_length=160)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -651,7 +681,7 @@ def read_supply_storage_zones(
 def create_storage_zone(
     payload: SupplyReferenceCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyStorageZone:
     try:
         return create_supply_storage_zone(db, payload)
@@ -668,7 +698,7 @@ def create_storage_zone(
 def read_supply_storage_zone(
     zone_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyStorageZone:
     try:
         return get_supply_storage_zone(db, zone_id)
@@ -684,7 +714,7 @@ def update_storage_zone(
     zone_id: UUID,
     payload: SupplyReferenceUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyStorageZone:
     try:
         return update_supply_storage_zone(db, zone_id, payload)
@@ -699,7 +729,7 @@ def update_storage_zone(
 @router.get("/suppliers", response_model=SupplySupplierPage)
 def read_supply_suppliers(
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_reader)],
     active: bool | None = None,
     search: Annotated[str | None, Query(max_length=240)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -729,13 +759,15 @@ def read_supply_suppliers(
 def create_supplier(
     payload: SupplySupplierCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplier:
     try:
+        context = authorize(db, current_admin, Capability.SUPPLY_OPERATE, write=True)
         return create_supply_supplier(
             db,
             payload,
             tenant_id=current_admin.tenant_id,
+            audit_context=context, actor_user=current_admin,
         )
     except DuplicateActiveSupplySupplierInnError as error:
         raise _supplier_inn_conflict() from error
@@ -745,7 +777,7 @@ def create_supplier(
 def read_supply_supplier(
     supplier_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplySupplier:
     try:
         return get_supply_supplier(
@@ -762,14 +794,21 @@ def update_supplier(
     supplier_id: UUID,
     payload: SupplySupplierUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supplier_editor)],
 ) -> SupplySupplier:
     try:
+        changed = payload.model_fields_set - {"reason"}
+        critical = {"inn", "kpp", "ogrn", "legal_name", "legal_address", "bank_name", "bik", "correspondent_account", "settlement_account", "minimum_order_amount", "order_email"}
+        existing = get_supply_supplier(db, supplier_id, tenant_id=current_admin.tenant_id)
+        if any(getattr(existing, field) != getattr(payload, field) for field in changed & critical) and not payload.reason:
+            raise HTTPException(status_code=422, detail="Укажите причину изменения реквизитов поставщика")
+        context = authorize(db, current_admin, Capability.SUPPLIER_EDIT, write=True)
         return update_supply_supplier(
             db,
             supplier_id,
             payload,
             tenant_id=current_admin.tenant_id,
+            audit_context=context, actor_user=current_admin,
         )
     except SupplySupplierNotFoundError as error:
         raise _supplier_not_found() from error
@@ -783,15 +822,18 @@ def update_supplier(
 )
 def archive_supplier(
     supplier_id: UUID,
+    payload: SupplySupplierStatusReason,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supplier_editor)],
 ) -> SupplySupplier:
     try:
+        context = authorize(db, current_admin, Capability.SUPPLIER_EDIT, write=True)
         return archive_supply_supplier(
             db,
             supplier_id,
             tenant_id=current_admin.tenant_id,
             archived_by_user_id=current_admin.id,
+            audit_context=context, actor_user=current_admin, reason=payload.reason,
         )
     except SupplySupplierNotFoundError as error:
         raise _supplier_not_found() from error
@@ -803,14 +845,17 @@ def archive_supplier(
 )
 def restore_supplier(
     supplier_id: UUID,
+    payload: SupplySupplierStatusReason,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supplier_editor)],
 ) -> SupplySupplier:
     try:
+        context = authorize(db, current_admin, Capability.SUPPLIER_EDIT, write=True)
         return restore_supply_supplier(
             db,
             supplier_id,
             tenant_id=current_admin.tenant_id,
+            audit_context=context, actor_user=current_admin, reason=payload.reason,
         )
     except SupplySupplierNotFoundError as error:
         raise _supplier_not_found() from error
@@ -821,7 +866,7 @@ def restore_supplier(
 @router.get("/products", response_model=SupplyProductPage)
 def read_supply_products(
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_request_viewer)],
     active: bool | None = None,
     search: Annotated[str | None, Query(max_length=240)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -851,7 +896,7 @@ def read_supply_products(
 def create_product(
     payload: SupplyProductCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProduct:
     try:
         return create_supply_product(db, payload)
@@ -886,7 +931,7 @@ def create_product(
 def read_supply_product(
     product_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_request_viewer)],
 ) -> SupplyProduct:
     try:
         return get_supply_product(db, product_id)
@@ -899,7 +944,7 @@ def update_product(
     product_id: UUID,
     payload: SupplyProductUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProduct:
     try:
         return update_supply_product(db, product_id, payload)
@@ -939,7 +984,7 @@ def update_product(
 def archive_product(
     product_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProduct:
     try:
         return archive_supply_product(
@@ -958,7 +1003,7 @@ def archive_product(
 def restore_product(
     product_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProduct:
     try:
         return restore_supply_product(db, product_id)
@@ -977,7 +1022,7 @@ def restore_product(
 def read_product_suppliers(
     product_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_reader)],
     active: bool | None = True,
 ) -> list[SupplyProductSupplier]:
     try:
@@ -997,7 +1042,7 @@ def create_product_supplier(
     product_id: UUID,
     payload: SupplyProductSupplierCreate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSupplier:
     try:
         return create_supply_product_supplier(
@@ -1035,7 +1080,7 @@ def update_product_supplier(
     relation_id: UUID,
     payload: SupplyProductSupplierUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSupplier:
     try:
         return update_supply_product_supplier(
@@ -1067,7 +1112,7 @@ def read_product_supplier_price_history(
     product_id: UUID,
     relation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_reader)],
 ) -> list[SupplyProductSupplierPriceHistory]:
     try:
         return list_supply_product_supplier_price_history(
@@ -1085,7 +1130,7 @@ def archive_product_supplier(
     product_id: UUID,
     relation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSupplier:
     try:
         return archive_supply_product_supplier(
@@ -1105,7 +1150,7 @@ def restore_product_supplier(
     product_id: UUID,
     relation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSupplier:
     try:
         return restore_supply_product_supplier(
@@ -1143,7 +1188,7 @@ def make_product_supplier_primary(
     product_id: UUID,
     relation_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSupplier:
     try:
         return make_primary_supply_product_supplier(
@@ -1168,7 +1213,7 @@ def create_product_alias(
     product_id: UUID,
     payload: SupplyProductAliasCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductAlias:
     try:
         return create_supply_product_alias(db, product_id, payload)
@@ -1190,7 +1235,7 @@ def update_product_alias_status(
     alias_id: UUID,
     _: SupplyAliasStatusUpdate,
     db: Annotated[Session, Depends(get_db)],
-    __: Annotated[User, Depends(get_current_admin)],
+    __: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductAlias:
     try:
         return disable_supply_product_alias(db, product_id, alias_id)
@@ -1209,7 +1254,7 @@ def delete_product_alias(
     product_id: UUID,
     alias_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> None:
     try:
         delete_supply_product_alias(db, product_id, alias_id)
@@ -1223,9 +1268,11 @@ def delete_product_alias(
 @router.get("/departments", response_model=list[DepartmentRead])
 def read_departments(
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_request_viewer)],
 ) -> list[Department]:
-    return list_departments(db, tenant_id=current_admin.tenant_id)
+    visible = supply_visible_departments(db, current_admin)
+    departments = list_departments(db, tenant_id=current_admin.tenant_id)
+    return departments if visible is None else [item for item in departments if item.id in visible]
 
 
 @router.get(
@@ -1234,7 +1281,7 @@ def read_departments(
 )
 def read_request_directions(
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_request_viewer)],
 ) -> list[SupplyRequestDirection]:
     return list_request_directions(db)
 
@@ -1250,16 +1297,14 @@ def create_request(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
-        action_context = resolve_action_context(
-            db,
-            current_user,
-            required_roles=frozenset({EmployeeRole.SELLER, EmployeeRole.ADMIN}),
-            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
-            write=True,
-            requested_department_id=payload.department_id,
+        action_context = supply_request_authorize(
+            db, current_user, Capability.SUPPLY_REQUEST_CREATE,
+            department_id=payload.department_id, write=True,
         )
         authoritative_payload = payload.model_copy(update={
-            "department_id": action_context.actual_department_id,
+            "department_id": (action_context.actual_department_id
+                              if action_context.authorized_as == EmployeeRole.SELLER
+                              else payload.department_id),
         })
         return create_supply_request(
             db,
@@ -1349,23 +1394,14 @@ def read_requests(
     date_to: date | None = None,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[SupplyRequest]:
+    try:
+        visible_departments = supply_visible_departments(db, current_user)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+    if visible_departments == set():
+        raise action_context_http_error(ActionContextError("PERMISSION_DENIED", "Недостаточно прав для просмотра заявок"))
     visibility_user_id = None
-    visibility_department_ids = None
-    if not has_request_view_access(current_user):
-        try:
-            context = resolve_action_context(
-                db,
-                current_user,
-                required_roles=frozenset({EmployeeRole.SELLER}),
-                write=False,
-            )
-        except ActionContextError as error:
-            raise action_context_http_error(error) from error
-        visibility_user_id = current_user.id
-        visibility_department_ids = frozenset(filter(None, (
-            context.primary_department_id,
-            context.actual_department_id,
-        )))
+    visibility_department_ids = (None if visible_departments is None else frozenset(visible_departments))
     filter_values = {
         "search": search,
         "department_id": department_id,
@@ -1387,13 +1423,16 @@ def read_requests(
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
-    return list_supply_requests(
+    items = list_supply_requests(
         db,
         tenant_id=current_user.tenant_id,
         **filter_values,
         limit=25,
         offset=offset,
     )
+    return [SupplyRequestListItem.model_validate(item).model_copy(update={
+        "allowed_actions": _request_actions(db, current_user, item),
+    }) for item in items]
 
 
 @router.get("/requests/{request_id}", response_model=SupplyRequestRead)
@@ -1403,34 +1442,57 @@ def read_request(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> SupplyRequest:
     try:
+        try:
+            authorize(db, current_user, Capability.TECHNICAL_ADMIN)
+            include_mapping_suggestions = True
+        except ActionContextError:
+            include_mapping_suggestions = False
         supply_request = get_supply_request(
             db,
             request_id,
             tenant_id=current_user.tenant_id,
-            include_context_mapping_suggestions=current_user.is_admin,
+            include_context_mapping_suggestions=include_mapping_suggestions,
         )
-        if not has_request_view_access(current_user):
-            context = resolve_action_context(
-                db,
-                current_user,
-                required_roles=frozenset({EmployeeRole.SELLER}),
-                write=False,
-            )
-            allowed_departments = {
-                context.primary_department_id,
-                context.actual_department_id,
-            }
-            if (
-                supply_request.created_by_user_id != current_user.id
-                and supply_request.department_id not in allowed_departments
-            ):
-                raise ActionContextError(
-                    "DEPARTMENT_FORBIDDEN",
-                    "Заявка другого подразделения недоступна",
-                )
-        return supply_request
+        supply_request_authorize(
+            db, current_user, Capability.SUPPLY_REQUEST_READ, request=supply_request,
+        )
+        return SupplyRequestRead.model_validate(supply_request).model_copy(update={
+            "allowed_actions": _request_actions(db, current_user, supply_request),
+        })
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+@router.patch("/requests/{request_id}/details", response_model=SupplyRequestRead)
+def update_request_details(
+    request_id: UUID, payload: SupplyRequestDetailsUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> SupplyRequestRead:
+    try:
+        item = get_supply_request(db, request_id, tenant_id=current_user.tenant_id)
+        context = supply_request_authorize(
+            db, current_user, Capability.SUPPLY_REQUEST_EDIT, request=item, write=True,
+        )
+        if (context.authorized_as == EmployeeRole.SUPPLY_MANAGER
+                and item.created_by_user_id != current_user.id
+                and not (payload.reason or "").strip()):
+            raise HTTPException(status_code=422, detail="Укажите причину изменения чужой заявки")
+        updated = edit_supply_request_details(
+            db, request_id=request_id, payload=payload, tenant_id=current_user.tenant_id,
+            context=context, actor_user=current_user,
+        )
+        return SupplyRequestRead.model_validate(updated).model_copy(update={
+            "allowed_actions": _request_actions(db, current_user, updated),
+        })
+    except SupplyRequestNotFoundError as error:
+        raise _not_found() from error
+    except SupplyRequestVersionConflictError as error:
+        raise _version_conflict(error) from error
+    except SupplyRequestStateError as error:
+        raise HTTPException(status_code=409, detail="Заявка уже не редактируется") from error
     except ActionContextError as error:
         raise action_context_http_error(error) from error
 
@@ -1479,15 +1541,17 @@ def update_request_need_date(
     request_id: UUID,
     payload: SupplyRequestNeedDateUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyRequest:
     try:
-        return update_supply_request_need_date(
-            db,
-            request_id=request_id,
-            expected_version=payload.expected_version,
-            need_date=payload.need_date,
-            tenant_id=current_admin.tenant_id,
+        item = get_supply_request(db, request_id, tenant_id=current_admin.tenant_id)
+        context = supply_request_authorize(
+            db, current_admin, Capability.SUPPLY_REQUEST_EDIT, request=item, write=True,
+        )
+        return edit_supply_request_details(
+            db, request_id=request_id,
+            payload=SupplyRequestDetailsUpdate(expected_version=payload.expected_version, need_date=payload.need_date),
+            tenant_id=current_admin.tenant_id, context=context, actor_user=current_admin,
         )
     except SupplyRequestNotFoundError as error:
         raise _not_found() from error
@@ -1507,7 +1571,7 @@ def update_request_need_date(
 def read_request_iiko_documents(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_supply_reader)],
 ) -> list[SupplyIikoDocumentRead]:
     try:
         writes = list_supply_iiko_document_writes(
@@ -1608,7 +1672,7 @@ def require_print_service_token(
 async def create_request_print_job(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyPrintJob:
     try:
@@ -1635,7 +1699,7 @@ async def create_request_print_job(
 def read_request_print_jobs(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_supply_reader)],
 ) -> list[SupplyPrintJob]:
     try:
         return list_supply_print_jobs(
@@ -1656,7 +1720,7 @@ async def reprint_request_print_job(
     request_id: UUID,
     print_job_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyPrintJob:
     source_job = db.scalar(select(SupplyPrintJob).where(
@@ -1730,7 +1794,7 @@ async def read_request_iiko_document_pdf(
     request_id: UUID,
     document_write_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_supply_reader)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> Response:
     try:
@@ -1761,7 +1825,7 @@ async def read_request_iiko_document_pdf(
 async def read_request_iiko_documents_pdf(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_request_view_access)],
+    current_user: Annotated[User, Depends(get_supply_reader)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> Response:
     try:
@@ -1791,7 +1855,7 @@ async def read_request_iiko_documents_pdf(
 def read_iiko_stock_check(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyIikoStockCheckRead:
     try:
         return get_stock_check(
@@ -1811,7 +1875,7 @@ def update_iiko_source_warehouse(
     request_id: UUID,
     payload: SupplyIikoSourceWarehouseSelect,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyIikoStockCheckRead:
     try:
         return select_source_warehouse(
@@ -1851,7 +1915,7 @@ def update_iiko_source_warehouse(
 def read_stock_calculation(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyStockCalculationRead | None:
     try:
         return get_stock_calculation(
@@ -1870,7 +1934,7 @@ def read_stock_calculation(
 def calculate_request_stock(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_admin)],
+    user: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyStockCalculationRead:
     try:
         return calculate_stock(
@@ -1897,7 +1961,7 @@ def update_request_stock_transferable(
     line_id: UUID,
     payload: SupplyStockTransferQuantityUpdate,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_admin)],
+    user: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyStockCalculationRead:
     try:
         return adjust_transferable_quantity(
@@ -1956,7 +2020,7 @@ def confirm_request_stock_calculation(
     request_id: UUID,
     payload: SupplyStockCalculationConfirm,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_admin)],
+    user: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyStockCalculationRead:
     try:
         return confirm_stock_calculation(
@@ -2007,7 +2071,7 @@ def confirm_request_stock_calculation(
 )
 def bootstrap_source_mappings(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_admin)],
+    user: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductSourceBootstrapRead:
     return bootstrap_product_source_mappings(
         db,
@@ -2024,7 +2088,7 @@ def update_product_source_mapping(
     product_id: UUID,
     payload: SupplyProductSourceAssign,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_admin)],
+    user: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductSourceMappingRead:
     try:
         return assign_product_source(
@@ -2075,7 +2139,7 @@ def update_product_source_mapping(
 def read_source_groups_preview(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> SupplyProductSourcePreviewRead:
     try:
         return get_product_source_preview(
@@ -2094,7 +2158,7 @@ def read_source_groups_preview(
 def resolve_request_sources(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyProductSourcePreviewRead:
     try:
         return resolve_supply_request_sources(
@@ -2128,13 +2192,9 @@ def submit_request(
         supply_request = get_supply_request(
             db, request_id, tenant_id=current_user.tenant_id
         )
-        context = resolve_action_context(
-            db,
-            current_user,
-            required_roles=frozenset({EmployeeRole.ADMIN, EmployeeRole.SELLER}),
-            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
-            write=True,
-            requested_department_id=supply_request.department_id,
+        context = supply_request_authorize(
+            db, current_user, Capability.SUPPLY_REQUEST_EDIT,
+            request=supply_request, write=True,
         )
         return submit_supply_request(
             db,
@@ -2178,7 +2238,7 @@ def recognize_request(
     request_id: UUID,
     payload: SupplyRecognitionRequest,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRecognitionSummary:
     try:
         return recognize_supply_request(
@@ -2209,7 +2269,7 @@ def match_request_line(
     line_id: UUID,
     payload: SupplyLineManualMatch,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequestLine:
     try:
         return manually_match_supply_request_line(
@@ -2264,7 +2324,7 @@ def reparse_request_line(
     line_id: UUID,
     payload: SupplyExpectedVersion,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyLineWorkingValuesRead:
     try:
         request_version, line = reparse_supply_request_line(
@@ -2300,7 +2360,7 @@ def confirm_line_context_mapping(
     line_id: UUID,
     payload: SupplyContextMappingConfirm,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ):
     try:
         return confirm_context_mapping_for_line(
@@ -2338,7 +2398,7 @@ def confirm_line_context_mapping(
 def bootstrap_permanent_milk_mappings(
     payload: SupplyContextMappingBootstrapRequest,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ):
     return bootstrap_permanent_milk_context_mappings(
         db,
@@ -2355,7 +2415,7 @@ def replace_department_context_mapping(
     mapping_id: UUID,
     payload: SupplyContextMappingReplace,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ):
     try:
         return replace_context_mapping(
@@ -2391,7 +2451,7 @@ def delete_department_context_mapping(
     mapping_id: UUID,
     expected_version: Annotated[int, Query(ge=1)],
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_technical_admin)],
 ) -> Response:
     try:
         delete_context_mapping(
@@ -2428,7 +2488,7 @@ def update_line_working_values(
     line_id: UUID,
     payload: SupplyLineWorkingValuesUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyLineWorkingValuesRead:
     try:
         request_version, line = update_supply_line_working_values(
@@ -2498,7 +2558,7 @@ def update_line_allocations(
     line_id: UUID,
     payload: SupplyLineAllocationsUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequest:
     try:
         return replace_supply_line_allocations(
@@ -2533,7 +2593,7 @@ async def plan_request(
     request_id: UUID,
     payload: SupplyRequestPlan,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyRequest:
     try:
@@ -2586,7 +2646,7 @@ def update_line_fulfillment(
     line_id: UUID,
     payload: SupplyLineFulfillmentUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequest:
     try:
         return update_supply_line_fulfillment(
@@ -2625,7 +2685,7 @@ async def fulfill_as_planned(
     request_id: UUID,
     payload: SupplyRequestFulfillmentUpdate,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
     provider: Annotated[IikoProvider, Depends(get_iiko_provider)],
 ) -> SupplyRequest:
     try:
@@ -2673,7 +2733,7 @@ def confirm_debt_inclusion(
     line_id: UUID,
     payload: SupplyDebtInclusionConfirm,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequest:
     try:
         return confirm_supply_debt_inclusion(
@@ -2705,13 +2765,9 @@ def cancel_request(
         supply_request = get_supply_request(
             db, request_id, tenant_id=current_user.tenant_id
         )
-        context = resolve_action_context(
-            db,
-            current_user,
-            required_roles=frozenset({EmployeeRole.ADMIN, EmployeeRole.SELLER}),
-            role_precedence=(EmployeeRole.ADMIN, EmployeeRole.SELLER),
-            write=True,
-            requested_department_id=supply_request.department_id,
+        context = supply_request_authorize(
+            db, current_user, Capability.SUPPLY_REQUEST_CANCEL,
+            request=supply_request, write=True,
         )
         return cancel_supply_request(
             db, request_id,
@@ -2741,7 +2797,7 @@ def detect_request_duplicates(
     request_id: UUID,
     payload: SupplyExpectedVersion,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequest:
     try:
         return detect_supply_request_duplicates(
@@ -2768,7 +2824,7 @@ def resolve_request_duplicate_group(
     group_id: UUID,
     payload: SupplyDuplicateGroupResolve,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyRequest:
     try:
         return resolve_supply_duplicate_group(
@@ -2797,7 +2853,7 @@ def resolve_request_duplicate_group(
 def read_supply_debts(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_reader)],
     department_id: UUID | None = None,
     product_id: UUID | None = None,
     debt_status: Annotated[
@@ -2831,7 +2887,7 @@ def read_supply_debt(
     debt_id: UUID,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplyDepartmentDebt:
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"
@@ -2851,7 +2907,7 @@ def close_debt(
     debt_id: UUID,
     payload: SupplyDebtClose,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyDepartmentDebt:
     try:
         return close_supply_debt(
@@ -2887,7 +2943,7 @@ def cancel_debt(
     debt_id: UUID,
     payload: SupplyDebtCancel,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplyDepartmentDebt:
     try:
         return cancel_supply_debt(
@@ -2911,7 +2967,7 @@ def cancel_debt(
 def read_supply_dashboard_summary(
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_supply_reader)],
 ) -> dict[str, int]:
     response.headers["Cache-Control"] = (
         "no-store, no-cache, must-revalidate, max-age=0"

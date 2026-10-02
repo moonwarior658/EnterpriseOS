@@ -351,7 +351,7 @@ class ActionContextTests(unittest.TestCase):
             json={**payload, "department_id": str(self.actual_id)},
         )
         self.assertEqual(spoofed.status_code, 403, spoofed.text)
-        self.assertEqual(spoofed.json()["detail"]["code"], "DEPARTMENT_FORBIDDEN")
+        self.assertEqual(spoofed.json()["detail"]["code"], "PERMISSION_DENIED")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import {
   SupplyApiError,
   type SupplyDebt,
 } from '../services/supplyAdmin'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 
 const SEVERITY_LABELS = {
   NONE: 'Первый недовоз',
@@ -42,6 +43,7 @@ function formatDate(value: string): string {
 }
 
 function SupplyDebtListPage() {
+  const { canOperate } = useSupplyPermissions()
   const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState<SupplyDebt[]>([])
   const [selected, setSelected] = useState<SupplyDebt | null>(null)
@@ -241,7 +243,7 @@ function SupplyDebtListPage() {
                 заявку и сопоставьте строку долга.
               </p>
             )}
-            {selected.status === 'ACTIVE' && (
+            {canOperate && selected.status === 'ACTIVE' && (
               <div className="supply-card-actions">
                 <button type="button" disabled={busy} onClick={() => void cancelDebt(selected)}>
                   Отменить долг

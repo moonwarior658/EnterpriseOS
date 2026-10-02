@@ -7,7 +7,6 @@ import type { ReactNode } from 'react'
 type ProtectedRouteProps = {
   children: ReactNode
   adminOnly?: boolean
-  requestViewOnly?: boolean
   allowedRoles?: EmployeeRole[]
   allowBootstrap?: boolean
 }
@@ -15,7 +14,6 @@ type ProtectedRouteProps = {
 function ProtectedRoute({
   children,
   adminOnly = false,
-  requestViewOnly = false,
   allowedRoles,
   allowBootstrap = false,
 }: ProtectedRouteProps) {
@@ -24,7 +22,7 @@ function ProtectedRoute({
   const allowedRoleKey = allowedRoles?.join(',')
 
   useEffect(() => {
-    if (!allowedRoleKey || !user) return
+    if ((!allowedRoleKey && !adminOnly) || !user) return
     let active = true
     getActionContext().then((context) => {
       if (active) setAccess({ userId: user.id, roles: context.roles })
@@ -32,7 +30,7 @@ function ProtectedRoute({
       if (active) setAccess({ userId: user.id, roles: [] })
     })
     return () => { active = false }
-  }, [user, allowedRoleKey])
+  }, [user, allowedRoleKey, adminOnly])
 
   if (isLoading) {
     return (
@@ -48,7 +46,7 @@ function ProtectedRoute({
     return <Navigate to="/login" replace />
   }
 
-  if (allowedRoles && access?.userId !== user.id) {
+  if ((allowedRoles || adminOnly) && access?.userId !== user.id) {
     return <main className="login-page"><section className="login-card"><p className="subtitle">Проверяем доступ…</p></section></main>
   }
 
@@ -56,29 +54,12 @@ function ProtectedRoute({
     return <main className="login-page"><section className="login-card"><h1>Доступ запрещён</h1><p className="subtitle">У вас нет доступа к этому разделу.</p></section></main>
   }
 
-  if (adminOnly && !user.is_admin) {
+  if (adminOnly && !access?.roles.includes('ADMIN')) {
     return (
       <main className="login-page">
         <section className="login-card">
           <h1>Доступ запрещён</h1>
           <p className="subtitle">У вас нет доступа к этому разделу.</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (
-    requestViewOnly
-    && !user.is_admin
-    && !user.can_view_requests
-  ) {
-    return (
-      <main className="login-page">
-        <section className="login-card">
-          <h1>Доступ запрещён</h1>
-          <p className="subtitle">
-            У вас нет доступа к просмотру заявок.
-          </p>
         </section>
       </main>
     )

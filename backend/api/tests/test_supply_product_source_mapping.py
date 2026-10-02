@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_technical_admin
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
@@ -643,7 +643,7 @@ class SupplyProductSourceMappingTests(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[get_db] = override_db
-        app.dependency_overrides[get_current_admin] = lambda: User(
+        app.dependency_overrides[get_supply_technical_admin] = lambda: User(
             id=1,
             username="supply",
             display_name="Снабжение",

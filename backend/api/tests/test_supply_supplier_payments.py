@@ -158,7 +158,7 @@ class SupplySupplierPaymentsTests(unittest.TestCase):
             draft = create_payment(session, self.payload("10"), tenant_id="payment-test", user_id=1)
             record_payment(session, draft.id, tenant_id="payment-test", user_id=1)
             with self.assertRaises(SupplierPaymentStateError):
-                update_payment(session, draft.id, SupplySupplierPaymentUpdate(amount=Decimal("11")), tenant_id="payment-test")
+                update_payment(session, draft.id, SupplySupplierPaymentUpdate(amount=Decimal("11"), reason="Корректировка"), tenant_id="payment-test")
             with self.assertRaises(SupplierPaymentStateError):
                 cancel_payment(session, draft.id, tenant_id="payment-test")
 

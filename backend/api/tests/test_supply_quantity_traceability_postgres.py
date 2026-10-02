@@ -241,7 +241,7 @@ class SupplyQuantityTraceabilityPostgresTests(unittest.TestCase):
         self.assertEqual(self.revision(), "20260917_0054")
 
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20261001_0063")
+        self.assertEqual(self.revision(), "20261001_0065")
         sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
         for allocation_id in (concurrent_a, concurrent_b):
             with sessions() as session:

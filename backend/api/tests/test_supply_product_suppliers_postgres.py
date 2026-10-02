@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -22,6 +23,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment
 from app.models.supply import SupplyProductSupplierPriceHistory
 from app.models.user import User
 
@@ -31,7 +33,7 @@ from tests.postgres_test_support import reset_disposable_postgres_schema
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
-CURRENT_HEAD = "20261001_0063"
+CURRENT_HEAD = "20261001_0065"
 
 
 @unittest.skipUnless(TEST_DATABASE_URL, "SUPPLY_TEST_DATABASE_URL is not configured")
@@ -94,6 +96,16 @@ class SupplyProductSuppliersPostgresTests(unittest.TestCase):
         supplier_one, supplier_two, other_supplier = uuid4(), uuid4(), uuid4()
         with self.sessions.begin() as session:
             session.add(User(id=92001, username="product-supplier-admin", display_name="Admin", hashed_password="x", tenant_id="eclair", is_active=True, is_admin=True))
+            session.flush()
+            employee = Employee(tenant_id="eclair", linked_user_id=92001, full_name="Admin",
+                                birth_date=date(1990, 1, 1), phone="internal", residence_address="private")
+            session.add(employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair", employee_id=employee.id, role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                reason="PostgreSQL fixture", assigned_by_user_id=92001,
+            ))
             session.execute(text("INSERT INTO supply_units (id, tenant_id, code, name_ru, short_name_ru, allows_fraction, is_active) VALUES (:id, 'eclair', 'PS_BOX', 'Коробка', 'кор.', false, true)"), {"id": unit_id})
             session.execute(text("INSERT INTO supply_units (id, tenant_id, code, name_ru, short_name_ru, allows_fraction, is_active) VALUES (:id, 'other', 'PS_BOX', 'Коробка', 'кор.', false, true)"), {"id": uuid4()})
             session.execute(text("INSERT INTO supply_products (id, tenant_id, name, normalized_name, default_unit_id, is_active) VALUES (:id, 'eclair', 'PG Product', 'pg product', :unit, true)"), {"id": product_id, "unit": unit_id})

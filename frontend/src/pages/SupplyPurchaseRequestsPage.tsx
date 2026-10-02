@@ -7,6 +7,7 @@ import {
   type SupplyPurchaseRequest,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 
 
 const STATUS_LABELS = {
@@ -18,6 +19,7 @@ function formatDate(value: string): string {
 }
 
 export default function SupplyPurchaseRequestsPage() {
+  const { canOperate } = useSupplyPermissions()
   const navigate = useNavigate()
   const [items, setItems] = useState<SupplyPurchaseRequest[]>([])
   const [needDate, setNeedDate] = useState('')
@@ -66,7 +68,7 @@ export default function SupplyPurchaseRequestsPage() {
           <Link className="request-back-link" to="/supply/requests">К заявкам →</Link>
         </div>
 
-        <form className="purchase-request-create" onSubmit={createRequest}>
+        {canOperate && <form className="purchase-request-create" onSubmit={createRequest}>
           <EosDateField
             label="Дата потребности" value={needDate} required
             disabled={busy} onChange={(event) => setNeedDate(event.target.value)}
@@ -82,7 +84,7 @@ export default function SupplyPurchaseRequestsPage() {
           <button className="primary-action" type="submit" disabled={busy || !needDate}>
             {busy ? 'Создаём…' : 'Создать запрос'}
           </button>
-        </form>
+        </form>}
         {message && <p className="request-message request-message-error">{message}</p>}
         {state === 'loading' && <p className="page-state">Загружаем запросы…</p>}
         {state === 'error' && <p className="request-message request-message-error">Не удалось загрузить запросы</p>}

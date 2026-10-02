@@ -30,6 +30,8 @@ function AppLayout() {
   const showUsers = canReadUsers(roles)
   const repairReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'HANDYMAN', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER']
   const repairCreators = ['ADMIN', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'DRIVER', 'CONFECTIONER', 'BAKER', 'HANDYMAN']
+  const supplyRequestReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'SUPPLY_MANAGER', 'ACCOUNTANT']
+  const supplyFinancialReaders = ['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']
 
   useEffect(() => {
     let active = true
@@ -170,7 +172,7 @@ function AppLayout() {
             </>
           )}
 
-          {(user?.is_admin || user?.can_view_requests) && (
+          {roles.some((role) => supplyRequestReaders.includes(role)) && (
             <NavLink
               to="/supply/requests"
               onClick={closeMenu}
@@ -181,13 +183,19 @@ function AppLayout() {
             </NavLink>
           )}
 
+          {roles.some((role) => ['HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER'].includes(role)) && (
+            <NavLink to="/supply/production-procurement" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}>
+              <span>Закупки производства</span><span>→</span>
+            </NavLink>
+          )}
+
           {roles.some((role) => ['ADMIN', 'SUPPLY_MANAGER'].includes(role)) && (
             <NavLink to="/repairs/contractors" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}>
               <span>Подрядчики ремонта</span><span>→</span>
             </NavLink>
           )}
 
-          {user?.is_admin && (
+          {roles.some((role) => supplyFinancialReaders.includes(role)) && (
             <>
               <p className="menu-section-label">Администрирование</p>
               <NavLink

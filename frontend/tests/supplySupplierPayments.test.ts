@@ -10,7 +10,7 @@ import {
 } from '../src/services/supplyAdmin.ts'
 
 
-test('подключает admin-only реестр и убирает payment UX из карточки заказа', () => {
+test('подключает ролевой реестр и payment UX в карточке заказа', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const layout = readFileSync(new URL('../src/layouts/AppLayout.tsx', import.meta.url), 'utf8')
   const detail = readFileSync(new URL('../src/pages/SupplySupplierOrderDetailPage.tsx', import.meta.url), 'utf8')
@@ -19,9 +19,10 @@ test('подключает admin-only реестр и убирает payment UX 
   const list = readFileSync(new URL('../src/pages/SupplySupplierPaymentsPage.tsx', import.meta.url), 'utf8')
 
   assert.match(app, /path="\/supply\/supplier-payments"/)
-  assert.match(app, /ProtectedRoute adminOnly/)
+  assert.match(app, /allowedRoles=\{\['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT'\]\}/)
   assert.match(layout, /Оплаты поставщикам/)
-  assert.doesNotMatch(detail, /SupplierPaymentsPanel/)
+  assert.match(detail, /canWritePayment && <SupplierPaymentsPanel/)
+  assert.match(panel, /canSettle && recordedPayments/)
   assert.match(documents, /Срок оплаты/)
   assert.match(panel, /Предоплата/)
   assert.match(panel, /Постоплата/)
@@ -64,9 +65,9 @@ test('API-клиент покрывает list, create, draft edit, record и ca
       payment_type: 'POSTPAYMENT', payment_date: '2026-09-17', amount: '30.000001',
       payment_order_number: '123', payment_order_date: '2026-09-17', comment: 'Часть',
     })
-    await updateSupplySupplierPayment('payment', { amount: '70.000001' })
-    await recordSupplySupplierPayment('payment')
-    await cancelSupplySupplierPayment('payment')
+    await updateSupplySupplierPayment('payment', { amount: '70.000001', reason: 'Исправление' })
+    await recordSupplySupplierPayment('payment', 'Подтверждение')
+    await cancelSupplySupplierPayment('payment', 'Отмена')
   } finally { globalThis.fetch = originalFetch }
 
   assert.match(calls[0].url, /supplier_id=supplier/)

@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.procurement_cash_flow import SupplyProcurementCashFlowSummary
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/supply", tags=["supply"])
 def read_supplier_cash_flow(
     supplier_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
 ):
@@ -43,7 +43,7 @@ def read_supplier_cash_flow(
 def read_purchase_request_cash_flow(
     request_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ):
     try:
         return purchase_request_cash_flow(db, request_id, tenant_id=admin.tenant_id)

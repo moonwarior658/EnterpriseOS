@@ -7,6 +7,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 
+from app.audit.service import record_audit_event
+from app.core.action_context import ActionContext
+from app.models.user import User
 from app.models.supply import (
     SupplyProductSupplier,
     SupplyPurchaseAllocation,
@@ -437,6 +440,7 @@ def _next_numbers(session: Session, tenant_id: str, count: int) -> list[str]:
 
 def create_supplier_orders(
     session: Session, request_id: UUID, *, tenant_id: str, user_id: int,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
 ) -> list[SupplySupplierOrderRead]:
     request = session.scalar(select(SupplyPurchaseRequest).where(
         SupplyPurchaseRequest.id == request_id,
@@ -513,6 +517,14 @@ def create_supplier_orders(
                         procurement_need_id_snapshot=line_source.procurement_need_id,
                         planned_quantity=source.allocated_quantity,
                     ))
+            if audit_context is not None and actor_user is not None:
+                record_audit_event(
+                    session, tenant_id=tenant_id, event_type="SUPPLIER_ORDER_CREATED",
+                    entity_type="SupplySupplierOrder", entity_id=order.id, operation="CREATE",
+                    context=audit_context, actor_user=actor_user, before={},
+                    after={"status": order.status, "supplier_id": supplier_id,
+                           "purchase_request_id": request.id, "total_amount": total},
+                )
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -532,6 +544,7 @@ def create_supplier_orders(
 
 def update_supplier_order(
     session: Session, order_id: UUID, payload: SupplySupplierOrderUpdate, *, tenant_id: str,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
 ) -> SupplySupplierOrderRead:
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id, SupplySupplierOrder.tenant_id == tenant_id,
@@ -540,13 +553,23 @@ def update_supplier_order(
         raise SupplierOrderNotFoundError
     if order.status != "DRAFT":
         raise SupplierOrderStateError
+    before = {field: getattr(order, field) for field in payload.model_fields_set}
     for field in payload.model_fields_set:
         setattr(order, field, getattr(payload, field))
+    if audit_context is not None and actor_user is not None and before:
+        record_audit_event(
+            session, tenant_id=tenant_id, event_type="SUPPLIER_ORDER_UPDATED",
+            entity_type="SupplySupplierOrder", entity_id=order.id, operation="UPDATE",
+            context=audit_context, actor_user=actor_user, before=before,
+            after={field: getattr(order, field) for field in before},
+        )
     session.commit()
     return read_supplier_order(session, order.id, tenant_id=tenant_id)
 
 
-def mark_supplier_order_ready(session: Session, order_id: UUID, *, tenant_id: str) -> SupplySupplierOrderRead:
+def mark_supplier_order_ready(session: Session, order_id: UUID, *, tenant_id: str,
+                              audit_context: ActionContext | None = None,
+                              actor_user: User | None = None) -> SupplySupplierOrderRead:
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id, SupplySupplierOrder.tenant_id == tenant_id,
     ).options(
@@ -584,11 +607,21 @@ def mark_supplier_order_ready(session: Session, order_id: UUID, *, tenant_id: st
     ) or order.total_amount != sum((line.planned_amount for line in order.lines), Decimal("0")):
         raise SupplierOrderConflictError
     order.status = "READY"; order.confirmed_at = datetime.now(timezone.utc)
+    if audit_context is not None and actor_user is not None:
+        record_audit_event(
+            session, tenant_id=tenant_id, event_type="SUPPLIER_ORDER_READY",
+            entity_type="SupplySupplierOrder", entity_id=order.id, operation="MARK_READY",
+            context=audit_context, actor_user=actor_user,
+            before={"status": "DRAFT"}, after={"status": order.status,
+                                                "confirmed_at": order.confirmed_at},
+        )
     session.commit()
     return read_supplier_order(session, order.id, tenant_id=tenant_id)
 
 
-def cancel_supplier_order(session: Session, order_id: UUID, *, tenant_id: str) -> SupplySupplierOrderRead:
+def cancel_supplier_order(session: Session, order_id: UUID, *, tenant_id: str,
+                          audit_context: ActionContext | None = None,
+                          actor_user: User | None = None) -> SupplySupplierOrderRead:
     order = session.scalar(select(SupplySupplierOrder).where(
         SupplySupplierOrder.id == order_id, SupplySupplierOrder.tenant_id == tenant_id,
     ).options(selectinload(SupplySupplierOrder.lines)).with_for_update(of=SupplySupplierOrder))
@@ -599,5 +632,13 @@ def cancel_supplier_order(session: Session, order_id: UUID, *, tenant_id: str) -
     order.status = "CANCELLED"; order.cancelled_at = datetime.now(timezone.utc)
     for line in order.lines:
         line.is_active_owner = False
+    if audit_context is not None and actor_user is not None:
+        record_audit_event(
+            session, tenant_id=tenant_id, event_type="SUPPLIER_ORDER_CANCELLED",
+            entity_type="SupplySupplierOrder", entity_id=order.id, operation="CANCEL",
+            context=audit_context, actor_user=actor_user,
+            before={"status": "DRAFT"}, after={"status": order.status,
+                                                "cancelled_at": order.cancelled_at},
+        )
     session.commit()
     return read_supplier_order(session, order.id, tenant_id=tenant_id)

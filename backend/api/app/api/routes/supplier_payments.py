@@ -5,7 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_payment_writer
+from app.core.authorization import Capability, authorize
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_payment import (
@@ -15,6 +16,7 @@ from app.schemas.supplier_payment import (
     SupplySupplierPaymentStatus,
     SupplySupplierPaymentType,
     SupplySupplierPaymentUpdate,
+    SupplySupplierPaymentReason,
 )
 from app.supply.supplier_payments import (
     SupplierPaymentConflictError,
@@ -52,7 +54,7 @@ def _error(error: Exception) -> HTTPException:
 @router.get("", response_model=SupplySupplierPaymentPage)
 def read_payments(
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
     supplier_id: UUID | None = None,
     payment_status: Annotated[SupplySupplierPaymentStatus | None, Query(alias="status")] = None,
     payment_type: SupplySupplierPaymentType | None = None,
@@ -80,7 +82,7 @@ def read_payments(
 @router.get("/{payment_id}", response_model=SupplySupplierPaymentRead)
 def read_supplier_payment(
     payment_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplySupplierPaymentRead:
     try:
         return read_payment(db, payment_id, tenant_id=admin.tenant_id)
@@ -92,10 +94,12 @@ def read_supplier_payment(
 def create_supplier_payment(
     payload: SupplySupplierPaymentCreate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_payment_writer)],
 ) -> SupplySupplierPaymentRead:
     try:
-        return create_payment(db, payload, tenant_id=admin.tenant_id, user_id=admin.id)
+        context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
+        return create_payment(db, payload, tenant_id=admin.tenant_id, user_id=admin.id,
+                              audit_context=context, actor_user=admin)
     except (SupplierPaymentConflictError, SupplierPaymentLinkError, SupplierPaymentValidationError) as error:
         raise _error(error) from error
 
@@ -104,10 +108,12 @@ def create_supplier_payment(
 def patch_supplier_payment(
     payment_id: UUID, payload: SupplySupplierPaymentUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_payment_writer)],
 ) -> SupplySupplierPaymentRead:
     try:
-        return update_payment(db, payment_id, payload, tenant_id=admin.tenant_id)
+        context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
+        return update_payment(db, payment_id, payload, tenant_id=admin.tenant_id,
+                              audit_context=context, actor_user=admin)
     except (
         SupplierPaymentNotFoundError, SupplierPaymentStateError,
         SupplierPaymentConflictError, SupplierPaymentLinkError,
@@ -118,12 +124,15 @@ def patch_supplier_payment(
 
 @router.post("/{payment_id}/record", response_model=SupplySupplierPaymentRead)
 def record_supplier_payment(
-    payment_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    payment_id: UUID, payload: SupplySupplierPaymentReason,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_payment_writer)],
 ) -> SupplySupplierPaymentRead:
     try:
+        context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
         return record_payment(
             db, payment_id, tenant_id=admin.tenant_id, user_id=admin.id,
+            audit_context=context, actor_user=admin, reason=payload.reason,
         )
     except (
         SupplierPaymentNotFoundError, SupplierPaymentStateError,
@@ -135,10 +144,13 @@ def record_supplier_payment(
 
 @router.post("/{payment_id}/cancel", response_model=SupplySupplierPaymentRead)
 def cancel_supplier_payment(
-    payment_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    payment_id: UUID, payload: SupplySupplierPaymentReason,
+    db: Annotated[Session, Depends(get_db)],
+    admin: Annotated[User, Depends(get_payment_writer)],
 ) -> SupplySupplierPaymentRead:
     try:
-        return cancel_payment(db, payment_id, tenant_id=admin.tenant_id)
+        context = authorize(db, admin, Capability.PAYMENT_WRITE, write=True)
+        return cancel_payment(db, payment_id, tenant_id=admin.tenant_id,
+                              audit_context=context, actor_user=admin, reason=payload.reason)
     except (SupplierPaymentNotFoundError, SupplierPaymentStateError) as error:
         raise _error(error) from error

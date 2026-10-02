@@ -11,15 +11,21 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from tests.supply_legacy_api_fixture import install_supply_admin_overrides
+
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from pydantic import SecretStr
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, get_supply_operator
 from app.db.session import get_db
 from app.main import app
+from app.models.audit import AuditEvent
+from app.models.employee import (Employee, EmployeeRole, EmployeeRoleAssignment,
+                                 EmployeeDepartmentAssignment, EmployeeIikoShift,
+                                 ShiftDepartmentConfirmation)
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -61,6 +67,7 @@ from app.models.supply import (
     SupplyStockCalculationLine,
     SupplyStorageZone,
     SupplySupplier,
+    DepartmentBusinessType,
 )
 from app.models.automation import AutomationExecution, OutboxEvent
 from app.automation.outbox import SqlAlchemyOutboxStore
@@ -87,7 +94,10 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
             lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"),
         )
         for table in (
-            User.__table__, WorkRequest.__table__, SupplyUnit.__table__, SupplyRequestDirection.__table__,
+            User.__table__, Employee.__table__, EmployeeRoleAssignment.__table__,
+            EmployeeDepartmentAssignment.__table__, EmployeeIikoShift.__table__,
+            ShiftDepartmentConfirmation.__table__, AuditEvent.__table__,
+            WorkRequest.__table__, SupplyUnit.__table__, SupplyRequestDirection.__table__,
             Department.__table__, IikoWarehouseMapping.__table__, SupplyRequestCycle.__table__,
             SupplyProductCategory.__table__, SupplyStorageZone.__table__,
             SupplyProduct.__table__,
@@ -155,6 +165,17 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
                 User(id=2, username="admin", display_name="Admin", hashed_password="x", tenant_id="eclair", is_active=True, is_admin=True),
                 User(id=3, username="other", display_name="Other", hashed_password="x", tenant_id="other", is_active=True, is_admin=True),
             ])
+            session.flush()
+            admin_employee = Employee(tenant_id="eclair", linked_user_id=2,
+                                      full_name="Admin", birth_date=date(1990, 1, 1),
+                                      phone="internal", residence_address="private")
+            session.add(admin_employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair", employee_id=admin_employee.id, role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                reason="Test fixture", assigned_by_user_id=2,
+            ))
             self.unit = SupplyUnit(tenant_id="eclair", code="KG", name_ru="Килограмм", short_name_ru="кг", allows_fraction=True, is_active=True)
             self.unit_two = SupplyUnit(tenant_id="eclair", code="BOX", name_ru="Коробка", short_name_ru="кор.", allows_fraction=False, is_active=True)
             self.other_unit = SupplyUnit(tenant_id="other", code="KG", name_ru="Килограмм", short_name_ru="кг", allows_fraction=True, is_active=True)
@@ -223,6 +244,7 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_user] = override_user
+        install_supply_admin_overrides(app, lambda: app.dependency_overrides[get_current_user]())
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
@@ -796,6 +818,20 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         cancelled = self.client.post(f"/supply/supplier-orders/{draft['id']}/cancel")
         self.assertEqual(cancelled.status_code, 200, cancelled.text)
         self.assertEqual(cancelled.json()["status"], "CANCELLED")
+        with self.sessions() as session:
+            events = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.entity_type == "SupplySupplierOrder",
+                AuditEvent.entity_id == order_id,
+            )).all())
+            self.assertEqual({event.operation for event in events}, {"CREATE", "UPDATE", "MARK_READY"})
+            self.assertTrue(all(event.authorized_as == "ADMIN" and event.actor_employee_id for event in events))
+            cancelled_event = session.scalar(select(AuditEvent).where(
+                AuditEvent.entity_type == "SupplySupplierOrder",
+                AuditEvent.entity_id == draft["id"], AuditEvent.operation == "CANCEL",
+            ))
+            self.assertIsNotNone(cancelled_event)
+            self.assertEqual(cancelled_event.before["status"], "DRAFT")
+            self.assertEqual(cancelled_event.after["status"], "CANCELLED")
         recreated = self.client.post(f"/supply/purchase-requests/{request_id}/supplier-orders")
         self.assertEqual(len(recreated.json()["orders"]), 1)
         self.assertNotEqual(recreated.json()["orders"][0]["id"], draft["id"])
@@ -919,6 +955,54 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(deleted.json()["lines"][0]["quantity"], "70.000")
         self.assertEqual(deleted.json()["lines"][0]["manual_future_quantity"], "0.000")
+
+    def test_production_procurement_projection_excludes_manual_quantity(self) -> None:
+        purchase = self.create_request()
+        self.assertEqual(self.add_line(purchase["id"], quantity="5.000").status_code, 201)
+        with self.sessions.begin() as session:
+            session.get(Department, self.department.id).business_type = DepartmentBusinessType.PRODUCTION
+        self.add_need("10.000")
+        collected = self.client.post(f"/supply/purchase-requests/{purchase['id']}/collect-needs")
+        self.assertEqual(collected.status_code, 200, collected.text)
+        self.assertEqual(collected.json()["lines"][0]["quantity"], "15.000")
+        line_id = collected.json()["lines"][0]["id"]
+        self.assertEqual(self.client.post(f"/supply/purchase-requests/{purchase['id']}/ready").status_code, 200)
+        allocation = self.client.post(
+            f"/supply/purchase-requests/{purchase['id']}/lines/{line_id}/allocations",
+            json={"product_supplier_id": str(self.primary_relation.id), "packages_count": 1},
+        )
+        self.assertEqual(allocation.status_code, 201, allocation.text)
+        allocation_row = allocation.json()["lines"][0]["allocations"][0]
+        distributed = self.client.put(
+            f"/supply/purchase-requests/{purchase['id']}/lines/{line_id}/allocations/{allocation_row['id']}/sources",
+            json={"sources": [{
+                "purchase_request_line_source_id": source["purchase_request_line_source_id"],
+                "allocated_quantity": "10.000" if source["procurement_need_id"] else "2.000",
+            } for source in allocation_row["sources"]]},
+        )
+        self.assertEqual(distributed.status_code, 200, distributed.text)
+        with self.sessions.begin() as session:
+            session.add(User(id=4, username="production-head", display_name="Head", hashed_password="x",
+                             tenant_id="eclair", is_active=True))
+            session.flush()
+            employee = Employee(tenant_id="eclair", linked_user_id=4, full_name="Head",
+                                birth_date=date(1990, 1, 1), phone="internal", residence_address="private")
+            session.add(employee)
+            session.flush()
+            valid_from = datetime.now(timezone.utc) - timedelta(days=1)
+            session.add(EmployeeRoleAssignment(tenant_id="eclair", employee_id=employee.id,
+                role=EmployeeRole.HEAD_OF_PRODUCTION, valid_from=valid_from,
+                reason="Test fixture", assigned_by_user_id=2))
+            session.add(EmployeeDepartmentAssignment(tenant_id="eclair", employee_id=employee.id,
+                department_id=self.department.id, is_primary=True, valid_from=valid_from,
+                reason="Test fixture", assigned_by_user_id=2))
+        self.current_user_id = 4
+        response = self.client.get("/supply/purchase-requests/production")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["lines"][0]["quantity"], "10.000")
+        self.assertEqual(Decimal(response.json()[0]["lines"][0]["allocations"][0]["amount"]), Decimal("4130"))
+        self.assertEqual(self.client.get(f"/supply/purchase-requests/{purchase['id']}").status_code, 403)
 
     def test_collect_filters_and_keeps_units_separate(self) -> None:
         request_id = self.create_request()["id"]
@@ -1571,17 +1655,17 @@ class SupplyPurchaseRequestsApiTests(unittest.TestCase):
         draft = created.json()
         self.assertEqual(draft["status"], "DRAFT")
         changed = self.client.patch(
-            f"/supply/supplier-payments/{draft['id']}", json={"amount": "3000.500001"}
+            f"/supply/supplier-payments/{draft['id']}", json={"amount": "3000.500001", "reason": "Исправление суммы"}
         )
         self.assertEqual(changed.status_code, 200, changed.text)
-        recorded = self.client.post(f"/supply/supplier-payments/{draft['id']}/record")
+        recorded = self.client.post(f"/supply/supplier-payments/{draft['id']}/record", json={"reason": "Подтверждение платежа"})
         self.assertEqual(recorded.status_code, 200, recorded.text)
         self.assertEqual(recorded.json()["recorded_by_display_name"], "Admin")
         self.assertEqual(self.client.patch(
-            f"/supply/supplier-payments/{draft['id']}", json={"amount": "1"}
+            f"/supply/supplier-payments/{draft['id']}", json={"amount": "1", "reason": "Исправление"}
         ).status_code, 409)
         self.assertEqual(self.client.post(
-            f"/supply/supplier-payments/{draft['id']}/cancel"
+            f"/supply/supplier-payments/{draft['id']}/cancel", json={"reason": "Отмена"}
         ).status_code, 409)
 
         detail = self.client.get(f"/supply/supplier-documents/{document['id']}").json()

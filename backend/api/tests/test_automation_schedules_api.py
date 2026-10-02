@@ -258,13 +258,14 @@ class AutomationScheduleAuthorizationTests(AutomationSchedulesApiTestCase):
         with patch(
             "app.api.routes.automation.list_schedules",
             return_value=[],
-        ):
+        ), patch("app.api.dependencies.authorize") as authorize:
             response = self.client.get(
                 "/automation/schedules",
                 headers=self.auth_headers(self.admin),
             )
 
         self.assertEqual(response.status_code, 200)
+        authorize.assert_called_once()
 
     def test_callback_uses_service_token_without_admin_jwt(self) -> None:
         response = self.client.post(

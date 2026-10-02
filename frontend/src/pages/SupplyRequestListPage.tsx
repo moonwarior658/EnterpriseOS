@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 import {
   EosCheckbox,
   EosDateField,
@@ -41,7 +41,7 @@ function statusLabel(value: string): string {
 }
 
 function SupplyRequestListPage() {
-  const { user } = useAuth()
+  const { canCreateRequest, isAdmin } = useSupplyPermissions()
   const [routeParams, setRouteParams] = useSearchParams()
   const [items, setItems] = useState<SupplyRequestSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -129,7 +129,7 @@ function SupplyRequestListPage() {
   ])
 
   useEffect(() => {
-    if (!user?.is_admin) return
+    if (!isAdmin) return
     void Promise.all([
       getSupplyDepartments(), getSupplyDirections(), getSupplyCycles(),
     ]).then(([nextDepartments, nextDirections, nextCycles]) => {
@@ -137,7 +137,7 @@ function SupplyRequestListPage() {
       setDirections(nextDirections)
       setCycles(nextCycles.items)
     }).catch(() => undefined)
-  }, [user?.is_admin])
+  }, [isAdmin])
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0)
@@ -163,7 +163,7 @@ function SupplyRequestListPage() {
             <h1>Реестр заявок</h1>
             <p className="request-intro">Заявок в выборке: {items.length}</p>
           </div>
-          <Link className="request-back-link" to="/dashboard">← На Dashboard</Link>
+          <div className="purchase-actions">{canCreateRequest && <Link className="primary-action" to="/supply/requests/new">Создать заявку</Link>}<Link className="request-back-link" to="/dashboard">← На Dashboard</Link></div>
         </div>
         <div className="supply-request-filters">
           <div className="supply-filter-row supply-filter-row-primary">
@@ -182,7 +182,7 @@ function SupplyRequestListPage() {
             <option value="FULFILLED">Исполнена</option>
             <option value="CANCELLED">Отменена</option>
           </EosSelect>
-          {user?.is_admin && (
+          {isAdmin && (
             <>
               <EosSelect aria-label="Подразделение" value={departmentId} onChange={(event) => { setDepartmentId(event.target.value); setOffset(0) }}>
                 <option value="">Все подразделения</option>
@@ -196,7 +196,7 @@ function SupplyRequestListPage() {
           )}
           </div>
           <div className="supply-filter-row supply-filter-row-secondary">
-          {user?.is_admin && (
+          {isAdmin && (
             <EosSelect aria-label="Цикл" value={cycleId} onChange={(event) => { setCycleId(event.target.value); setOffset(0) }}>
               <option value="">Все циклы</option>
               {cycles.map((item) => <option key={item.id} value={item.id}>{item.cycle_date}</option>)}
@@ -206,7 +206,7 @@ function SupplyRequestListPage() {
           <EosDateField label="По" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setOffset(0) }} />
           <button className="secondary-action" type="button" onClick={() => void load()}>Обновить</button>
           </div>
-          {user?.is_admin && <div className="supply-filter-checks">
+          {isAdmin && <div className="supply-filter-checks">
             <EosCheckbox label="Требует сопоставления" checked={needsReview} onChange={(event) => { setNeedsReview(event.target.checked); setOffset(0) }} />
             <EosCheckbox label="Есть дубли" checked={duplicates} onChange={(event) => { setDuplicates(event.target.checked); setOffset(0) }} />
           </div>}

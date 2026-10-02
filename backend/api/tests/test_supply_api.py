@@ -580,11 +580,7 @@ class SupplyApiTests(unittest.TestCase):
                 direction_id=str(direction.id),
             ),
         )
-        self.assertEqual(unknown_department.status_code, 403)
-        self.assertEqual(
-            unknown_department.json()["detail"]["code"],
-            "DEPARTMENT_FORBIDDEN",
-        )
+        self.assertEqual(unknown_department.status_code, 400)
         self.assertEqual(unknown_direction.status_code, 400)
         self.assertEqual(inactive_department.status_code, 400)
         self.assertEqual(inactive_direction.status_code, 400)
@@ -704,7 +700,7 @@ class SupplyApiTests(unittest.TestCase):
         spoof_payload = {**payload, "department_id": primary["id"]}
         spoofed = self.client.post("/supply/requests", json=spoof_payload)
         self.assertEqual(spoofed.status_code, 403, spoofed.text)
-        self.assertEqual(spoofed.json()["detail"]["code"], "DEPARTMENT_FORBIDDEN")
+        self.assertEqual(spoofed.json()["detail"]["code"], "PERMISSION_DENIED")
 
         history = self.client.get(f"/supply/requests/{created.json()['id']}/history")
         self.assertEqual(history.status_code, 200, history.text)
@@ -749,6 +745,8 @@ class SupplyApiTests(unittest.TestCase):
     def test_list_and_card_are_ordered_protected_and_tenant_scoped(self) -> None:
         created = self.create_request()
         self.current_user_id = 1
+        self.assertEqual(self.client.get("/supply/requests").status_code, 403)
+        self.current_user_id = 2
         listed = self.client.get("/supply/requests")
         detail = self.client.get(f"/supply/requests/{created['id']}")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -802,10 +800,7 @@ class SupplyApiTests(unittest.TestCase):
 
         self.current_user_id = 4
         other_list = self.client.get("/supply/requests")
-        self.assertEqual(other_list.status_code, 200, other_list.text)
-        self.assertEqual(
-            [item["id"] for item in other_list.json()], [str(other_id)]
-        )
+        self.assertEqual(other_list.status_code, 403, other_list.text)
         self.assertEqual(
             self.client.get(f"/supply/requests/{created['id']}").status_code,
             404,
@@ -813,10 +808,7 @@ class SupplyApiTests(unittest.TestCase):
 
         self.current_user_id = 1
 
-        self.assertEqual(
-            [item["id"] for item in self.client.get("/supply/requests").json()],
-            [created["id"]],
-        )
+        self.assertEqual(self.client.get("/supply/requests").status_code, 403)
         self.assertEqual(
             self.client.get(f"/supply/requests/{other_id}").status_code,
             404,
@@ -890,7 +882,7 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
             {item["id"] for item in response.json()},
-            {primary_request["id"], own_request["id"]},
+            {primary_request["id"]},
         )
         self.assertEqual(
             self.client.get(f"/supply/requests/{hidden_request['id']}").status_code,

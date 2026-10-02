@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_supply_operator
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
@@ -83,7 +83,7 @@ def _error(error: Exception) -> HTTPException:
 )
 def create_supplier_document(
     order_id: UUID, payload: SupplySupplierDocumentCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return create_document(
@@ -99,7 +99,7 @@ def create_supplier_document(
 @order_router.get("/{order_id}/documents", response_model=list[SupplySupplierDocumentRead])
 def read_supplier_documents(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> list[SupplySupplierDocumentRead]:
     try:
         return list_documents(db, order_id, tenant_id=admin.tenant_id)
@@ -110,7 +110,7 @@ def read_supplier_documents(
 @document_router.get("/{document_id}", response_model=SupplySupplierDocumentRead)
 def read_supplier_document(
     document_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplySupplierDocumentRead:
     try:
         return read_document(db, document_id, tenant_id=admin.tenant_id)
@@ -121,7 +121,7 @@ def read_supplier_document(
 @document_router.patch("/{document_id}", response_model=SupplySupplierDocumentRead)
 def patch_supplier_document(
     document_id: UUID, payload: SupplySupplierDocumentUpdate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return update_document(db, document_id, payload, tenant_id=admin.tenant_id)
@@ -135,7 +135,7 @@ def patch_supplier_document(
 @document_router.post("/{document_id}/lines", response_model=SupplySupplierDocumentRead)
 def create_supplier_document_line(
     document_id: UUID, payload: SupplySupplierDocumentLineCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return create_document_line(db, document_id, payload, tenant_id=admin.tenant_id)
@@ -149,7 +149,7 @@ def create_supplier_document_line(
 @document_router.patch("/{document_id}/lines/{line_id}", response_model=SupplySupplierDocumentRead)
 def patch_supplier_document_line(
     document_id: UUID, line_id: UUID, payload: SupplySupplierDocumentLineUpdate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return update_document_line(
@@ -165,7 +165,7 @@ def patch_supplier_document_line(
 @document_router.delete("/{document_id}/lines/{line_id}", response_model=SupplySupplierDocumentRead)
 def remove_supplier_document_line(
     document_id: UUID, line_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return delete_document_line(
@@ -178,7 +178,7 @@ def remove_supplier_document_line(
 @document_router.post("/{document_id}/record", response_model=SupplySupplierDocumentRead)
 def record_supplier_document(
     document_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return record_document(
@@ -195,7 +195,7 @@ def record_supplier_document(
 @document_router.post("/{document_id}/cancel", response_model=SupplySupplierDocumentRead)
 def cancel_supplier_document(
     document_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return cancel_document(db, document_id, tenant_id=admin.tenant_id)
@@ -211,7 +211,7 @@ async def upload_supplier_document_attachment(
     document_id: UUID,
     file: Annotated[UploadFile, File()],
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     if file.content_type not in ALLOWED_ATTACHMENT_TYPES:
         await file.close()
@@ -252,7 +252,7 @@ def read_supplier_document_attachment(
     document_id: UUID,
     attachment_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> FileResponse:
     try:
         attachment = get_attachment(
@@ -275,7 +275,7 @@ def remove_supplier_document_attachment(
     document_id: UUID,
     attachment_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierDocumentRead:
     try:
         return delete_attachment(

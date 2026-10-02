@@ -7,7 +7,8 @@ from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.authorization import has_request_view_access
+from app.core.authorization import Capability, authorize, supply_visible_departments
+from app.core.action_context import ActionContextError
 from app.db.session import get_db
 from app.models.user import User
 
@@ -46,23 +47,76 @@ def get_current_user(
 
 def get_current_admin(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    if not current_user.is_admin:
+    try:
+        context = authorize(db, current_user, Capability.TECHNICAL_ADMIN)
+    except ActionContextError as error:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator access required",
-        )
+        ) from error
 
+    if isinstance(db, Session):
+        db.info["action_context"] = context
+        db.info["action_user"] = current_user
     return current_user
 
 
-def require_request_view_access(
+def _supply_permission(db: Session, user: User, capability: Capability, *, write: bool = False) -> User:
+    try:
+        context = authorize(db, user, capability, write=write)
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail=error.message) from error
+    if write:
+        db.info["action_context"] = context
+        db.info["action_user"] = user
+    return user
+
+
+def get_supply_reader(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    if not has_request_view_access(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Request view access required",
-        )
+    return _supply_permission(db, current_user, Capability.SUPPLY_DOWNSTREAM_READ)
 
+
+def get_supply_request_viewer(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    try:
+        departments = supply_visible_departments(db, current_user)
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail=error.message) from error
+    if departments == set():
+        raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра заявок")
     return current_user
+
+
+def get_supply_operator(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    return _supply_permission(db, current_user, Capability.SUPPLY_OPERATE, write=True)
+
+
+def get_supplier_editor(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    return _supply_permission(db, current_user, Capability.SUPPLIER_EDIT, write=True)
+
+
+def get_payment_writer(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    return _supply_permission(db, current_user, Capability.PAYMENT_WRITE, write=True)
+
+
+def get_supply_technical_admin(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    return _supply_permission(db, current_user, Capability.TECHNICAL_ADMIN, write=True)

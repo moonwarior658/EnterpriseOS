@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.audit.service import record_audit_event
+from app.core.action_context import ActionContext
 from app.models.supply import (
     SupplySupplier,
     SupplySupplierDocument,
@@ -174,6 +176,7 @@ def _validate_order_fields(number: str | None, order_date) -> None:
 
 def create_payment(
     session: Session, payload: SupplySupplierPaymentCreate, *, tenant_id: str, user_id: int,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
 ) -> SupplySupplierPaymentRead:
     document, order = _validate_links(
         session,
@@ -200,6 +203,14 @@ def create_payment(
     )
     try:
         session.add(payment)
+        session.flush()
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_PAYMENT_CREATED",
+                entity_type="SupplySupplierPayment", entity_id=payment.id, operation="CREATE",
+                context=audit_context, actor_user=actor_user, before={},
+                after={"supplier_id": payment.supplier_id, "amount": payment.amount, "status": payment.status},
+            )
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -247,6 +258,7 @@ def list_payments(
 
 def update_payment(
     session: Session, payment_id: UUID, payload: SupplySupplierPaymentUpdate, *, tenant_id: str,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
 ) -> SupplySupplierPaymentRead:
     payment = _get_payment(session, payment_id, tenant_id=tenant_id, lock=True)
     if payment.status != "DRAFT":
@@ -260,7 +272,7 @@ def update_payment(
         "payment_order_date": payment.payment_order_date,
         "comment": payment.comment,
     }
-    values.update(payload.model_dump(exclude_unset=True))
+    values.update(payload.model_dump(exclude_unset=True, exclude={"reason"}))
     if values["payment_date"] is None or values["amount"] is None:
         raise SupplierPaymentValidationError
     _validate_order_fields(values["payment_order_number"], values["payment_order_date"])
@@ -275,9 +287,18 @@ def update_payment(
     values["supplier_document_id"] = document.id if document else None
     values["supplier_order_id"] = order.id if order else None
     values["amount"] = Decimal(values["amount"]).quantize(MONEY_QUANTUM)
+    before = {field: getattr(payment, field) for field in values}
     for field, value in values.items():
         setattr(payment, field, value)
     try:
+        if audit_context is not None and actor_user is not None:
+            session.flush()
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_PAYMENT_UPDATED",
+                entity_type="SupplySupplierPayment", entity_id=payment.id, operation="UPDATE",
+                context=audit_context, actor_user=actor_user, before=before,
+                after={field: getattr(payment, field) for field in values}, reason=payload.reason,
+            )
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -287,6 +308,8 @@ def update_payment(
 
 def record_payment(
     session: Session, payment_id: UUID, *, tenant_id: str, user_id: int,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
+    reason: str | None = None,
 ) -> SupplySupplierPaymentRead:
     payment = _get_payment(session, payment_id, tenant_id=tenant_id, lock=True)
     if payment.status != "DRAFT":
@@ -315,6 +338,14 @@ def record_payment(
             status="ACTIVE", created_by_user_id=user_id,
         ))
     try:
+        if audit_context is not None and actor_user is not None:
+            session.flush()
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_PAYMENT_RECORDED",
+                entity_type="SupplySupplierPayment", entity_id=payment.id, operation="RECORD",
+                context=audit_context, actor_user=actor_user,
+                before={"status": "DRAFT"}, after={"status": payment.status}, reason=reason,
+            )
         session.commit()
     except IntegrityError as error:
         session.rollback()
@@ -324,11 +355,21 @@ def record_payment(
 
 def cancel_payment(
     session: Session, payment_id: UUID, *, tenant_id: str,
+    audit_context: ActionContext | None = None, actor_user: User | None = None,
+    reason: str | None = None,
 ) -> SupplySupplierPaymentRead:
     payment = _get_payment(session, payment_id, tenant_id=tenant_id, lock=True)
     if payment.status != "DRAFT":
         raise SupplierPaymentStateError
     payment.status = "CANCELLED"
+    if audit_context is not None and actor_user is not None:
+        session.flush()
+        record_audit_event(
+            session, tenant_id=tenant_id, event_type="SUPPLIER_PAYMENT_CANCELLED",
+            entity_type="SupplySupplierPayment", entity_id=payment.id, operation="CANCEL",
+            context=audit_context, actor_user=actor_user,
+            before={"status": "DRAFT"}, after={"status": payment.status}, reason=reason,
+        )
     session.commit()
     return read_payment(session, payment_id, tenant_id=tenant_id)
 

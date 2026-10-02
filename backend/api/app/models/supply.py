@@ -3834,6 +3834,22 @@ class SupplyRequest(Base):
     __tablename__ = "supply_requests"
     __table_args__ = (
         ForeignKeyConstraint(
+            ["tenant_id", "creator_employee_id"], ["employees.tenant_id", "employees.id"],
+            name="fk_supply_requests_creator_employee_tenant", ondelete="RESTRICT",
+        ).ddl_if(dialect="postgresql"),
+        ForeignKeyConstraint(
+            ["tenant_id", "primary_department_id"], ["departments.tenant_id", "departments.id"],
+            name="fk_supply_requests_primary_department_tenant", ondelete="RESTRICT",
+        ).ddl_if(dialect="postgresql"),
+        ForeignKeyConstraint(
+            ["tenant_id", "actual_department_id"], ["departments.tenant_id", "departments.id"],
+            name="fk_supply_requests_actual_department_tenant", ondelete="RESTRICT",
+        ).ddl_if(dialect="postgresql"),
+        ForeignKeyConstraint(
+            ["tenant_id", "creator_shift_id"], ["employee_iiko_shifts.tenant_id", "employee_iiko_shifts.id"],
+            name="fk_supply_requests_creator_shift_tenant", ondelete="RESTRICT",
+        ).ddl_if(dialect="postgresql"),
+        ForeignKeyConstraint(
             ["iiko_source_warehouse_mapping_id"],
             ["iiko_warehouse_mappings.id"],
             name="fk_supply_requests_iiko_source_warehouse_mapping",
@@ -3873,6 +3889,11 @@ class SupplyRequest(Base):
             "tenant_id",
             "created_at",
             "id",
+        ),
+        Index(
+            "ix_supply_requests_tenant_creator_employee",
+            "tenant_id",
+            "creator_employee_id",
         ),
         Index(
             "ix_supply_requests_source_ip_created",
@@ -3939,6 +3960,14 @@ class SupplyRequest(Base):
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    creator_employee_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True,
+    )
+    creator_authorized_as: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    department_name_snapshot: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    primary_department_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    actual_department_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    creator_shift_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     public_token_hash: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
@@ -3998,7 +4027,7 @@ class SupplyRequest(Base):
         nullable=False,
     )
 
-    department: Mapped[Department] = relationship()
+    department: Mapped[Department] = relationship(foreign_keys=[department_id])
     direction: Mapped[SupplyRequestDirection] = relationship()
     cycle: Mapped[SupplyRequestCycle | None] = relationship()
     lines: Mapped[list["SupplyRequestLine"]] = relationship(

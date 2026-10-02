@@ -62,6 +62,7 @@ export type SupplySupplierInput = {
   phone?: string | null
   comment?: string | null
   minimum_order_amount?: string | null
+  reason?: string
 }
 
 export type SupplySupplierPage = {
@@ -864,6 +865,7 @@ export type SupplyRequestSummary = {
   need_date: string | null
   status: SupplyStatus
   version: number
+  allowed_actions: string[]
   submitted_at: string | null
   created_at: string
   public_author_name: string | null
@@ -881,6 +883,10 @@ export type SupplyRequestSummary = {
 export type SupplyRequest = SupplyRequestSummary & {
   source_type: string
   raw_input: string
+  created_by_user_id: number | null
+  creator_employee_id: string | null
+  creator_authorized_as: string | null
+  department_name_snapshot: string | null
   updated_at: string
   planned_at: string | null
   cancelled_at: string | null
@@ -1090,7 +1096,7 @@ export type SupplyReference = {
   is_active: boolean
 }
 export type SupplyDirection = SupplyReference & { is_active: boolean }
-export type SupplyCycle = { id: string; cycle_date: string; direction_id: string }
+export type SupplyCycle = { id: string; cycle_date: string; direction_id: string; status: 'OPEN' | 'CLOSED' | 'CANCELLED'; opens_at: string; closes_at: string }
 
 export class SupplyApiError extends Error {
   code: string | null
@@ -1143,6 +1149,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     )
   }
   return response.json() as Promise<T>
+}
+
+export type ProductionProcurementCard = {
+  id: string
+  number: string
+  need_date: string
+  status: 'DRAFT' | 'READY' | 'CANCELLED'
+  lines: { product_name: string; quantity: string; unit_name: string; allocations: {
+    quantity: string; unit_price: string; amount: string
+  }[] }[]
+}
+
+export function getProductionProcurement(): Promise<ProductionProcurementCard[]> {
+  return request('/supply/purchase-requests/production')
 }
 
 function withFreshRequest(query: URLSearchParams): URLSearchParams {
@@ -1381,17 +1401,21 @@ export function updateSupplySupplier(
 
 export function archiveSupplySupplier(
   supplierId: string,
+  reason: string,
 ): Promise<SupplySupplier> {
   return request(`/supply/suppliers/${supplierId}/archive`, {
     method: 'POST',
+    body: JSON.stringify({ reason }),
   })
 }
 
 export function restoreSupplySupplier(
   supplierId: string,
+  reason: string,
 ): Promise<SupplySupplier> {
   return request(`/supply/suppliers/${supplierId}/restore`, {
     method: 'POST',
+    body: JSON.stringify({ reason }),
   })
 }
 
@@ -1831,17 +1855,17 @@ export function createSupplySupplierPayment(input: SupplySupplierPaymentInput): 
 }
 
 export function updateSupplySupplierPayment(
-  paymentId: string, input: Partial<Omit<SupplySupplierPaymentInput, 'supplier_id' | 'payment_type'>>,
+  paymentId: string, input: Partial<Omit<SupplySupplierPaymentInput, 'supplier_id' | 'payment_type'>> & { reason: string },
 ): Promise<SupplySupplierPayment> {
   return request(`/supply/supplier-payments/${paymentId}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 
-export function recordSupplySupplierPayment(paymentId: string): Promise<SupplySupplierPayment> {
-  return request(`/supply/supplier-payments/${paymentId}/record`, { method: 'POST' })
+export function recordSupplySupplierPayment(paymentId: string, reason: string): Promise<SupplySupplierPayment> {
+  return request(`/supply/supplier-payments/${paymentId}/record`, { method: 'POST', body: JSON.stringify({ reason }) })
 }
 
-export function cancelSupplySupplierPayment(paymentId: string): Promise<SupplySupplierPayment> {
-  return request(`/supply/supplier-payments/${paymentId}/cancel`, { method: 'POST' })
+export function cancelSupplySupplierPayment(paymentId: string, reason: string): Promise<SupplySupplierPayment> {
+  return request(`/supply/supplier-payments/${paymentId}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) })
 }
 
 export function getSupplySupplierObligations(orderId: string): Promise<SupplySupplierObligation[]> {
@@ -2039,6 +2063,14 @@ export function updateSupplyRequestNeedDate(
       expected_version: expectedVersion,
       need_date: needDate,
     }),
+  })
+}
+
+export function updateSupplyRequestDetails(
+  id: string, input: { expected_version: number; raw_input?: string; need_date?: string | null; reason?: string },
+): Promise<SupplyRequest> {
+  return request(`/supply/requests/${id}/details`, {
+    method: 'PATCH', body: JSON.stringify(input),
   })
 }
 

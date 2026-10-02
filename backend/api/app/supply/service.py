@@ -4,7 +4,7 @@ import logging
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import case, exists, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -57,6 +57,7 @@ from app.schemas.supply import (
     SupplyRecognitionResult,
     SupplyRecognitionSummary,
     SupplyRequestCreate,
+    SupplyRequestDetailsUpdate,
     SupplyRequestCycleCreate,
     SupplyRequestCycleUpdate,
 )
@@ -940,6 +941,8 @@ def create_supply_supplier(
     payload: SupplySupplierCreate,
     *,
     tenant_id: str,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
 ) -> SupplySupplier:
     if _active_supplier_inn_exists(session, payload.inn, tenant_id=tenant_id):
         raise DuplicateActiveSupplySupplierInnError
@@ -951,6 +954,13 @@ def create_supply_supplier(
     try:
         session.add(supplier)
         session.flush()
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_CREATED",
+                entity_type="SupplySupplier", entity_id=supplier.id, operation="CREATE",
+                context=audit_context, actor_user=actor_user,
+                before={}, after={"display_name": supplier.display_name, "is_active": True},
+            )
         session.commit()
         session.expire(supplier)
     except IntegrityError as error:
@@ -968,9 +978,13 @@ def update_supply_supplier(
     payload: SupplySupplierUpdate,
     *,
     tenant_id: str,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
 ) -> SupplySupplier:
     supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
     changes = payload.model_dump(exclude_unset=True)
+    reason = changes.pop("reason", None)
+    before = {field: getattr(supplier, field) for field in changes}
     if "inn" in changes and supplier.is_active and _active_supplier_inn_exists(
         session,
         changes["inn"],
@@ -982,6 +996,14 @@ def update_supply_supplier(
         setattr(supplier, field, value)
     try:
         session.flush()
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_UPDATED",
+                entity_type="SupplySupplier", entity_id=supplier.id, operation="UPDATE",
+                context=audit_context, actor_user=actor_user,
+                before=before, after={field: getattr(supplier, field) for field in changes},
+                reason=reason,
+            )
         session.commit()
         session.expire(supplier)
     except IntegrityError as error:
@@ -999,6 +1021,9 @@ def archive_supply_supplier(
     *,
     tenant_id: str,
     archived_by_user_id: int,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
+    reason: str | None = None,
 ) -> SupplySupplier:
     supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
     if not supplier.is_active:
@@ -1008,6 +1033,13 @@ def archive_supply_supplier(
         supplier.archived_at = datetime.now(timezone.utc)
         supplier.archived_by_user_id = archived_by_user_id
         session.flush()
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_ARCHIVED",
+                entity_type="SupplySupplier", entity_id=supplier.id, operation="ARCHIVE",
+                context=audit_context, actor_user=actor_user,
+                before={"is_active": True}, after={"is_active": False}, reason=reason,
+            )
         session.commit()
         session.expire(supplier)
     except Exception:
@@ -1021,6 +1053,9 @@ def restore_supply_supplier(
     supplier_id: UUID,
     *,
     tenant_id: str,
+    audit_context: ActionContext | None = None,
+    actor_user: User | None = None,
+    reason: str | None = None,
 ) -> SupplySupplier:
     supplier = get_supply_supplier(session, supplier_id, tenant_id=tenant_id)
     if supplier.is_active:
@@ -1037,6 +1072,13 @@ def restore_supply_supplier(
         supplier.archived_at = None
         supplier.archived_by_user_id = None
         session.flush()
+        if audit_context is not None and actor_user is not None:
+            record_audit_event(
+                session, tenant_id=tenant_id, event_type="SUPPLIER_RESTORED",
+                entity_type="SupplySupplier", entity_id=supplier.id, operation="RESTORE",
+                context=audit_context, actor_user=actor_user,
+                before={"is_active": False}, after={"is_active": True}, reason=reason,
+            )
         session.commit()
         session.expire(supplier)
     except IntegrityError as error:
@@ -1993,13 +2035,13 @@ def _supply_request_filters(
     visibility_department_ids: frozenset[UUID] | None = None,
 ) -> list:
     filters = [SupplyRequest.tenant_id == tenant_id]
-    if visibility_user_id is not None:
-        visibility = [SupplyRequest.created_by_user_id == visibility_user_id]
+    if visibility_user_id is not None or visibility_department_ids is not None:
+        visibility = []
+        if visibility_user_id is not None:
+            visibility.append(SupplyRequest.created_by_user_id == visibility_user_id)
         if visibility_department_ids:
-            visibility.append(
-                SupplyRequest.department_id.in_(visibility_department_ids)
-            )
-        filters.append(or_(*visibility))
+            visibility.append(SupplyRequest.department_id.in_(visibility_department_ids))
+        filters.append(or_(*visibility) if visibility else false())
     if search:
         term = f"%{search.strip()}%"
         filters.append(or_(
@@ -2301,6 +2343,12 @@ def create_supply_request(
                 raw_input=payload.raw_input,
                 version=1,
                 created_by_user_id=created_by_user_id,
+                creator_employee_id=audit_context.employee_id if audit_context else None,
+                creator_authorized_as=audit_context.authorized_as.value if audit_context and audit_context.authorized_as else None,
+                department_name_snapshot=department.name,
+                primary_department_id=audit_context.primary_department_id if audit_context else None,
+                actual_department_id=audit_context.actual_department_id if audit_context else None,
+                creator_shift_id=audit_context.shift_id if audit_context else None,
             )
             request_lines = []
             for position, line in enumerate(payload.lines, start=1):
@@ -2467,6 +2515,39 @@ def update_supply_request_need_date(
         supply_request.version += 1
     try:
         session.flush()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return get_supply_request(session, request_id, tenant_id=tenant_id)
+
+
+def edit_supply_request_details(
+    session: Session, *, request_id: UUID, payload: SupplyRequestDetailsUpdate,
+    tenant_id: str, context: ActionContext, actor_user: User,
+) -> SupplyRequest:
+    item = _get_supply_request_for_update(
+        session, request_id, expected_version=payload.expected_version, tenant_id=tenant_id,
+    )
+    if item.status not in {"DRAFT", "SUBMITTED", "IN_REVIEW"}:
+        raise SupplyRequestStateError
+    before = {"raw_input": item.raw_input, "need_date": item.need_date, "version": item.version}
+    if "raw_input" in payload.model_fields_set and payload.raw_input is not None:
+        item.raw_input = payload.raw_input
+    if "need_date" in payload.model_fields_set:
+        if item.need_date != payload.need_date:
+            for line in item.lines:
+                invalidate_open_request_need(session, tenant_id=tenant_id, request_line_id=line.id)
+        item.need_date = payload.need_date
+    item.version += 1
+    record_audit_event(
+        session, tenant_id=tenant_id, event_type="SUPPLY_REQUEST_DETAILS_UPDATED",
+        entity_type="SupplyRequest", entity_id=item.id, operation="UPDATE",
+        context=context, actor_user=actor_user, before=before,
+        after={"raw_input": item.raw_input, "need_date": item.need_date, "version": item.version},
+        reason=payload.reason,
+    )
+    try:
         session.commit()
     except Exception:
         session.rollback()

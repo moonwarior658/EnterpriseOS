@@ -177,7 +177,7 @@ test('legacy warehouse UI удалён, а недельный redirect испо�
   )
   assert.match(
     app,
-    /path="\/request\/warehouse"[\s\S]*?<Navigate to="\/request\/supply" replace \/>/,
+    /path="\/request\/warehouse"[\s\S]*?<Navigate to="\/supply\/requests" replace \/>/,
   )
   assert.doesNotMatch(app, /path="\/public\/requests\/warehouse"/)
   assert.doesNotMatch(app, /path="\/requests\/warehouse"/)

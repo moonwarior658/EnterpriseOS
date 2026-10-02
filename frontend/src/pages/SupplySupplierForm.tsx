@@ -15,6 +15,8 @@ import SupplierIikoMappingPanel from '../components/SupplierIikoMappingPanel'
 
 type SupplySupplierFormProps = {
   supplier: SupplySupplier | null
+  readOnly?: boolean
+  showTechnicalMapping?: boolean
   onCancel: () => void
   onSaved: (supplier: SupplySupplier, created: boolean) => void
 }
@@ -81,6 +83,8 @@ const GROUPS: Array<{ title: string; fields: FieldDefinition[] }> = [
 
 function SupplySupplierForm({
   supplier,
+  readOnly = false,
+  showTechnicalMapping = false,
   onCancel,
   onSaved,
 }: SupplySupplierFormProps) {
@@ -117,7 +121,7 @@ function SupplySupplierForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitGuard.current) return
+    if (submitGuard.current || readOnly) return
 
     const result = buildSupplierPayload(values)
     if (result.status === 'validation') {
@@ -130,8 +134,12 @@ function SupplySupplierForm({
     setIsSubmitting(true)
     setSubmitError('')
     try {
+      const criticalFields = ['inn', 'kpp', 'ogrn', 'legal_name', 'legal_address', 'bank_name', 'bik', 'correspondent_account', 'settlement_account', 'minimum_order_amount', 'order_email'] as const
+      const criticalChanged = supplier && criticalFields.some((field) => result.payload[field] !== supplier[field])
+      const reason = criticalChanged ? window.prompt('Причина изменения реквизитов поставщика')?.trim() : undefined
+      if (criticalChanged && !reason) return
       const saved = supplier
-        ? await updateSupplySupplier(supplier.id, result.payload)
+        ? await updateSupplySupplier(supplier.id, { ...result.payload, ...(reason ? { reason } : {}) })
         : await createSupplySupplier(result.payload)
       onSaved(saved, supplier === null)
     } catch (error) {
@@ -167,7 +175,7 @@ function SupplySupplierForm({
       </div>
 
       {GROUPS.map((group) => (
-        <fieldset className="supplier-form-section" key={group.title}>
+        <fieldset className="supplier-form-section" key={group.title} disabled={readOnly}>
           <legend>{group.title}</legend>
           <div className="supplier-form-grid">
             {group.fields.map((field) => (
@@ -192,7 +200,7 @@ function SupplySupplierForm({
         </fieldset>
       ))}
 
-      <fieldset className="supplier-form-section">
+      <fieldset className="supplier-form-section" disabled={readOnly}>
         <legend>Коммерческие условия</legend>
         <div className="supplier-form-grid">
           <label>
@@ -214,7 +222,7 @@ function SupplySupplierForm({
         </div>
       </fieldset>
 
-      <fieldset className="supplier-form-section">
+      <fieldset className="supplier-form-section" disabled={readOnly}>
         <legend>Комментарий</legend>
         <label className="supplier-comment-field">
           <span>Внутренний комментарий</span>
@@ -227,7 +235,7 @@ function SupplySupplierForm({
         </label>
       </fieldset>
 
-      {supplier && <SupplierIikoMappingPanel supplier={supplier} />}
+      {supplier && showTechnicalMapping && <SupplierIikoMappingPanel supplier={supplier} />}
 
       {submitError && (
         <p className="request-message request-message-error" role="alert">
@@ -236,9 +244,9 @@ function SupplySupplierForm({
       )}
 
       <div className="supplier-form-actions">
-        <button className="primary-action" type="submit" disabled={isSubmitting}>
+        {!readOnly && <button className="primary-action" type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Сохраняем…' : supplier ? 'Сохранить' : 'Создать'}
-        </button>
+        </button>}
         <button
           className="secondary-action"
           type="button"

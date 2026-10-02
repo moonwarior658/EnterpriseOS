@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_supply_operator
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_confirmation import (
@@ -68,7 +68,7 @@ def _error(error: Exception) -> HTTPException:
 @order_router.post("/{order_id}/confirmations", response_model=SupplySupplierConfirmationRead)
 def create_order_confirmation(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return create_confirmation(db, order_id, tenant_id=admin.tenant_id, user_id=admin.id)
@@ -79,7 +79,7 @@ def create_order_confirmation(
 @order_router.get("/{order_id}/confirmations", response_model=list[SupplySupplierConfirmationRead])
 def read_order_confirmations(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> list[SupplySupplierConfirmationRead]:
     try:
         return list_confirmations(db, order_id, tenant_id=admin.tenant_id)
@@ -90,7 +90,7 @@ def read_order_confirmations(
 @confirmation_router.get("/{confirmation_id}", response_model=SupplySupplierConfirmationRead)
 def read_supplier_confirmation(
     confirmation_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return read_confirmation(db, confirmation_id, tenant_id=admin.tenant_id)
@@ -101,7 +101,7 @@ def read_supplier_confirmation(
 @confirmation_router.patch("/{confirmation_id}", response_model=SupplySupplierConfirmationRead)
 def patch_supplier_confirmation(
     confirmation_id: UUID, payload: SupplySupplierConfirmationUpdate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return update_confirmation(db, confirmation_id, payload, tenant_id=admin.tenant_id)
@@ -115,7 +115,7 @@ def patch_supplier_confirmation(
 @confirmation_router.patch("/{confirmation_id}/lines/{line_id}", response_model=SupplySupplierConfirmationRead)
 def patch_supplier_confirmation_line(
     confirmation_id: UUID, line_id: UUID, payload: SupplySupplierConfirmationLineUpdate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return update_confirmation_line(db, confirmation_id, line_id, payload, tenant_id=admin.tenant_id)
@@ -129,7 +129,7 @@ def patch_supplier_confirmation_line(
 @confirmation_router.post("/{confirmation_id}/record", response_model=SupplySupplierConfirmationRead)
 def record_supplier_confirmation(
     confirmation_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return record_confirmation(db, confirmation_id, tenant_id=admin.tenant_id, user_id=admin.id)
@@ -140,7 +140,7 @@ def record_supplier_confirmation(
 @confirmation_router.post("/{confirmation_id}/cancel", response_model=SupplySupplierConfirmationRead)
 def cancel_supplier_confirmation(
     confirmation_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return cancel_confirmation(db, confirmation_id, tenant_id=admin.tenant_id)
@@ -151,7 +151,7 @@ def cancel_supplier_confirmation(
 @deviation_router.post("/{deviation_id}/decision", response_model=SupplySupplierConfirmationRead)
 def create_supplier_confirmation_deviation_decision(
     deviation_id: UUID, payload: SupplySupplierConfirmationDecisionCreate,
-    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierConfirmationRead:
     try:
         return decide_deviation(

@@ -9,6 +9,8 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from tests.supply_legacy_api_fixture import install_supply_admin_overrides
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.dialects import postgresql
@@ -19,6 +21,10 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.audit import AuditEvent
+from app.models.employee import (Employee, EmployeeRole, EmployeeRoleAssignment,
+                                 EmployeeDepartmentAssignment, EmployeeIikoShift,
+                                 ShiftDepartmentConfirmation)
 from app.models.iiko import IikoDocumentWrite
 from app.models.supply import (
     Department,
@@ -64,6 +70,12 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
         )
         for table in (
             User.__table__,
+            Employee.__table__,
+            EmployeeRoleAssignment.__table__,
+            EmployeeDepartmentAssignment.__table__,
+            EmployeeIikoShift.__table__,
+            ShiftDepartmentConfirmation.__table__,
+            AuditEvent.__table__,
             Department.__table__,
             SupplyRequestDirection.__table__,
             SupplyRequestCycle.__table__,
@@ -94,6 +106,17 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
                 hashed_password="unused",
                 is_active=True,
                 is_admin=True,
+            ))
+            session.flush()
+            employee = Employee(tenant_id="eclair", linked_user_id=2,
+                                full_name="Администратор", birth_date=date(1990, 1, 1),
+                                phone="internal", residence_address="private")
+            session.add(employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair", employee_id=employee.id, role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                reason="Test fixture", assigned_by_user_id=2,
             ))
             self.department = Department(
                 tenant_id="eclair", code="М15", name="Матросова 15"
@@ -129,6 +152,7 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_get_db
         app.dependency_overrides[get_current_user] = override_current_user
+        install_supply_admin_overrides(app, lambda: app.dependency_overrides[get_current_user]())
         self.client = TestClient(app)
         self.counter = 0
 
@@ -521,22 +545,13 @@ class SupplyFulfillmentApiTests(unittest.TestCase):
             sql,
         )
 
-    def test_public_status_exposes_only_safe_plan_fact_and_debt_totals(self) -> None:
+    def test_retired_public_status_cannot_expose_request_facts(self) -> None:
         request = self.create_planned_request(public_token="public-safe-token")
         self.fulfill(request, TRANSFER="4", PURCHASE="1")
         response = self.client.get(
             "/public/supply/requests/public-safe-token"
         )
-        self.assertEqual(response.status_code, 200, response.text)
-        line = response.json()["lines"][0]
-        self.assertEqual(Decimal(line["confirmed_quantity"]), Decimal("8"))
-        self.assertEqual(Decimal(line["fulfilled_quantity"]), Decimal("5"))
-        self.assertEqual(Decimal(line["unresolved_quantity"]), Decimal("5"))
-        self.assertEqual(Decimal(line["debt_quantity"]), Decimal("5"))
-        serialized = response.text
-        self.assertNotIn("fulfillment_comment", serialized)
-        self.assertNotIn("allocation_id", serialized)
-        self.assertNotIn("fulfilled_by_user_id", serialized)
+        self.assertEqual(response.status_code, 404, response.text)
 
     def test_consecutive_shortfalls_escalate_reset_and_restart(self) -> None:
         first = self.create_planned_request()

@@ -62,12 +62,33 @@ class SupplySupplierPaymentUpdate(BaseModel):
     payment_order_number: str | None = Field(default=None, max_length=128)
     payment_order_date: date | None = None
     comment: str | None = Field(default=None, max_length=2000)
+    reason: str = Field(min_length=1, max_length=1000)
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("payment_order_number", "comment")
     @classmethod
     def normalize_text(cls, value: str | None) -> str | None:
         return _clean(value)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        result = value.strip()
+        if not result:
+            raise ValueError("Укажите причину изменения")
+        return result
+
+
+class SupplySupplierPaymentReason(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        result = value.strip()
+        if not result:
+            raise ValueError("Укажите причину изменения")
+        return result
 
 
 class SupplySupplierPaymentRead(BaseModel):

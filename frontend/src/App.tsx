@@ -1,19 +1,19 @@
 ﻿import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
-import ReadOnlyMutationGuard from './components/ReadOnlyMutationGuard'
 import AppLayout from './layouts/AppLayout'
 import AutomationSchedulesPage from './pages/AutomationSchedulesPage'
 import AutomationDiagnosticsPage from './pages/AutomationDiagnosticsPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import IikoMappingPage from './pages/IikoMappingPage'
-import PublicSupplyRequestPage from './pages/PublicSupplyRequestPage'
 import SupplyRequestDetailPage from './pages/SupplyRequestDetailPage'
+import SupplyRequestCreatePage from './pages/SupplyRequestCreatePage'
 import SupplyRequestListPage from './pages/SupplyRequestListPage'
 import SupplyDebtListPage from './pages/SupplyDebtListPage'
 import SupplySuppliersPage from './pages/SupplySuppliersPage'
 import SupplyPurchaseRequestsPage from './pages/SupplyPurchaseRequestsPage'
 import SupplyPurchaseRequestDetailPage from './pages/SupplyPurchaseRequestDetailPage'
+import SupplyProductionProcurementPage from './pages/SupplyProductionProcurementPage'
 import SupplySupplierOrdersPage from './pages/SupplySupplierOrdersPage'
 import SupplySupplierOrderDetailPage from './pages/SupplySupplierOrderDetailPage'
 import SupplySupplierPaymentsPage from './pages/SupplySupplierPaymentsPage'
@@ -40,7 +40,7 @@ function App() {
       />
       <Route
         path="/request/warehouse"
-        element={<Navigate to="/request/supply" replace />}
+        element={<Navigate to="/supply/requests" replace />}
       />
       <Route
         path="/request/repair"
@@ -48,7 +48,7 @@ function App() {
       />
       <Route
         path="/request/supply"
-        element={<ReadOnlyMutationGuard><PublicSupplyRequestPage /></ReadOnlyMutationGuard>}
+        element={<Navigate to="/supply/requests" replace />}
       />
 
       <Route
@@ -82,37 +82,39 @@ function App() {
 
         <Route
           path="/supply/requests"
-          element={<ProtectedRoute><SupplyRequestListPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplyRequestListPage /></ProtectedRoute>}
         />
+        <Route path="/supply/requests/new" element={<ProtectedRoute allowedRoles={['ADMIN', 'SUPPLY_MANAGER', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER']}><SupplyRequestCreatePage /></ProtectedRoute>} />
 
         <Route
           path="/supply/requests/:requestId"
-          element={<ProtectedRoute><SupplyRequestDetailPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER', 'SELLER', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplyRequestDetailPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/debts"
-          element={<ProtectedRoute adminOnly><SupplyDebtListPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplyDebtListPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/suppliers"
-          element={<ProtectedRoute adminOnly><SupplySuppliersPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplySuppliersPage /></ProtectedRoute>}
         />
 
         <Route
           path="/supply/purchase-requests"
-          element={<ProtectedRoute adminOnly><SupplyPurchaseRequestsPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplyPurchaseRequestsPage /></ProtectedRoute>}
         />
+        <Route path="/supply/production-procurement" element={<ProtectedRoute allowedRoles={['HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER']}><SupplyProductionProcurementPage /></ProtectedRoute>} />
 
         <Route
           path="/supply/purchase-requests/:requestId"
-          element={<ProtectedRoute adminOnly><SupplyPurchaseRequestDetailPage /></ProtectedRoute>}
+          element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplyPurchaseRequestDetailPage /></ProtectedRoute>}
         />
 
-        <Route path="/supply/supplier-orders" element={<ProtectedRoute adminOnly><SupplySupplierOrdersPage /></ProtectedRoute>} />
-        <Route path="/supply/supplier-orders/:orderId" element={<ProtectedRoute adminOnly><SupplySupplierOrderDetailPage /></ProtectedRoute>} />
-        <Route path="/supply/supplier-payments" element={<ProtectedRoute adminOnly><SupplySupplierPaymentsPage /></ProtectedRoute>} />
+        <Route path="/supply/supplier-orders" element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplySupplierOrdersPage /></ProtectedRoute>} />
+        <Route path="/supply/supplier-orders/:orderId" element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplySupplierOrderDetailPage /></ProtectedRoute>} />
+        <Route path="/supply/supplier-payments" element={<ProtectedRoute allowedRoles={['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT']}><SupplySupplierPaymentsPage /></ProtectedRoute>} />
 
         <Route
           path="/integrations/iiko/mappings"

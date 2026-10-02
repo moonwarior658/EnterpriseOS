@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getActionContext, type EmployeeRole } from '../services/actionContext'
 import DashboardGrid, {
   type DashboardWidgetDefinition,
 } from '../components/dashboard/DashboardGrid'
@@ -29,12 +30,15 @@ import {
   type DashboardConnectionState,
   type DashboardViewMode,
 } from './dashboardWidgetLogic'
+import { dashboardAccess } from './dashboardAccess'
 
 type RequestsState = 'loading' | 'ready' | 'error'
 const DASHBOARD_EMPTY_TRANSITION_MS = 280
 
 function DashboardPage() {
   const { user } = useAuth()
+  const [roles, setRoles] = useState<EmployeeRole[]>([])
+  const access = dashboardAccess(roles)
   const [connectionState, setConnectionState] =
     useState<DashboardConnectionState>('checking')
   const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null)
@@ -45,6 +49,16 @@ function DashboardPage() {
     useState<SupplyDashboardSummary | null>(null)
   const [displayedView, setDisplayedView] =
     useState<DashboardViewMode>('empty')
+
+  useEffect(() => {
+    let active = true
+    getActionContext().then((context) => {
+      if (active) setRoles(context.roles)
+    }).catch(() => {
+      if (active) setRoles([])
+    })
+    return () => { active = false }
+  }, [user?.id])
 
   useEffect(() => {
     let isMounted = true
@@ -59,12 +73,12 @@ function DashboardPage() {
 
       requestInFlight = true
       try {
-        const items = await getWorkRequests()
+        const items = access.readRepairs ? await getWorkRequests() : []
         if (!isMounted) {
           return
         }
         setRequests(items)
-        if (user?.is_admin) {
+        if (access.readSupplySummary) {
           try {
             const summary = await getSupplyDashboardSummary(
               controller.signal,
@@ -127,14 +141,18 @@ function DashboardPage() {
         handleVisibilityChange,
       )
     }
-  }, [user?.is_admin])
+  }, [access.readRepairs, access.readSupplySummary])
 
   const active = activeRequestsByType(requests)
   const widgetConfig = buildDashboardWidgetConfig(
-    active.warehouse.length,
-    active.repair.length,
+    0,
+    access.readRepairs ? active.repair.length : 0,
     supplySummaryToDashboardWidgetCounts(supplySummary),
-  )
+  ).filter((widget) => {
+    if (widget.id.startsWith('supply-') && widget.id !== 'supply-debts' && widget.id !== 'supply-critical-debts') return access.readOperationalSupply
+    if (widget.id === 'supply-debts' || widget.id === 'supply-critical-debts') return access.readFinance
+    return true
+  })
   const widgetContent = {
     'warehouse-requests': (
       <>
@@ -244,6 +262,7 @@ function DashboardPage() {
             <br />
             требующих вашего участия
           </p>
+          {access.links.length > 0 && <nav aria-label="Доступные разделы">{access.links.map((link) => <Link key={link.to} to={link.to}>{link.label}</Link>)}</nav>}
         </div>
 
         <footer
@@ -282,6 +301,7 @@ function DashboardPage() {
         )}
 
         <DashboardGrid widgets={widgets} />
+        {access.links.length > 0 && <nav aria-label="Доступные разделы">{access.links.map((link) => <Link key={link.to} to={link.to}>{link.label}</Link>)}</nav>}
       </div>
 
       <DashboardMascots />

@@ -7,6 +7,8 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from tests.supply_legacy_api_fixture import install_supply_admin_overrides
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -156,6 +158,7 @@ class IikoMappingApiTests(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_admin] = override_admin
+        install_supply_admin_overrides(app, lambda: app.dependency_overrides[get_current_admin]())
         self.previous_tenant = settings.default_tenant_id
         settings.default_tenant_id = "tenant-a"
         self.client = TestClient(app)

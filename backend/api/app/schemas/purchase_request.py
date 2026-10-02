@@ -220,6 +220,27 @@ class SupplyPurchaseRequestPage(BaseModel):
     offset: int = Field(ge=0)
 
 
+class ProductionProcurementAllocationRead(BaseModel):
+    quantity: Decimal
+    unit_price: Decimal
+    amount: Decimal
+
+
+class ProductionProcurementLineRead(BaseModel):
+    product_name: str
+    quantity: Decimal
+    unit_name: str
+    allocations: list[ProductionProcurementAllocationRead]
+
+
+class ProductionProcurementCardRead(BaseModel):
+    id: UUID
+    number: str
+    need_date: date
+    status: SupplyPurchaseRequestStatus
+    lines: list[ProductionProcurementLineRead]
+
+
 class SupplyProcurementNeedCoverageRead(BaseModel):
     purchase_request_line_source_id: UUID
     procurement_need_id: UUID

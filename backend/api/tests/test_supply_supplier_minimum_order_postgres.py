@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -21,6 +22,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment
 
 
 from tests.postgres_test_support import reset_disposable_postgres_schema
@@ -116,12 +118,23 @@ class SupplySupplierMinimumOrderPostgresTests(unittest.TestCase):
         )
 
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._revision(), "20261001_0063")
+        self.assertEqual(self._revision(), "20261001_0065")
         with self.sessions.begin() as session:
             session.add(User(
                 id=92001, username="minimum-admin", display_name="Admin",
                 hashed_password="unused", tenant_id="eclair",
                 is_active=True, is_admin=True,
+            ))
+            session.flush()
+            employee = Employee(tenant_id="eclair", linked_user_id=92001,
+                                full_name="Admin", birth_date=date(1990, 1, 1),
+                                phone="internal", residence_address="private")
+            session.add(employee)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair", employee_id=employee.id, role=EmployeeRole.ADMIN,
+                valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                reason="PostgreSQL fixture", assigned_by_user_id=92001,
             ))
 
         def override_get_db():
@@ -144,7 +157,7 @@ class SupplySupplierMinimumOrderPostgresTests(unittest.TestCase):
         self.assertEqual(created.json()["minimum_order_amount"], "7500.50")
         cleared = client.patch(
             f"/supply/suppliers/{created.json()['id']}",
-            json={"minimum_order_amount": None},
+            json={"minimum_order_amount": None, "reason": "Изменён порог заказа"},
         )
         self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertIsNone(cleared.json()["minimum_order_amount"])

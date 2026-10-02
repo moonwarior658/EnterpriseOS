@@ -25,9 +25,9 @@ const paymentStateLabels = {
   PAID: 'Оплачено', OVERPAID: 'Переплата',
 } as const
 
-type Props = { order: SupplySupplierOrder; onOrderRefresh: () => void }
+type Props = { order: SupplySupplierOrder; onOrderRefresh: () => void; canSettle: boolean }
 
-export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) {
+export default function SupplierPaymentsPanel({ order, onOrderRefresh, canSettle }: Props) {
   const [documents, setDocuments] = useState<SupplySupplierDocument[]>([])
   const [payments, setPayments] = useState<SupplySupplierPayment[]>([])
   const [draftId, setDraftId] = useState<string | null>(null)
@@ -116,10 +116,12 @@ export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) 
   }
 
   async function saveDraft() {
+    const reason = draftId ? window.prompt('Причина изменения оплаты')?.trim() : undefined
+    if (draftId && !reason) return
     setBusy(true); setMessage('')
     try {
       const value = draftId
-        ? await updateSupplySupplierPayment(draftId, draftPayload())
+        ? await updateSupplySupplierPayment(draftId, { ...draftPayload(), reason: reason! })
         : await createSupplySupplierPayment(payload())
       fillDraft(value); await load(); setMessage('Черновик оплаты сохранён')
     } catch (error) {
@@ -128,11 +130,13 @@ export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) 
   }
 
   async function record() {
-    if (!draftId || !window.confirm('Зафиксировать реальную оплату? После этого изменить её нельзя.')) return
+    if (!draftId) return
+    const reason = window.prompt('Причина фиксации оплаты')?.trim()
+    if (!reason || !window.confirm('Зафиксировать реальную оплату? После этого изменить её нельзя.')) return
     setBusy(true); setMessage('')
     try {
-      await updateSupplySupplierPayment(draftId, draftPayload())
-      await recordSupplySupplierPayment(draftId)
+      await updateSupplySupplierPayment(draftId, { ...draftPayload(), reason })
+      await recordSupplySupplierPayment(draftId, reason)
       clearForm(); await load(); onOrderRefresh(); setMessage('Оплата зафиксирована')
     } catch (error) {
       setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось зафиксировать оплату')
@@ -140,10 +144,12 @@ export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) 
   }
 
   async function cancel() {
-    if (!draftId || !window.confirm('Отменить черновик оплаты?')) return
+    if (!draftId) return
+    const reason = window.prompt('Причина отмены оплаты')?.trim()
+    if (!reason || !window.confirm('Отменить черновик оплаты?')) return
     setBusy(true); setMessage('')
     try {
-      await cancelSupplySupplierPayment(draftId)
+      await cancelSupplySupplierPayment(draftId, reason)
       clearForm(); await load(); setMessage('Черновик оплаты отменён')
     } catch (error) {
       setMessage(error instanceof SupplyApiError ? error.message : 'Не удалось отменить черновик')
@@ -195,7 +201,7 @@ export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) 
       <div><span>Предоплата по заказу</span><strong>{money.format(Number(order.prepayment_summary?.prepayment_total ?? 0))}</strong></div>
       <div><span>Не распределено по документам</span><strong>{money.format(Number(order.prepayment_summary?.unallocated_prepayment_amount ?? 0))}</strong><small>{order.prepayment_summary?.unallocated_prepayment_count ?? 0} оплат</small></div>
     </div>
-    {recordedPayments.length > 0 && recordedDocuments.length > 0 && <div className="supplier-document-editor"><h3>Распределить платёж</h3><div className="purchase-request-header"><label className="eos-field"><span>Платёж</span><EosSelect value={allocationPaymentId} disabled={busy} onChange={(event) => setAllocationPaymentId(event.target.value)}><option value="">Выберите платёж</option>{recordedPayments.filter((item) => Number(paymentSettlements[item.id]?.available_amount ?? 0) > 0).map((item) => <option key={item.id} value={item.id}>{item.payment_date} · доступно {money.format(Number(paymentSettlements[item.id]?.available_amount ?? 0))}</option>)}</EosSelect></label><label className="eos-field"><span>Документ</span><EosSelect value={allocationDocumentId} disabled={busy} onChange={(event) => setAllocationDocumentId(event.target.value)}><option value="">Выберите документ</option>{recordedDocuments.map((item) => <option key={item.id} value={item.id}>{item.document_number ?? item.document_type} · осталось {money.format(Number(item.remaining_to_pay))}</option>)}</EosSelect></label><label className="eos-field"><span>Сумма</span><input type="number" min="0.000001" step="0.000001" value={allocationAmount} disabled={busy} onChange={(event) => setAllocationAmount(event.target.value)} /></label><button type="button" className="primary-action" disabled={busy || !allocationPaymentId || !allocationDocumentId || !allocationAmount} onClick={allocate}>Распределить</button></div></div>}
+    {canSettle && recordedPayments.length > 0 && recordedDocuments.length > 0 && <div className="supplier-document-editor"><h3>Распределить платёж</h3><div className="purchase-request-header"><label className="eos-field"><span>Платёж</span><EosSelect value={allocationPaymentId} disabled={busy} onChange={(event) => setAllocationPaymentId(event.target.value)}><option value="">Выберите платёж</option>{recordedPayments.filter((item) => Number(paymentSettlements[item.id]?.available_amount ?? 0) > 0).map((item) => <option key={item.id} value={item.id}>{item.payment_date} · доступно {money.format(Number(paymentSettlements[item.id]?.available_amount ?? 0))}</option>)}</EosSelect></label><label className="eos-field"><span>Документ</span><EosSelect value={allocationDocumentId} disabled={busy} onChange={(event) => setAllocationDocumentId(event.target.value)}><option value="">Выберите документ</option>{recordedDocuments.map((item) => <option key={item.id} value={item.id}>{item.document_number ?? item.document_type} · осталось {money.format(Number(item.remaining_to_pay))}</option>)}</EosSelect></label><label className="eos-field"><span>Сумма</span><input type="number" min="0.000001" step="0.000001" value={allocationAmount} disabled={busy} onChange={(event) => setAllocationAmount(event.target.value)} /></label><button type="button" className="primary-action" disabled={busy || !allocationPaymentId || !allocationDocumentId || !allocationAmount} onClick={allocate}>Распределить</button></div></div>}
     {message && <p className="request-message">{message}</p>}
     <div className="supplier-document-editor">
       <div className="purchase-request-header">
@@ -214,6 +220,6 @@ export default function SupplierPaymentsPanel({ order, onOrderRefresh }: Props) 
       <div className="allocation-summary"><div><span>Документ</span><strong>{money.format(Number(document.document_total_amount))}</strong></div><div><span>Оплачено</span><strong>{money.format(Number(document.recorded_payments_amount))}</strong></div><div><span>Осталось</span><strong>{money.format(Number(document.remaining_to_pay))}</strong></div></div>
       {allocationSources(document.id).length > 0 && <div className="supplier-table-wrap"><h4>Источники зачёта</h4><table className="supplier-table"><thead><tr><th>Дата платежа</th><th>Источник</th><th>Зачтено</th><th>Зафиксировал</th></tr></thead><tbody>{allocationSources(document.id).map(({ payment, allocation }) => <tr key={allocation.id}><td>{new Date(`${payment.payment_date}T00:00:00`).toLocaleDateString('ru-RU')}</td><td>{payment.payment_order_number ? `Платёж №${payment.payment_order_number}` : payment.payment_type === 'PREPAYMENT' ? 'Предоплата' : 'Постоплата'}</td><td>{money.format(Number(allocation.amount))}</td><td>{payment.recorded_by_display_name ?? '—'}</td></tr>)}</tbody></table></div>}
     </div>)}
-      {payments.length > 0 && <div className="supplier-table-wrap"><h3>История оплат по заказу</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Документ</th><th>Тип</th><th>Сумма</th><th>Возвращено</th><th>Эффективная сумма</th><th>Распределено</th><th>Доступно</th><th>Действия</th></tr></thead><tbody>{payments.map((payment) => { const settlement = paymentSettlements[payment.id]; return <tr key={payment.id}><td>{payment.payment_date}</td><td>{payment.supplier_document_number ?? 'Аванс без документа'}</td><td>{payment.payment_type === 'PREPAYMENT' ? 'Предоплата' : 'Постоплата'}</td><td>{money.format(Number(payment.amount))}</td><td>{money.format(Number(settlement?.refunded_amount ?? 0))}</td><td>{money.format(Number(settlement?.effective_payment_amount ?? payment.amount))}</td><td>{money.format(Number(settlement?.allocated_amount ?? 0))}</td><td>{money.format(Number(settlement?.available_amount ?? 0))}</td><td>{payment.status === 'RECORDED' && Number(settlement?.available_amount ?? 0) > 0 && <button type="button" className="secondary-action" disabled={busy} onClick={() => refund(payment)}>Возврат</button>}{settlement?.allocations.filter((item) => item.status === 'ACTIVE').map((item) => <button key={item.id} type="button" className="danger-action" disabled={busy} onClick={() => reverse(item)}>Отменить {money.format(Number(item.amount))}</button>)}</td></tr> })}</tbody></table></div>}
+      {payments.length > 0 && <div className="supplier-table-wrap"><h3>История оплат по заказу</h3><table className="supplier-table"><thead><tr><th>Дата</th><th>Документ</th><th>Тип</th><th>Сумма</th><th>Возвращено</th><th>Эффективная сумма</th><th>Распределено</th><th>Доступно</th>{canSettle && <th>Действия</th>}</tr></thead><tbody>{payments.map((payment) => { const settlement = paymentSettlements[payment.id]; return <tr key={payment.id}><td>{payment.payment_date}</td><td>{payment.supplier_document_number ?? 'Аванс без документа'}</td><td>{payment.payment_type === 'PREPAYMENT' ? 'Предоплата' : 'Постоплата'}</td><td>{money.format(Number(payment.amount))}</td><td>{money.format(Number(settlement?.refunded_amount ?? 0))}</td><td>{money.format(Number(settlement?.effective_payment_amount ?? payment.amount))}</td><td>{money.format(Number(settlement?.allocated_amount ?? 0))}</td><td>{money.format(Number(settlement?.available_amount ?? 0))}</td>{canSettle && <td>{payment.status === 'RECORDED' && Number(settlement?.available_amount ?? 0) > 0 && <button type="button" className="secondary-action" disabled={busy} onClick={() => refund(payment)}>Возврат</button>}{settlement?.allocations.filter((item) => item.status === 'ACTIVE').map((item) => <button key={item.id} type="button" className="danger-action" disabled={busy} onClick={() => reverse(item)}>Отменить {money.format(Number(item.amount))}</button>)}</td>}</tr> })}</tbody></table></div>}
   </section>
 }

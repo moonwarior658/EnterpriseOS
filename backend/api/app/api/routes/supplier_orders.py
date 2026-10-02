@@ -4,7 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_supply_operator
+from app.core.authorization import Capability, authorize
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_order import (
@@ -71,7 +72,7 @@ def _error(error: Exception) -> HTTPException:
 @router.get("", response_model=SupplySupplierOrderPage)
 def read_orders(
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
     order_status: Annotated[SupplySupplierOrderStatus | None, Query(alias="status")] = None,
     supplier_id: UUID | None = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
@@ -89,7 +90,7 @@ def read_orders(
 @router.get("/{order_id}", response_model=SupplySupplierOrderRead)
 def read_order(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_reader)],
 ) -> SupplySupplierOrderRead:
     try:
         return read_supplier_order(db, order_id, tenant_id=admin.tenant_id)
@@ -101,7 +102,7 @@ def read_order(
 def prepare_order_message(
     order_id: UUID, payload: SupplySupplierOrderMessagePrepare,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderMessagePreview:
     try:
         return prepare_supplier_order_message(
@@ -120,7 +121,7 @@ def prepare_order_message(
 @router.post("/{order_id}/send", response_model=SupplySupplierOrderDeliveryAttemptRead)
 def send_order(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderDeliveryAttemptRead:
     try:
         return queue_supplier_order_email(
@@ -136,7 +137,7 @@ def send_order(
 @router.post("/{order_id}/retry-send", response_model=SupplySupplierOrderDeliveryAttemptRead)
 def retry_send_order(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderDeliveryAttemptRead:
     try:
         return queue_supplier_order_email(
@@ -154,10 +155,12 @@ def retry_send_order(
 def patch_order(
     order_id: UUID, payload: SupplySupplierOrderUpdate,
     db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderRead:
     try:
-        return update_supplier_order(db, order_id, payload, tenant_id=admin.tenant_id)
+        context = authorize(db, admin, Capability.SUPPLY_OPERATE, write=True)
+        return update_supplier_order(db, order_id, payload, tenant_id=admin.tenant_id,
+                                     audit_context=context, actor_user=admin)
     except (SupplierOrderNotFoundError, SupplierOrderStateError) as error:
         raise _error(error) from error
 
@@ -165,10 +168,12 @@ def patch_order(
 @router.post("/{order_id}/ready", response_model=SupplySupplierOrderRead)
 def ready_order(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderRead:
     try:
-        return mark_supplier_order_ready(db, order_id, tenant_id=admin.tenant_id)
+        context = authorize(db, admin, Capability.SUPPLY_OPERATE, write=True)
+        return mark_supplier_order_ready(db, order_id, tenant_id=admin.tenant_id,
+                                         audit_context=context, actor_user=admin)
     except (SupplierOrderNotFoundError, SupplierOrderStateError, SupplierOrderEmptyError, SupplierOrderSupplierInactiveError, SupplierOrderConflictError) as error:
         raise _error(error) from error
 
@@ -176,9 +181,11 @@ def ready_order(
 @router.post("/{order_id}/cancel", response_model=SupplySupplierOrderRead)
 def cancel_order(
     order_id: UUID, db: Annotated[Session, Depends(get_db)],
-    admin: Annotated[User, Depends(get_current_admin)],
+    admin: Annotated[User, Depends(get_supply_operator)],
 ) -> SupplySupplierOrderRead:
     try:
-        return cancel_supplier_order(db, order_id, tenant_id=admin.tenant_id)
+        context = authorize(db, admin, Capability.SUPPLY_OPERATE, write=True)
+        return cancel_supplier_order(db, order_id, tenant_id=admin.tenant_id,
+                                     audit_context=context, actor_user=admin)
     except (SupplierOrderNotFoundError, SupplierOrderStateError) as error:
         raise _error(error) from error

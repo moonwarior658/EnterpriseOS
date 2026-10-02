@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
@@ -16,6 +17,9 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db
 from app.main import app
 from app.models.supply import SupplySupplier
+from app.models.supply import Department
+from app.models.audit import AuditEvent
+from app.models.employee import Employee, EmployeeDepartmentAssignment, EmployeeIikoShift, EmployeeRole, EmployeeRoleAssignment
 from app.models.user import User
 
 
@@ -33,7 +37,13 @@ class SupplySuppliersApiTests(unittest.TestCase):
             "connect",
             lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"),
         )
+        Department.__table__.create(self.engine)
         User.__table__.create(self.engine)
+        Employee.__table__.create(self.engine)
+        EmployeeRoleAssignment.__table__.create(self.engine)
+        EmployeeDepartmentAssignment.__table__.create(self.engine)
+        EmployeeIikoShift.__table__.create(self.engine)
+        AuditEvent.__table__.create(self.engine)
         SupplySupplier.__table__.create(self.engine)
         self.session_factory = sessionmaker(
             bind=self.engine,
@@ -71,6 +81,15 @@ class SupplySuppliersApiTests(unittest.TestCase):
                     ),
                 ]
             )
+            session.flush()
+            for user_id, tenant in ((2, "eclair"), (3, "other")):
+                employee = Employee(tenant_id=tenant, linked_user_id=user_id, full_name="Администратор",
+                                    birth_date=date(1990, 1, 1), phone="internal", residence_address="private")
+                session.add(employee)
+                session.flush()
+                session.add(EmployeeRoleAssignment(tenant_id=tenant, employee_id=employee.id,
+                    role=EmployeeRole.ADMIN, valid_from=datetime.now(UTC) - timedelta(days=1),
+                    reason="RBAC fixture", assigned_by_user_id=user_id))
         self.current_user_id = 2
 
         def override_get_db():
@@ -161,14 +180,14 @@ class SupplySuppliersApiTests(unittest.TestCase):
 
         updated = self.client.patch(
             f"/supply/suppliers/{created['id']}",
-            json={"minimum_order_amount": "12500.50"},
+            json={"minimum_order_amount": "12500.50", "reason": "Новые условия"},
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["minimum_order_amount"], "12500.50")
 
         cleared = self.client.patch(
             f"/supply/suppliers/{created['id']}",
-            json={"minimum_order_amount": None},
+            json={"minimum_order_amount": None, "reason": "Условие отменено"},
         )
         self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertIsNone(cleared.json()["minimum_order_amount"])
@@ -182,7 +201,7 @@ class SupplySuppliersApiTests(unittest.TestCase):
     def test_archive_restore_and_active_only_list(self) -> None:
         created = self.create_supplier()
         archived = self.client.post(
-            f"/supply/suppliers/{created['id']}/archive"
+            f"/supply/suppliers/{created['id']}/archive", json={"reason": "Не работает"}
         )
         self.assertEqual(archived.status_code, 200, archived.text)
         self.assertFalse(archived.json()["is_active"])
@@ -194,7 +213,7 @@ class SupplySuppliersApiTests(unittest.TestCase):
         self.assertEqual(active.json()["items"], [])
 
         restored = self.client.post(
-            f"/supply/suppliers/{created['id']}/restore"
+            f"/supply/suppliers/{created['id']}/restore", json={"reason": "Снова работает"}
         )
         self.assertEqual(restored.status_code, 200, restored.text)
         self.assertTrue(restored.json()["is_active"])
@@ -216,13 +235,13 @@ class SupplySuppliersApiTests(unittest.TestCase):
         self.current_user_id = 2
         self.assertEqual(
             self.client.post(
-                f"/supply/suppliers/{original['id']}/archive"
+                f"/supply/suppliers/{original['id']}/archive", json={"reason": "Замена"}
             ).status_code,
             200,
         )
         replacement = self.create_supplier(display_name="Новый Новопак")
         conflict = self.client.post(
-            f"/supply/suppliers/{original['id']}/restore"
+            f"/supply/suppliers/{original['id']}/restore", json={"reason": "Возврат"}
         )
         self.assertEqual(conflict.status_code, 409, conflict.text)
         self.assertNotEqual(replacement["id"], original["id"])
@@ -244,7 +263,7 @@ class SupplySuppliersApiTests(unittest.TestCase):
         )
         self.assertEqual(
             self.client.post(
-                f"/supply/suppliers/{own['id']}/archive"
+                f"/supply/suppliers/{own['id']}/archive", json={"reason": "Проверка tenant"}
             ).status_code,
             404,
         )

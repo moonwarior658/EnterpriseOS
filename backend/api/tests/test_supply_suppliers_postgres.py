@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment
 
 
 from tests.postgres_test_support import reset_disposable_postgres_schema
@@ -135,7 +137,7 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
         self.assertIn("is_active = true", index_definition)
 
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20261001_0063")
+        self.assertEqual(self._current_revision(), "20261001_0065")
         with self.sessions.begin() as session:
             session.add_all(
                 [
@@ -159,6 +161,18 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
                     ),
                 ]
             )
+            session.flush()
+            for user_id, tenant in ((91001, "eclair"), (91002, "other")):
+                employee = Employee(tenant_id=tenant, linked_user_id=user_id,
+                                    full_name=f"Admin {user_id}", birth_date=date(1990, 1, 1),
+                                    phone="internal", residence_address="private")
+                session.add(employee)
+                session.flush()
+                session.add(EmployeeRoleAssignment(
+                    tenant_id=tenant, employee_id=employee.id, role=EmployeeRole.ADMIN,
+                    valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+                    reason="PostgreSQL fixture", assigned_by_user_id=user_id,
+                ))
 
         current_user_id = 91001
 
@@ -200,7 +214,8 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
 
         current_user_id = 91001
         archived = client.post(
-            f"/supply/suppliers/{first.json()['id']}/archive"
+            f"/supply/suppliers/{first.json()['id']}/archive",
+            json={"reason": "Архивация поставщика"},
         )
         self.assertEqual(archived.status_code, 200, archived.text)
         self.assertFalse(archived.json()["is_active"])
@@ -212,7 +227,8 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
         self.assertEqual(replacement.status_code, 201, replacement.text)
 
         restore_conflict = client.post(
-            f"/supply/suppliers/{first.json()['id']}/restore"
+            f"/supply/suppliers/{first.json()['id']}/restore",
+            json={"reason": "Возврат поставщика"},
         )
         self.assertEqual(restore_conflict.status_code, 409, restore_conflict.text)
 
@@ -221,7 +237,8 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
             return_value=False,
         ):
             database_restore_conflict = client.post(
-                f"/supply/suppliers/{first.json()['id']}/restore"
+                f"/supply/suppliers/{first.json()['id']}/restore",
+                json={"reason": "Возврат поставщика"},
             )
         self.assertEqual(
             database_restore_conflict.status_code,
@@ -240,7 +257,7 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
         ):
             update_conflict = client.patch(
                 f"/supply/suppliers/{update_target.json()['id']}",
-                json={"inn": "6671000001"},
+                json={"inn": "6671000001", "reason": "Исправление ИНН"},
             )
         self.assertEqual(update_conflict.status_code, 409, update_conflict.text)
 

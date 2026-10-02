@@ -13,6 +13,7 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
 from alembic import command
+from fastapi import FastAPI
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
@@ -30,7 +31,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.dependencies import get_current_user
-from app.api.routes.public_supply import token_rate_guard
+from app.api.routes.public_supply import router as legacy_public_supply_router, token_rate_guard
 from app.automation.supply_actions import (
     SupplyAutomationContext,
     ensure_request_cycle,
@@ -41,6 +42,7 @@ from app.automation.scheduler import process_due_schedule
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment
 from app.models.supply import (
     Department,
     LegalContour,
@@ -95,7 +97,7 @@ from tests.postgres_test_support import reset_disposable_postgres_schema
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
-CURRENT_HEAD = "20261001_0064"
+CURRENT_HEAD = "20261001_0065"
 
 
 @unittest.skipUnless(
@@ -1982,8 +1984,10 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         event.listen(
             self.engine, "before_cursor_execute", capture_lock_statement
         )
-        app.dependency_overrides[get_db] = override_get_db
-        client = TestClient(app, client=("127.0.0.1", 50000))
+        legacy_app = FastAPI()
+        legacy_app.include_router(legacy_public_supply_router)
+        legacy_app.dependency_overrides[get_db] = override_get_db
+        client = TestClient(legacy_app, client=("127.0.0.1", 50000))
         try:
             created_response = client.post(
                 "/public/supply/requests",
@@ -2066,7 +2070,7 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
             )
             self.assertEqual(submit_response.json()["status"], "SUBMITTED")
         finally:
-            app.dependency_overrides.clear()
+            legacy_app.dependency_overrides.clear()
             token_rate_guard.clear()
             event.remove(
                 self.engine,
@@ -2487,6 +2491,16 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
         session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         now = datetime.now(timezone.utc)
         with session_factory.begin() as session:
+            actor = Employee(tenant_id="eclair", linked_user_id=91001,
+                             full_name="Migration User", birth_date=date(1990, 1, 1),
+                             phone="internal", residence_address="private")
+            session.add(actor)
+            session.flush()
+            session.add(EmployeeRoleAssignment(
+                tenant_id="eclair", employee_id=actor.id, role=EmployeeRole.ADMIN,
+                valid_from=now - timedelta(days=1), reason="PostgreSQL fixture",
+                assigned_by_user_id=91001,
+            ))
             department = session.query(Department).filter_by(
                 tenant_id="eclair", code="ATO"
             ).one()

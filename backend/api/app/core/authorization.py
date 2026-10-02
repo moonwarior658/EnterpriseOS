@@ -7,12 +7,20 @@ from sqlalchemy.orm import Session
 
 from app.core.action_context import ActionContext, ActionContextError, resolve_action_context
 from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment
-from app.models.supply import Department, DepartmentBusinessType
+from app.models.supply import Department, DepartmentBusinessType, SupplyRequest
 from app.models.user import User
 from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    SUPPLY_REQUEST_READ = "SUPPLY_REQUEST_READ"
+    SUPPLY_REQUEST_CREATE = "SUPPLY_REQUEST_CREATE"
+    SUPPLY_REQUEST_EDIT = "SUPPLY_REQUEST_EDIT"
+    SUPPLY_REQUEST_CANCEL = "SUPPLY_REQUEST_CANCEL"
+    SUPPLY_DOWNSTREAM_READ = "SUPPLY_DOWNSTREAM_READ"
+    SUPPLY_OPERATE = "SUPPLY_OPERATE"
+    SUPPLIER_EDIT = "SUPPLIER_EDIT"
+    PAYMENT_WRITE = "PAYMENT_WRITE"
     REPAIR_READ = "REPAIR_READ"
     REPAIR_CREATE = "REPAIR_CREATE"
     REPAIR_TAKE = "REPAIR_TAKE"
@@ -44,6 +52,41 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
+    Capability.SUPPLY_REQUEST_READ: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
+        (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.PRIMARY_DEPARTMENT),
+    ),
+    Capability.SUPPLY_REQUEST_CREATE: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.ACTUAL_SHIFT_DEPARTMENT),
+    ),
+    Capability.SUPPLY_REQUEST_EDIT: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.ACTUAL_SHIFT_DEPARTMENT),
+    ),
+    Capability.SUPPLY_REQUEST_CANCEL: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+    ),
+    Capability.SUPPLY_DOWNSTREAM_READ: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
+    ),
+    Capability.SUPPLY_OPERATE: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.SUPPLIER_EDIT: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY)),
+    Capability.PAYMENT_WRITE: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY)),
     Capability.REPAIR_READ: tuple((role, scope) for role, scope in (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
         (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
@@ -133,10 +176,6 @@ ROLE_ASSIGNABLE = {
         EmployeeRole.SELLER, EmployeeRole.DRIVER, EmployeeRole.HANDYMAN,
     }),
 }
-
-def has_request_view_access(user: User) -> bool:
-    return user.is_admin or user.can_view_requests
-
 
 def _active_departments(db: Session, tenant_id: str, employee_id, at):
     return set(db.scalars(select(EmployeeDepartmentAssignment.department_id).where(
@@ -247,6 +286,72 @@ def linked_employee(db: Session, user: User) -> Employee | None:
     return db.scalar(select(Employee).where(
         Employee.tenant_id == user.tenant_id, Employee.linked_user_id == user.id,
     ))
+
+
+def supply_request_authorize(
+    db: Session, user: User, capability: Capability, *,
+    request: SupplyRequest | None = None, department_id=None, write: bool = False,
+) -> ActionContext:
+    """Resolve one role for a SupplyRequest action; never trust a legacy admin flag."""
+    base = resolve_action_context(db, user, write=False)
+    target = request.department_id if request is not None else department_id
+    for role, scope in GRANTS[capability]:
+        if role not in base.roles:
+            continue
+        if scope == Scope.ALL_COMPANY:
+            allowed = True
+        elif scope in {Scope.ECLAIR_POINTS, Scope.PRODUCTION}:
+            allowed = target in scoped_department_ids(db, user, scope, base)
+        elif role == EmployeeRole.SELLER:
+            context = resolve_action_context(
+                db, user, required_roles=frozenset({role}), role_precedence=(role,), write=write,
+            )
+            expected = context.actual_department_id if write or context.shift_id else context.primary_department_id
+            department = db.get(Department, expected) if expected else None
+            allowed = (target == expected and department is not None
+                       and department.tenant_id == user.tenant_id
+                       and department.is_active
+                       and department.business_type == DepartmentBusinessType.RETAIL_POINT)
+        else:
+            allowed = False
+        if request is not None and capability == Capability.SUPPLY_REQUEST_EDIT:
+            if role == EmployeeRole.SELLER:
+                allowed = allowed and request.created_by_user_id == user.id
+        if not allowed:
+            continue
+        context = resolve_action_context(
+            db, user, required_roles=frozenset({role}), role_precedence=(role,),
+            write=write,
+        )
+        if write:
+            db.info["action_context"] = context
+            db.info["action_user"] = user
+        return context
+    raise ActionContextError("PERMISSION_DENIED", "Недостаточно прав для действия")
+
+
+def supply_visible_departments(db: Session, user: User) -> set | None:
+    """None means global read; an empty set means no SupplyRequest access."""
+    base = resolve_action_context(db, user, write=False)
+    visible: set = set()
+    for role, scope in GRANTS[Capability.SUPPLY_REQUEST_READ]:
+        if role not in base.roles:
+            continue
+        if scope == Scope.ALL_COMPANY:
+            return None
+        if scope in {Scope.ECLAIR_POINTS, Scope.PRODUCTION}:
+            visible |= scoped_department_ids(db, user, scope, base)
+        elif role == EmployeeRole.SELLER:
+            seller = resolve_action_context(
+                db, user, required_roles=frozenset({role}), role_precedence=(role,), write=False,
+            )
+            department_id = seller.actual_department_id if seller.shift_id else seller.primary_department_id
+            department = db.get(Department, department_id) if department_id else None
+            if (department is not None and department.tenant_id == user.tenant_id
+                    and department.is_active
+                    and department.business_type == DepartmentBusinessType.RETAIL_POINT):
+                visible.add(department_id)
+    return visible - {None}
 
 
 def repair_authorize(

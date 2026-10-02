@@ -9,11 +9,13 @@ import {
 } from '../services/supplyAdmin'
 import SupplySupplierForm from './SupplySupplierForm'
 import { supplierErrorMessage } from './supplySupplierLogic'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 import './SupplySuppliersPage.css'
 
 const PAGE_SIZE = 50
 
 function SupplySuppliersPage() {
+  const { canOperate, canEditSupplier, isAdmin } = useSupplyPermissions()
   const [items, setItems] = useState<SupplySupplier[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -86,14 +88,13 @@ function SupplySuppliersPage() {
   }
 
   async function archiveSupplier(supplier: SupplySupplier) {
-    if (!window.confirm(`Архивировать поставщика «${supplier.display_name}»?`)) {
-      return
-    }
+    const reason = window.prompt(`Причина архивации поставщика «${supplier.display_name}»`)?.trim()
+    if (!reason) return
     setBusySupplierId(supplier.id)
     setError('')
     setNotice('')
     try {
-      await archiveSupplySupplier(supplier.id)
+      await archiveSupplySupplier(supplier.id, reason)
       setFormOpen(false)
       setFormSupplier(null)
       setNotice('Поставщик перемещён в архив')
@@ -109,11 +110,13 @@ function SupplySuppliersPage() {
   }
 
   async function restoreSupplier(supplier: SupplySupplier) {
+    const reason = window.prompt(`Причина восстановления поставщика «${supplier.display_name}»`)?.trim()
+    if (!reason) return
     setBusySupplierId(supplier.id)
     setError('')
     setNotice('')
     try {
-      await restoreSupplySupplier(supplier.id)
+      await restoreSupplySupplier(supplier.id, reason)
       setFormOpen(false)
       setFormSupplier(null)
       setNotice('Поставщик восстановлен')
@@ -155,14 +158,14 @@ function SupplySuppliersPage() {
             <Link className="request-back-link" to="/supply/requests">
               К заявкам →
             </Link>
-            <button
+            {canOperate && <button
               className="primary-action"
               type="button"
               disabled={formOpen}
               onClick={openCreateForm}
             >
               Добавить поставщика
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -205,6 +208,8 @@ function SupplySuppliersPage() {
           <SupplySupplierForm
             key={formSupplier?.id ?? 'create'}
             supplier={formSupplier}
+            readOnly={!canEditSupplier}
+            showTechnicalMapping={isAdmin}
             onCancel={() => {
               setFormOpen(false)
               setFormSupplier(null)
@@ -286,7 +291,7 @@ function SupplySuppliersPage() {
                       >
                         Открыть
                       </button>
-                      {supplier.is_active ? (
+                      {canEditSupplier && (supplier.is_active ? (
                         <button
                           className="secondary-action"
                           type="button"
@@ -304,7 +309,7 @@ function SupplySuppliersPage() {
                         >
                           Восстановить
                         </button>
-                      )}
+                      ))}
                     </div>
                   </td>
                 </tr>

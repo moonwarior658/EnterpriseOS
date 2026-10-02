@@ -426,6 +426,21 @@ class SupplySupplierCreate(BaseModel):
 
 class SupplySupplierUpdate(SupplySupplierCreate):
     display_name: str | None = None
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str | None) -> str | None:
+        return _strip_optional(value, max_length=1000)
+
+
+class SupplySupplierStatusReason(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        return _strip_required(value, label="Причина", max_length=1000)
 
 
 class SupplySupplierRead(BaseModel):
@@ -1090,7 +1105,7 @@ class SupplyDebtCancel(BaseModel):
 
 
 class SupplyRequestCancel(SupplyExpectedVersion):
-    reason: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=1000)
 
     @field_validator("reason")
     @classmethod
@@ -1142,6 +1157,24 @@ class SupplyRequestCreate(BaseModel):
         return value
 
 
+class SupplyRequestDetailsUpdate(SupplyExpectedVersion):
+    raw_input: str | None = Field(default=None, min_length=1, max_length=MAX_RAW_INPUT_LENGTH)
+    need_date: date | None = None
+    reason: str | None = Field(default=None, max_length=1000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("raw_input", "reason")
+    @classmethod
+    def strip_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        result = value.strip()
+        if not result:
+            raise ValueError("Поле не может быть пустым")
+        return result
+
+
 class SupplyRequestRead(BaseModel):
     id: UUID
     public_number: str
@@ -1156,6 +1189,10 @@ class SupplyRequestRead(BaseModel):
     raw_input: str
     version: int
     created_by_user_id: int | None
+    creator_employee_id: UUID | None = None
+    creator_authorized_as: str | None = None
+    department_name_snapshot: str | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
     submitted_at: datetime | None
     planned_at: datetime | None
     planned_by_user_id: int | None
@@ -1630,6 +1667,7 @@ class SupplyRequestListItem(BaseModel):
     status: SupplyRequestStatus
     source_type: SupplyRequestSourceType
     version: int
+    allowed_actions: list[str] = Field(default_factory=list)
     submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime

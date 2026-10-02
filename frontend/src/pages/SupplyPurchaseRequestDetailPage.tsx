@@ -22,6 +22,7 @@ import {
   SupplyApiError,
 } from '../services/supplyAdmin'
 import './SupplyPurchaseRequestsPage.css'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 
 
 const STATUS_LABELS = { DRAFT: 'Черновик', READY: 'Зафиксирован', CANCELLED: 'Отменён' } as const
@@ -35,6 +36,7 @@ type LineDraft = { product: SupplyProduct | null; quantity: string; unitId: stri
 const emptyDraft: LineDraft = { product: null, quantity: '', unitId: '', comment: '' }
 
 export default function SupplyPurchaseRequestDetailPage() {
+  const { canOperate } = useSupplyPermissions()
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyPurchaseRequest | null>(null)
   const [units, setUnits] = useState<SupplyUnit[]>([])
@@ -128,20 +130,20 @@ export default function SupplyPurchaseRequestDetailPage() {
           <Link className="request-back-link" to="/supply/purchase-requests">К списку →</Link>
         </div>
         <div className="purchase-request-header">
-          <EosDateField label="Дата потребности" value={needDate} disabled={!isDraft || busy} onChange={(event) => setNeedDate(event.target.value)} />
-          <label className="eos-field"><span>Комментарий</span><input value={comment} disabled={!isDraft || busy} onChange={(event) => setComment(event.target.value)} /></label>
+          <EosDateField label="Дата потребности" value={needDate} disabled={!canOperate || !isDraft || busy} onChange={(event) => setNeedDate(event.target.value)} />
+          <label className="eos-field"><span>Комментарий</span><input value={comment} disabled={!canOperate || !isDraft || busy} onChange={(event) => setComment(event.target.value)} /></label>
           <div><span className="field-label">Статус</span><span className={`purchase-status purchase-status-${request.status.toLowerCase()}`}>{STATUS_LABELS[request.status]}</span></div>
         </div>
         {message && <p className="request-message">{message}</p>}
-        {isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="secondary-action" disabled={busy} onClick={collectNeeds}>Собрать потребность</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
+        {canOperate && isDraft && <div className="purchase-actions"><button type="button" className="secondary-action" disabled={busy} onClick={saveHeader}>Сохранить</button><button type="button" className="secondary-action" disabled={busy} onClick={collectNeeds}>Собрать потребность</button><button type="button" className="primary-action" disabled={busy || !request.lines?.length} onClick={() => changeStatus('ready')}>Зафиксировать потребность</button><button type="button" className="danger-action" disabled={busy} onClick={() => changeStatus('cancel')}>Отменить запрос</button></div>}
         {request.status === 'READY' && <div className="purchase-actions"><button type="button" className="primary-action" aria-expanded={showAllocations} aria-controls="purchase-allocation-details" onClick={() => setShowAllocations((value) => !value)}>{showAllocations ? 'Скрыть распределение' : 'Показать распределение'}</button></div>}
 
         {request.status === 'READY' && <div id="purchase-allocation-details">
           {showAllocations && coverage && <div id="purchase-coverage-details" className="allocation-summary"><div><span>Покрыто полностью</span><strong>{coverage.fully_covered_count}</strong></div><div><span>Покрыто частично</span><strong>{coverage.partially_covered_count}</strong></div><div><span>Не покрыто</span><strong>{coverage.not_covered_count}</strong></div><div><span>Legacy без traceability</span><strong>{coverage.unknown_legacy_count}</strong></div><div><span>С задержкой</span><strong>{coverage.delayed_count}</strong></div><div><span>Будущая потребность покрыта</span><strong>{coverage.manual_future_covered_quantity}</strong></div></div>}
-          {showAllocations && <SupplyPurchaseAllocationWorkspace requestId={requestId} />}
+          {showAllocations && canOperate && <SupplyPurchaseAllocationWorkspace requestId={requestId} />}
         </div>}
 
-        {isDraft && (
+        {canOperate && isDraft && (
           <form className="purchase-line-form" onSubmit={saveLine}>
             <label className="eos-field"><span>Товар</span>{editing ? <input value={editing.product.name} disabled /> : <EosProductCombobox id="purchase-product" value={draft.product?.id ?? ''} selectedLabel={draft.product?.name ?? ''} disabled={busy} onChange={(product) => setDraft({ ...draft, product, unitId: product.default_unit.id })} />}</label>
             <label className="eos-field"><span>Количество</span><input type="number" min="0.001" step="0.001" required value={draft.quantity} disabled={busy} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} /></label>
@@ -152,10 +154,10 @@ export default function SupplyPurchaseRequestDetailPage() {
         )}
 
         {!request.lines?.length ? <p className="page-state">{collected ? 'Открытых потребностей на выбранную дату нет' : 'Строк пока нет'}</p> : (
-          <div className="supplier-table-wrap"><table className="supplier-table purchase-lines-table"><thead><tr><th>Товар</th><th>Количество</th><th>Источник / разбивка</th><th>Комментарий</th>{isDraft && <th>Действия</th>}</tr></thead><tbody>{request.lines.map((line) => {
+          <div className="supplier-table-wrap"><table className="supplier-table purchase-lines-table"><thead><tr><th>Товар</th><th>Количество</th><th>Источник / разбивка</th><th>Комментарий</th>{canOperate && isDraft && <th>Действия</th>}</tr></thead><tbody>{request.lines.map((line) => {
             const automatic = line.sources.filter((source) => source.source_type === 'PROCUREMENT_NEED')
             const hasManual = line.sources.some((source) => source.source_type === 'MANUAL_FUTURE')
-            return <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{automatic.length > 0 && <div className="purchase-source-group"><strong>Автоматическая потребность {automatic.reduce((sum, source) => sum + Number(source.quantity), 0)} {line.unit.short_name_ru}</strong>{automatic.map((source) => { const item = coverage?.needs.find((value) => value.purchase_request_line_source_id === source.id); return <div className="purchase-source-trace" key={source.id}><span>{source.procurement_need?.department ?? 'Подразделение не указано'} · {source.quantity} {source.unit.short_name_ru}</span><small>{source.procurement_need?.request_number ? `Заявка ${source.procurement_need.request_number}` : 'Долг подразделения'} · {REASON_LABELS[source.procurement_need?.reason ?? ''] ?? source.procurement_need?.reason}</small>{showAllocations && item && <small>{item.coverage_status === 'UNKNOWN_LEGACY' ? 'Покрытие неизвестно: legacy без количественной traceability' : `${item.covered_quantity} / ${item.required_quantity} · ${item.coverage_status === 'FULLY_COVERED' ? 'покрыто' : item.coverage_status === 'PARTIALLY_COVERED' ? 'частично' : 'не покрыто'}${item.has_delay ? ' · с задержкой' : ''}`}</small>}</div>})}</div>}{hasManual && <div className="purchase-source-group"><strong>Будущая потребность {line.manual_future_quantity} {line.unit.short_name_ru}</strong></div>}</td><td>{line.comment || '—'}</td>{isDraft && <td><div className="supplier-row-actions">{hasManual && <button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить будущую</button>}{hasManual && <button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить будущую</button>}</div></td>}</tr>
+            return <tr key={line.id}><td><strong>{line.product.name}</strong></td><td>{line.quantity} {line.unit.short_name_ru}</td><td>{automatic.length > 0 && <div className="purchase-source-group"><strong>Автоматическая потребность {automatic.reduce((sum, source) => sum + Number(source.quantity), 0)} {line.unit.short_name_ru}</strong>{automatic.map((source) => { const item = coverage?.needs.find((value) => value.purchase_request_line_source_id === source.id); return <div className="purchase-source-trace" key={source.id}><span>{source.procurement_need?.department ?? 'Подразделение не указано'} · {source.quantity} {source.unit.short_name_ru}</span><small>{source.procurement_need?.request_number ? `Заявка ${source.procurement_need.request_number}` : 'Долг подразделения'} · {REASON_LABELS[source.procurement_need?.reason ?? ''] ?? source.procurement_need?.reason}</small>{showAllocations && item && <small>{item.coverage_status === 'UNKNOWN_LEGACY' ? 'Покрытие неизвестно: legacy без количественной traceability' : `${item.covered_quantity} / ${item.required_quantity} · ${item.coverage_status === 'FULLY_COVERED' ? 'покрыто' : item.coverage_status === 'PARTIALLY_COVERED' ? 'частично' : 'не покрыто'}${item.has_delay ? ' · с задержкой' : ''}`}</small>}</div>})}</div>}{hasManual && <div className="purchase-source-group"><strong>Будущая потребность {line.manual_future_quantity} {line.unit.short_name_ru}</strong></div>}</td><td>{line.comment || '—'}</td>{canOperate && isDraft && <td><div className="supplier-row-actions">{hasManual && <button type="button" className="secondary-action" disabled={busy} onClick={() => beginEdit(line)}>Изменить будущую</button>}{hasManual && <button type="button" className="danger-action" disabled={busy} onClick={() => removeLine(line)}>Удалить будущую</button>}</div></td>}</tr>
           })}</tbody></table></div>
         )}
       </div>

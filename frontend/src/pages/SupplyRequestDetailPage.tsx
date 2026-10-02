@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EosDateField, EosSelect } from '../components/EosFormControls'
+import { useSupplyPermissions } from '../services/useSupplyPermissions'
 import { useAuth } from '../contexts/AuthContext'
 import {
   cancelSupplyRequest,
@@ -29,7 +30,7 @@ import {
   saveSupplyFulfillment,
   saveSupplyLineWorkingValues,
   submitSupplyRequest,
-  updateSupplyRequestNeedDate,
+  updateSupplyRequestDetails,
   updateSupplyStockTransferable,
   SupplyApiError,
   type SupplyLine,
@@ -467,7 +468,7 @@ function SupplyRequestReadOnlyCard({
       <div className="request-panel">
         <div className="request-heading supply-simple-heading">
           <div>
-            <p className="eyebrow">СНАБЖЕНИЕ · ТОЛЬКО ПРОСМОТР</p>
+            <p className="eyebrow">СНАБЖЕНИЕ</p>
             <h1>
               {request.department.name} · {request.direction.name}
               {' · '}{statusLabel(request.status)}
@@ -523,7 +524,8 @@ function SupplyRequestReadOnlyCard({
 
 function SupplyRequestDetailPage() {
   const { user } = useAuth()
-  const readOnly = !user?.is_admin
+  const { canOperate, isAdmin } = useSupplyPermissions()
+  const readOnly = !canOperate
   const { requestId = '' } = useParams()
   const [request, setRequest] = useState<SupplyRequest | null>(null)
   const [history, setHistory] = useState<SupplyRequestHistory[]>([])
@@ -711,6 +713,7 @@ function SupplyRequestDetailPage() {
   }, [requestId])
 
   useEffect(() => {
+    if (readOnly) return
     const controller = new AbortController()
     void getSupplyIikoDocuments(requestId, controller.signal)
       .then((documents) => {
@@ -720,10 +723,10 @@ function SupplyRequestDetailPage() {
         if (!controller.signal.aborted) setIikoDocuments([])
       })
     return () => controller.abort()
-  }, [requestId])
+  }, [readOnly, requestId])
 
   useEffect(() => {
-    if (!printJobs.some((job) => (
+    if (readOnly || !printJobs.some((job) => (
       job.status === 'QUEUED_FOR_PRINT' || job.status === 'PRINTING'
     ))) return
     const interval = window.setInterval(() => {
@@ -732,9 +735,10 @@ function SupplyRequestDetailPage() {
         .catch(() => undefined)
     }, 5_000)
     return () => window.clearInterval(interval)
-  }, [printJobs, requestId])
+  }, [printJobs, readOnly, requestId])
 
   useEffect(() => {
+    if (readOnly) return
     const controller = new AbortController()
     const loadingTimeout = window.setTimeout(() => {
       if (!controller.signal.aborted) setPrintJobsState('loading')
@@ -756,7 +760,7 @@ function SupplyRequestDetailPage() {
       window.clearTimeout(loadingTimeout)
       controller.abort()
     }
-  }, [requestId])
+  }, [readOnly, requestId])
 
   useEffect(() => {
     if (!request || readOnly) return
@@ -1015,6 +1019,24 @@ function SupplyRequestDetailPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function editScopedDetails(field: 'raw_input' | 'need_date') {
+    if (!request || busy || !request.allowed_actions.includes('EDIT')) return
+    const value = window.prompt(
+      field === 'raw_input' ? 'Описание заявки' : 'Дата потребности (ГГГГ-ММ-ДД)',
+      field === 'raw_input' ? request.raw_input : request.need_date ?? '',
+    )?.trim()
+    if (!value) return
+    setBusy(true)
+    try {
+      setRequest(await updateSupplyRequestDetails(request.id, {
+        expected_version: request.version, [field]: value,
+      }))
+      setMessage('Заявка обновлена')
+    } catch {
+      setMessage('Не удалось изменить заявку. Для чужой заявки снабженцу нужна причина изменения.')
+    } finally { setBusy(false) }
   }
 
   async function reloadSourcePreview() {
@@ -1444,14 +1466,16 @@ function SupplyRequestDetailPage() {
       || !needDateDraft
       || !['DRAFT', 'SUBMITTED', 'IN_REVIEW'].includes(request.status)
     ) return
+    const foreign = !isAdmin && request.created_by_user_id !== user?.id
+    const reason = foreign ? window.prompt('Причина изменения чужой заявки')?.trim() : undefined
+    if (foreign && !reason) return
     setBusy(true)
     setMessage('')
     try {
-      const updated = await updateSupplyRequestNeedDate(
-        request.id,
-        request.version,
-        needDateDraft,
-      )
+      const updated = await updateSupplyRequestDetails(request.id, {
+        expected_version: request.version, need_date: needDateDraft,
+        ...(reason ? { reason } : {}),
+      })
       setRequest(updated)
       setNeedDateEdit(null)
       setMessage('Дата потребности сохранена')
@@ -1478,7 +1502,13 @@ function SupplyRequestDetailPage() {
   }
 
   if (readOnly) {
-    return <SupplyRequestReadOnlyCard request={request} />
+    return <><SupplyRequestReadOnlyCard request={request} />
+      {(request.allowed_actions.includes('EDIT') || request.allowed_actions.includes('CANCEL')) && <section className="request-page"><div className="request-panel">
+        {request.allowed_actions.includes('EDIT') && <><button className="secondary-action" type="button" disabled={busy} onClick={() => void editScopedDetails('raw_input')}>Изменить описание</button>{' '}<button className="secondary-action" type="button" disabled={busy} onClick={() => void editScopedDetails('need_date')}>Изменить дату</button></>}
+        {request.allowed_actions.includes('CANCEL') && <button className="secondary-action" type="button" disabled={busy} onClick={() => void cancel()}>Отменить заявку</button>}
+        {message && <p role="status">{message}</p>}
+      </div></section>}
+    </>
   }
 
   return (

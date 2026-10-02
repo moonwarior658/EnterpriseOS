@@ -9,15 +9,15 @@ os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.routes.public_supply import token_rate_guard
+from app.api.routes.public_supply import router as legacy_public_supply_router, token_rate_guard
 from app.core.config import settings
 from app.db.session import get_db
-from app.main import app
 from app.models.supply import (
     Department,
     SupplyProduct,
@@ -39,6 +39,11 @@ from app.models.user import User
 from app.models.work_request import WorkRequest
 from app.supply.normalization import normalize_product_text
 from app.supply.public_service import hash_public_token, hash_source_ip
+
+
+# Historical public workflow remains covered here without exposing its router in production.
+app = FastAPI()
+app.include_router(legacy_public_supply_router)
 
 
 class PublicSupplyApiTests(unittest.TestCase):

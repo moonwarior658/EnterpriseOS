@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_admin
+from app.api.dependencies import get_supply_reader, get_supply_operator
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.supplier_acceptance import (
@@ -65,37 +65,37 @@ def _error(error: Exception):
 
 
 @order_router.post("/{order_id}/acceptances", response_model=SupplySupplierAcceptanceRead, status_code=status.HTTP_201_CREATED)
-def create(order_id: UUID, payload: SupplySupplierAcceptanceCreate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def create(order_id: UUID, payload: SupplySupplierAcceptanceCreate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return create_acceptance(db, order_id, payload, tenant_id=admin.tenant_id, user_id=admin.id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceLinkError, SupplierAcceptanceConflictError, SupplierAcceptanceDestinationError) as error: raise _error(error) from error
 
 
 @order_router.get("/{order_id}/acceptances", response_model=list[SupplySupplierAcceptanceRead])
-def listing(order_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def listing(order_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_reader)]):
     try: return list_acceptances(db, order_id, tenant_id=admin.tenant_id)
     except SupplierAcceptanceNotFoundError as error: raise _error(error) from error
 
 
 @acceptance_router.get("/{acceptance_id}", response_model=SupplySupplierAcceptanceRead)
-def read(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def read(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_reader)]):
     try: return read_acceptance(db, acceptance_id, tenant_id=admin.tenant_id)
     except SupplierAcceptanceNotFoundError as error: raise _error(error) from error
 
 
 @acceptance_router.get("/{acceptance_id}/resolutions", response_model=list[SupplyAcceptanceResolutionRead])
-def resolutions(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def resolutions(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_reader)]):
     try: return list_acceptance_resolutions(db, acceptance_id, tenant_id=admin.tenant_id)
     except SupplierAcceptanceNotFoundError as error: raise _error(error) from error
 
 
 @resolution_router.get("/{resolution_id}", response_model=SupplyAcceptanceResolutionRead)
-def read_resolution(resolution_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def read_resolution(resolution_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_reader)]):
     try: return read_acceptance_resolution(db, resolution_id, tenant_id=admin.tenant_id)
     except SupplierAcceptanceResolutionNotFoundError as error: raise _error(error) from error
 
 
 @resolution_router.post("/{resolution_id}/resolve", response_model=SupplyAcceptanceResolutionRead)
-def resolve_resolution(resolution_id: UUID, payload: SupplyAcceptanceResolutionResolve, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def resolve_resolution(resolution_id: UUID, payload: SupplyAcceptanceResolutionResolve, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try:
         return resolve_acceptance_resolution(
             db, resolution_id, payload, tenant_id=admin.tenant_id, user_id=admin.id
@@ -113,42 +113,42 @@ def resolve_resolution(resolution_id: UUID, payload: SupplyAcceptanceResolutionR
 
 
 @acceptance_router.patch("/{acceptance_id}", response_model=SupplySupplierAcceptanceRead)
-def patch(acceptance_id: UUID, payload: SupplySupplierAcceptanceUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def patch(acceptance_id: UUID, payload: SupplySupplierAcceptanceUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return update_acceptance(db, acceptance_id, payload, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceDestinationError) as error: raise _error(error) from error
 
 
 @acceptance_router.post("/{acceptance_id}/lines", response_model=SupplySupplierAcceptanceRead)
-def add_line(acceptance_id: UUID, payload: SupplySupplierAcceptanceLineCreate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def add_line(acceptance_id: UUID, payload: SupplySupplierAcceptanceLineCreate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return create_line(db, acceptance_id, payload, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError, SupplierAcceptanceLinkError, SupplierAcceptanceUnitError) as error: raise _error(error) from error
 
 
 @acceptance_router.patch("/{acceptance_id}/lines/{line_id}", response_model=SupplySupplierAcceptanceRead)
-def patch_line(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def patch_line(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return update_line(db, acceptance_id, line_id, payload, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError) as error: raise _error(error) from error
 
 
 @acceptance_router.put("/{acceptance_id}/lines/{line_id}/sources", response_model=SupplySupplierAcceptanceRead)
-def patch_line_sources(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineSourcesUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def patch_line_sources(acceptance_id: UUID, line_id: UUID, payload: SupplySupplierAcceptanceLineSourcesUpdate, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return update_acceptance_line_sources(db, acceptance_id, line_id, payload.sources, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError, SupplierAcceptanceConflictError) as error: raise _error(error) from error
 
 
 @acceptance_router.delete("/{acceptance_id}/lines/{line_id}", response_model=SupplySupplierAcceptanceRead)
-def remove_line(acceptance_id: UUID, line_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def remove_line(acceptance_id: UUID, line_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return delete_line(db, acceptance_id, line_id, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError) as error: raise _error(error) from error
 
 
 @acceptance_router.post("/{acceptance_id}/record", response_model=SupplySupplierAcceptanceRead)
-def record(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def record(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return record_acceptance(db, acceptance_id, tenant_id=admin.tenant_id, user_id=admin.id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError, SupplierAcceptanceValidationError, SupplierAcceptanceConflictError, SupplierAcceptanceUnitError, SupplierAcceptanceDestinationError) as error: raise _error(error) from error
 
 
 @acceptance_router.post("/{acceptance_id}/cancel", response_model=SupplySupplierAcceptanceRead)
-def cancel(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_current_admin)]):
+def cancel(acceptance_id: UUID, db: Annotated[Session, Depends(get_db)], admin: Annotated[User, Depends(get_supply_operator)]):
     try: return cancel_acceptance(db, acceptance_id, tenant_id=admin.tenant_id)
     except (SupplierAcceptanceNotFoundError, SupplierAcceptanceStateError) as error: raise _error(error) from error

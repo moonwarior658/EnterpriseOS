@@ -45,7 +45,7 @@ const SUPPLIER: SupplySupplier = {
   updated_at: '2026-09-07T08:00:00Z',
 }
 
-test('подключает admin-only route и пункт навигации поставщиков', () => {
+test('подключает ролевой route и пункт навигации поставщиков', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const layout = readFileSync(
     new URL('../src/layouts/AppLayout.tsx', import.meta.url),
@@ -61,12 +61,12 @@ test('подключает admin-only route и пункт навигации п�
   )
 
   assert.match(app, /path="\/supply\/suppliers"/)
-  assert.match(app, /ProtectedRoute adminOnly/)
+  assert.match(app, /allowedRoles=\{\['ADMIN', 'DIRECTOR', 'DEPUTY_DIRECTOR', 'SUPPLY_MANAGER', 'ACCOUNTANT'\]\}/)
   assert.match(layout, /to="\/supply\/suppliers"/)
   assert.match(layout, /Поставщики/)
   assert.match(page, /Активные/)
   assert.match(page, /Архив/)
-  assert.match(page, /window\.confirm/)
+  assert.match(page, /window\.prompt/)
   assert.match(page, /Восстановить/)
   assert.doesNotMatch(page, />ID</)
   assert.doesNotMatch(page, /archived_by_user_id/)
