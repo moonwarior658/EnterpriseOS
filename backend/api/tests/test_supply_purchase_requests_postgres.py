@@ -107,7 +107,7 @@ class SupplyPurchaseRequestsPostgresTests(unittest.TestCase):
         command.downgrade(self.config, "20260907_0037")
         self.assertNotIn("supply_purchase_requests", inspect(self.engine).get_table_names())
         command.upgrade(self.config, "head")
-        self.assertEqual(self.revision(), "20261001_0065")
+        self.assertEqual(self.revision(), "20261002_0066")
 
         inspector = inspect(self.engine)
         request_uniques = {

@@ -33,6 +33,7 @@ class ContractorInput(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     phone: str = Field(min_length=1, max_length=64)
     notes: str | None = Field(default=None, max_length=2000)
+    price_notes: str | None = Field(default=None, max_length=4000)
     specialization_ids: list[UUID] = Field(default_factory=list)
     model_config = {"extra": "forbid"}
 
@@ -48,6 +49,7 @@ class ContractorUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=240)
     phone: str | None = Field(default=None, min_length=1, max_length=64)
     notes: str | None = Field(default=None, max_length=2000)
+    price_notes: str | None = Field(default=None, max_length=4000)
     is_active: bool | None = None
     reason: str | None = Field(default=None, max_length=1000)
     specialization_ids: list[UUID] | None = None
@@ -162,6 +164,7 @@ def list_contractors(db: Annotated[Session, Depends(get_db)], user: Annotated[Us
     contractors = db.scalars(query.order_by(ExternalContractor.name)).all()
     return [{"id": row.id, "name": row.name, "phone": row.phone, "is_active": row.is_active,
              "notes": row.notes if base.roles.intersection({EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER}) else None,
+             "price_notes": row.price_notes if base.roles.intersection({EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER}) else None,
              "specialization_ids": list(db.scalars(select(ContractorSpecializationLink.specialization_id).where(ContractorSpecializationLink.tenant_id == user.tenant_id, ContractorSpecializationLink.contractor_id == row.id)).all())} for row in contractors]
 
 
@@ -243,11 +246,11 @@ def update_specialization(specialization_id: UUID, payload: SpecializationUpdate
 @router.post("/contractors", status_code=201)
 def create_contractor(payload: ContractorInput, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
     context = _manage_context(db, user)
-    item = ExternalContractor(tenant_id=user.tenant_id, name=payload.name.strip(), phone=payload.phone.strip(), notes=payload.notes)
+    item = ExternalContractor(tenant_id=user.tenant_id, name=payload.name.strip(), phone=payload.phone.strip(), notes=payload.notes, price_notes=payload.price_notes)
     db.add(item)
     _flush_directory(db)
     _links(db, user, item.id, payload.specialization_ids)
-    record_audit_event(db, tenant_id=user.tenant_id, event_type="CONTRACTOR_CREATED", entity_type="ExternalContractor", entity_id=item.id, operation="CREATE", context=context, actor_user=user, after={"name": item.name, "phone": item.phone, "specialization_ids": payload.specialization_ids})
+    record_audit_event(db, tenant_id=user.tenant_id, event_type="CONTRACTOR_CREATED", entity_type="ExternalContractor", entity_id=item.id, operation="CREATE", context=context, actor_user=user, after={"name": item.name, "phone": item.phone, "price_notes": item.price_notes, "specialization_ids": payload.specialization_ids})
     _commit_directory(db)
     return {"id": item.id, "name": item.name, "phone": item.phone, "is_active": item.is_active}
 
@@ -265,39 +268,66 @@ def update_contractor(contractor_id: UUID, payload: ContractorUpdate, db: Annota
         ContractorSpecializationLink.contractor_id == item.id,
     )).all())
     before = {"name": item.name, "phone": item.phone, "is_active": item.is_active,
-              "notes": item.notes, "specialization_ids": old_specializations}
+              "notes": item.notes, "price_notes": item.price_notes, "specialization_ids": old_specializations}
     if payload.name is not None: item.name = payload.name.strip()
     if payload.phone is not None: item.phone = payload.phone.strip()
     if "notes" in payload.model_fields_set: item.notes = payload.notes
+    if "price_notes" in payload.model_fields_set: item.price_notes = payload.price_notes
     if payload.is_active is not None: item.is_active = payload.is_active
     if payload.specialization_ids is not None: _links(db, user, item.id, payload.specialization_ids)
-    record_audit_event(db, tenant_id=user.tenant_id, event_type="CONTRACTOR_UPDATED", entity_type="ExternalContractor", entity_id=item.id, operation="UPDATE", context=context, actor_user=user, before=before, after={"name": item.name, "phone": item.phone, "is_active": item.is_active, "notes": item.notes, "specialization_ids": payload.specialization_ids if payload.specialization_ids is not None else old_specializations}, reason=payload.reason)
+    record_audit_event(db, tenant_id=user.tenant_id, event_type="CONTRACTOR_UPDATED", entity_type="ExternalContractor", entity_id=item.id, operation="UPDATE", context=context, actor_user=user, before=before, after={"name": item.name, "phone": item.phone, "is_active": item.is_active, "notes": item.notes, "price_notes": item.price_notes, "specialization_ids": payload.specialization_ids if payload.specialization_ids is not None else old_specializations}, reason=payload.reason)
     _commit_directory(db)
     return {"id": item.id, "name": item.name, "phone": item.phone, "is_active": item.is_active}
 
 
 @router.get("/contractors/{contractor_id}/history")
 def contractor_history(contractor_id: UUID, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(get_current_user)]):
-    _manage_context(db, user)
+    try:
+        base = resolve_action_context(db, user, write=False)
+    except ActionContextError as error:
+        raise HTTPException(status_code=403, detail="История подрядчика недоступна") from error
+    if not base.roles.intersection({EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER}):
+        raise HTTPException(status_code=403, detail="История подрядчика недоступна")
     contractor = db.get(ExternalContractor, contractor_id)
     if contractor is None or contractor.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Подрядчик не найден")
-    repairs = db.scalars(select(WorkRequest).where(WorkRequest.tenant_id == user.tenant_id, WorkRequest.request_type == "repair")).all()
-    events = db.scalars(select(AuditEvent).where(AuditEvent.tenant_id == user.tenant_id, AuditEvent.entity_type == "WorkRequest", AuditEvent.operation.in_(("ASSIGN_CONTRACTOR", "SCHEDULE_EXTERNAL_VISIT"))).order_by(AuditEvent.occurred_at)).all()
-    historical = {int(item.entity_id): item.after for item in events if str(item.after.get("contractor_id")) == str(contractor_id)}
+    events = db.scalars(select(AuditEvent).where(
+        AuditEvent.tenant_id == user.tenant_id,
+        AuditEvent.entity_type == "WorkRequest",
+        AuditEvent.operation.in_(("ASSIGN_CONTRACTOR", "SCHEDULE_EXTERNAL_VISIT")),
+    ).order_by(AuditEvent.occurred_at)).all()
+    historical = {
+        int(event.entity_id): event.after for event in events
+        if str(event.after.get("contractor_id")) == str(contractor_id)
+    }
+    repairs = db.scalars(select(WorkRequest).where(
+        WorkRequest.tenant_id == user.tenant_id,
+        WorkRequest.request_type == "repair",
+    ).order_by(WorkRequest.created_at.desc(), WorkRequest.id.desc())).all()
     result = []
     for repair in repairs:
         if repair.contractor_id != contractor_id and repair.id not in historical:
             continue
+        try:
+            repair_authorize(db, user, Capability.REPAIR_READ, repair=repair)
+        except ActionContextError:
+            continue
         snapshot = historical.get(repair.id, {})
-        specialization_id = snapshot.get("specialization_id") or (
-            repair.specialization_id if repair.contractor_id == contractor_id else None
-        )
+        current_assignment = repair.contractor_id == contractor_id
+        specialization_id = repair.specialization_id if current_assignment else snapshot.get("specialization_id")
         specialization = db.get(ContractorSpecialization, UUID(str(specialization_id))) if specialization_id else None
-        result.append({"repair_id": repair.id, "department": repair.department,
-            "specialization": snapshot.get("specialization_name_snapshot") or (specialization.name if specialization else None),
-            "visit_at": snapshot.get("visit_at") or (repair.visit_at if repair.contractor_id == contractor_id else None),
-            "status": repair.status, "closed_at": repair.closed_at})
+        reopened = db.scalar(select(AuditEvent.id).where(
+            AuditEvent.tenant_id == user.tenant_id,
+            AuditEvent.entity_type == "WorkRequest",
+            AuditEvent.entity_id == str(repair.id),
+            AuditEvent.operation == "REOPEN",
+        )) is not None
+        result.append({"repair_id": repair.id, "created_at": repair.created_at,
+            "department": repair.department, "category": repair.repair_category,
+            "description": repair.description,
+            "specialization": (specialization.name if specialization else None) or snapshot.get("specialization_name_snapshot"),
+            "visit_at": repair.visit_at if current_assignment else snapshot.get("visit_at"),
+            "status": repair.status, "closed_at": repair.closed_at, "reopened": reopened})
     return result
 
 

@@ -139,7 +139,7 @@ export function createRepairRequest(
 }
 
 export type RepairDepartment = { id: string; name: string }
-export type RepairContractor = { id: string; name: string; phone: string; is_active: boolean; notes: string | null; specialization_ids: string[] }
+export type RepairContractor = { id: string; name: string; phone: string; is_active: boolean; notes: string | null; price_notes: string | null; specialization_ids: string[] }
 export type RepairSpecialization = { id: string; name: string; is_active: boolean }
 export type RepairTimelineEvent = { at: string; action: string; actor: string | null; role: string | null; reason: string | null; details: string }
 
@@ -171,7 +171,7 @@ export function updateRepairContractor(id: string, input: object): Promise<Repai
   return authorizedRequest(`/repairs/contractors/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 
-export type ContractorHistory = { repair_id: number; department: string; specialization: string | null; visit_at: string | null; status: WorkRequestStatus; closed_at: string | null }
+export type ContractorHistory = { repair_id: number; created_at: string; department: string; category: string; description: string; specialization: string | null; visit_at: string | null; status: WorkRequestStatus; closed_at: string | null; reopened: boolean }
 export function getContractorHistory(id: string): Promise<ContractorHistory[]> {
   return authorizedRequest(`/repairs/contractors/${id}/history`)
 }

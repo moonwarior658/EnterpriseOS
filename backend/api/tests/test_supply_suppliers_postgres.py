@@ -137,7 +137,7 @@ class SupplySuppliersPostgresTests(unittest.TestCase):
         self.assertIn("is_active = true", index_definition)
 
         command.upgrade(self.alembic_config, "head")
-        self.assertEqual(self._current_revision(), "20261001_0065")
+        self.assertEqual(self._current_revision(), "20261002_0066")
         with self.sessions.begin() as session:
             session.add_all(
                 [

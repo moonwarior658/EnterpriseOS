@@ -78,7 +78,8 @@ def visible_repair(db: Session, user: User, request_id: int) -> WorkRequest:
 
 
 def allowed_actions(db: Session, user: User, repair: WorkRequest) -> list[str]:
-    if repair.responsible_role is None:
+    base = resolve_action_context(db, user, write=False)
+    if repair.responsible_role is None and EmployeeRole.ADMIN not in base.roles:
         return []
     result = []
     for action, capability in (
