@@ -262,7 +262,6 @@ function DashboardPage() {
             <br />
             требующих вашего участия
           </p>
-          {access.links.length > 0 && <nav aria-label="Доступные разделы">{access.links.map((link) => <Link key={link.to} to={link.to}>{link.label}</Link>)}</nav>}
         </div>
 
         <footer
@@ -301,7 +300,6 @@ function DashboardPage() {
         )}
 
         <DashboardGrid widgets={widgets} />
-        {access.links.length > 0 && <nav aria-label="Доступные разделы">{access.links.map((link) => <Link key={link.to} to={link.to}>{link.label}</Link>)}</nav>}
       </div>
 
       <DashboardMascots />
