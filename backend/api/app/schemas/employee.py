@@ -226,6 +226,7 @@ class EmployeeRead(BaseModel):
     dismissal_date: date | None
     dismissal_reason: str | None
     linked_user_id: int | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     role_assignments: list[RoleAssignmentRead] = Field(default_factory=list)

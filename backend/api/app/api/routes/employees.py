@@ -1,8 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +17,8 @@ from app.api.dependencies import (
 from app.api.routes.action_context import action_context_http_error
 from app.core.action_context import ActionContextError, resolve_action_context
 from app.core.authorization import Capability, GRANTS, Scope, authorize, scoped_department_ids
+from app.core.config import settings
+from app.audit.service import record_audit_event
 from app.db.session import get_db
 from app.employees import service
 from app.employees import iiko as iiko_employee_service
@@ -62,9 +68,22 @@ def get_current_employee_user(
     return current_user
 
 
-def employee_read(db: Session, employee: Employee) -> EmployeeRead:
+def employee_read(db: Session, employee: Employee, actor: User | None = None) -> EmployeeRead:
     result = EmployeeRead.model_validate(employee)
     result.linked_user_id = service.linked_user_id(db, employee.id, employee.tenant_id)
+    if actor is not None:
+        if result.linked_user_id is None:
+            try:
+                authorize(db, actor, Capability.USER_CREATE, target=employee, write=False)
+                result.allowed_actions.append("create_human_user")
+            except ActionContextError:
+                pass
+        else:
+            try:
+                authorize(db, actor, Capability.USER_RESET_PASSWORD, target=employee, write=False)
+                result.allowed_actions.append("manage_user_access")
+            except ActionContextError:
+                pass
     return result
 
 
@@ -89,7 +108,20 @@ def authorized_employee_read(db: Session, user: User, employee: Employee) -> Emp
         raise action_context_http_error(error) from error
     if context.authorized_as in {EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.SUPPLY_MANAGER}:
         return employee_basic_read(employee, context.determined_at)
-    return employee_read(db, employee)
+    return employee_read(db, employee, user)
+
+
+def _employee_photo_context(db: Session, user: User, employee: Employee):
+    if employee.linked_user_id == user.id:
+        return resolve_action_context(db, user, write=True)
+    try:
+        return authorize(db, user, Capability.EMPLOYEE_WRITE, target=employee, write=True)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+def _avatar_path(employee: Employee) -> Path:
+    return Path(settings.employee_avatar_upload_dir) / str(employee.id) / "avatar.webp"
 
 
 @router.get("/bootstrap", response_model=EmployeeBootstrapStatus)
@@ -214,6 +246,97 @@ def update_employee(
 ) -> EmployeeRead:
     employee = service.get_employee(db, employee_id, current_admin.tenant_id, lock=True)
     return employee_read(db, service.update_employee(db, employee, payload, current_admin))
+
+
+@router.get("/{employee_id}/avatar")
+def get_employee_avatar(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_employee_user)],
+):
+    employee = service.get_employee(db, employee_id, current_user.tenant_id)
+    if employee.linked_user_id != current_user.id:
+        authorized_employee_read(db, current_user, employee)
+    path = _avatar_path(employee)
+    if employee.photo_url != "employee-avatar" or not path.is_file():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    return FileResponse(path, media_type="image/webp", filename="avatar.webp")
+
+
+@router.post("/{employee_id}/avatar", response_model=EmployeeRead)
+async def upload_employee_avatar(
+    employee_id: UUID,
+    photo: Annotated[UploadFile, File()],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_employee_user)],
+    reason: Annotated[str | None, Form(max_length=1000)] = None,
+) -> EmployeeRead:
+    employee = service.get_employee(db, employee_id, current_user.tenant_id, lock=True)
+    context = _employee_photo_context(db, current_user, employee)
+    if photo.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        await photo.close()
+        raise HTTPException(status_code=422, detail="Допустимы фотографии JPEG, PNG или WebP")
+    content = await photo.read(10 * 1024 * 1024 + 1)
+    await photo.close()
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="Размер фотографии должен быть не более 10 МБ")
+    try:
+        image = Image.open(BytesIO(content))
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        if image.mode not in {"RGB", "RGBA"}:
+            image = image.convert("RGB")
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+        raise HTTPException(status_code=422, detail="Файл не является корректной фотографией") from error
+    path = _avatar_path(employee)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    image.save(temporary, format="WEBP", quality=86, method=6)
+    previous = path.read_bytes() if path.is_file() else None
+    temporary.replace(path)
+    before = {"photo_url": employee.photo_url}
+    employee.photo_url = "employee-avatar"
+    record_audit_event(
+        db, tenant_id=current_user.tenant_id, event_type="EMPLOYEE_AVATAR_UPDATED",
+        entity_type="Employee", entity_id=employee.id, operation="UPDATE_AVATAR",
+        context=context, actor_user=current_user, before=before,
+        after={"photo_url": employee.photo_url},
+        reason=(reason.strip() or None) if reason else None,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(previous)
+        raise
+    db.refresh(employee)
+    return employee_read(db, employee)
+
+
+@router.delete("/{employee_id}/avatar", response_model=EmployeeRead)
+def delete_employee_avatar(
+    employee_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_employee_user)],
+    reason: Annotated[str | None, Query(max_length=1000)] = None,
+) -> EmployeeRead:
+    employee = service.get_employee(db, employee_id, current_user.tenant_id, lock=True)
+    context = _employee_photo_context(db, current_user, employee)
+    before = {"photo_url": employee.photo_url}
+    employee.photo_url = None
+    record_audit_event(
+        db, tenant_id=current_user.tenant_id, event_type="EMPLOYEE_AVATAR_REMOVED",
+        entity_type="Employee", entity_id=employee.id, operation="REMOVE_AVATAR",
+        context=context, actor_user=current_user, before=before,
+        after={"photo_url": None},
+        reason=(reason.strip() or None) if reason else None,
+    )
+    db.commit()
+    _avatar_path(employee).unlink(missing_ok=True)
+    return employee_read(db, employee)
 
 
 @router.post("/{employee_id}/roles", response_model=RoleAssignmentRead, status_code=201)
@@ -374,10 +497,11 @@ async def correct_iiko_link(
 def get_iiko_shifts(
     employee_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(get_current_employee_user)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ):
-    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    employee = service.get_employee(db, employee_id, current_user.tenant_id)
+    authorized_employee_read(db, current_user, employee)
     return iiko_employee_service.list_shifts(db, employee, limit=limit)
 
 
@@ -385,9 +509,10 @@ def get_iiko_shifts(
 def get_active_iiko_shift(
     employee_id: UUID,
     db: Annotated[Session, Depends(get_db)],
-    current_admin: Annotated[User, Depends(get_current_admin)],
+    current_user: Annotated[User, Depends(get_current_employee_user)],
 ):
-    employee = service.get_employee(db, employee_id, current_admin.tenant_id)
+    employee = service.get_employee(db, employee_id, current_user.tenant_id)
+    authorized_employee_read(db, current_user, employee)
     return iiko_employee_service.active_shift(db, employee)
 
 
@@ -405,17 +530,16 @@ async def refresh_iiko_shifts(
     if link is None:
         raise HTTPException(status_code=409, detail="Employee has no active iiko link")
     until = date_to or date.today()
-    since = date_from or (until - timedelta(days=7))
+    since = date_from or (until - timedelta(days=1))
     if since > until or (until - since).days > 93:
         raise HTTPException(status_code=422, detail="Invalid shift sync period")
     try:
         shifts = await provider.get_personal_shifts(date_from=since, date_to=until)
     except IikoError as error:
         raise integration_error(error) from error
-    scoped = [item for item in shifts if item.employee_external_id == link.iiko_user_id]
     return EmployeeIikoSyncRead.model_validate(
         iiko_employee_service.sync_shifts(
-            db, scoped, tenant_id=current_admin.tenant_id,
+            db, shifts, tenant_id=current_admin.tenant_id,
         ),
         from_attributes=True,
     )
