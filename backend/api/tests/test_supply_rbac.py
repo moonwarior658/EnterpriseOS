@@ -81,7 +81,7 @@ class SupplyRbacTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/supply/requests/{production_id}").status_code, 200)
         self.assertEqual(self.client.get(f"/supply/requests/{retail_id}").status_code, 403)
 
-    def test_seller_shift_gate_and_manager_reason(self):
+    def test_seller_legacy_api_is_blocked_and_manager_reason(self):
         retail = self.department("М15")
         request_id = self.create_request(department_id=str(retail))["id"]
         employee_id = self.actor(33, EmployeeRole.SELLER, department_id=retail)
@@ -116,6 +116,51 @@ class SupplyRbacTests(unittest.TestCase):
                                                             AuditEvent.operation == "UPDATE"))
             self.assertEqual(event.reason, "Уточнение заявки")
             self.assertEqual(event.authorized_as, "SUPPLY_MANAGER")
+
+    def test_window_department_selection_uses_backend_scope(self):
+        _, direction_id = self.reference_ids()
+        self.create_cycle(direction_id)
+        retail = self.department("М15")
+        production = self.department("ЦЕХ")
+        self.actor(39, EmployeeRole.NETWORK_MANAGER)
+        self.actor(40, EmployeeRole.HEAD_OF_PRODUCTION, department_id=production)
+        self.actor(41, EmployeeRole.DIRECTOR)
+        self.current_user_id = 39
+        network = self.client.get("/supply/seller/window")
+        self.assertEqual(network.status_code, 200, network.text)
+        self.assertEqual(network.json()["allowed_actions"], ["CREATE"])
+        self.assertIn(str(retail), {item["id"] for item in network.json()["allowed_departments"]})
+        self.assertNotIn(str(production), {item["id"] for item in network.json()["allowed_departments"]})
+        denied = self.client.put("/supply/seller/request", json={
+            "department_id": str(production), "raw_input": "Молоко — 10 л",
+        })
+        self.assertEqual(denied.status_code, 403, denied.text)
+        draft = self.client.put('/supply/seller/request', json={
+            'department_id': str(retail), 'raw_input': 'Молоко — 10 л',
+        })
+        self.assertEqual(draft.status_code, 200, draft.text)
+        confirmed = self.client.post('/supply/seller/request/confirm', json={
+            'department_id': str(retail), 'expected_version': draft.json()['version'],
+        })
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        readonly_request = self.client.get('/supply/seller/window', params={'department_id': str(retail)})
+        self.assertFalse(readonly_request.json()['can_write'])
+        denied_edit = self.client.put('/supply/seller/request', json={
+            'department_id': str(retail), 'raw_input': 'Молоко — 12 л',
+            'expected_version': confirmed.json()['version'],
+        })
+        self.assertEqual(denied_edit.status_code, 403, denied_edit.text)
+        self.current_user_id = 40
+        manufacturing = self.client.get("/supply/seller/window")
+        self.assertEqual(manufacturing.status_code, 200, manufacturing.text)
+        self.assertEqual({item["id"] for item in manufacturing.json()["allowed_departments"]}, {str(production)})
+        self.current_user_id = 41
+        readonly = self.client.get("/supply/seller/window")
+        self.assertEqual(readonly.status_code, 200, readonly.text)
+        self.assertEqual(readonly.json()["allowed_actions"], [])
+        self.assertEqual(self.client.put("/supply/seller/request", json={
+            "department_id": str(retail), "raw_input": "Молоко — 10 л",
+        }).status_code, 403)
 
     def test_downstream_role_boundaries(self):
         SupplySupplier.__table__.create(self.engine)

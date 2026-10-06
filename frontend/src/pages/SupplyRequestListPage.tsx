@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatDateTime } from '../utils/dateFormat'
 import { useSupplyPermissions } from '../services/useSupplyPermissions'
+import { getSellerWindow, type SellerWindow } from '../services/actionContext'
 import {
   EosCheckbox,
   EosDateField,
@@ -31,7 +32,9 @@ function statusLabel(value: string): string {
 }
 
 function SupplyRequestListPage() {
-  const { canCreateRequest, isAdmin } = useSupplyPermissions()
+  const { isAdmin } = useSupplyPermissions()
+  const [createContext, setCreateContext] = useState<SellerWindow | null>(null)
+  const canCreateRequest = createContext?.allowed_actions.includes('CREATE') ?? false
   const [routeParams, setRouteParams] = useSearchParams()
   const [items, setItems] = useState<SupplyRequestSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -74,11 +77,15 @@ function SupplyRequestListPage() {
     if (dateFrom) query.set('date_from', dateFrom)
     if (dateTo) query.set('date_to', dateTo)
     try {
-      const result = await getSupplyRequests(query, controller.signal)
+      const [result, windowContext] = await Promise.all([
+        getSupplyRequests(query, controller.signal),
+        getSellerWindow().catch(() => null),
+      ])
       if (
         controller.signal.aborted
         || sequence !== requestSequence.current
       ) return
+      setCreateContext(windowContext)
       setItems(result.items)
       setTotal(result.total)
       hasData.current = true
@@ -88,6 +95,7 @@ function SupplyRequestListPage() {
         controller.signal.aborted
         || sequence !== requestSequence.current
       ) return
+      setCreateContext(null)
       if (!background || !hasData.current) setState('error')
     }
   }, [dateFrom, dateTo, departmentId, duplicates, needsReview, offset, search, status])

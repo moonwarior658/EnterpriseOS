@@ -109,6 +109,8 @@ export type SellerRequest = {
 export type SellerWindow = {
   is_open: boolean
   can_write: boolean
+  department_label: string
+  allowed_actions: string[]
   closes_at: string | null
   need_date: string | null
   cycle_id: string | null
@@ -121,7 +123,7 @@ export type SellerWindow = {
 
 export function getSellerWindow(departmentId?: string): Promise<SellerWindow> {
   const query = departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : ''
-  return actionRequest(`/supply/seller/window${query}`)
+  return actionRequest(`/supply/seller/window${query}`, { cache: 'no-store' })
 }
 
 export function saveSellerRequest(input: {

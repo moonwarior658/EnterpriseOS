@@ -332,7 +332,7 @@ class ActionContextTests(unittest.TestCase):
                 ),
             )
 
-    def test_direct_api_write_cannot_bypass_shift_or_spoof_department(self) -> None:
+    def test_seller_legacy_create_api_remains_blocked(self) -> None:
         payload = {
             "department_id": str(self.primary_id),
             "direction_id": str(uuid4()),
@@ -342,7 +342,7 @@ class ActionContextTests(unittest.TestCase):
         }
         no_shift = self.client.post("/supply/requests", json=payload)
         self.assertEqual(no_shift.status_code, 403, no_shift.text)
-        self.assertEqual(no_shift.json()["detail"]["code"], "IIKO_SHIFT_REQUIRED")
+        self.assertEqual(no_shift.json()["detail"], "Используйте окно заявок продавца")
 
         with self.sessions.begin() as db:
             self.add_shift(db, department_id=self.primary_id)
@@ -351,7 +351,7 @@ class ActionContextTests(unittest.TestCase):
             json={**payload, "department_id": str(self.actual_id)},
         )
         self.assertEqual(spoofed.status_code, 403, spoofed.text)
-        self.assertEqual(spoofed.json()["detail"]["code"], "PERMISSION_DENIED")
+        self.assertEqual(spoofed.json()["detail"], "Используйте окно заявок продавца")
 
 
 if __name__ == "__main__":

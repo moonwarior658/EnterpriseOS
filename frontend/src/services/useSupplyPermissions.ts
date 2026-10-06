@@ -19,8 +19,6 @@ export function useSupplyPermissions() {
   const roles = context?.roles ?? []
   return {
     context,
-    canCreateRequest: roles.some((role) => ['ADMIN', 'SUPPLY_MANAGER', 'NETWORK_MANAGER', 'HEAD_OF_PRODUCTION', 'CHEF_CONFECTIONER'].includes(role))
-      || (roles.includes('SELLER') && Boolean(context?.shift_id)),
     isAdmin: roles.includes('ADMIN'),
     canOperate: roles.some((role) => role === 'ADMIN' || role === 'SUPPLY_MANAGER'),
     canEditSupplier: roles.some((role) => ['ADMIN', 'SUPPLY_MANAGER', 'ACCOUNTANT'].includes(role)),

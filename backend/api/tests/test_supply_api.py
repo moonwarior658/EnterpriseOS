@@ -683,25 +683,14 @@ class SupplyApiTests(unittest.TestCase):
             shift_id = shift.id
         self.current_user_id = 3
         seller_payload = {"raw_input": "Молоко — 10 л"}
-        first = self.client.put("/supply/seller/request", json=seller_payload)
-        self.assertEqual(first.status_code, 403, first.text)
-        self.assertEqual(
-            first.json()["detail"]["code"],
-            "SHIFT_SUBSTITUTION_CONFIRMATION_REQUIRED",
-        )
-        confirmed = self.client.post(
-            "/auth/action-context/shift-substitution-confirmation",
-            json={"shift_id": str(shift_id)},
-        )
-        self.assertEqual(confirmed.status_code, 200, confirmed.text)
         created = self.client.put("/supply/seller/request", json=seller_payload)
         self.assertEqual(created.status_code, 200, created.text)
         with self.session_factory() as session:
             self.assertEqual(session.get(SupplyRequest, UUID(created.json()["id"])).department_id, UUID(actual["id"]))
 
         spoofed = self.client.put("/supply/seller/request", json={**seller_payload, "department_id": primary["id"]})
-        self.assertEqual(spoofed.status_code, 403, spoofed.text)
-        self.assertEqual(spoofed.json()["detail"]["code"], "DEPARTMENT_FORBIDDEN")
+        self.assertEqual(spoofed.status_code, 409, spoofed.text)
+        self.assertEqual(self.client.get("/supply/seller/window").json()["request"]["id"], created.json()["id"])
 
         history = self.client.get(f"/supply/requests/{created.json()['id']}/history")
         self.assertEqual(history.status_code, 200, history.text)
@@ -721,9 +710,9 @@ class SupplyApiTests(unittest.TestCase):
             self.assertEqual(str(audit.primary_department_id), primary["id"])
             self.assertEqual(str(audit.actual_department_id), actual["id"])
             self.assertEqual(audit.shift_id, shift_id)
-            self.assertTrue(audit.shift_context_snapshot["substitution_confirmed"])
+            self.assertFalse(audit.shift_context_snapshot["substitution_confirmed"])
 
-    def test_seller_window_follows_cycle_and_blocks_without_shift(self) -> None:
+    def test_seller_window_requires_point_selection_without_shift(self) -> None:
         self.current_user_id = 3
         closed = self.client.get("/supply/seller/window")
         self.assertEqual(closed.status_code, 200, closed.text)
@@ -743,6 +732,8 @@ class SupplyApiTests(unittest.TestCase):
         self.assertTrue(opened.json()["is_open"])
         self.assertEqual(opened.json()["supported_units"], ["кг", "шт"])
         self.assertFalse(opened.json()["can_write"])
+        self.assertEqual(opened.json()["allowed_actions"], ["CREATE"])
+        self.assertEqual(len(opened.json()["allowed_departments"]), 3)
         self.assertEqual(opened.json()["cycle_id"], cycle_id)
         self.assertEqual(opened.json()["need_date"], "2026-01-03")
         denied = self.client.put("/supply/seller/request", json={"raw_input": "Молоко — 10 л"})
@@ -751,6 +742,7 @@ class SupplyApiTests(unittest.TestCase):
             session.get(SupplyRequestCycle, UUID(cycle_id)).status = "CLOSED"
         closed_again = self.client.get("/supply/seller/window")
         self.assertFalse(closed_again.json()["is_open"])
+        self.assertEqual(closed_again.json()["allowed_actions"], [])
 
     def test_seller_reconfirms_same_request_and_close_makes_it_read_only(self) -> None:
         self.current_user_id = 2
@@ -821,6 +813,93 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.text)
         with self.session_factory() as session:
             self.assertEqual(session.get(SupplyRequest, UUID(created.json()["id"])).department_id, chosen)
+
+    def test_seller_without_assignment_or_shift_reopens_same_request(self) -> None:
+        _, direction_id = self.reference_ids()
+        cycle_id = self.create_cycle(direction_id)
+        with self.session_factory.begin() as session:
+            seller_id = session.scalar(select(Employee.id).where(Employee.linked_user_id == 3))
+            session.query(EmployeeDepartmentAssignment).filter(
+                EmployeeDepartmentAssignment.employee_id == seller_id,
+            ).delete()
+            retail_id = session.scalar(select(Department.id).where(Department.code == "М35"))
+            other_id = session.scalar(select(Department.id).where(Department.code == "М15"))
+            production_id = session.scalar(select(Department.id).where(Department.code == "ЦЕХ"))
+        self.current_user_id = 3
+        window = self.client.get("/supply/seller/window")
+        self.assertEqual(window.status_code, 200, window.text)
+        self.assertEqual(window.json()["allowed_actions"], ["CREATE"])
+        self.assertIsNone(window.json()["department"])
+        self.assertEqual(self.client.get("/supply/requests").status_code, 200)
+        invalid = self.client.put("/supply/seller/request", json={
+            "department_id": str(production_id), "raw_input": "Молоко — 10 л",
+        })
+        self.assertEqual(invalid.status_code, 403, invalid.text)
+        created = self.client.put("/supply/seller/request", json={
+            "department_id": str(retail_id), "raw_input": "Молоко — 10 л",
+        })
+        self.assertEqual(created.status_code, 200, created.text)
+        confirmed = self.client.post("/supply/seller/request/confirm", json={
+            "expected_version": created.json()["version"],
+        })
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        reopened = self.client.get("/supply/seller/window").json()
+        self.assertEqual(reopened["request"]["id"], created.json()["id"])
+        self.assertEqual(reopened["department"]["id"], str(retail_id))
+        self.assertTrue(reopened["can_write"])
+        changed_point = self.client.put("/supply/seller/request", json={
+            "department_id": str(other_id), "raw_input": "Молоко — 12 л",
+            "expected_version": confirmed.json()["version"],
+        })
+        self.assertEqual(changed_point.status_code, 409, changed_point.text)
+        edited = self.client.put("/supply/seller/request", json={
+            "raw_input": "Молоко — 12 л", "expected_version": confirmed.json()["version"],
+        })
+        self.assertEqual(edited.status_code, 200, edited.text)
+        latest = self.client.post("/supply/seller/request/confirm", json={
+            "expected_version": edited.json()["version"],
+        })
+        self.assertEqual(latest.status_code, 200, latest.text)
+        self.assertEqual(latest.json()["id"], created.json()["id"])
+        self.assertEqual(len(self.client.get("/supply/requests").json()), 1)
+        self.assertEqual(self.client.get(f"/supply/requests/{created.json()['id']}").status_code, 200)
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(created.json()["id"]))
+            self.assertEqual(item.cycle_id, UUID(cycle_id))
+            self.assertEqual(item.direction_id, UUID(direction_id))
+            self.assertEqual(item.need_date, date(2026, 1, 3))
+            self.assertIsNone(item.creator_shift_id)
+            self.assertEqual(item.creator_authorized_as, "SELLER")
+        with self.session_factory.begin() as session:
+            session.get(SupplyRequestCycle, UUID(cycle_id)).status = "CLOSED"
+        self.assertEqual(self.client.get("/supply/seller/window").json()["allowed_actions"], [])
+        denied = self.client.put("/supply/seller/request", json={
+            "raw_input": "Молоко — 20 л", "expected_version": latest.json()["version"],
+        })
+        self.assertEqual(denied.status_code, 409, denied.text)
+
+    def test_admin_uses_the_current_window_flow(self) -> None:
+        department_id, direction_id = self.reference_ids()
+        cycle_id = self.create_cycle(direction_id)
+        window = self.client.get("/supply/seller/window")
+        self.assertEqual(window.status_code, 200, window.text)
+        self.assertEqual(window.json()["allowed_actions"], ["CREATE"])
+        created = self.client.put("/supply/seller/request", json={
+            "department_id": department_id, "raw_input": "Молоко — 10 л",
+        })
+        self.assertEqual(created.status_code, 200, created.text)
+        confirmed = self.client.post("/supply/seller/request/confirm", json={
+            "department_id": department_id, "expected_version": created.json()["version"],
+        })
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        reopened = self.client.get("/supply/seller/window", params={"department_id": department_id})
+        self.assertEqual(reopened.json()["request"]["id"], created.json()["id"])
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(created.json()["id"]))
+            self.assertEqual(item.cycle_id, UUID(cycle_id))
+            self.assertEqual(item.direction_id, UUID(direction_id))
+            self.assertEqual(item.need_date, date(2026, 1, 3))
+            self.assertEqual(item.creator_authorized_as, "ADMIN")
 
     def test_cancel_creates_meaningful_audit_with_reason(self) -> None:
         created = self.create_request()
@@ -982,7 +1061,7 @@ class SupplyApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
             {item["id"] for item in response.json()},
-            {primary_request["id"]},
+            {primary_request["id"], own_request["id"]},
         )
         self.assertEqual(
             self.client.get(f"/supply/requests/{hidden_request['id']}").status_code,

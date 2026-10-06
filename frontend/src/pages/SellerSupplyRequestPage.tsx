@@ -42,7 +42,7 @@ export default function SellerSupplyRequestPage() {
     setBusy(true); setMessage('')
     try {
       const request = await saveSellerRequest({
-        department_id: departmentId || undefined,
+        department_id: windowInfo.department?.id || departmentId || undefined,
         raw_input: text,
         expected_version: windowInfo.request?.version,
       })
@@ -59,12 +59,12 @@ export default function SellerSupplyRequestPage() {
       const current = windowInfo.request?.status === 'DRAFT' && windowInfo.request.raw_input === text.trim()
         ? windowInfo.request
         : await saveSellerRequest({
-          department_id: departmentId || undefined,
+          department_id: windowInfo.department?.id || departmentId || undefined,
           raw_input: text,
           expected_version: windowInfo.request?.version,
         })
       const confirmed = await confirmSellerRequest({
-        department_id: departmentId || undefined,
+        department_id: windowInfo.department?.id || departmentId || undefined,
         expected_version: current.version,
       })
       setWindowInfo({ ...windowInfo, request: confirmed })
@@ -79,20 +79,20 @@ export default function SellerSupplyRequestPage() {
     {loading && <p className="page-state">Загружаем окно заявок…</p>}
     {!loading && windowInfo && <>
       {windowInfo.is_open ? <>
-        {windowInfo.department && <p>Точка: <strong>{windowInfo.department.name}</strong></p>}
+        {windowInfo.department && allowedDepartments.length === 0 && <p>Точка: <strong>{windowInfo.department.name}</strong></p>}
         {windowInfo.closes_at && <p>Приём заявок до: <strong>{formatDateTime(windowInfo.closes_at)}</strong></p>}
-        {!windowInfo.department && allowedDepartments.length > 0 && <label className="eos-field"><span>Точка</span><EosSelect value={departmentId} disabled={busy} onChange={(event) => setDepartmentId(event.target.value)}><option value="">Выберите торговую точку</option>{allowedDepartments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label>}
+        {allowedDepartments.length > 0 && <label className="eos-field"><span>{windowInfo.department_label}</span><EosSelect value={windowInfo.department?.id || departmentId} disabled={busy || Boolean(windowInfo.request)} onChange={(event) => { if (event.target.value !== departmentId) { setLoading(true); setDepartmentId(event.target.value) } }}><option value="" disabled={Boolean(windowInfo.department)}>Выберите: {windowInfo.department_label.toLowerCase()}</option>{allowedDepartments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</EosSelect></label>}
         <form onSubmit={(event) => void save(event)}>
-          <label className="eos-field"><span>Что нужно</span><textarea value={text} disabled={!windowInfo.can_write || !editing || busy} rows={8} maxLength={10000} onChange={(event) => setText(event.target.value)} /></label>
+          <label className="eos-field"><span>Что требуется</span><textarea value={text} disabled={!windowInfo.can_write || !editing || busy} rows={8} maxLength={10000} onChange={(event) => setText(event.target.value)} /></label>
           <p className="employee-help">Каждый товар укажите с новой строки.<br />Формат: Название — количество — фасовка.<br />Примеры:<br />Сливки 33% — 6 л<br />Молоко — 12 шт<br />Клубника — 5 кг<br />Стаканы 300 мл — 4 кор</p>
           {windowInfo.supported_units.length > 0 && <p className="employee-help">Поддерживаемые единицы и фасовки: {windowInfo.supported_units.join(', ')}</p>}
           {windowInfo.can_write && <div className="purchase-actions">
             {windowInfo.request?.status === 'SUBMITTED' && !editing
-              ? <button className="secondary-action" type="button" onClick={() => setEditing(true)}>Изменить</button>
+              ? <button className="secondary-action" type="button" disabled={busy} onClick={() => setEditing(true)}>Изменить</button>
               : <><button className="secondary-action" type="submit" disabled={busy || !text.trim()}>{busy ? 'Сохраняем…' : 'Сохранить черновик'}</button><button className="primary-action" type="button" disabled={busy || !text.trim()} onClick={() => void confirm()}>Подтвердить</button></>}
           </div>}
         </form>
-        {!windowInfo.can_write && <p className="request-message">{windowInfo.reason ?? 'Выберите торговую точку или откройте смену iiko'}</p>}
+        {!windowInfo.can_write && <p className="request-message">{windowInfo.reason ?? 'Выберите подразделение'}</p>}
       </> : <p className="page-state">{windowInfo.reason ?? 'Приём заявок сейчас закрыт'}</p>}
       {windowInfo.request && <Link className="secondary-action" to={`/supply/requests/${windowInfo.request.id}`}>Открыть заявку</Link>}
     </>}

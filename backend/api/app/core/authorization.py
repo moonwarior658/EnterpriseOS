@@ -1,5 +1,6 @@
 """Capabilities and scopes for Employee and User administration."""
 
+from dataclasses import replace
 from enum import StrEnum
 from datetime import datetime, timezone
 
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.action_context import ActionContext, ActionContextError, resolve_action_context
-from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment
+from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, EmployeeDepartmentAssignment, EmployeeIikoShift
 from app.models.supply import Department, DepartmentBusinessType, SupplyRequest
 from app.models.user import User
 from app.models.work_request import WorkRequest
@@ -289,6 +290,11 @@ def linked_employee(db: Session, user: User) -> Employee | None:
     ))
 
 
+def seller_supply_department_id(db: Session, context: ActionContext):
+    shift = db.get(EmployeeIikoShift, context.shift_id) if context.shift_id else None
+    return shift.department_id if shift and shift.department_id else context.primary_department_id
+
+
 def supply_request_authorize(
     db: Session, user: User, capability: Capability, *,
     request: SupplyRequest | None = None, department_id=None, write: bool = False,
@@ -304,15 +310,17 @@ def supply_request_authorize(
         elif scope in {Scope.ECLAIR_POINTS, Scope.PRODUCTION}:
             allowed = target in scoped_department_ids(db, user, scope, base)
         elif role == EmployeeRole.SELLER:
-            context = resolve_action_context(
-                db, user, required_roles=frozenset({role}), role_precedence=(role,), write=write,
-            )
-            expected = context.actual_department_id if write or context.shift_id else context.primary_department_id
-            department = db.get(Department, expected) if expected else None
-            allowed = (target == expected and department is not None
-                       and department.tenant_id == user.tenant_id
-                       and department.is_active
-                       and department.business_type == DepartmentBusinessType.RETAIL_POINT)
+            # Temporary SupplyRequest policy: Seller writes do not require a shift
+            # or an assigned Department. Identity, retail target, ownership and
+            # the current request window remain authoritative on the backend.
+            department = db.get(Department, target) if target else None
+            valid_retail = bool(department is not None
+                                and department.tenant_id == user.tenant_id
+                                and department.is_active
+                                and department.business_type == DepartmentBusinessType.RETAIL_POINT)
+            own = request is not None and request.created_by_user_id == user.id
+            allowed = valid_retail and (capability == Capability.SUPPLY_REQUEST_CREATE or write or own
+                                       or target == seller_supply_department_id(db, base))
         else:
             allowed = False
         if request is not None and role == EmployeeRole.SELLER and write:
@@ -330,10 +338,14 @@ def supply_request_authorize(
                 allowed = allowed and request.created_by_user_id == user.id
         if not allowed:
             continue
-        context = resolve_action_context(
-            db, user, required_roles=frozenset({role}), role_precedence=(role,),
-            write=write,
-        )
+        if role == EmployeeRole.SELLER:
+            context = replace(base, authorized_as=role, actual_department_id=target,
+                              actual_department_name_snapshot=department.name)
+        else:
+            context = resolve_action_context(
+                db, user, required_roles=frozenset({role}), role_precedence=(role,),
+                write=write,
+            )
         if write:
             db.info["action_context"] = context
             db.info["action_user"] = user
@@ -353,10 +365,7 @@ def supply_visible_departments(db: Session, user: User) -> set | None:
         if scope in {Scope.ECLAIR_POINTS, Scope.PRODUCTION}:
             visible |= scoped_department_ids(db, user, scope, base)
         elif role == EmployeeRole.SELLER:
-            seller = resolve_action_context(
-                db, user, required_roles=frozenset({role}), role_precedence=(role,), write=False,
-            )
-            department_id = seller.actual_department_id if seller.shift_id else seller.primary_department_id
+            department_id = seller_supply_department_id(db, base)
             department = db.get(Department, department_id) if department_id else None
             if (department is not None and department.tenant_id == user.tenant_id
                     and department.is_active

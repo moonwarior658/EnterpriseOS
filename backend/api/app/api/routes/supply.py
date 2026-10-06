@@ -24,7 +24,7 @@ from app.api.routes.iiko import get_iiko_provider, integration_error
 from app.core.action_context import ActionContextError, resolve_action_context
 from app.audit.service import audit_query
 from app.core.authorization import (
-    Capability, authorize, supply_request_authorize, supply_visible_departments,
+    Capability, GRANTS, authorize, supply_request_authorize, supply_visible_departments,
 )
 from app.core.config import settings
 from app.db.session import get_db
@@ -1398,9 +1398,14 @@ def read_requests(
         visible_departments = supply_visible_departments(db, current_user)
     except ActionContextError as error:
         raise action_context_http_error(error) from error
-    if visible_departments == set():
+    base = resolve_action_context(db, current_user, write=False)
+    seller_only = (EmployeeRole.SELLER in base.roles and not any(
+        role in base.roles for role, _ in GRANTS[Capability.SUPPLY_REQUEST_READ]
+        if role != EmployeeRole.SELLER
+    ))
+    if visible_departments == set() and not seller_only:
         raise action_context_http_error(ActionContextError("PERMISSION_DENIED", "Недостаточно прав для просмотра заявок"))
-    visibility_user_id = None
+    visibility_user_id = current_user.id if seller_only else None
     visibility_department_ids = (None if visible_departments is None else frozenset(visible_departments))
     filter_values = {
         "search": search,

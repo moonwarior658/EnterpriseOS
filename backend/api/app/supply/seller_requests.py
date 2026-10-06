@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -7,10 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit_event
 from app.core.action_context import ActionContext, ActionContextError, resolve_action_context
-from app.integrations.iiko.document_routing import outgoing_invoice_flows_for_department
-from app.models.employee import EmployeeRole
+from app.core.authorization import (
+    Capability, GRANTS, supply_request_authorize,
+)
+from app.models.employee import EmployeeRole, EmployeeIikoShift
 from app.models.supply import (
-    Department, DepartmentBusinessType, SupplyRequest, SupplyRequestCycle,
+    Department, SupplyRequest, SupplyRequestCycle,
     SupplyRequestDirection, SupplyRequestLine, SupplyUnit,
 )
 from app.models.user import User
@@ -34,13 +35,41 @@ def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def _departments(db: Session, tenant_id: str) -> list[Department]:
-    return [item for item in db.scalars(select(Department).where(
-        Department.tenant_id == tenant_id,
+def _departments(db: Session, user: User) -> list[Department]:
+    departments = db.scalars(select(Department).where(
+        Department.tenant_id == user.tenant_id,
         Department.is_active.is_(True),
-        Department.business_type == DepartmentBusinessType.RETAIL_POINT,
     ).order_by(Department.display_order, Department.code)).all()
-        if outgoing_invoice_flows_for_department(item.code)]
+    allowed = []
+    for department in departments:
+        try:
+            supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_CREATE,
+                                     department_id=department.id, write=False)
+        except ActionContextError:
+            continue
+        allowed.append(department)
+    return allowed
+
+
+def _seller_only(context: ActionContext) -> bool:
+    return EmployeeRole.SELLER in context.roles and not any(
+        role in context.roles for role, _ in GRANTS[Capability.SUPPLY_REQUEST_CREATE]
+        if role != EmployeeRole.SELLER
+    )
+
+
+def _own_window_request(db: Session, user: User, cycle: SupplyRequestCycle) -> SupplyRequest | None:
+    base = resolve_action_context(db, user, write=False)
+    if not _seller_only(base):
+        return None
+    requests = db.scalars(select(SupplyRequest).where(
+        SupplyRequest.tenant_id == user.tenant_id,
+        SupplyRequest.cycle_id == cycle.id,
+        SupplyRequest.created_by_user_id == user.id,
+    )).all()
+    if len(requests) > 1:
+        raise SellerWindowUnavailable('В текущем окне найдено несколько ваших заявок. Обратитесь к снабжению')
+    return requests[0] if requests else None
 
 
 def _cycle(db: Session, tenant_id: str, now: datetime) -> SupplyRequestCycle | None:
@@ -57,41 +86,22 @@ def _cycle(db: Session, tenant_id: str, now: datetime) -> SupplyRequestCycle | N
 
 
 def _seller_context(db: Session, user: User, department_id: UUID | None, allowed: list[Department], *, write: bool) -> tuple[ActionContext, Department | None]:
-    base = resolve_action_context(
-        db, user, required_roles=frozenset({EmployeeRole.SELLER}),
-        role_precedence=(EmployeeRole.SELLER,), write=False,
-    )
+    base = resolve_action_context(db, user, write=False)
+    if not any(role in base.roles for role, _ in GRANTS[Capability.SUPPLY_REQUEST_CREATE]):
+        raise ActionContextError('PERMISSION_DENIED', 'Недостаточно прав для создания заявки')
     allowed_by_id = {item.id: item for item in allowed}
-    if base.shift_id is None:
-        if write:
-            raise ActionContextError('IIKO_SHIFT_REQUIRED', 'Для заявки требуется открытая смена iiko')
-        return base, None
-    if base.actual_department_id is not None:
-        if department_id is not None and department_id != base.actual_department_id:
-            raise ActionContextError('DEPARTMENT_FORBIDDEN', 'Точка определяется активной сменой')
-        department = allowed_by_id.get(base.actual_department_id)
-        if department is None:
-            raise ActionContextError('SELLER_SHIFT_DEPARTMENT_INVALID', 'Точка смены недоступна для перемещения')
-        if write:
-            context = resolve_action_context(
-                db, user, required_roles=frozenset({EmployeeRole.SELLER}),
-                role_precedence=(EmployeeRole.SELLER,), write=True,
-                requested_department_id=department.id,
-            )
-            return context, department
-        return base, department
-    if department_id is None:
-        if write:
-            raise ActionContextError('DEPARTMENT_REQUIRED', 'Выберите торговую точку')
-        return base, None
+    if department_id is None and _seller_only(base):
+        shift = db.get(EmployeeIikoShift, base.shift_id) if base.shift_id else None
+        department_id = shift.department_id if shift and shift.department_id in allowed_by_id else None
     department = allowed_by_id.get(department_id)
+    if department_id is not None and department is None:
+        raise ActionContextError('DEPARTMENT_FORBIDDEN', 'Подразделение недоступно для заявки')
     if department is None:
-        raise ActionContextError('DEPARTMENT_FORBIDDEN', 'Торговая точка недоступна')
-    context = replace(base, actual_department_id=department.id,
-                      actual_department_name_snapshot=department.name)
-    if write:
-        db.info['action_context'] = context
-        db.info['action_user'] = user
+        if write:
+            raise ActionContextError('DEPARTMENT_REQUIRED', 'Выберите подразделение')
+        return base, None
+    context = supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_CREATE,
+                                       department_id=department.id, write=write)
     return context, department
 
 
@@ -113,30 +123,49 @@ def _request_read(item: SupplyRequest) -> SellerRequestRead:
 
 def current_window(db: Session, user: User, department_id: UUID | None = None, *, now: datetime | None = None) -> SellerWindowRead:
     now = now or datetime.now(timezone.utc)
-    allowed = _departments(db, user.tenant_id)
-    context, department = _seller_context(db, user, department_id, allowed, write=False)
+    base = resolve_action_context(db, user, write=False)
+    allowed = _departments(db, user)
     cycle = _cycle(db, user.tenant_id, now)
     if cycle is None:
         return SellerWindowRead(is_open=False, can_write=False, reason='Приём заявок сейчас закрыт')
+    if not allowed:
+        return SellerWindowRead(is_open=True, can_write=False,
+                                closes_at=cycle.hard_closes_at or cycle.closes_at,
+                                reason='Нет доступных подразделений для создания заявки')
+    own = _own_window_request(db, user, cycle)
+    if own is not None:
+        department_id = own.department_id
+    context, department = _seller_context(db, user, department_id, allowed, write=False)
     existing = _existing(db, user.tenant_id, cycle, department) if department else None
+    can_write = department is not None and (existing is None or (
+        existing.created_by_user_id == user.id and existing.status in {'DRAFT', 'SUBMITTED'}
+    ))
+    if can_write and existing is not None and existing.status == 'SUBMITTED':
+        try:
+            supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_EDIT,
+                                     request=existing, write=False)
+        except ActionContextError:
+            can_write = False
+    reason = None
+    if department is None:
+        reason = 'Выберите торговую точку' if _seller_only(base) else 'Выберите подразделение'
+    elif not can_write:
+        reason = 'Для выбранного подразделения уже есть заявка, которую нельзя изменить в этой форме'
     catalog_codes = set(db.scalars(select(SupplyUnit.code).where(
         SupplyUnit.tenant_id == user.tenant_id, SupplyUnit.is_active.is_(True),
     )).all())
     return SellerWindowRead(
-        is_open=True, can_write=context.shift_id is not None and department is not None,
+        is_open=True, can_write=can_write,
+        allowed_actions=['CREATE'] if own is None or own.status in {'DRAFT', 'SUBMITTED'} else [],
+        department_label='Точка' if _seller_only(base) else 'Подразделение',
         closes_at=cycle.hard_closes_at or cycle.closes_at,
-        need_date=cycle.cycle_date + timedelta(days=1),
-        cycle_id=cycle.id,
+        need_date=cycle.cycle_date + timedelta(days=1), cycle_id=cycle.id,
         department=SellerDepartmentRead(id=department.id, name=department.name) if department else None,
-        allowed_departments=[SellerDepartmentRead(id=item.id, name=item.name) for item in allowed] if context.shift_id and base_is_unresolved(context) else [],
+        allowed_departments=[SellerDepartmentRead(id=item.id, name=item.name) for item in allowed],
         supported_units=supported_unit_labels(catalog_codes),
         request=_request_read(existing) if existing and existing.created_by_user_id == user.id else None,
-        reason='Для заявки требуется открытая смена iiko' if context.shift_id is None else None,
+        reason=reason,
     )
-
-
-def base_is_unresolved(context: ActionContext) -> bool:
-    return context.shift_id is not None and context.actual_department_id is None
 
 
 def _write_window(db: Session, user: User, department_id: UUID | None) -> tuple[SupplyRequestCycle, ActionContext, Department]:
@@ -147,7 +176,12 @@ def _write_window(db: Session, user: User, department_id: UUID | None) -> tuple[
     cycle = db.scalar(select(SupplyRequestCycle).where(SupplyRequestCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))
     if cycle is None or cycle.status != 'OPEN' or not (_aware(cycle.opens_at) <= now <= _aware(cycle.hard_closes_at or cycle.closes_at)):
         raise SellerWindowUnavailable('Приём заявок сейчас закрыт')
-    context, department = _seller_context(db, user, department_id, _departments(db, user.tenant_id), write=True)
+    own = _own_window_request(db, user, cycle)
+    if own is not None:
+        if department_id is not None and department_id != own.department_id:
+            raise SellerWindowUnavailable('В текущем окне уже есть ваша заявка. Откройте её для изменения')
+        department_id = own.department_id
+    context, department = _seller_context(db, user, department_id, _departments(db, user), write=True)
     if department is None:
         raise SellerWindowUnavailable('Торговая точка не определена')
     return cycle, context, department
@@ -172,6 +206,9 @@ def save_request(db: Session, user: User, payload: SellerRequestSave) -> SellerR
         raise SellerWindowUnavailable('Эту заявку нельзя изменить')
     if payload.expected_version != item.version:
         raise SupplyRequestVersionConflictError(item.version, payload.expected_version)
+    if item.status == 'SUBMITTED':
+        context = supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_EDIT,
+                                           request=item, write=True)
     before = {'raw_input': item.raw_input, 'status': item.status, 'version': item.version}
     item.lines.clear()
     db.flush()

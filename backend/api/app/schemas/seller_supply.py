@@ -19,6 +19,8 @@ class SellerRequestRead(BaseModel):
 class SellerWindowRead(BaseModel):
     is_open: bool
     can_write: bool
+    department_label: str = 'Подразделение'
+    allowed_actions: list[str] = Field(default_factory=list)
     closes_at: datetime | None = None
     need_date: date | None = None
     cycle_id: UUID | None = None
