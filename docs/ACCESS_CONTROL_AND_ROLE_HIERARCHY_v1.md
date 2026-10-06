@@ -1,7 +1,8 @@
 # EnterpriseOS — Access Control and Role Hierarchy v1
 
 **Тип документа:** BUSINESS SPEC
-**Статус:** APPROVED FOR IMPLEMENTATION
+**Статус:** CURRENT / IMPLEMENTED — 13 ролей, baseline eb59755; Stage 3.1P DONE
+**Дата актуализации:** 06.10.2026
 **Область:** роли, разрешения, области данных и видимость интерфейса EOS
 
 ## 1. Назначение и нормативность
@@ -114,7 +115,7 @@ Scope ограничивает объекты, но сам по себе не д
 
 ### 7.6 SUPPLY_MANAGER
 
-**Scope:** весь Supply-контур компании. Dashboard: supply, debts, payments, repairs. Имеет полный operational access к цепочке `SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation → SupplierOrder → SupplierConfirmation → SupplierDocument → SupplierAcceptance → Internal Transfer → Payment/Settlement → iiko business facts` в пределах существующего Supply workflow.
+**Scope:** весь Supply-контур компании. Dashboard: supply, debts, payments, repairs. Имеет полный operational access к цепочке `SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation → SupplierOrder → SupplierConfirmation → SupplierDocument → SupplierAcceptance → SupplyIikoIncomingReceipt → Internal Transfer → Payment/Settlement → iiko business facts` в пределах существующего Supply workflow.
 
 Может создавать SupplyRequest и редактировать чужие SupplyRequest только с обязательным комментарием и аудитом; не отменяет SupplyRequest точек. Может создавать PurchaseRequest, управлять supplier records и supplier orders, acceptance, internal transfers и payments согласно Supply lifecycle.
 
@@ -122,9 +123,10 @@ Scope ограничивает объекты, но сам по себе не д
 
 ### 7.7 ACCOUNTANT
 
-**Scope:** вся компания в пределах финансовых и Supply-данных. Dashboard — только финансы. Имеет полный READ всей цепочки SupplyRequest точки → supplier order/acceptance/payment/debt. WRITE разрешён только для payments и редактирования supplier.
+**Scope:** вся компания в пределах финансовых и Supply-данных. Dashboard — только финансы. Имеет полный READ всей цепочки SupplyRequest точки → supplier order/acceptance/payment/debt. Supply WRITE разрешён для payments и редактирования supplier;
+в repairs доступны стоимость/финансовые документы внешнего ремонта.
 
-Видит prices, sums, cost, debts, invoices, УПД, bills, supplier documents и acceptance/payment documents. Не видит internal transfers, Employee admin, Audit Explorer, iiko mappings, automation/n8n/worker. Repairs — read-only.
+Видит prices, sums, cost, debts, invoices, УПД, bills, supplier documents и acceptance/payment documents. Не видит internal transfers, Employee admin, Audit Explorer, iiko mappings, automation/n8n/worker. Repair workflow/status — read-only; стоимость и INVOICE/ACT может добавлять по financial permissions, включая closed repair.
 
 ### 7.8 CHEF_CONFECTIONER
 
@@ -144,9 +146,18 @@ Scope ограничивает объекты, но сам по себе не д
 
 У SELLER только одна активная назначенная точка; дополнительные активные точки запрещены. При переводе старое назначение закрывается датой, новое начинается своей датой; допускается будущая дата, старые business facts не переписываются.
 
-Без активной iiko-смены scope чтения — `PRIMARY_DEPARTMENT`, режим read-only: свои ремонты и SupplyRequest своей точки. С активной сменой рабочий scope — `ACTUAL_SHIFT_DEPARTMENT`, который имеет приоритет над primary. Только в этом контексте доступны разрешённые write-действия.
+Без активной iiko-смены repair scope чтения — `PRIMARY_DEPARTMENT`, режим read-only.
+SupplyRequest: доступны собственные заявки и заявки рабочей/основной точки;
+TEMPORARY writes могут использовать выбранную RETAIL_POINT. С активной сменой рабочий scope — `ACTUAL_SHIFT_DEPARTMENT`, который имеет приоритет над primary. Этот gate применяется к shift-required repair writes; временное правило SupplyRequest описано ниже.
 
-Ремонты: видит полную карточку в разрешённом контуре, создаёт, редактирует и переоткрывает; не закрывает. Supply: видит заявки точки, создаёт, редактирует свою; не отменяет, не видит downstream procurement/orders, prices или sums. Write без активной resolved смены запрещён.
+Ремонты: видит полную карточку в разрешённом контуре, создаёт, редактирует и переоткрывает; не закрывает. Supply: видит заявки точки, создаёт, редактирует свою; не отменяет, не видит downstream procurement/orders, prices или sums. Shift-required repair write без активной resolved смены запрещён.
+
+**TEMPORARY — SupplyRequest:** создание/изменение/подтверждение своей заявки
+разрешены в открытом окне без проверки активной смены и назначенного department.
+Seller вручную выбирает активную RETAIL_POINT tenant; backend проверяет role,
+identity, ownership, window и version/duplicates. Cycle/direction/date системные.
+Это исключение не расширяет repair permissions или downstream read. Детали и
+TODO work-context policy — [Supply spec](eOS_STAGE_3_SUPPLY.md#32-temporary--выбор-точки).
 
 ### 7.12 CONFECTIONER и BAKER
 
@@ -165,7 +176,13 @@ Scope ограничивает объекты, но сам по себе не д
 - DEPUTY_DIRECTOR читает существующих Human Users, блокирует/активирует их; не создаёт пользователя, не сбрасывает пароль и не управляет Service User.
 - NETWORK_MANAGER создаёт Human User в своём контуре, связывает с Employee и сбрасывает ему пароль; не блокирует и не активирует User и не управляет Service User.
 - Service User доступны только ADMIN.
-- Любой Human User может самостоятельно сменить собственный пароль, если знает текущий.
+- Authenticated HUMAN меняет собственный пароль без current password: новый +
+  confirmation в UI; API `/auth/change-password` изменяет только текущего User.
+  Arbitrary чужой User этим flow менять нельзя; SERVICE forbidden.
+  USER_PASSWORD_CHANGED audit event не содержит password/hash.
+- Основной Human account lifecycle выполняется из Employee card. `/users` —
+  сохраняющийся legacy route; Employee — человек, User — access account.
+  HUMAN связан с Employee, SERVICE связывать запрещено.
 - Сброс пароля не требует причины; учётные данные и секреты не включаются в аудит.
 
 ## 10. Dashboard и видимость UI
@@ -189,7 +206,8 @@ Scope ограничивает объекты, но сам по себе не д
 
 ## 11. Audit visibility и event
 
-Audit Explorer доступен только ADMIN. DIRECTOR и DEPUTY_DIRECTOR не видят raw audit; business summaries для них — отдельная будущая работа. Доступ к бизнес-истории объекта в разрешённом модуле не является доступом к глобальному Audit Explorer. Все значимые действия всех ролей продолжают аудироваться.
+Audit Explorer доступен только ADMIN. DIRECTOR и DEPUTY_DIRECTOR не видят raw audit; business summaries для них — отдельная будущая работа. Доступ к бизнес-истории объекта в разрешённом модуле не является доступом к глобальному Audit Explorer. Значимые действия в реализованных API flows аудируются атомарно с business mutation;
+unknown legacy attribution не достраивается по сегодняшним назначениям.
 
 Значимое audit-событие содержит actor User, actor Employee, активные роли, `authorized_as`, object/entity, operation, before, after, reason когда требуется, primary department, actual department, shift если применимо и timestamp. Audit trail append-only: физическое изменение/удаление запрещено даже ADMIN; исправление оформляется отдельным связанным событием.
 
@@ -211,5 +229,10 @@ Audit Explorer доступен только ADMIN. DIRECTOR и DEPUTY_DIRECTOR 
 Обычные изменения supplier сохраняют before/after audit. Критичные изменения supplier сохраняют before/after и обязательную reason. Создание payment аудируется без обязательной reason; correction/cancel/update аудируются с обязательной reason.
 
 ## 13. Repair access boundary
+
+CURRENT repair cost и финансовые INVOICE/ACT видят ADMIN, DIRECTOR,
+DEPUTY_DIRECTOR, SUPPLY_MANAGER, ACCOUNTANT. Изменяют ADMIN/SUPPLY_MANAGER/ACCOUNTANT
+в доступном repair scope; остальные получают фотографии и безопасную историю
+без финансовых полей. «Полная карточка» ниже не расширяет financial permissions.
 
 Любая роль, которой матрица разрешает создать repair, получает полную карточку созданного/видимого в её scope ремонта: author, department, description, photos, comments, status, history, assignee, status changes и attachments. Ответственность, назначение HANDYMAN, contractors, escalation, takeover, close/reopen и reminders определяются отдельно в [Repair Workflow Business Spec v1](REPAIR_WORKFLOW_BUSINESS_SPEC_v1.md).

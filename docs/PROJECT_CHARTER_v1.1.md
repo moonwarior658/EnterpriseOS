@@ -2,7 +2,19 @@
 
 > Версия: 1.1
 > Статус: Активная разработка
-> Последнее обновление: 18 июля 2026
+> Последнее обновление: 6 октября 2026
+
+## Current production baseline
+
+**CURRENT — 06.10.2026:** Git `eb59755`, Alembic `20261002_0068`;
+Stage 3.1P **DONE и развёрнут**. Контрольная точка production предоставлена владельцем.
+
+Работают Employee/User с 13 ролями и управлением HUMAN account из Employee card,
+Seller SupplyRequest через системное окно и repair contractor flow.
+**TEMPORARY:** Seller выбирает активную RETAIL_POINT без надёжного shift context.
+**TODO:** iiko contracts research/redesign; текущая интеграция работает, но не финальна.
+Подробности и оставшийся scope — в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
+
 
 ---
 
@@ -347,7 +359,7 @@ EnterpriseOS создается для обычных сотрудников и 
 - следующую дату запуска;
 - понятное описание ошибки.
 
-Технические настройки доступны только разработчикам и роли `platform_admin`.
+Технические настройки доступны только разработчикам и роли `ADMIN`.
 
 Типовой процесс настраивается через шаблон:
 

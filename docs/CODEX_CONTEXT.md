@@ -1,208 +1,94 @@
 # Codex Context
 
-## Current stage
+## Current production baseline
 
-Stage 3 Supply.
+**CURRENT — 06.10.2026:** Git `eb59755cb0a6061b44fe7c8a56cae3232400a750`
+(`eb59755`), Alembic `20261002_0068`; production baseline и синхронизация
+Mac / origin / production предоставлены владельцем. Этот документационный
+проход проверяет локальный код, не повторяет live production audit.
 
-Automation Core is completed. Stage 3.0 — preparation and acceptance of the
-Supply domain model — completed at 100%. The required working contour of
-Stage 3.1A is completed. Production verification was performed on 2 August
-2026. Stage 3.1B завершён в текущем operational scope и production-verified:
-read-stock, `OUTGOING_INVOICE`, `INTERNAL_TRANSFER`, authoritative document
-read-back, actual/debt/terminal EOS state, единый UI, verified PDF и физическая
-печать по 2 копии через Print Agent. `INTERNAL_TRANSFER` при completion не
-проводится в iiko и остаётся `NEW`; это осознанная граница текущего scope.
+Stage 3 Supply: 3.0 DONE; operational 3.1A/3.1B/3.1C production/business verified;
+Stage 3.1P **DONE и развёрнут**. 3.2 PARTIAL; весь Stage 3 не завершён.
 
-## Stage 3.1C — current status, updated 28.09.2026
+## Sources of truth
 
-По baseline владельца production: `f8ab3a355f5ec49f7468e2ff868e1b0e17364a2a`,
-Alembic `20260917_0056`; локальные HEAD/main/origin/main совпадают. Operational
-implementation закупок, документов, приёмки, платежей/settlement, coverage/cash
-flow и iiko incoming receipt lifecycle развёрнут. Acceptance→accounting gap
-закрыт через POSTED receipt facts. На момент deployment Acceptances=0, а
-технический iiko contract smoke ещё не являлся реальным EOS business receipt.
-После этого реальный EOS business smoke выполнен: Stage 3.1C считается
-production/business verified и operationally complete.
+1. [Project Charter](PROJECT_CHARTER_v1.1.md) — governing constraints.
+2. [Blueprint](BLUEPRINT_v0.0.2.md) — business/product model.
+3. [Main roadmap](ROADMAP_v0.12.0.md) — общая последовательность.
+4. [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md) — задачи и фактические
+   статусы Stage 3; подробный backlog не дублируется в main roadmap.
+5. [Supply spec](eOS_STAGE_3_SUPPLY.md) — CURRENT/TEMPORARY продуктовые правила.
+6. [ADR-001](ADR-001_AUTOMATION_ARCHITECTURE.md) и
+   [ADR-002](ADR-002_SUPPLY_DOMAIN_MODEL.md) — архитектурные границы.
 
-Weighted Average (.4) и Substitutions (.11) deferred по business decision
-18.09.2026, не current MVP blockers. Manual confirmation есть; inbound email,
-procurement attachments, reliability/forecast и расширенный supplier master
-остаются частичными/будущими. Полная матрица:
-[Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md),
-[audit](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
-Production facts здесь — baseline владельца, не новый live audit сервера.
+[Employee/User](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md),
+[RBAC](ACCESS_CONTROL_AND_ROLE_HIERARCHY_v1.md),
+[Repairs](REPAIR_WORKFLOW_BUSINESS_SPEC_v1.md) задают профильные правила.
+[Audit 18.09.2026](STAGE_3_SUPPLY_AUDIT_2026-09-18.md) — исторический snapshot,
+не текущий baseline. Противоречия не разрешать молча.
 
-## Current mandatory stage — Stage 3.1P
+## Current system
 
-Текущий обязательный этап — Stage 3.1P «Пользователи и ответственность».
-Governing business spec:
-[STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md).
-
-Stage 3.2 «Производственная потребность» начинается только после выполнения
-всех критериев готовности Stage 3.1P. Реализацию Stage 3.2 раньше этого перехода
-не начинать. Scope Stage 3.2 этой последовательностью не изменяется.
-
-## Current state
-
-- Основной рабочий документ: `docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md`.
-- Governing business spec текущего обязательного этапа:
-  `docs/STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md`.
-- Утверждённая спецификация этапа: `docs/eOS_STAGE_3_SUPPLY.md`.
-- ADR-002 принят владельцем проекта 27 июля 2026 года.
-- Основной ручной контур Stage 3.1A работает: публичная Supply-форма, реестр
-  заявок, рабочее место сопоставления, обязательные алиасы, серверный поиск
-  товаров, `PLANNED` как «В работе», отдельное завершение, ввод факта,
-  `FULFILLED` / `PARTIALLY_FULFILLED`, Dashboard и реестр долгов.
-- Supply-циклы автоматически открываются и закрываются actions Automation
-  Core; дни недели, время и параметры периода настраивает администратор.
-- Выполнен UX-polish сценариев Supply и Repair.
-- Legacy warehouse-контур удалён из активного API и интерфейса; старый
-  публичный URL временно перенаправляет на Supply-форму. Repair-контур
-  сохранён.
-- `PARTIALLY_FULFILLED` считается завершённой заявкой; дальнейшая работа с
-  незакрытым объёмом ведётся через долг подразделения.
-- Production-проверка обязательного рабочего контура Stage 3.1A выполнена
-  02.08.2026.
-- Сверхвыдача работает: фактически отправленное количество может превышать
-  запрошенное, при этом долг равен нулю.
-- Долги создаются и отображаются в отдельном реестре и на Dashboard.
-- Сопоставление предлагает товар по исходному названию автора заявки;
-  подтверждённые алиасы участвуют в дальнейшем распознавании.
-- Активный долг хранится по подразделению + товару EOS + единице. До Stage
-  3.4 долги в разных единицах не сравниваются и не объединяются.
-- Повторные долги считаются по циклам: первый цикл без тревоги, второй —
-  жёлтый, третий и последующие — красные.
-- Stage 3.1B / 4 и operational-контур 5 подтверждены в production: EOS передаёт
-  verified PDF через persistent print job, Automation Core/outbox и n8n в
-  устойчиво запущенный Windows Print Agent; несколько расходных накладных
-  физически распечатаны по 2 копии, normal print и explicit reprint работают.
-  `OUTGOING_INVOICE` и `INTERNAL_TRANSFER` production-verified пользователем.
-
-В Stage 3.1B выполнено:
-
-- read-only доступ к iikoServer и reference snapshot;
-- чтение складов и остатков в staging-контур EOS;
-- явный mapping товаров, единиц и складов iiko ↔ EOS;
-- admin-only API/UI для mapping и аудит решений;
-- безопасное создание первичного каталога EOS из iiko staging;
-- contextual mapping/remapping из карточки заявки с аудитом `CREATED` /
-  `REPLACED`, защитой permanent mappings и сохранением `send_quantity`;
-- source grouping, создание `OUTGOING_INVOICE` и `INTERNAL_TRANSFER`, update
-  existing `INTERNAL_TRANSFER NEW` по actual и authoritative `byId` read-back;
-- completion после успешного read-back сохраняет actual, применяет debt
-  `max(planned - actual, 0)`, terminal EOS state и `fulfilled_at`;
-- canonical PDF, persistent print/reprint flow и история печати переиспользованы
-  для обоих document types без отдельного pipeline;
-- operational cleanup карточки заявки: русские business labels без UUID и
-  внутренних кодов, «Склад отгрузки», searchable product combobox и
-  структурированная история печати;
-- единый UI двух document types: общая таблица, inline quantity/unit,
-  mapping workspace, dirty-state и «Сохранить заявку», completion и
-  PDF/print/history; manual mapping работает при нераспознанных quantity/unit.
-
-Архитектурный инвариант plan/fact: `line.quantity` хранит requested/planned
-quantity и является единственным количеством stock calculation;
-`send_quantity` хранит actual fulfillment, не участвует в stock calculation и
-не инвалидирует подтверждённый план. Положительный остаток
-`planned - actual` образует долг.
-
-Production contract `INTERNAL_TRANSFER`:
-
-- create `NEW` — `POST /resto/api/v2/documents/internalTransfer` одним JSON
-  object без `id`/`documentNumber`; iiko возвращает UUID и номер;
-- edit existing `NEW` — тот же POST с существующим `id` и authoritative
-  `dateIncoming`;
-- немедленный authoritative read-back — только `GET .../byId`; `byNumber` не
-  используется из-за наблюдавшегося transient stale amount после edit;
-- caller-owned iiko UUID, POST retry, `status=PROCESSED`, `processDocuments` и
-  legacy RPC не используются;
-- completion fail closed: до успешного `byId` match EOS status, `fulfilled_at`
-  и debt не изменяются; после успеха iiko document остаётся `NEW`.
-
-Stage 3.1B закрыт только в этом operational scope. Проведение
-`INTERNAL_TRANSFER` в iiko, отдельная сущность физической передачи,
-signed-return и отдельное покрытие уже существующего долга остаются вне
-завершённого contour и не считаются реализованными.
-
-Обработка заявок Stage 3.1A остаётся ручной, но жизненный цикл периодов заявок
-автоматизирован.
-
-Незакрытый backlog 3.1A:
-
-- админ-интерфейс подразделений и кодов;
-- пользовательское уточнение неизвестных единиц;
-- очередь mapping candidates;
-- таймеры проверки 5/10 минут и предупреждения;
-- полноценный временный edit lock;
-- tooltip долгов.
-
-Этот backlog не входит в текущий эксплуатационный критерий закрытия 3.1A и
-не блокирует переход к Stage 3.1B.
-
-Отдельное погашение уже существующего долга через физическое перемещение и
-signed-return остаётся backlog за пределами закрытого operational scope. Это не
-отменяет создание debt текущей заявки как `max(planned - actual, 0)` после
-успешной финализации. Supplier aliases и поставщики относятся к 3.1C.
+- Employee — человек; User — access account. HUMAN/SERVICE разделены;
+  Human account lifecycle через Employee card, `/users` — legacy route.
+- 13 фиксированных ролей; backend allowed_actions / ActionContext authoritative.
+  Immutable audit и human-readable UI; global Audit Explorer только ADMIN.
+- Canonical Supply create `/supply/requests/new`; Seller cycle/direction/need date
+  системные, окно настраивается через Regulatory Tasks. Изменение и повторное
+  подтверждение сохраняют ту же заявку до закрытия окна. Детали — Supply spec.
+- **TEMPORARY:** Seller SupplyRequest допускает выбор активной RETAIL_POINT
+  без resolved shift/assigned department; остальные role/window/ownership/tenant
+  guards остаются. Исключение не отменяет repair shift gate.
+- Procurement needs/requests, allocations/orders, confirmation/documents/acceptance,
+  iiko incoming receipt и payments/settlements работают. Предоплата может быть
+  связана с order или быть авансом поставщику без order.
+- iiko — внешний factual source, EOS — business state owner. Order ≠ Confirmation
+  ≠ Document ≠ Acceptance ≠ Payment ≠ accounting fact.
+- INTERNAL_TRANSFER при completion остаётся NEW; OUTGOING_INVOICE и incoming
+  receipt имеют свои подтверждённые контракты. Не переносить status одного
+  document type на другой.
+- line.quantity — requested/planned quantity для stock calculation;
+  send_quantity — actual fulfillment. Долг = max(planned - actual, 0).
+- Repairs: HANDYMAN default, эскалация SUPPLY_MANAGER, ExternalContractor,
+  specialization/visit_at, cost/INVOICE/ACT до/после close. Неполный completed
+  external repair требует действий; payment из Repair автоматически не создаётся.
+- Dashboard: «Требует внимания» и «Назначенные события» (upcoming contractor visits).
+  Общие internal reminders — TODO; cards не доказывают delivery notifications.
 
 ## Architecture
 
-Execution flow:
+EnterpriseOS → transactional outbox → automation worker → local EOS handler
+для внутренних действий или AutomationProvider → local n8n → callback для
+технических интеграций. EOS хранит business state/правила/расчёты/аудит.
+n8n не получает доступ к EOS PostgreSQL. HTTP receipt не равен business success.
+Не дублировать execution/outbox/dispatch/retry/callback/scheduling logic.
+Regulatory Tasks — пользовательская configuration layer Automation Core;
+smoke_test — технический артефакт, сохранять его.
 
-EnterpriseOS
-→ transactional outbox
-→ automation worker
-→ local EnterpriseOS handler для внутренних бизнес-действий
-или
-→ AutomationProvider → n8n → callback для технических интеграций
+## TODO / DEFERRED
 
-Rules:
+- **TODO:** отдельный iiko contracts research: authoritative IDs,
+  employee/location/department semantics, UI-managed mappings, затем EOS ↔ iiko
+  redesign и пересмотр Seller work context. Linking/shifts/mappings работают;
+  canonical identity не перепроектировалась; общая архитектура временная.
+- **TODO 3.2:** ТТК-расчёт, chef confirmation, production plan/fact; сохранение
+  последней confirmed версии при закрытии окна после повторного draft без confirm. Request window,
+  canonical need collector и Supply plan/fact уже CURRENT/PARTIAL, не «с нуля».
+- **DEFERRED:** Weighted Average и Substitutions по business decision.
+- **DEFERRED:** DRIVER assigned transports без достоверного источника назначения;
+  physical handover/signed-return и отдельное покрытие старого долга.
+- **TODO:** общий reminders/checklists/reports contour, полный Dashboard exceptions,
+  inbound supplier email, forecast и оставшиеся extensions 3.3/3.4 — см. roadmap.
+- **DEFERRED:** PWA/Web Push/notification center, Apple Calendar, чаты,
+  итоговая design/responsive polish, mascots/themes.
 
-- EnterpriseOS is the source of truth.
-- Business logic stays inside EnterpriseOS.
-- n8n is an execution orchestrator only.
-- Internal Supply state transitions run in EnterpriseOS and do not use n8n.
-- Reuse the existing dispatch and transactional outbox flow.
-- Do not duplicate scheduler, dispatch, outbox, retry, worker, or callback logic.
+## Known limitations and working rules
 
-## Automation Core completion
-
-- Automation schedule CRUD.
-- Scheduler and timing engine.
-- Automation execution model.
-- Transactional outbox.
-- Persistent automation worker.
-- Retry, timeout recovery, and protected idempotent callback flow.
-- Idempotency-key protection for external side effects.
-- Execution history and safe user-facing statuses and errors.
-- Audit log and platform-admin diagnostics.
-- Automation type catalog.
-- Local action handlers for idempotent internal business operations.
-- End-to-end `smoke_test` through the importable n8n workflow.
-- Health checks for n8n and n8n-postgres.
-- n8n backup/restore tooling and retention.
-
-## Known limitations
-
-- Two pre-existing ESLint errors remain in `frontend/src/contexts/AuthContext.tsx`.
-- Visual polish for tables and selects and broader responsive UI work are
-  intentionally assigned to the future design stage and are not Automation
-  Core debt.
-
-## Deferred
-
-- PWA.
-- Web Push.
-- Notification center.
-- Apple Calendar.
-- Table, select, and responsive UI polish (roadmap design stage).
-- Mascots.
-- Light and dark theme.
-
-## Working rules
-
-- Work only on the requested task.
-- Do not update roadmap or documents unless explicitly requested.
-- Do not modify `.env`, secrets, or infrastructure credentials.
-- Do not commit or push unless explicitly instructed.
-- Run only relevant tests during development.
-- Keep the final report concise.
+- Два baseline ESLint errors в frontend/src/contexts/AuthContext.tsx не исправлять
+  вне явного scope. Local/mock tests не заменяют browser/production acceptance.
+- Работать только по запросу; сохранять dirty changes и не расширять scope.
+- Код, документы, migrations, commit/push/deploy меняются только в разрешённом scope.
+- Не изменять .env, secrets, credentials или persistent production data.
+- Использовать существующие contracts/services/UI; frontend не является security boundary.
+- Не угадывать external identity/mappings или неизвестную legacy атрибуцию.
+- Relevant tests/checks и компактный отчёт с доказанными результатами и ограничениями.

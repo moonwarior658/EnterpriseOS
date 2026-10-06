@@ -2,7 +2,18 @@
 
 Статус: Принято
 
-Дата: 18 июля 2026
+Дата принятия: 18 июля 2026
+
+## CURRENT — применение на baseline eb59755
+
+Automation Core **DONE** и остаётся частью EOS. Regulatory Tasks — user-facing
+configuration layer. Работают request windows/open-close cycles и iiko shift sync;
+используются существующие schedules/executions/outbox/worker/retry и local handlers.
+Internal scheduled events/reminders, checklists, reports и housekeeping расширения —
+**TODO**, не автоматическое следствие готовности ядра. `smoke_test` / Smoke test —
+техническая проверка, не бизнес-функция. Точные статусы —
+[Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
+Архитектурное решение ниже сохраняется.
 
 ## Контекст
 
@@ -122,7 +133,7 @@ n8n остаётся адаптером для внешних API, webhook и д
 
 Пользователь видит результат, следующий запуск и понятное описание проблемы.
 
-Техническая диагностика доступна только разработчикам и роли `platform_admin`.
+Техническая диагностика доступна только разработчикам и роли `ADMIN`.
 
 ## Коммерческое развертывание
 
@@ -150,7 +161,7 @@ n8n остаётся адаптером для внешних API, webhook и д
 
 Цена решения:
 
-- необходимо разработать Automation Core;
+- Automation Core разработан; требуется сопровождать его контракты и надёжность;
 - требуется надежный обмен событиями;
 - нужны idempotency, outbox, callback и мониторинг;
 - часть логики, которую можно быстро написать в n8n, будет реализована в backend EnterpriseOS.

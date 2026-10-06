@@ -1,7 +1,8 @@
 # EnterpriseOS — Repair Workflow Business Spec v1
 
 **Тип документа:** BUSINESS SPEC
-**Статус:** APPROVED FOR IMPLEMENTATION
+**Статус:** CURRENT / IMPLEMENTED — baseline eb59755
+**Дата актуализации:** 06.10.2026
 **Область:** ответственность, исполнение, эскалация и завершение ремонтов
 
 Связанные документы:
@@ -28,7 +29,7 @@
 - подрядчик подтверждён;
 - visit datetime обязательна;
 - HANDYMAN остаётся ответственным;
-- создаётся одно напоминание ответственному;
+- визит отображается в «Назначенные события» Dashboard;
 - HANDYMAN продолжает вести repair и закрывает его после выполнения.
 
 ### «Не смог назначить время — передать руководителю»
@@ -47,7 +48,7 @@ Specialization — отдельный справочник; у подрядчи�
 
 ## 4. Передача SUPPLY_MANAGER
 
-После эскалации SUPPLY_MANAGER становится ответственным за ремонт, выбирает/подтверждает contractor, связывается с ним, назначает visit datetime, получает одно напоминание и ведёт ремонт до закрытия после выполнения.
+После эскалации SUPPLY_MANAGER становится ответственным за ремонт, выбирает/подтверждает contractor, связывается с ним, назначает visit datetime, видит визит в Dashboard и ведёт ремонт до закрытия после выполнения.
 
 После закрытия инициирующий scope проверяет результат и может переоткрыть ремонт, если результат не принят. Переоткрытие требует обязательной причины. Management role своего scope также может переоткрыть ремонт по матрице доступа.
 
@@ -63,11 +64,34 @@ Specialization — отдельный справочник; у подрядчи�
 - CONFECTIONER и BAKER могут переоткрыть созданный ими repair при плохом результате.
 - SUPPLY_MANAGER может переоткрыть в пределах разрешённого repair scope по матрице.
 
-## 6. Напоминания
+## 6. CURRENT — visit_at и Dashboard; TODO — общие reminders
 
-В текущей спецификации фиксируются только visit datetime и одно напоминание ответственному. SLA, missed visit, повторные напоминания, overdue escalation и checklists не проектируются; это отдельный будущий operational task/reminder contour.
+Время визита сохраняется как `visit_at`; upcoming external visits отображаются
+в «Назначенные события» Dashboard из доступных пользователю EOS repairs.
+Это внутренний operational блок без зависимости от Telegram/email.
 
-**Статус реализации 01.10.2026:** доставка напоминания не реализована и остаётся отложенной. Сохранение времени визита не является подтверждением отправки напоминания.
+Общая доставка internal reminders, SLA, missed visit, повторные напоминания,
+overdue escalation и checklists — **TODO / DEFERRED** отдельного contour.
+Наличие visit_at и Dashboard card не означает отправленного reminder.
+
+## 6.1. CURRENT — стоимость и документы внешнего ремонта
+
+- Repair связан с ExternalContractor через contractor_id, а также specialization;
+  карточка contractor сохраняет repair history. Передача ответственности и
+  переоткрытие не удаляют историю.
+- `repair_cost`, invoice (`INVOICE`) и completion act (`ACT`) сохраняются в repair.
+  Документы можно загрузить до/после close, сумму можно добавить после close.
+- Completed external repair без cost или любого из INVOICE/ACT = «Требует действий»
+  в карточке/реестре; Dashboard показывает «Требует внимания» для доступных ролям
+  business entities.
+- Financial visibility: ADMIN, DIRECTOR, DEPUTY_DIRECTOR, SUPPLY_MANAGER,
+  ACCOUNTANT видят сумму/финансовые документы; добавляют ADMIN/SUPPLY_MANAGER/ACCOUNTANT
+  в доступном repair scope. HANDYMAN и остальные не получают financial data.
+- Payment автоматически из Repair **не создаётся**. Repair cost и SupplierPayment
+  не подменяют друг друга; отдельная оплата ремонта не объявляется реализованной.
+
+Details/status/history/документы остаются под authoritative backend allowed_actions
+и ActionContext; финансовое дополнение не переоткрывает repair автоматически.
 
 ## 7. Аудит
 

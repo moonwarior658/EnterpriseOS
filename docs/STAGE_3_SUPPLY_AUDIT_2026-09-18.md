@@ -1,5 +1,11 @@
 # Stage 3 Supply — evidence audit 18.09.2026
 
+> **HISTORICAL — snapshot 18.09.2026.** Статусы, SHA/head и отсутствие функций
+> ниже относятся к дате аудита. Current baseline `eb59755` / `20261002_0068`,
+> Stage 3.1P DONE и текущие attachments/RBAC/Seller rules — в
+> [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
+> Этот документ не является текущей матрицей реализации.
+
 Canonical roadmap: [ROADMAP_STAGE_3_SUPPLY_v0.1.0.md](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md). Это аудит и коррекция документации, не новый параллельный roadmap.
 
 **Status update 28.09.2026:** реальный EOS business smoke выполнен; Stage 3.1C считается production/business verified и operationally complete. Исторический snapshot 18.09.2026 ниже сохранён без изменения scope и требований следующих этапов.

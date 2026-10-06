@@ -10,6 +10,13 @@
 Каждый следующий этап начинается только после завершения предыдущего.
 Каждый завершённый этап должен быть рабочим и пригодным к использованию.
 
+## Current production baseline
+
+**CURRENT — 06.10.2026:** Git `eb59755`, Alembic `20261002_0068`;
+Stage 3.1P **DONE и развёрнут** по контрольной точке владельца.
+Детали current Supply/Repairs и TEMPORARY Seller fallback, TODO iiko redesign —
+в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
+
 ## Текущий статус
 
 Этапы 0, 1 (Core) и 2 (Automation Core) завершены.
@@ -22,7 +29,7 @@
 - Реализованы маршрутизация, API-клиент и reverse proxy /api.
 - Реализованы JWT-авторизация, Argon2-хеширование паролей и сессия.
 - Создан первый администратор moonwarior.
-- Реализовано управление пользователями: список, создание, редактирование, смена пароля, права администратора, блокировка.
+- Реализованы Employee/User, 13 ролей, HUMAN/SERVICE, управление Human account из Employee card, личная смена пароля и блокировка.
 - Реализован минималистичный Dashboard со статусом системы.
 - Реализованы верхняя панель, меню-гамбургер и защищённая навигация.
 - Настроено ежедневное резервное копирование PostgreSQL на HDD в D:\EnterpriseOS\backups\postgresql.
@@ -69,7 +76,9 @@
 - backup/restore tooling для n8n с retention и проверкой резервной копии;
 - рабочий импортируемый n8n workflow.
 
-### Подтверждённое состояние на момент закрытия:
+### Историческое состояние при закрытии Automation Core — 22.07.2026
+
+Это история этапа 2; актуальный baseline указан выше.
 
 - backend suite: 307/307;
 - frontend tests: 36/36;
@@ -172,15 +181,16 @@
 - [x] Реализован выход из системы
 - [x] Создан первый пользователь-администратор
 
-### Пользователи ✅
+### Employee / User ✅
 
-- [x] Список пользователей
-- [x] Создание пользователя
-- [x] Редактирование пользователя
-- [x] Смена пароля
-- [x] Выдача прав администратора
-- [x] Блокировка и разблокировка пользователя
-- [x] Защита администратора от блокировки собственного аккаунта
+- [x] Employee — человек; User — access account (HUMAN/SERVICE).
+- [x] Human account lifecycle через Employee card; Users page остаётся legacy route.
+- [x] 13 фиксированных ролей, backend permissions/allowed_actions/ActionContext.
+- [x] Увольнение блокирует доступ, история сохраняется.
+- [x] Личная смена пароля HUMAN без current password; SERVICE запрещён.
+- [x] Immutable audit и human-readable UI; raw Audit Explorer только ADMIN.
+
+Детали — [Stage 3.1P spec](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md).
 
 ### Главное окно ✅
 
@@ -252,7 +262,7 @@
 - [x] Создать универсальный workflow-диспетчер
 - [x] Добавить программную проверку доступности в N8nProvider
 - [x] Не создавать отдельный workflow для каждого пользовательского регламента
-- [x] Добавить технический экран состояния для platform_admin
+- [x] Добавить технический экран состояния для ADMIN
 - [x] Настроить production backup и restore tooling локального n8n
 - [x] Настроить retention и провалидировать созданную резервную копию
 - [x] Добавить healthchecks n8n и n8n-postgres
@@ -310,20 +320,19 @@
 
 Перенести работу отдела снабжения в EnterpriseOS.
 
-Текущий укрупнённый статус на 18.09.2026: Stage 3.0 DONE; обязательный
-operational scope 3.1A/3.1B завершён и production-verified. Закупочный operational
-scope 3.1C реализован и развёрнут по baseline владельца `f8ab3a3` / Alembic
-`20260917_0056`; incoming receipt lifecycle PRODUCTION_READY, реальный EOS
-business receipt smoke ещё не выполнен. Весь Stage 3 не завершён.
-Weighted Average/Substitutions сознательно deferred, не текущие blockers.
-Детали и источники — только в [canonical Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md).
+**CURRENT:** 3.0 DONE; operational 3.1A/3.1B/3.1C production/business verified;
+3.1P **DONE и развёрнут**. 3.2 **PARTIAL**: request window и Supply передача
+работают; ТТК, chef confirmation и production plan/fact — TODO.
+Весь Stage 3 не завершён. Weighted Average/Substitutions — DEFERRED.
+Текущая iiko integration работает, но архитектурно временная; research/redesign — TODO.
+Детали и задачи — только в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md).
 
 - [x] Справочник поставщиков — foundation; расширенные поля частично
 - [x] Справочник товаров
 - [x] Заявки подразделений
 - [x] Планирование закупок — canonical needs/requests и ручное распределение
 - [x] Заказы поставщикам
-- [x] Приёмка товара — реализована/развёрнута, business smoke pending
+- [x] Приёмка товара — operational scope production/business verified
 - [x] Перемещение на склад — закрытый operational scope 3.1B, INTERNAL_TRANSFER NEW
 - [x] История закупок — связанные заказы/документы/приёмки/оплаты
 - [ ] Правила Min/Max
@@ -536,6 +545,12 @@ n8n не относится к этому этапу как поздняя ин�
 EnterpriseOS развивается эволюционно.
 
 ## Changelog
+
+Исторические записи ниже относятся к своей дате, не к текущему baseline.
+
+### 2026-10-06
+
+- Синхронизированы baseline и укрупнённые статусы Stage 3.1P/3.2; детали сохранены в Supply roadmap.
 
 ### 2026-07-27
 

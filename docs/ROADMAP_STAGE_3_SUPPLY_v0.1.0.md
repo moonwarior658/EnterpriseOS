@@ -2,8 +2,8 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **28 сентября 2026 года**
-Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; следующий обязательный подэтап — 3.1P «Пользователи и ответственность», после него — 3.2 «Производственная потребность».**
+Дата обновления: **6 октября 2026 года**
+Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; 3.1P DONE и развёрнут; 3.2 PARTIAL: source/request window работает, производственный расчёт и проверка шефом — TODO.**
 Общий прогресс этапа 3: **не завершён; без фиктивного процента по разному объёму пунктов.**
 
 ---
@@ -53,7 +53,33 @@ docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md
 
 ---
 
-## Current production snapshot — 18.09.2026
+## Current production baseline
+
+**CURRENT — 06.10.2026.** Git: `eb59755cb0a6061b44fe7c8a56cae3232400a750`
+(`eb59755`); Alembic: `20261002_0068`; Stage 3.1P: **DONE, развёрнут**.
+Production DB head и синхронизация Mac / origin / production зафиксированы
+по контрольной точке владельца; этот проход проверяет локальный код, а не
+повторяет live-аудит сервера. Документационный commit будет поверх этого baseline.
+
+- **CURRENT:** 13 фиксированных ролей; Employee — человек, User — access account;
+  HUMAN/SERVICE разделены. Human account управляется из карточки Employee.
+- **CURRENT:** backend `allowed_actions` / `ActionContext` определяет доступ;
+  immutable audit хранит исторический контекст и показывается понятным языком.
+- **CURRENT:** Seller SupplyRequest использует системное окно Regulatory Tasks;
+  cycle, direction и need date назначаются backend. Детали — в
+  [Supply spec](eOS_STAGE_3_SUPPLY.md#31-current--seller-supplyrequest).
+- **CURRENT:** ремонт имеет ответственность HANDYMAN / SUPPLY_MANAGER,
+  external contractor, визит, стоимость и документы; см.
+  [Repair workflow](REPAIR_WORKFLOW_BUSINESS_SPEC_v1.md).
+- **TEMPORARY:** ручной выбор активной RETAIL_POINT для Seller SupplyRequest
+  без надёжного shift context; это исключение только для SupplyRequest.
+- **TODO:** отдельный research/redesign iiko integration. Текущие linking,
+  shifts и mappings работают, но архитектура интеграции не считается финальной.
+
+Исторические snapshot/changelog ниже описывают свою дату. Они не задают
+текущий SHA/head, доступ или статус Stage 3.1P.
+
+## Исторический production snapshot — 18.09.2026
 
 - Production baseline, сообщённый владельцем: `f8ab3a355f5ec49f7468e2ff868e1b0e17364a2a`, Alembic `20260917_0056`.
 - В этом аудите локально проверено: `HEAD = main = origin/main = baseline`; до правок дерево чистое. Это локальный remote-tracking ref, не новый fetch и не live SSH-проверка production.
@@ -65,7 +91,7 @@ docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md
 
 ## Статусы и архитектурные инварианты
 
-`DONE` — реализован описанный operational scope; `DONE_DIFFERENTLY` — результат достигнут другим способом, исходный замысел и остаток сохранены; `PARTIAL` — исходный пункт покрыт частично; `DEFERRED` — явно отложен; `NOT_STARTED` — реализации не найдено; `BLOCKED_EXTERNAL` — подтверждённая внешняя зависимость препятствует работе. `DEPLOYED` и `PRODUCTION_READY` — отдельные оси, не синонимы `BUSINESS_SMOKED`.
+`CURRENT` — действующее поведение на baseline; `TEMPORARY` — действующее временное исключение; `TODO` — требуется реализация; `DONE` — реализован описанный operational scope; `DONE_DIFFERENTLY` — результат достигнут другим способом, исходный замысел и остаток сохранены; `PARTIAL` — исходный пункт покрыт частично; `DEFERRED` — явно отложен; `NOT_STARTED` — реализации не найдено; `BLOCKED_EXTERNAL` — подтверждённая внешняя зависимость препятствует работе. `DEPLOYED` и `PRODUCTION_READY` — отдельные оси, не синонимы `BUSINESS_SMOKED`.
 
 P0 — препятствие безопасной эксплуатации; P1 — необходимая проверка/ограничение для доказанного operational completion; P2 — optional/later enhancement; NONE — нет текущего блокера. Приоритет ниже относится к остатку, а не к уже выполненной функции.
 
@@ -76,13 +102,12 @@ Order ≠ confirmation ≠ document ≠ acceptance ≠ payment ≠ accounting fa
 ```text
 SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation
 → SupplierOrder → SupplierConfirmation → SupplierDocument → SupplierAcceptance
-→ SupplyIikoIncomingReceipt → POSTED iiko accounting fact
-→ Payment / Settlement → Cash Flow / Coverage
+→ SupplyIikoIncomingReceipt → Internal Transfer → Payment / Settlement
 ```
 
 Это схема прослеживаемости, не обязательная временная последовательность: предоплата возможна раньше приёмки; acceptance может начинаться от order/confirmation, но receipt требует документного ценового основания. Payment/Settlement независимы от POSTED. Coverage считает attributable acceptance, accounting facts — только POSTED. Закрытие Acceptance→iiko accounting не меняет границу `INTERNAL_TRANSFER`: он по-прежнему остаётся `NEW`.
 
-Полная доказательная матрица, аудит полей/вложений и источники: [Stage 3 audit 18.09.2026](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
+Историческая доказательная матрица, аудит полей/вложений и источники: [Stage 3 audit 18.09.2026](STAGE_3_SUPPLY_AUDIT_2026-09-18.md).
 
 # Границы этапа
 
@@ -116,7 +141,7 @@ SupplyRequest → ProcurementNeed → PurchaseRequest → SupplierAllocation
 - автоматическое сравнение PDF в первой версии;
 - интеграция с 1С;
 - банковская интеграция;
-- финальная система ролей сотрудников;
+- конструктор ролей, произвольные permissions и делегирование; фиксированный RBAC уже реализован;
 - итоговая дизайн-система EnterpriseOS.
 
 ---
@@ -315,7 +340,7 @@ production и проверен 2 августа 2026 года. Восемь пе
 
 ### Итог Stage 3.1A
 
-- Публичная Supply-форма.
+- Авторизованная Supply-форма; прежний публичный API выведен из эксплуатации.
 - Автоматическое открытие и закрытие циклов через Automation Core.
 - Реестр Supply-заявок.
 - Упрощённое исполнение заявки.
@@ -336,7 +361,7 @@ production и проверен 2 августа 2026 года. Восемь пе
 - Активный долг хранится по подразделению + товару EOS + единице; разные
   единицы до Stage 3.4 не объединяются.
 
-### Первый backend-срез — Supply Request Foundation
+### Исторический первый backend-срез — Supply Request Foundation
 
 - [x] `departments` и `supply_request_directions`.
 - [x] `supply_requests` и `supply_request_lines`.
@@ -522,7 +547,7 @@ backend-срезы вводят их поэтапно; урезанная про
 - [x] Добавить optimistic locking.
 - [x] Хранить номер версии.
 - [x] Защитить заявку от тихой перезаписи.
-- [ ] После внедрения пользователей пересмотреть UX блокировок.
+- [ ] Пересмотреть UX edit lock: Employee/User уже реализованы; optimistic version сохраняется.
 - [x] Оставить техническую проверку версии как предохранитель.
 
 ## 3.1A.13. Дубли
@@ -740,8 +765,8 @@ hardcode.
       дублей.
 - [x] Истёкшие циклы закрываются не раньше `hard_closes_at`, с fallback на
       `closes_at`; `CLOSED` и `CANCELLED` не изменяются.
-- [x] Публичная Supply-форма только читает доступные циклы и не создаёт их
-      при GET-запросе.
+- [x] Авторизованная Supply-форма только читает доступные циклы и не создаёт их
+      при GET-запросе; публичный Supply API отключён.
 - [x] По умолчанию используется `Asia/Yekaterinburg`; отдельный календарный
       модуль и production seed расписаний не добавлены.
 
@@ -1613,8 +1638,9 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 - Исходный замысел: Номер/дата/поставщик/сумма/НДС/строки/файл, сверка, несколько документов на закупку.
 - Факт: Domain document DONE: INVOICE/DELIVERY_NOTE/UPD, metadata, lines/pricing basis, financial_role, immutable RECORDED; order/confirmation/acceptance links, несколько документов.
-- Остаток: Нет binary attachment, отдельных VAT fields и полного статуса трёхсторонней сверки; один документ относится к одному order.
-- Причина/граница: Структурированный операционный документ не является PDF или налоговым регистром.
+- CURRENT: binary attachments документов поставщика реализованы (API/UI).
+- Остаток: отдельных VAT fields и полного статуса трёхсторонней сверки нет; один документ относится к одному order.
+- Причина/граница: документ с вложением остаётся операционным фактом EOS, не налоговым регистром.
 
 ## 3.1C.15. Оплаты
 
@@ -1622,8 +1648,12 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 - Исходный замысел: Отдельная оплата, частичные/несколько оплат, пред-/постоплата, просрочка, поручение, комментарий и история.
 - Факт: Domain payment DONE: RECORDED facts, payment amount/date, pre/postpayment, payment-order number/date, comment; explicit allocations, overdue при известном due date.
-- Остаток: Нет файла поручения/proof; даты платежа не назначаются догадкой; банковской интеграции нет.
-- Причина/граница: Метаданные поручения реализованы, binary proof — отдельное optional enhancement.
+- CURRENT: SupplierPayment всегда имеет supplier; order nullable. Оплата связанного
+  order может быть частичной, суммарная зафиксированная оплата не превышает сумму
+  order. PREPAYMENT без order — разрешённый аванс поставщику. Фото платежа реализовано.
+- Остаток: банковской интеграции нет; POSTPAYMENT требует документного основания.
+- Граница: payment, order и settlement — разные business facts; аванс не получает
+  автоматического распределения по заказам/обязательствам.
 
 ## 3.1C.16. Взаиморасчёты
 
@@ -1682,7 +1712,7 @@ signed-return, Dashboard exception и отдельное покрытие уже
 
 | Область | Реальный остаток / статус | Operational 3.1C / приоритет |
 |---|---|---|
-| 3.0 | DONE: принят ADR-002; финальные permissions и алгоритмы в нём намеренно оставлены поздним этапам | NONE |
+| 3.0 | DONE: принят ADR-002; RBAC реализован в 3.1P, будущие алгоритмы остаются отдельно | NONE |
 | 3.1A | Admin departments/codes, unknown-unit clarification, candidate queue/approval levels, таймеры 5/10 минут и предупреждения, временный edit lock, tooltip долгов — NOT_STARTED/PARTIAL; optimistic locking уже есть | Не блокирует, P2 / 3.4 |
 | 3.1A расписания | DONE_DIFFERENTLY: жёсткие понедельник/четверг и часы obsolete как hardcode; используются настраиваемые циклы Automation Core | NONE |
 | 3.1A supplier aliases | В Product↔Supplier есть supplier name/SKU; полноценного alias ingestion/learning нет | P2 |
@@ -1693,215 +1723,94 @@ signed-return, Dashboard exception и отдельное покрытие уже
 | 3.1B print | Ошибки и history есть в карточке; общий Dashboard print exceptions отсутствует | P2 / 3.3 |
 | 3.1C master/selection | Отсутствующие поля supplier, minimum quantity, supplier aliases, reliability metrics, quantity/date deviation statistics, прогноз дефицита и auto-alternate supplier | P2, optional enhancements |
 | 3.1C minimum | Недобор виден; hard block, future-demand suggestion и календарный подбор отсутствуют | P2, manual decision достаточен |
-| 3.1C inbound/files | Нет inbound supplier email ingestion/thread, confirmation PDF, document binary, payment proof и generic procurement attachment model | P2, optional для структурированного ручного MVP |
+| 3.1C inbound/files | CURRENT: supplier document attachments и payment photo. TODO: inbound email/thread, confirmation PDF и generic procurement attachments | P2, расширение текущего ручного MVP |
 | 3.1C VAT/reconciliation | Нет отдельной VAT-модели/полной трёхсторонней сверки; omission в текущем safe receipt contract не означает налоговую функциональность. Multi-order supplier document отсутствует | P2; расширенный контракт согласовывать до реализации |
 | 3.1C.4 / .11 | DEFERRED по решениям выше; в production отсутствуют | NONE, будущие enhancements |
 | 3.1C.17–.18 | Реализованы/развёрнуты; реальная EOS acceptance→receipt→POSTED подтверждена business smoke | NONE для operational completion; P2-ограничения receipt ниже сохраняются |
 | 3.1C email и остальные сценарии | Operational contour production/business verified; получение email адресатом и состав master data не подтверждены отдельными артефактами | P2 — дополнительный evidence/observability; не блокирует завершённый operational scope |
 | 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot | P2 UX/observability |
-| 3.1P | NOT_STARTED: User↔Employee, обязательные данные сотрудника, подразделения, утверждённые бизнес-роли, iiko employee/смены, actor и immutable audit trail | Обязательный подэтап до перехода к 3.2; governing spec — `STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md` |
-| 3.2 | NOT_STARTED: production plan/ТТК/chef confirmation, выпуск/списание и анализ отклонений | Следующий этап после завершения 3.1P |
+| 3.1P | DONE и развёрнут: Employee/User, 13 ролей, ActionContext, iiko linking/shifts и immutable audit | [Employee/User spec](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md) |
+| 3.2 | PARTIAL: source/request window и передача canonical needs работают; ТТК/chef/production plan-fact — TODO | См. 3.2A–3.2E ниже |
 | 3.3 | PARTIAL: базовый Dashboard заявок/mapping/debt есть; unified procurement/print exceptions, owner/deadline/severity не реализованы | Later stage, P2 |
-| 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; финальные permissions, departments admin, графики, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2; базовая iiko-связь Employee и факты личных смен перенесены в обязательный 3.1P |
+| 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; расширения permissions, departments admin, графики, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2; базовая iiko-связь Employee и факты личных смен перенесены в обязательный 3.1P |
 | Main roadmap | Min/Max, auto-order по календарю поставщиков и полная политика кратности не реализованы; package allocation уже есть | P2 / будущий согласованный scope |
 
-Локальных незадеплоенных feature commits относительно предоставленного production SHA не обнаружено; migrations в repo не опережают `0056`. Новые правки этого аудита — только локальные документы. У перечисленных отсутствующих функций нет законченного сквозного API/UI; наличие отдельных enum/полей/Repair attachments не закрывает feature. `BLOCKED_EXTERNAL` для текущего safe receipt contour не обнаружен: старый запрет из-за неизвестного incoming write contract obsolete после технического smoke. Неизвестные package/VAT/legacy контракты остаются ограничениями расширения, а не доказанным P0 текущего контура.
+Локальный код сверяется с `eb59755`; repository Alembic head — `20261002_0068`.
+Наличие отдельного поля или enum не закрывает feature. Старый запрет incoming
+receipt write obsolete для работающего контура; package/VAT/legacy ограничения
+остаются границами расширения. iiko integration в целом требует отдельного research.
 
 ### Next recommended work
 
-Следующий обязательный подэтап — **Stage 3.1P «Пользователи и ответственность»**. Переход к **Stage 3.2 «Производственная потребность»** выполняется только после завершения 3.1P. Scope, архитектура и требования Stage 3.2–3.4 остаются без изменений.
+Stage 3.1P **DONE**. Следующий продуктовый объём — недостающие части 3.2;
+iiko contracts research — отдельная задача без заранее выбранной новой модели.
 
 ### Критерий готовности 3.1C
 
-**Operational completion — подтверждено 28.09.2026.**
+**DONE в operational scope; production/business verified.** Реальный EOS receipt
+smoke выполнен; технический contract smoke сам по себе не заменяет business smoke.
+Needs/order/acceptance/receipt/settlement прослеживаются; accounting facts учитывают
+только POSTED receipt, coverage и денежные факты независимы. Неизвестный внешний
+результат требует reconciliation, без blind retry.
 
-Реализация текущего operational scope присутствует в production. Реальный EOS business smoke выполнен; **Stage 3.1C считается production/business verified и operationally complete**. Известных P0 по зафиксированному результату не осталось.
-
-Выполненный business smoke подтверждает operational contour на реальных фактах:
-
-- каждая потребность прослеживается до allocation/order либо явно видна как uncovered/UNKNOWN_LEGACY;
-- заказанные количества прослеживаются до acceptance, shortage/rejected/excess имеют видимое решение;
-- receipt-eligible accepted quantities прослеживаются до POSTED accounting facts; непринятое не проводится, заблокированное не теряется;
-- supplier documents, obligations, payments и allocations прослеживаются; долг, переплата, overdue/unknown due date и exceptions видны;
-- coverage и денежные факты независимы, недозакупка не скрыта как экономия;
-- ошибка/неизвестный внешний результат сохраняется и разрешается явно, не порождая blind retry;
-- реальный EOS business smoke зафиксирован отдельно от технического iiko contract smoke.
-
-Weighted Average/Substitutions — deferred enhancements, не blockers. Общий Stage 3 остаётся незавершённым из-за обязательного Stage 3.1P, Stage 3.2, полного 3.3/3.4 и сохранённых остатков исходного scope; закрытие operational 3.1A/3.1B/3.1C не означает 100% всей исходной спецификации.
+Weighted Average/Substitutions — **DEFERRED**, не MVP blockers. Весь Stage 3
+не завершён: остаются 3.2, полный 3.3/3.4 и явно перечисленные остатки.
 
 ---
 
 # Этап 3.1P — Пользователи и ответственность
 
-Прогресс: **3.1P-A / 3.1P-B / 3.1P-C / 3.1P-D / 3.1P-E реализованы локально; Stage 3.1P не production-complete**
-Статус: **обязательный подэтап до перехода к Stage 3.2 «Производственная потребность»**
+**DONE, развёрнут на текущем production baseline.**
 
-Цель этапа: EOS должен однозначно знать, кто вошёл в систему, где работает, в какой роли действует и какие бизнес-действия совершает.
+- [x] Employee/User разделены; HUMAN account управляется из Employee card;
+  SERVICE отделён и не связывается с Employee.
+- [x] 13 фиксированных ролей, назначения подразделений и lifecycle history.
+- [x] Увольнение блокирует account; reactivate не восстанавливает назначения молча.
+- [x] iiko linking, shift sync и explicit mappings работают.
+- [x] Backend `allowed_actions` / `ActionContext`, multi-role `authorized_as`.
+- [x] Immutable audit, исторические snapshots и human-readable UI; Audit Explorer
+  только ADMIN. Downstream Supply API пишет аудит в транзакции бизнес-действия.
+- [x] Собственный пароль authenticated HUMAN: новый + confirmation в UI,
+  без current password; SERVICE запрещён, чужой User этим flow не изменяется.
 
-Governing business spec: [STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md). При расхождении краткого roadmap-блока с детальной моделью применяется эта спецификация; неоднозначности не угадываются.
-
-## 3.1P.1. User и Employee
-
-### 3.1P-B Admin UI — реализовано 28.09.2026
-
-- [x] Добавлен ADMIN-only реестр сотрудников с поиском и фильтрами по статусу, подразделению и роли.
-- [x] Добавлены создание и редактирование `Employee`, первоначальные роли и основное подразделение.
-- [x] Добавлены связь/отвязка существующего HUMAN `User` и создание HUMAN `User` через существующий admin API; SERVICE и уже связанные учётные записи не предлагаются.
-- [x] Добавлена карточка сотрудника с текущими назначениями и историей ролей, подразделений и lifecycle events.
-- [x] Добавлены назначения и завершение ролей/подразделений, увольнение и реактивация с обязательной явной причиной.
-- [x] После мутаций карточка перечитывает authoritative state backend; delete `Employee` отсутствует.
-
-Срез не меняет backend 3.1P-A и не закрывает Stage 3.1P целиком. iiko-связь, личные смены, shift gate, actor/immutable audit rollout и остальные критерии 3.1P остаются следующими срезами 3.1P-C/D/E.
-
-### 3.1P-C iiko identity + personal shifts — реализовано локально 28.09.2026
-
-- [x] Добавлена историческая связь `Employee ↔ iiko employee` по стабильному `iiko_user_id`, с ADMIN confirmation, обязательной причиной и запретом конфликтующих активных связей.
-- [x] Добавлены поиск кандидатов через существующий `IikoProvider`, безопасное исправление связи отдельным периодом и атомарная перепривязка сохранённых смен затронутого периода.
-- [x] Добавлено идемпотентное сохранение открытия/закрытия личных смен из `employees/attendance`: рабочее время берётся только из `personalDateFrom` / `personalDateTo`, а reconciliation выполняется по стабильной паре `employeeId + personalDateFrom`, поскольку `attendance.id` может меняться.
-- [x] Фактическое подразделение смены определяется по `attendance.departmentId` только через отдельный подтверждённый `IikoDepartmentMapping`; UUID склада не считается UUID подразделения. Неизвестный внешний department сохраняется как unresolved без создания или угадывания Department.
-- [x] Добавлены ручной ADMIN refresh, локальный тип Automation Core для polling и базовый блок iiko/смен в карточке Employee.
-
-Контракт parser/mapping/idempotency сверен 29.09.2026 с официальной документацией iiko по Employee и Attendance. Employee identity берётся из `Employee.id`; optional `birthday` используется только как дополнительный match hint; системные/non-employee записи исключаются из кандидатов; iiko roles не участвуют в EOS authorization. Срез не закрывает Stage 3.1P целиком; production deployment и business smoke не выполнялись.
-
-### 3.1P-D Authorization & shift write gate — реализовано локально 29.09.2026
-
-- [x] Добавлен единый runtime `ActionContext`, связывающий Human User с ACTIVE Employee, действующими ролями, основным и фактическим подразделением, активной личной сменой iiko и подтверждением подмены.
-- [x] Для `SELLER` отсутствие активной resolved смены запрещает shift-required write, но не разрешённое чтение; остальные зафиксированные роли не получают автоматическое требование iiko-смены.
-- [x] Подмена подтверждается только перед первым relevant write конкретной смены и хранится отдельным lightweight-фактом `ShiftDepartmentConfirmation`.
-- [x] Первым migrated flow стало authenticated создание `SupplyRequest`: backend не доверяет произвольному `department_id`, а seller read ограничен собственными заявками и доступной точкой.
-- [x] Публичные no-auth Supply/Repair flows и остальные ещё не мигрированные модули сохранены без изменения поведения.
-
-Срез не вводит глобальный immutable audit framework, audit explorer или массовую миграцию write-flow. Actor/before-after snapshots и последовательный rollout остальных модулей остаются в 3.1P-E; production deployment и business smoke не выполнялись.
-
-### 3.1P-E Immutable audit & historical responsibility — locally implemented 29.09.2026
-
-- [x] Добавлен единый append-only `AuditEvent` с historical snapshots actor/active roles/effective authorization role/primary и actual Department/shift, meaningful before/after, reason, source и correction link.
-- [x] UPDATE/DELETE audit events запрещены ORM guard и PostgreSQL trigger; исправление создаёт новый event с `correction_of_event_id`.
-- [x] Audit атомарно подключён к Employee create/update, User link/unlink, role/department assignment/end, dismissal/reactivation, iiko-link create/correct, substitution confirmation и `SupplyRequest` create/submit/cancel.
-- [x] Добавлены read-only audit API и простой explorer для `ADMIN`/`DIRECTOR`/`DEPUTY_DIRECTOR`; `SELLER` получает только безопасную историю доступного `SupplyRequest`.
-- [x] Audit payload проходит явную sanitization: password/token/secret, адрес проживания, дата рождения и raw external payload не сохраняются и не выдаются.
-
-Срез реализован и проверен локально. Полный 3.1P всё ещё требует PostgreSQL migration/runtime smoke, browser role smoke, production backup/migration/deploy и последовательного подключения остальных бизнес-flow к `ActionContext → AuditEvent`; технические execution/outbox logs остаются отдельным контуром.
-
-Утверждённая целевая видимость Audit Explorer определена в
-`ACCESS_CONTROL_AND_ROLE_HIERARCHY_v1.md`: только ADMIN. Строка выше сохраняет
-исторический факт локальной реализации 29.09.2026 и не является текущей
-нормативной матрицей доступа.
-
-- [ ] `User` — учётная запись для входа.
-- [ ] `Employee` — сотрудник бизнеса.
-- [ ] Хранить обязательные данные `Employee`: ФИО, дату рождения, фото, телефон, адрес проживания, основное подразделение и роль/роли.
-- [ ] Обычно создавать `Employee` и `User` в одном административном сценарии; допускать существование `Employee` без `User`.
-- [ ] Зафиксировать связь `User ↔ Employee`: один `Employee` — максимум один человеческий `User`.
-- [ ] Автоматически формировать логин из `фамилия.ИО`; конфликт разрешать детерминированным уникальным вариантом.
-- [ ] Генерировать пароль системой; хранить только hash и не восстанавливать пароль из БД.
-- [ ] Не делать самостоятельный password recovery через email/SMS; сброс пароля выполняет ADMIN, а NETWORK_MANAGER — для Human User своего контура; любой Human User меняет собственный пароль при знании текущего. DEPUTY_DIRECTOR не сбрасывает пароль, Service User доступны только ADMIN. См. `ACCESS_CONTROL_AND_ROLE_HIERARCHY_v1.md`.
-- [ ] Обеспечить возможность отключить вход без удаления сотрудника и его истории.
-
-## 3.1P.2. Подразделения
-
-- [ ] Привязать сотрудника к одному или нескольким подразделениям.
-- [ ] Зафиксировать основное подразделение сотрудника.
-- [ ] Сохранять историю переводов и изменений привязок к подразделениям.
-- [ ] Определять фактическое подразделение записывающего действия по активной личной смене iiko.
-- [ ] Если смена открыта не в основном подразделении, перед первым записывающим действием этой смены запрашивать подтверждение работы от фактической точки; подтверждение действует один раз на смену.
-- [ ] Без активной смены разрешать чтение, но запрещать записывающие действия, для которых смена обязательна по бизнес-правилам.
-- [ ] Не распространять обязательность iiko-смены на операционный персонал, который не работает через iiko.
-
-## 3.1P.3. Роли
-
-Минимальный набор бизнес-ролей:
-
-- [ ] `ADMIN`;
-- [ ] `DIRECTOR`;
-- [ ] `DEPUTY_DIRECTOR`;
-- [ ] `ACCOUNTANT`;
-- [ ] `SUPPLY_MANAGER`;
-- [ ] `DRIVER`;
-- [ ] `HANDYMAN`;
-- [ ] `NETWORK_MANAGER`;
-- [ ] `CHEF_CONFECTIONER`;
-- [ ] `CONFECTIONER`;
-- [ ] `BAKER`;
-- [ ] `HEAD_OF_PRODUCTION`;
-- [ ] `SELLER`.
-
-Один `Employee` может иметь несколько ролей. Роль привязана к человеку, а не к подразделению. На этом этапе не создавать конструктор permissions.
-
-## 3.1P.4. Связь с iiko и смены
-
-- [x] После ввода ФИО и даты рождения автоматически искать кандидатов среди сотрудников iiko: ФИО использовать только для поиска, дату рождения — как дополнительный признак подтверждения личности.
-- [x] Финальную связь хранить только по стабильному внешнему `iiko_user_id`; при нескольких кандидатах выбор вручную выполняет `ADMIN`.
-- [x] Не блокировать создание `Employee`, если сотрудника нет в iiko.
-- [x] Не допускать одновременную связь одного `iiko_user_id` с несколькими `Employee`.
-- [x] Исправлять ошибочную связь только через `ADMIN`, с обязательной причиной и полной исторической перепривязкой за весь период жизни пользователя в EOS без удаления audit trail.
-- [x] Считать открытие личной смены iiko началом рабочего времени, а закрытие — окончанием рабочего времени.
-- [x] Идемпотентно сохранять собственный факт смены EOS и использовать его для статистики рабочего времени и будущего расчёта зарплаты.
-- [x] Не создавать отдельный EOS check-in/check-out для персонала, работающего через iiko; check-in checklist точки оставить отдельным будущим процессом.
-
-## 3.1P.5. Ответственность и audit trail
-
-Для новых и последовательно мигрируемых бизнес-операций хранить actor:
-
-- [ ] кто создал;
-- [ ] кто изменил;
-- [ ] кто подтвердил;
-- [ ] когда это произошло;
-- [ ] от имени какого подразделения выполнено действие.
-
-История должна позволять ответить:
-
-- [ ] кто;
-- [ ] что сделал;
-- [ ] когда;
-- [ ] что было до изменения;
-- [ ] что стало после.
-
-- [ ] Аудировать значимые создания, изменения, подтверждения, отмены, смены статуса и административные вмешательства.
-- [ ] Хранить `before/after` значимых бизнес-полей; одно сохранение нескольких полей оформлять одним audit-событием с набором изменений.
-- [ ] Требовать содержательный комментарий для административных изменений `User` / `Employee` / Role / Department / iiko-link.
-- [ ] Запретить изменение и удаление audit даже для `ADMIN`; исправлять только новым корректирующим событием.
-- [ ] Хранить snapshot ФИО, роли, основного и фактического подразделения на момент действия; `actor` и ответственное подразделение хранить раздельно.
-- [ ] Audit Explorer доступен только `ADMIN`; DIRECTOR и DEPUTY_DIRECTOR не видят raw audit. SELLER видит только бизнес-историю доступных ему заявок. См. `ACCESS_CONTROL_AND_ROLE_HIERARCHY_v1.md`.
-- [ ] При увольнении блокировать `User`, сохранять `Employee` и всю историю; дата увольнения и причина обязательны.
-- [ ] При возвращении использовать прежний `Employee`, проверять и актуализировать данные, а роли и подразделения назначать явно на новый период.
-
-Исторические записи не должны теряться после блокировки пользователя, увольнения, возвращения или перевода сотрудника.
-
-**Срез реализации 01.10.2026:** immutable audit и ADMIN-only Audit Explorer работают; SupplyRequest, supplier и payment mutations имеют actor context. Для старой downstream цепочки добавлены события SupplierOrder create/update/ready/cancel. Покрытие ProcurementNeed, PurchaseRequest, Allocation, Confirmation, Document, Acceptance, iiko incoming receipt, transfer и settlement ещё не завершено; критерий полного audit trail остаётся открытым. Публичная Supply-форма отключена (см. статус 3.1A выше); reminder delivery и DRIVER assigned transports отложены до подтверждённых источников и отдельной реализации.
-
-## 3.1P.6. Критерий готовности
-
-Stage 3.1P считается завершённым, когда выполнены критерии governing business spec и EOS может надёжно связать бизнес-действие с конкретным сотрудником, его ролью, фактическим подразделением и при необходимости личной сменой iiko, сохранив неизменяемую историю.
-
-После завершения Stage 3.1P следующим этапом остаётся **Stage 3.2 — «Производственная потребность»**.
+Детали — [Employee/User spec](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md)
+и [RBAC](ACCESS_CONTROL_AND_ROLE_HIERARCHY_v1.md). **TEMPORARY** Seller SupplyRequest
+fallback описан в [Supply spec](eOS_STAGE_3_SUPPLY.md#32-temporary--выбор-точки).
+DRIVER assigned transports — **DEFERRED**: достоверной связи назначения нет.
+Статус DONE не означает завершённого iiko redesign или атрибуции неизвестных
+legacy facts задним числом.
 
 ---
 
 # Этап 3.2 — Производственная потребность
 
-Прогресс: **0%**  
-Статус: **архитектурно зафиксирован, реализация после обязательного Stage 3.1P**
+**PARTIAL**, без фиктивного процента. Предусловие Stage 3.1P выполнено.
 
-- [ ] Связать с производственным планом.
-- [ ] Рассчитать потребность по ТТК.
-- [ ] Формировать предварительную заявку цеха.
-- [ ] Требовать подтверждение шеф-кондитера.
-- [ ] Требовать причину корректировки.
-- [ ] Хранить расчёт EOS.
-- [ ] Хранить корректировку.
-- [ ] Сравнивать с фактическим выпуском.
-- [ ] Сравнивать с фактическим списанием.
-- [ ] Строить историю отклонений.
-- [ ] Предлагать проверить ТТК.
-- [ ] Не изменять ТТК автоматически.
-- [ ] Не удалять ручное подтверждение до доказанной надёжности.
+| Подблок | Статус | Фактическая граница |
+|---|---|---|
+| 3.2A — source/request window | CURRENT / PARTIAL | Seller SupplyRequest/Regulatory Tasks и повторное подтверждение той же заявки работают. TODO: сохранение последней confirmed версии, если правки сохранены как DRAFT и окно закрывается до confirm; см. Supply spec. Это ещё не производственный план |
+| 3.2B — ТТК / расчёт потребности | TODO | Связать production plan с ТТК; рассчитывать потребность и предварительную заявку цеха. Реализация не найдена |
+| 3.2C — проверка шефом | TODO | Confirmation и обоснованная корректировка шефом, сохранение расчёта EOS и изменений. Реализация не найдена |
+| 3.2D — передача в Supply | CURRENT / PARTIAL | Подтверждённый stock calculation заявки создаёт canonical ProcurementNeed; есть PurchaseRequest collector, allocations и orders. Передачи ТТК/chef result пока нет |
+| 3.2E — plan/fact | CURRENT / PARTIAL | Supply requested/planned vs send_quantity, debt и acceptance/accounting/coverage работают. Производственный выпуск/списание/отклонения ТТК — TODO |
+
+- [ ] Сравнивать производственный план с выпуском и списанием, хранить отклонения.
+- [ ] Предлагать проверить ТТК на основании подтверждённых данных.
+- [ ] Не изменять ТТК автоматически и не убирать ручное подтверждение без
+  доказанной надёжности.
 
 ---
 
 # Этап 3.3 — Dashboard и исключения
 
-Статус: **PARTIAL** — базовый Dashboard работает; общий контур закупочных исключений не завершён.
+Статус: **PARTIAL** — operational blocks работают; полный контур исключений не завершён.
+
+**CURRENT:** «Требует внимания» показывает actionable entities: внешние completed
+repairs без стоимости/INVOICE/ACT, новые заявки, mapping и критические долги
+по правам роли. «Назначенные события» показывает ближайшие визиты внешних
+подрядчиков (`waiting_external`, future `visit_at`). Telegram/email не требуются.
+**TODO:** общие internal EOS reminders, ответственный/срок/критичность исключений;
+Dashboard visit card не является уже реализованной доставкой reminder.
 
 - [ ] Проектировать полный состав заранее.
 - [x] Показывать блоки по мере появления функций.
@@ -1932,7 +1841,7 @@ Stage 3.1P считается завершённым, когда выполне�
 
 - [ ] Управление подразделениями из админки.
 - [ ] Управление кодами подразделений.
-- [ ] Финальные permissions.
+- [x] Фиксированный RBAC — завершён в Stage 3.1P; расширения отдельным scope.
 - [ ] Графики работы.
 - [ ] Ответственный за заявку на дату.
 - [ ] Пересмотр временных edit lock.
@@ -2028,6 +1937,14 @@ Checkbox здесь отражает наличие функции в текущ
 ---
 
 # Changelog
+
+Исторические записи ниже относятся к своей дате и не задают текущий статус.
+
+## 2026-10-06
+
+- Документация сверена с `eb59755` / `20261002_0068`; 3.1P DONE.
+- Seller window и TEMPORARY retail fallback отделены от TODO iiko redesign.
+- 3.2 разделён на фактические 3.2A–3.2E; учтены attachments, payments и Dashboard.
 
 Датированные записи ниже сохраняют факты и ограничения на момент записи; последующие решения их уточняют. Старые запреты write/retry и фразы «локально» не являются текущим статусом иных типов документов.
 
