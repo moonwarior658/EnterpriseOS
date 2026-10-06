@@ -39,3 +39,40 @@
 .statistics-chart circle { fill: var(--color-surface-solid); stroke: var(--color-text-secondary); stroke-width: 2; cursor: crosshair; }
 .statistics-chart circle:focus { outline: none; fill: var(--color-text); stroke-width: 3; }
 .statistics-chart-tooltip { position: absolute; top: 24px; right: 28px; display: grid; gap: 6px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface-solid); box-shadow: var(--shadow-small); pointer-events: none; font-size: 13px; }
+
+.statistics-page { min-width: 0; }
+.statistics-page > * { min-width: 0; }
+.statistics-tabs { gap: 4px; padding: 6px; border: 1px solid var(--color-border-soft); border-radius: var(--radius-panel); background: var(--color-surface-muted); }
+.statistics-tabs a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 8px 18px; font-weight: 500; transition: background 150ms, color 150ms; }
+.statistics-tabs a:hover { background: var(--color-surface); color: var(--color-text); }
+.statistics-tabs a[aria-current="page"] { background: var(--color-surface-solid); box-shadow: var(--shadow-small); }
+.statistics-filters { align-items: flex-end; gap: 16px 12px; }
+.statistics-filters label { flex: 1 1 170px; min-width: 0; font-size: 13px; color: var(--color-text-secondary); }
+.statistics-filters input, .statistics-filters select, .statistics-target-form input, .statistics-target-form select { height: 44px; width: 100%; }
+.statistics-filters .secondary-action, .statistics-menu > button, .statistics-target-form .primary-action { height: 44px; padding-block: 9px; white-space: nowrap; }
+.statistics-page .statistics-table a, .statistics-page .statistics-link, .statistics-page .statistics-panel > a, .statistics-page .statistics-panel p > a { color: var(--color-text); font-weight: 600; text-decoration: none; border-radius: 4px; }
+.statistics-page .statistics-table a:hover, .statistics-page .statistics-link:hover, .statistics-page .statistics-panel > a:hover, .statistics-page .statistics-panel p > a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.statistics-page a:focus-visible, .statistics-page button:focus-visible, .statistics-page summary:focus-visible { outline: 2px solid var(--color-text-secondary); outline-offset: 4px; }
+.statistics-title-row { margin-bottom: 16px; }
+.statistics-title-row h2 { margin: 0; }
+.statistics-menu { position: relative; width: fit-content; }
+.statistics-menu-options { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: max-content; max-width: min(320px, 80vw); padding: 6px; border: 1px solid var(--color-border-soft); border-radius: var(--radius-control); background: var(--color-surface-solid); box-shadow: var(--shadow-card); }
+.statistics-menu-options button { display: block; width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
+.statistics-menu-options button:hover, .statistics-menu-options button[aria-pressed="true"] { background: var(--color-surface-muted); }
+.statistics-export { display: grid; gap: 6px; font-size: 13px; }
+.statistics-targets summary { cursor: pointer; font-weight: 600; }
+.statistics-targets summary span { margin-left: 12px; font-weight: 400; }
+.statistics-target-form { margin: 20px 0; }
+.statistics-chart { height: 260px; }
+.statistics-table th { color: var(--color-text-secondary); font-weight: 500; }
+.statistics-table .statistics-sort-heading { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; font: inherit; }
+.statistics-sort-heading:hover { color: var(--color-text); }
+@media (max-width: 620px) {
+  .statistics-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .statistics-tabs a { flex-shrink: 0; padding-inline: 12px; }
+  .statistics-filters label { flex-basis: 100%; }
+  .statistics-filters > button { flex: 1 1 auto; }
+  .statistics-targets summary span { display: block; margin: 8px 0 0; }
+  .statistics-menu-options { right: auto; left: 0; }
+}
+.statistics-panel:has(.statistics-menu-options) { position: relative; z-index: 2; }

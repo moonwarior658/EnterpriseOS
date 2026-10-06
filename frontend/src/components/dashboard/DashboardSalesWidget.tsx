@@ -31,7 +31,7 @@ export function DashboardSalesContent({ kind, data, error = '' }: { kind: SalesW
         {kind === 'executive' && (metrics.revenue.completion_percent !== null
           ? <progress aria-label="Выполнение плана выручки" max={100} value={Math.max(0, Math.min(100, Number(metrics.revenue.completion_percent)))} />
           : <span>План не задан</span>)}
-        {kind === 'network' && <span>Чеки: <b>{fmt(metrics.check_count.fact)}</b></span>}
+        <span>Чеки: <b>{fmt(metrics.check_count.fact)}</b></span>
       </div>}
       <Kpi label="Средний чек" metric={metrics.average_check} money />
       <Kpi label="Наполняемость" metric={metrics.fullness} />

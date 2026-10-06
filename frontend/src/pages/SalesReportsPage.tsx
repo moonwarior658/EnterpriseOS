@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { EosSelect } from '../components/EosFormControls'
 import SalesExportButtons from '../components/SalesExportButtons'
 import { salesRequest, type SalesReport, type SalesReportSummary, type Analytics, type Seller, type Point, type Products, type MetricName } from '../services/salesAnalytics'
-import { metricNumber as fmt } from './salesAnalyticsLogic'
+import { statisticsViews, metricNumber as fmt } from './salesAnalyticsLogic'
 import { salesReportScope } from './salesReportsLogic'
 import './StatisticsPage.css'
 
@@ -33,7 +33,7 @@ export function SalesReportContent({ report }: { report: SalesReport }) {
     </section>)}
   </>
 }
-function Reports({ scope }: { scope: 'full' | 'products' }) {
+function Reports({ scope, roles }: { scope: 'full' | 'products'; roles: string[] }) {
   const [params, setParams] = useSearchParams()
   const kind = params.get('kind') === 'month' ? 'month' : 'week'
   const id = params.get('report') || ''
@@ -50,19 +50,23 @@ function Reports({ scope }: { scope: 'full' | 'products' }) {
     return () => { controller.abort() }
   }, [id, kind, scope, key, refresh])
   const current = result?.key === key ? result : null
-  return <div className="statistics-page">
+  return <div className="page-shell statistics-page">
     <header className="statistics-header"><div><p className="eyebrow">СТАТИСТИКА</p><h1>{scope === 'products' ? 'Отчёты продукции' : 'Отчёты продаж'}</h1></div><Link className="secondary-action" to={`/statistics/${scope === 'products' ? 'products' : 'overview'}`}>Актуальная статистика</Link></header>
-    <button className="secondary-action" onClick={() => setRefresh(n => n + 1)}>Обновить отчёты</button>
-    <label>Период отчёта<EosSelect value={kind} onChange={e => setParams({ kind: e.target.value })}><option value="week">Закрытая неделя</option><option value="month">Закрытый месяц</option></EosSelect></label>
+    <nav className="statistics-tabs" aria-label="Разделы статистики">{statisticsViews(roles).map(view => <Link key={view} to={`/statistics/${view}`}>{{ overview: 'Обзор', points: 'Точки', sellers: 'Продавцы', products: 'Продукция', me: 'Мои показатели' }[view]}</Link>)}<Link to="/statistics/reports" aria-current="page">Отчёты</Link></nav>
+    <section className="page-panel statistics-panel statistics-filters" aria-label="Фильтры отчётов">
+      <label>Период отчёта<EosSelect value={kind} onChange={e => setParams({ kind: e.target.value })}><option value="week">Закрытая неделя</option><option value="month">Закрытый месяц</option></EosSelect></label>
+      <button className="secondary-action" onClick={() => setRefresh(n => n + 1)}>Обновить отчёты</button>
+      {current?.report && <SalesExportButtons key={key} endpoint={`reports/${current.report.id}/export`} query={format => `scope=${scope}&format=${format}`} />}
+    </section>
     {error?.key === key && <p role="alert">{error.text}</p>}
     {!current && error?.key !== key && <p role="status">Загружаем отчёты…</p>}
     {current && <section className="page-panel statistics-panel"><h2>Сохранённые итоги</h2>{current.rows.length ? current.rows.map(r => <p key={r.start}>
       {r.id ? <Link to={`?kind=${kind}&report=${r.id}`}>{r.start} — {r.end}</Link> : <span>{r.start} — {r.end}: {r.reason}. Загружено {r.completeness.current.loaded_days}/{r.completeness.current.expected_days} дней; сравнение {r.completeness.previous.loaded_days}/{r.completeness.previous.expected_days}.</span>}
     </p>) : <p>Пока нет закрытых периодов в доступной истории.</p>}</section>}
-    {current?.report && <><SalesExportButtons key={key} endpoint={`reports/${current.report.id}/export`} query={format => `scope=${scope}&format=${format}`} /><SalesReportContent report={current.report} /></>}
+    {current?.report && <SalesReportContent report={current.report} />}
   </div>
 }
 export default function SalesReportsPage({ roles }: { roles: string[] }) {
   const scope = salesReportScope(roles)
-  return scope ? <Reports key={`${scope}:${roles.join(',')}`} scope={scope} /> : <p>Нет доступа к отчётам</p>
+  return scope ? <Reports key={`${scope}:${roles.join(',')}`} scope={scope} roles={roles} /> : <p>Нет доступа к отчётам</p>
 }

@@ -24,3 +24,39 @@ export function workspaceQuery(params: URLSearchParams, view: string) {
   if (['overview', 'points'].includes(view)) for (const name of ['iiko_product_id', 'category']) if (params.get(name)) query.set(name, params.get(name)!)
   return query.toString()
 }
+
+export type ProductSortKey = 'product_name' | 'department_name' | 'category' | 'quantity' | 'revenue' | 'previous_quantity' | 'previous_revenue'
+export function sortSalesProducts<T extends Record<ProductSortKey, string | null>>(rows: readonly T[], key: ProductSortKey, direction: 'asc' | 'desc') {
+  const text = ['product_name', 'department_name', 'category'].includes(key)
+  const label = (row: T) => row[key] || (key === 'category' ? 'Без категории' : 'Без названия')
+  return [...rows].sort((a, b) => (text ? label(a).localeCompare(label(b), 'ru') : Number(a[key]) - Number(b[key])) * (direction === 'asc' ? 1 : -1))
+}
+
+// Picker values remain ordinary API anchors; the source timezone supplies today.
+export function salesPeriodOptions(kind: 'month' | 'week', historyFrom: string, today: string) {
+  if (!historyFrom || !today) return []
+  const day = new Date(`${today}T12:00:00Z`)
+  if (kind === 'month') day.setUTCDate(1)
+  else day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7)
+  const options: { value: string; label: string }[] = []
+  while (day.toISOString().slice(0, 10) >= historyFrom) {
+    const value = day.toISOString().slice(0, 10)
+    const end = new Date(day)
+    end.setUTCDate(end.getUTCDate() + 6)
+    const label = kind === 'month'
+      ? day.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' }).replace(/ г\.$/, '')
+      : `${day.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })} — ${end.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })}`
+    options.push({ value, label: label[0].toUpperCase() + label.slice(1) })
+    if (kind === 'month') day.setUTCMonth(day.getUTCMonth() - 1)
+    else day.setUTCDate(day.getUTCDate() - 7)
+  }
+  return options
+}
+export function salesPeriodAnchor(kind: 'month' | 'week', anchor: string) {
+  if (!anchor) return ''
+  const day = new Date(`${anchor}T12:00:00Z`)
+  if (Number.isNaN(day.getTime())) return ''
+  if (kind === 'month') day.setUTCDate(1)
+  else day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7)
+  return day.toISOString().slice(0, 10)
+}

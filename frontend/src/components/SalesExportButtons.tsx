@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import SalesControlMenu from './SalesControlMenu'
 import { downloadSalesExport } from '../services/salesAnalytics'
 
 export default function SalesExportButtons({ endpoint, query }: { endpoint: string; query: (format: 'xlsx' | 'pdf') => string }) {
@@ -14,9 +15,11 @@ export default function SalesExportButtons({ endpoint, query }: { endpoint: stri
     catch (e) { if (!request.signal.aborted) setError(e instanceof Error ? e.message : 'Не удалось сформировать экспорт') }
     finally { controller.current = null; if (!request.signal.aborted) setBusy(false) }
   }
-  return <div className="statistics-title-row" aria-label="Экспорт статистики">
-    <button className="secondary-action" disabled={busy} onClick={() => { void download('xlsx') }}>Excel</button>
-    <button className="secondary-action" disabled={busy} onClick={() => { void download('pdf') }}>PDF</button>
+  return <div className="statistics-export" aria-label="Экспорт статистики">
+    <SalesControlMenu label={busy ? 'Формируем файл…' : 'Выгрузить'} disabled={busy} items={[
+      { label: 'Excel', onSelect: () => { void download('xlsx') } },
+      { label: 'PDF', onSelect: () => { void download('pdf') } },
+    ]} />
     {busy && <span role="status">Формируем файл…</span>}{error && <span role="alert">{error}</span>}
   </div>
 }

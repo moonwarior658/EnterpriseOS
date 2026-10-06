@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { metricNumber as fmt } from './salesAnalyticsLogic'
 import { previousDayDelta, trendGeometry, type TrendRow } from './salesTrendLogic'
 
-const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('ru-RU')
+const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', weekday: 'short' })
 export default function SalesTrendChart({ rows: input, title = 'Динамика выручки', money = false }: { rows: TrendRow[]; title?: string; money?: boolean }) {
   const model = trendGeometry(input)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -14,7 +14,7 @@ export default function SalesTrendChart({ rows: input, title = 'Динамика
     <div className="statistics-chart-scroll"><div className="statistics-chart-frame" onPointerLeave={() => setHovered(null)}>
       <svg className="statistics-chart" viewBox="0 0 760 275" role="group" aria-label={`${title}. Даты по горизонтали, значения по вертикали. Выберите точку для подробностей.`}>
         {model.ticks.map((value) => <g key={value}><line className="statistics-chart-grid" x1="85" x2="735" y1={model.y(value)} y2={model.y(value)} /><text x="75" y={model.y(value) + 4} textAnchor="end">{fmt(value)}</text></g>)}
-        {model.dates.map((date) => <g key={date}><line className="statistics-chart-grid" x1={model.x(date)} x2={model.x(date)} y1="30" y2="225" /><text x={model.x(date)} y="247" textAnchor="middle">{dateLabel(date).slice(0, 5)}</text></g>)}
+        {model.dates.map((date) => <g key={date}><line className="statistics-chart-grid" x1={model.x(date)} x2={model.x(date)} y1="30" y2="225" /><text x={model.x(date)} y="247" textAnchor={model.x(date) > 700 ? 'end' : 'middle'}>{dateLabel(date)}</text></g>)}
         <line className="statistics-chart-axis" x1="85" x2="735" y1="225" y2="225" /><line className="statistics-chart-axis" x1="85" x2="85" y1="30" y2="225" />
         <text x="85" y="17">{money ? 'Сумма, ₽' : 'Значение'}</text><text x="735" y="269" textAnchor="end">Дата</text>
         {model.segments.map((segment) => <polyline key={segment[0].date} points={segment.map((r) => `${model.x(r.date)},${model.y(r.value!)}`).join(' ')} />)}

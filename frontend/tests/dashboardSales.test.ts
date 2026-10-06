@@ -15,9 +15,9 @@ const status = { last_success_at: '2026-10-06T10:00:00Z', source_timezone: 'Asia
 const seller = (id: string) => ({ employee_id: id, employee_name: `Продавец ${id}`, metrics: analytics.metrics })
 
 test('role visibility, precedence, navigation and vertical grid size', () => {
-  for (const role of ['ADMIN', 'CHEF_CONFECTIONER', 'HEAD_OF_PRODUCTION', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'DRIVER', 'HANDYMAN', 'BAKER', 'CONFECTIONER', 'UNKNOWN']) assert.equal(dashboardSalesKind([role]), null)
+  for (const role of ['CHEF_CONFECTIONER', 'HEAD_OF_PRODUCTION', 'ACCOUNTANT', 'SUPPLY_MANAGER', 'DRIVER', 'HANDYMAN', 'BAKER', 'CONFECTIONER', 'UNKNOWN']) assert.equal(dashboardSalesKind([role]), null)
   assert.equal(dashboardSalesKind([]), null)
-  for (const [role, kind, size] of [['SELLER', 'personal', '1x1'], ['NETWORK_MANAGER', 'network', '1x2'], ['DIRECTOR', 'executive', '1x2'], ['DEPUTY_DIRECTOR', 'executive', '1x2']] as const) {
+  for (const [role, kind, size] of [['ADMIN', 'executive', '1x2'], ['SELLER', 'personal', '1x1'], ['NETWORK_MANAGER', 'network', '1x2'], ['DIRECTOR', 'executive', '1x2'], ['DEPUTY_DIRECTOR', 'executive', '1x2']] as const) {
     assert.equal(dashboardSalesKind([role]), kind)
     assert.equal(dashboardSalesDestination(kind), `/statistics/${kind === 'personal' ? 'me' : 'overview'}?period=month`)
     const [layout] = layoutDashboardWidgets([{ id: 'sales', size }])
