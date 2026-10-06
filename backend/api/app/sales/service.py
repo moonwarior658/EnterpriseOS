@@ -195,16 +195,52 @@ class ReconciledOrder:
     issue: str | None = None
 
 
-def reconcile(db: Session, state: SalesSyncState) -> list[ReconciledOrder]:
+def reconciliation_facts(db: Session, state: SalesSyncState, *,
+                         start: date | None = None, end: date | None = None) -> list[SalesFact]:
+    """Bound original receipts by date, then fetch their complete return component.
+
+    Expand both directions and fetch whole receipts: malformed multi-source rows,
+    missing roots, chains and cycles must retain A1's fail-closed semantics.
+    Refund dates are deliberately unbounded; they restate the original sale day.
+    The unbounded mode is retained for A1 diagnostics, never used by analytics.
+    """
+    scope = (SalesFact.tenant_id == state.tenant_id,
+             SalesFact.source_id == state.source_id, SalesFact.is_present.is_(True))
+    if start is None and end is None:
+        return list(db.scalars(select(SalesFact).where(*scope)).all())
+    if start is None or end is None or start > end:
+        raise SalesContractError("SALES_PERIOD_INVALID")
+    frontier = set(db.scalars(select(SalesFact.iiko_order_id).where(
+        *scope, SalesFact.business_date.between(start, end), SalesFact.source_order_id.is_(None),
+    ).distinct()).all())
+    visited, facts = set(), {}
+    while frontier:
+        # Batch IN predicates to keep the number of bound parameters bounded.
+        pending = list(frontier)
+        discovered = set()
+        for offset in range(0, len(pending), 400):
+            batch = pending[offset:offset + 400]
+            rows = db.scalars(select(SalesFact).where(*scope, or_(
+                SalesFact.iiko_order_id.in_(batch), SalesFact.source_order_id.in_(batch),
+            ))).all()
+            for fact in rows:
+                facts[fact.id] = fact
+                discovered.add(fact.iiko_order_id)
+                if fact.source_order_id is not None:
+                    discovered.add(fact.source_order_id)
+        visited.update(frontier)
+        frontier = discovered - visited
+    return list(facts.values())
+
+
+def reconcile(db: Session, state: SalesSyncState, *,
+              start: date | None = None, end: date | None = None) -> list[ReconciledOrder]:
     """Returns restate the original sale day and inherit its seller/point.
 
     Missing sources/ambiguous identities stay unresolved. Never count a linked
     refund receipt as an additional check. Keep raw signed measures unchanged.
     """
-    facts = db.scalars(select(SalesFact).where(
-        SalesFact.tenant_id == state.tenant_id, SalesFact.source_id == state.source_id,
-        SalesFact.is_present.is_(True),
-    )).all()
+    facts = reconciliation_facts(db, state, start=start, end=end)
     receipts = defaultdict(list)
     for fact in facts:
         receipts[fact.iiko_order_id].append(fact)
@@ -259,10 +295,11 @@ def reconcile(db: Session, state: SalesSyncState) -> list[ReconciledOrder]:
             revenue, qty, fullness, {k: tuple(v) for k, v in products.items()},
             excluded=issue is not None or (qty == 0 and revenue == 0), issue=issue,
         ))
-    return result
+    return [order for order in result if start is None or start <= order.business_date <= end]
 
 
-def seller_orders(db: Session, state: SalesSyncState, *, user) -> list[ReconciledOrder]:
+def seller_orders(db: Session, state: SalesSyncState, *, user,
+                  start: date | None = None, end: date | None = None) -> list[ReconciledOrder]:
     """A2 seam: derive identity from authenticated User, never client employee ID."""
     if user.tenant_id != state.tenant_id or not user.is_active:
         return []
@@ -271,7 +308,7 @@ def seller_orders(db: Session, state: SalesSyncState, *, user) -> list[Reconcile
     )).all()
     if len(employee_ids) != 1:
         return []
-    return [order for order in reconcile(db, state) if not order.excluded
+    return [order for order in reconcile(db, state, start=start, end=end) if not order.excluded
             and order.employee_id == employee_ids[0] and order.department_id is not None]
 
 

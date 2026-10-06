@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKeyConstraint, Index, JSON, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Date, DateTime, ForeignKeyConstraint, Index, JSON, Numeric, String, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -76,3 +76,31 @@ class SalesFact(Base):
     is_present: Mapped[bool] = mapped_column(Boolean, default=True)
     raw_payload: Mapped[dict] = mapped_column(JSON)
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SalesTarget(Base):
+    """Append-only monthly network target revisions, independent of iiko source."""
+    __tablename__ = "sales_targets"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "metric", "month", "revision", name="uq_sales_target_revision"),
+        CheckConstraint("metric IN ('average_check', 'fullness', 'revenue')", name="ck_sales_target_metric"),
+        CheckConstraint("value > 0 AND value < 1000000000000000000", name="ck_sales_target_value"),
+        CheckConstraint("revision > 0", name="ck_sales_target_revision"),
+        CheckConstraint("EXTRACT(DAY FROM month) = 1", name="ck_sales_target_month").ddl_if(dialect="postgresql"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    metric: Mapped[str] = mapped_column(String(32))
+    month: Mapped[date] = mapped_column(Date)
+    value: Mapped[Decimal] = mapped_column(Numeric(24, 6))
+    revision: Mapped[int]
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+def _immutable_sales_target(*_args, **_kwargs):
+    raise RuntimeError("SalesTarget is immutable")
+
+
+event.listen(SalesTarget, "before_update", _immutable_sales_target, propagate=True)
+event.listen(SalesTarget, "before_delete", _immutable_sales_target, propagate=True)
