@@ -11,7 +11,7 @@ os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
 from app.models.employee import EmployeeRole, EmployeeRoleAssignment, EmployeeIikoShift, EmployeeIikoShiftStatus, Employee
 from app.models.audit import AuditEvent
 from sqlalchemy import select
-from uuid import uuid4
+from uuid import UUID, uuid4
 from app.models.supply import Department, DepartmentBusinessType
 from app.models.work_request import (
     ContractorSpecialization, ContractorSpecializationLink, ExternalContractor,
@@ -200,6 +200,11 @@ class RepairWorkflowTests(unittest.TestCase):
         history = self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history")
         self.assertEqual(history.status_code, 200, history.text)
         self.assertEqual(history.json()[0]['description'], 'Сломалась кофемашина')
+        with self.sessions.begin() as session:
+            session.get(WorkRequest, repair_id).contractor_id = UUID(multi.json()['id'])
+        previous_history = self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history")
+        self.assertEqual(previous_history.status_code, 200, previous_history.text)
+        self.assertIn(repair_id, {item['repair_id'] for item in previous_history.json()})
         self.current_user_id = 36
         self.assertEqual(self.client.get(f"/repairs/contractors/{contractor.json()['id']}/history").status_code, 403)
 

@@ -43,7 +43,12 @@ function RepairContractorsPage() {
     setContractors(nextContractors); setSpecializations(nextSpecializations)
   }
 
-  useEffect(() => { const timeout = window.setTimeout(() => { void reload().catch(() => setError('Не удалось загрузить справочник')) }, 0); return () => window.clearTimeout(timeout) }, [])
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void reload().catch(() => setError('Не удалось загрузить справочник'))
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [])
 
   async function open(item: RepairContractor) {
     setSelectedId(item.id); setEditing(false); setCreating(false); setError(''); setReason('')

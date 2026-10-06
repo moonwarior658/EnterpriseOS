@@ -13,10 +13,6 @@ import { PRIORITIES, REPAIR_CATEGORIES, priorityLabel, statusLabel } from './wor
 import { EosSelect } from '../components/EosFormControls'
 import { formatDateTime } from '../utils/dateFormat'
 
-function formatDate(value: string): string {
-  return formatDateTime(value)
-}
-
 function contractorSpecializations(contractorId: string, contractors: RepairContractor[], specializations: RepairSpecialization[]) {
   const ids = contractors.find((item) => item.id === contractorId)?.specialization_ids ?? []
   return specializations.filter((item) => item.is_active && ids.includes(item.id))
@@ -192,14 +188,14 @@ function WorkRequestDetailPage() {
     <dl className="request-facts">
       <div><dt>Подразделение</dt><dd>{repair.department}</dd></div>
       <div><dt>Инициатор</dt><dd>{repair.created_by_name}</dd></div>
-      <div><dt>Создана</dt><dd>{formatDate(repair.created_at)}</dd></div>
+      <div><dt>Создана</dt><dd>{formatDateTime(repair.created_at)}</dd></div>
       <div><dt>Статус</dt><dd>{statusLabel(repair.status)}</dd></div>
       <div><dt>Ответственный контур</dt><dd>{repair.responsible_role === 'HANDYMAN' ? 'Мастер по ремонту' : repair.responsible_role === 'SUPPLY_MANAGER' ? 'Руководитель снабжения' : 'Историческая заявка'}</dd></div>
       {repair.responsible_employee_name && <div><dt>Исполнитель</dt><dd>{repair.responsible_employee_name}</dd></div>}
-      {repair.responsibility_started_at && <div><dt>Ответственность с</dt><dd>{formatDate(repair.responsibility_started_at)}</dd></div>}
+      {repair.responsibility_started_at && <div><dt>Ответственность с</dt><dd>{formatDateTime(repair.responsibility_started_at)}</dd></div>}
       <div><dt>Категория</dt><dd>{repair.repair_category}</dd></div>
       <div><dt>Приоритет</dt><dd>{priorityLabel(repair.priority)}</dd></div>
-      {repair.visit_at && <div><dt>Визит мастера</dt><dd>{formatDate(repair.visit_at)}</dd></div>}
+      {repair.visit_at && <div><dt>Визит мастера</dt><dd>{formatDateTime(repair.visit_at)}</dd></div>}
       {repair.contractor_id && <div><dt>Подрядчик</dt><dd>{repair.contractor_name} · {repair.contractor_phone}{repair.specialization_name ? ` · ${repair.specialization_name}` : ''}</dd></div>}
     </dl>
     <section className="request-description"><h2>Описание</h2><p>{repair.description}</p></section>
@@ -236,8 +232,8 @@ function WorkRequestDetailPage() {
       {(['INVOICE', 'ACT'] as const).map((kind) => <div key={kind} className="repair-document-row"><strong>{kind === 'INVOICE' ? 'Счёт' : 'Акт выполненных работ'}</strong><div>{repair.attachments.filter((item) => item.kind === kind).map((item) => <DocumentLink key={item.id} requestId={repair.id} attachment={item} />)}</div>{can('add_external_document') && <label className="secondary-action">Добавить {kind === 'INVOICE' ? 'счёт' : 'акт'}<input type="file" accept="application/pdf,image/jpeg,image/png" disabled={busy} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadExternal(kind, file); event.target.value = '' }} /></label>}</div>)}
     </section>}
     {can('reopen') && <section className="request-detail-section"><h2>Не приняли результат?</h2><label className="request-field"><span>Причина переоткрытия</span><textarea value={reason} maxLength={1000} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label><button type="button" className="primary-action" disabled={busy || !reason.trim()} onClick={() => void run('reopen', { reason: reason.trim() })}>Переоткрыть</button></section>}
-    <section className="request-detail-section"><h2>История</h2>{events.length ? <div className="request-comments">{events.map((item, index) => <article key={`${item.at}-${index}`}><p>{item.details}{item.reason ? `: ${item.reason}` : ''}</p><small>{item.actor || 'Система'} · {formatDate(item.at)}{item.role ? ` · ${item.role}` : ''}</small></article>)}</div> : <p className="page-state">Для старой заявки история действий не записывалась</p>}</section>
-    <section className="request-detail-section"><h2>Комментарии</h2><div className="request-comments">{comments.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_name} · {formatDate(item.created_at)}</small></article>)}</div>{can('comment') && <form className="comment-form" onSubmit={(event) => void addComment(event)}><label className="request-field"><span>Добавить комментарий</span><textarea value={comment} maxLength={2000} disabled={busy} onChange={(event) => setComment(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !comment.trim()}>Добавить комментарий</button></form>}</section>
+    <section className="request-detail-section"><h2>История</h2>{events.length ? <div className="request-comments">{events.map((item, index) => <article key={`${item.at}-${index}`}><p>{item.details}{item.reason ? `: ${item.reason}` : ''}</p><small>{item.actor || 'Система'} · {formatDateTime(item.at)}{item.role ? ` · ${item.role}` : ''}</small></article>)}</div> : <p className="page-state">Для старой заявки история действий не записывалась</p>}</section>
+    <section className="request-detail-section"><h2>Комментарии</h2><div className="request-comments">{comments.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_name} · {formatDateTime(item.created_at)}</small></article>)}</div>{can('comment') && <form className="comment-form" onSubmit={(event) => void addComment(event)}><label className="request-field"><span>Добавить комментарий</span><textarea value={comment} maxLength={2000} disabled={busy} onChange={(event) => setComment(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !comment.trim()}>Добавить комментарий</button></form>}</section>
     {error && <p className="request-message request-message-error">{error}</p>}
   </div></section>
 }

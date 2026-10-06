@@ -292,18 +292,31 @@ def contractor_history(contractor_id: UUID, db: Annotated[Session, Depends(get_d
     contractor = db.get(ExternalContractor, contractor_id)
     if contractor is None or contractor.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Подрядчик не найден")
+    events = db.scalars(select(AuditEvent).where(
+        AuditEvent.tenant_id == user.tenant_id,
+        AuditEvent.entity_type == "WorkRequest",
+        AuditEvent.operation.in_(("ASSIGN_CONTRACTOR", "SCHEDULE_EXTERNAL_VISIT")),
+    ).order_by(AuditEvent.occurred_at)).all()
+    historical = {
+        int(event.entity_id): event.after for event in events
+        if str(event.after.get("contractor_id")) == str(contractor_id)
+    }
     repairs = db.scalars(select(WorkRequest).where(
         WorkRequest.tenant_id == user.tenant_id,
         WorkRequest.request_type == "repair",
-        WorkRequest.contractor_id == contractor_id,
     ).order_by(WorkRequest.created_at.desc(), WorkRequest.id.desc())).all()
     result = []
     for repair in repairs:
+        if repair.contractor_id != contractor_id and repair.id not in historical:
+            continue
         try:
             repair_authorize(db, user, Capability.REPAIR_READ, repair=repair)
         except ActionContextError:
             continue
-        specialization = db.get(ContractorSpecialization, repair.specialization_id) if repair.specialization_id else None
+        snapshot = historical.get(repair.id, {})
+        current_assignment = repair.contractor_id == contractor_id
+        specialization_id = repair.specialization_id if current_assignment else snapshot.get("specialization_id")
+        specialization = db.get(ContractorSpecialization, UUID(str(specialization_id))) if specialization_id else None
         reopened = db.scalar(select(AuditEvent.id).where(
             AuditEvent.tenant_id == user.tenant_id,
             AuditEvent.entity_type == "WorkRequest",
@@ -313,8 +326,8 @@ def contractor_history(contractor_id: UUID, db: Annotated[Session, Depends(get_d
         result.append({"repair_id": repair.id, "created_at": repair.created_at,
             "department": repair.department, "category": repair.repair_category,
             "description": repair.description,
-            "specialization": specialization.name if specialization else None,
-            "visit_at": repair.visit_at,
+            "specialization": (specialization.name if specialization else None) or snapshot.get("specialization_name_snapshot"),
+            "visit_at": repair.visit_at if current_assignment else snapshot.get("visit_at"),
             "status": repair.status, "closed_at": repair.closed_at, "reopened": reopened,
             "repair_cost": repair.repair_cost if can_read_finance(db, user) else None})
     return result
