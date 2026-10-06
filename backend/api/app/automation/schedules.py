@@ -13,6 +13,7 @@ from app.automation.supply_actions import (
     require_active_supply_direction,
 )
 from app.core.config import settings
+from app.models.sales import SalesSyncState
 from app.models.automation import (
     AutomationSchedule,
     ScheduleAuditEventType,
@@ -55,6 +56,13 @@ def _validated_action_payload(
     tenant_id: str,
 ) -> dict[str, object]:
     try:
+        if automation_type == "sales.sync_iiko":
+            sources = list(session.scalars(select(SalesSyncState.source_id).where(SalesSyncState.tenant_id == tenant_id)))
+            if len(sources) != 1:
+                raise InvalidAutomationScheduleActionError("Источник данных продаж не настроен однозначно. Обратитесь к администратору")
+            if payload and payload.get('source_id') != sources[0]:
+                raise InvalidAutomationScheduleActionError("Источник данных продаж не соответствует настройкам компании")
+            payload = dict(payload, source_id=sources[0])
         normalized = validate_automation_schedule_contract(
             automation_type,
             parse_schedule_config(schedule_config),
@@ -67,6 +75,8 @@ def _validated_action_payload(
                 direction_code=str(normalized["direction_code"]),
             )
         return normalized
+    except InvalidAutomationScheduleActionError:
+        raise
     except (SupplyAutomationActionError, ValueError) as error:
         raise InvalidAutomationScheduleActionError(
             "Invalid automation action parameters"
@@ -184,6 +194,8 @@ def update_schedule(
         else schedule.scope_id
     )
     validate_schedule_scope(final_scope_type, final_scope_id)
+    if updates.get("automation_type", schedule.automation_type) == "sales.sync_iiko" and getattr(final_scope_type, 'value', final_scope_type) != 'company':
+        raise InvalidAutomationScheduleActionError("Обновление продаж доступно только для всей компании")
 
     before = schedule_audit_snapshot(schedule)
 

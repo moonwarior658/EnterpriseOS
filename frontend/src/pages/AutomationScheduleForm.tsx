@@ -22,6 +22,7 @@ import {
   createSubmissionGuard,
   DEFAULT_SCHEDULE_FORM_VALUES,
   scheduleToFormValues,
+  selectScheduleAutomationType,
   SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES,
   SUPPLY_ENSURE_REQUEST_CYCLE,
   submitScheduleForm,
@@ -214,22 +215,7 @@ function AutomationScheduleForm({
   }
 
   function selectAutomationType(automationType: string) {
-    setValues((current) => ({
-      ...current,
-      automationType,
-      scheduleType:
-        automationType === SUPPLY_ENSURE_REQUEST_CYCLE
-          ? 'weekly'
-          : current.automationType === SUPPLY_ENSURE_REQUEST_CYCLE
-            ? 'daily'
-            : current.scheduleType,
-      scopeType:
-        automationType.startsWith('supply.')
-          ? 'company'
-          : current.scopeType,
-      scopeId:
-        automationType.startsWith('supply.') ? '' : current.scopeId,
-    }))
+    setValues((current) => selectScheduleAutomationType(current, automationType))
     setErrors({})
     setSubmitError('')
   }

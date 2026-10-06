@@ -170,6 +170,10 @@ def validate_automation_schedule_contract(
         raise ValueError(
             "supply.ensure_request_cycle requires a weekly schedule"
         )
+    # A schedule form sends no technical source identity. The service resolves
+    # it from tenant configuration; execution payloads remain strictly required.
+    if automation_type == "sales.sync_iiko" and not payload:
+        return {}
     return validate_automation_action_payload(automation_type, payload)
 
 
@@ -249,6 +253,8 @@ class AutomationScheduleBase(BaseModel):
     @model_validator(mode="after")
     def validate_complete_scope(self) -> "AutomationScheduleBase":
         validate_scope_pair(self.scope_type, self.scope_id)
+        if self.automation_type == "sales.sync_iiko" and self.scope_type != "company":
+            raise ValueError("Sales sync requires company scope")
         self.payload = validate_automation_schedule_contract(
             self.automation_type,
             self.schedule_config,

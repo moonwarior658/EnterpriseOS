@@ -59,6 +59,18 @@ export const SUPPLY_ENSURE_REQUEST_CYCLE =
   'supply.ensure_request_cycle'
 export const SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES =
   'supply.close_expired_request_cycles'
+export const SALES_SYNC = 'sales.sync_iiko'
+
+export function selectScheduleAutomationType(current: ScheduleFormValues, automationType: string): ScheduleFormValues {
+  const sales = automationType === SALES_SYNC
+  const company = sales || automationType.startsWith('supply.')
+  return { ...current, automationType,
+    scheduleType: sales ? 'interval' : automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'weekly' : current.automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'daily' : current.scheduleType,
+    intervalMinutes: sales ? '15' : current.intervalMinutes,
+    scopeType: company ? 'company' : current.scopeType,
+    scopeId: company ? '' : current.scopeId,
+  }
+}
 
 export const DEFAULT_SCHEDULE_FORM_VALUES: ScheduleFormValues = {
   name: '',
@@ -169,6 +181,11 @@ export function validateScheduleForm(
   const automationType = values.automationType.trim()
   const scopeId = values.scopeId.trim()
   const timezone = values.timezone.trim()
+  if (automationType === SALES_SYNC) {
+    if (values.scopeType !== 'company') errors.scopeType = 'Обновление продаж доступно только для всей компании'
+    if (values.scheduleType !== 'interval') errors.scheduleType = 'Обновление продаж выполняется каждые 15 минут'
+    if (values.intervalMinutes !== '15') errors.intervalMinutes = 'Для обновления продаж нужен интервал 15 минут'
+  }
 
   if (!name) {
     errors.name = 'Укажите название регламента'
@@ -308,6 +325,7 @@ function buildEditableInput(
 function buildActionPayload(
   values: ScheduleFormValues,
 ): Record<string, unknown> | null {
+  if (values.automationType === SALES_SYNC) return {}
   if (values.automationType === SUPPLY_ENSURE_REQUEST_CYCLE) {
     return {
       direction_code: values.directionCode.trim(),
@@ -415,6 +433,9 @@ export function createSubmissionGuard(): SubmissionGuard {
 
 export function translateScheduleApiError(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (/^Источник данных продаж|^Обновление продаж/.test(message)) return message
+  if (/Sales sync requires a 15 minute interval/i.test(message)) return 'Для обновления продаж нужен интервал 15 минут'
+  if (/Sales sync requires company scope/i.test(message)) return 'Обновление продаж доступно только для всей компании'
 
   if (/unknown timezone/i.test(message)) {
     return 'Указан неизвестный часовой пояс'
