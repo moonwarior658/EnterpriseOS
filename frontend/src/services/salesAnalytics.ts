@@ -52,3 +52,26 @@ export async function salesRequest<T>(endpoint: string, query = '', signal?: Abo
   }
   return response.json() as Promise<T>
 }
+
+export type SalesReportSummary = {
+  id: string | null; kind: 'week' | 'month'; start: string; end: string
+  created_at: string | null; ready: boolean; reason: string | null; completeness: Completeness
+}
+export type ProductChange = { iiko_product_id: string; product_name: string | null; revenue: string; previous_revenue: string; revenue_change: string }
+export type SalesReport = {
+  id: string; kind: 'week' | 'month'; start: string; end: string; created_at: string; format_version: number
+  data: { analytics?: Analytics; points?: Point[]; sellers?: Seller[]; products: Products; completeness: Completeness; status: Freshness; product_changes: { growth: ProductChange[]; decline: ProductChange[] } }
+}
+export async function downloadSalesExport(endpoint: string, query: string, format: 'xlsx' | 'pdf', signal?: AbortSignal) {
+  const token = getStoredToken()
+  if (!token) throw new Error('Сессия завершена. Войдите снова')
+  const response = await fetch(`/api/sales/analytics/${endpoint}?${query}`, { signal, cache: 'no-store', headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok) throw new Error(response.status === 403 ? 'Нет доступа к экспорту' : 'Не удалось сформировать экспорт. Повторите позже')
+  const blob = await response.blob()
+  if (signal?.aborted) return
+  const url = URL.createObjectURL(blob)
+  try {
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = `sales.${format}`
+    document.body.appendChild(anchor); anchor.click(); anchor.remove()
+  } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+}

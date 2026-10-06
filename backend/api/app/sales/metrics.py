@@ -315,7 +315,7 @@ class ReadSnapshot:
     completeness: dict
 
 
-def read_snapshot(db, state, selected, *, self_employee_id=None):
+def read_snapshot(db, state, selected, *, self_employee_id=None, close_session=True):
     """Load bounded, detached input; release the connection before CPU/serialization.
 
     No process-wide result cache: historical identity changes and late returns
@@ -333,7 +333,8 @@ def read_snapshot(db, state, selected, *, self_employee_id=None):
         Employee.tenant_id == tenant_id, Employee.id.in_(employee_ids))).all()
     departments = db.execute(select(Department.id, Department.name).where(
         Department.tenant_id == tenant_id, Department.id.in_(set(mappings.values()))).order_by(Department.name, Department.id)).all()
-    db.close()
+    if close_session:
+        db.close()
     orders = [o for o in reconcile_loaded(facts, source_timezone=source_timezone, mappings=mappings,
               links=links, start=selected.previous_start, end=selected.end) if not o.excluded and o.department_id is not None
               and (self_employee_id is None or o.employee_id == self_employee_id)]
@@ -384,3 +385,20 @@ def product_days(values, selected, completeness):
         rows.append(dict(date=day, quantity=quantity, revenue=revenue))
         day += timedelta(days=1)
     return rows
+
+
+def workspace_read(snapshot, *, view, department_id=None, employee_id=None, staff=StaffFilter.ACTIVE,
+                   iiko_product_id=None, category=None):
+    result = dict(status=snapshot.status, completeness=snapshot.completeness)
+    if view == 'me':
+        result['analytics'] = analytics(snapshot.orders, snapshot.selected, snapshot.targets,
+                                       completeness=snapshot.completeness)
+        return result
+    if view != 'products':
+        result['analytics'] = overview_read(snapshot, department_id=department_id, employee_id=employee_id)
+        result['points'] = points_read(snapshot)
+        result['sellers'] = sellers_read(snapshot, department_id=department_id, staff=staff)
+    if view == 'products' or (view in {'overview', 'points'} and employee_id is None):
+        result['products'] = product_analytics(snapshot, department_id=department_id,
+                                              iiko_product_id=iiko_product_id, category=category)
+    return result

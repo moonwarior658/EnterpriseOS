@@ -54,6 +54,7 @@ class AutomationCatalogTests(unittest.TestCase):
             [item.key for item in first],
             [
                 "employee.sync_iiko_shifts",
+                "sales.finalize_reports",
                 "sales.sync_iiko",
                 "supply.close_expired_request_cycles",
                 "supply.ensure_request_cycle",

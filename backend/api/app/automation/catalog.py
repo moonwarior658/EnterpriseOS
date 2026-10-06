@@ -14,6 +14,11 @@ class AutomationTypeDefinition:
 
 AUTOMATION_TYPES = (
     AutomationTypeDefinition(
+        key="sales.finalize_reports", display_name="Зафиксировать отчёты продаж",
+        description="Сохраняет закрытые недели и месяцы после полной загрузки данных.",
+        category="sales", is_system=True, is_available=True, supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
         key="sales.sync_iiko", display_name="Обновить данные продаж",
         description="Обновляет первичные факты розничных продаж из iiko.",
         category="sales", is_system=True, is_available=True, supports_manual_run=True,

@@ -23,6 +23,7 @@ from app.models.automation import (
 
 
 class LocalAutomationActionExecutor:
+    SALES_REPORTS = "sales.finalize_reports"
     SALES_SYNC = "sales.sync_iiko"
     IIKO_SHIFT_SYNC = "employee.sync_iiko_shifts"
 
@@ -36,7 +37,7 @@ class LocalAutomationActionExecutor:
     def supports(automation_type: str) -> bool:
         return (
             automation_type in SUPPLY_ACTION_HANDLERS
-            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC)
+            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS)
         )
 
     def execute(
@@ -53,6 +54,9 @@ class LocalAutomationActionExecutor:
         if claim.automation_type == self.IIKO_SHIFT_SYNC:
             return self._execute_iiko_shift_sync(claim, executed_at=executed_at)
         handler = SUPPLY_ACTION_HANDLERS.get(claim.automation_type)
+        if claim.automation_type == self.SALES_REPORTS:
+            from app.sales.reports import finalize_reports
+            handler = finalize_reports
         if handler is None:
             raise ValueError("Unsupported local automation action")
 
@@ -74,6 +78,9 @@ class LocalAutomationActionExecutor:
                     )
 
                 execution = event.execution
+                if execution.status in (ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED,
+                                         ExecutionStatus.TIMED_OUT, ExecutionStatus.CANCELLED):
+                    raise OutboxClaimLostError("Local execution already terminal")
                 if execution.started_at is None:
                     execution.started_at = executed_at
 

@@ -4,6 +4,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { getActionContext } from '../services/actionContext'
 import { EosDateField, EosSelect } from '../components/EosFormControls'
 import SalesTrendChart from './SalesTrendChart'
+import SalesReportsPage from './SalesReportsPage'
+import SalesExportButtons from '../components/SalesExportButtons'
+import { salesReportScope, salesExportAllowed, salesExportQuery } from './salesReportsLogic'
 import { salesRequest, type Completeness, type Analytics, type Freshness, type Metric, type MetricName, type Metrics, type Point, type Products, type Seller, type Target } from '../services/salesAnalytics'
 import { workspaceQuery, metricNumber as fmt, statisticsViews, SALES_FULL_ROLES } from './salesAnalyticsLogic'
 import './StatisticsPage.css'
@@ -127,7 +130,7 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
   const groupedProducts = current?.products?.summaries || []
   return <div className="statistics-page">
     <header className="statistics-header"><div><p className="eyebrow">ПРОДАЖИ</p><h1>Статистика</h1></div><div className="statistics-muted" role="status">{current ? `Обновлено: ${current.status.last_success_at ? new Date(current.status.last_success_at).toLocaleString('ru-RU', { timeZone: current.status.source_timezone }) : 'ещё не обновлялось'}` : error?.key === key ? 'Статистика недоступна' : 'Загружаем статистику…'}</div></header>
-    <nav className="statistics-tabs" aria-label="Разделы статистики">{views.map((v) => <Link key={v} to={link(v)} aria-current={view === v ? 'page' : undefined}>{labels[v]}</Link>)}</nav>
+    <nav className="statistics-tabs" aria-label="Разделы статистики">{views.map((v) => <Link key={v} to={link(v)} aria-current={view === v ? 'page' : undefined}>{labels[v]}</Link>)}{salesReportScope(roles) && <Link to="/statistics/reports">Отчёты</Link>}</nav>
     <section className="page-panel statistics-panel statistics-filters" aria-label="Фильтры статистики">
       <label>Период<EosSelect value={params.get('period') || 'month'} onChange={(e) => change({ period: e.target.value, anchor: '', start: e.target.value === 'custom' ? current?.status.today || '' : '', end: e.target.value === 'custom' ? current?.status.today || '' : '' })}><option value="week">Неделя</option><option value="month">Месяц</option><option value="custom">Произвольный</option></EosSelect></label>
       {(params.get('period') === 'custom' ? ['start', 'end'] : ['anchor']).map((name) => <EosDateField key={name} label={name === 'start' ? 'С' : name === 'end' ? 'По' : 'Дата в периоде'} value={params.get(name) || ''} min={current?.status.history_from} max={current?.status.today} onChange={(e) => change({ [name]: e.target.value })} />)}
@@ -137,6 +140,7 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
       <button className="secondary-action" type="button" disabled={busyKey === key} onClick={() => setRefresh((n) => n + 1)}>Обновить</button>
       <button className="secondary-action" type="button" onClick={() => setParams({ period: params.get('period') || 'month', ...(params.get('anchor') ? { anchor: params.get('anchor')! } : {}), ...(params.get('period') === 'custom' ? { start: params.get('start') || '', end: params.get('end') || '' } : {}) })}>Сбросить фильтры</button>
     </section>
+    {salesExportAllowed(roles, view) && <SalesExportButtons key={key} endpoint="export" query={format => salesExportQuery(params, view, format)} />}
     {error?.key === key && <p className="statistics-warning" role="alert">{error.message}{current ? '. Показаны последние загруженные данные' : ''}</p>}
     {current?.completeness.warning && <div className="statistics-warning" role="status">
       {!current.completeness.current.complete && <p>Данные выбранного периода неполные: загружено {current.completeness.current.loaded_days} из {current.completeness.current.expected_days} дней. История догружается в фоне.</p>}
@@ -166,8 +170,10 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
 }
 export default function StatisticsPage() {
   const { user } = useAuth()
+  const { view } = useParams()
   const [access, setAccess] = useState<{ userId: number; roles: string[] } | null>(null)
   useEffect(() => { let active = true; if (user) getActionContext().then((c) => { if (active) setAccess({ userId: user.id, roles: c.roles }) }).catch(() => { if (active) setAccess({ userId: user.id, roles: [] }) }); return () => { active = false } }, [user])
   if (!user || access?.userId !== user.id) return <p role="status">Проверяем доступ к статистике…</p>
+  if (view === 'reports') return <SalesReportsPage key={user.id} roles={access.roles} />
   return <StatisticsContent key={user.id} userId={user.id} roles={access.roles} />
 }

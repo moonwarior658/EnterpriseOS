@@ -5,6 +5,8 @@ python -m app.sales.configure --actor-user-id ID --timezone ZONE --history-from 
 import argparse
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
+from sqlalchemy import select
+from app.automation.schedule_time import calculate_next_run_at
 from app.automation.audit import add_schedule_audit_event, schedule_audit_snapshot
 from app.core.authorization import resolve_action_context
 from app.integrations.iiko.config import get_iiko_settings
@@ -28,6 +30,7 @@ def configure_source(db, *, actor, source_timezone: str, history_from: date) -> 
     if state is not None:
         if state.source_timezone != source_timezone or state.history_from != history_from:
             raise ValueError("SALES_SOURCE_ALREADY_CONFIGURED")
+        configure_reports(db, actor=actor, source_timezone=source_timezone)
         return state
     state = SalesSyncState(tenant_id=actor.tenant_id, source_id=source_id,
                           source_timezone=source_timezone, history_from=history_from,
@@ -46,7 +49,18 @@ def configure_source(db, *, actor, source_timezone: str, history_from: date) -> 
                             actor_user_id=actor.id, schedule_id=schedule.id,
                             metadata={"fields": schedule_audit_snapshot(schedule)})
     db.flush()
+    configure_reports(db, actor=actor, source_timezone=source_timezone)
     return state
+
+
+def configure_reports(db, *, actor, source_timezone):
+    from app.sales.reports import ACTION as reports_action
+    if db.scalar(select(AutomationSchedule.id).where(AutomationSchedule.tenant_id == actor.tenant_id, AutomationSchedule.automation_type == reports_action)) is not None:
+        return
+    config = {"type": "daily", "time": "08:00"}
+    schedule = AutomationSchedule(name="Отчёты продаж", automation_type=reports_action, contract_version="1.0", tenant_id=actor.tenant_id, scope_type=AutomationScope.COMPANY, schedule_config=config, payload={}, recipients=[], timezone=source_timezone, is_enabled=True, next_run_at=calculate_next_run_at(config, source_timezone), created_by_user_id=actor.id)
+    db.add(schedule); db.flush()
+    add_schedule_audit_event(db, event_type=ScheduleAuditEventType.CREATED, actor_user_id=actor.id, schedule_id=schedule.id, metadata={"fields": schedule_audit_snapshot(schedule)})
 
 
 def main():

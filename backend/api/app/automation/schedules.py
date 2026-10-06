@@ -194,7 +194,7 @@ def update_schedule(
         else schedule.scope_id
     )
     validate_schedule_scope(final_scope_type, final_scope_id)
-    if updates.get("automation_type", schedule.automation_type) == "sales.sync_iiko" and getattr(final_scope_type, 'value', final_scope_type) != 'company':
+    if updates.get("automation_type", schedule.automation_type) in {"sales.sync_iiko", "sales.finalize_reports"} and getattr(final_scope_type, 'value', final_scope_type) != 'company':
         raise InvalidAutomationScheduleActionError("Обновление продаж доступно только для всей компании")
 
     before = schedule_audit_snapshot(schedule)

@@ -141,6 +141,10 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == "sales.finalize_reports":
+        if payload:
+            raise ValueError("Reports action accepts no parameters")
+        return {}
     if automation_type == "sales.sync_iiko":
         return SalesSyncPayload.model_validate(payload).model_dump(mode="json")
     if automation_type == SUPPLY_ENSURE_REQUEST_CYCLE:
@@ -159,6 +163,10 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == "sales.finalize_reports" and (
+        not isinstance(schedule_config, DailyScheduleConfig) or schedule_config.time != "08:00"
+    ):
+        raise ValueError("Reports require a daily 08:00 schedule")
     if automation_type == "sales.sync_iiko" and (
         not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 15
     ):
@@ -253,7 +261,7 @@ class AutomationScheduleBase(BaseModel):
     @model_validator(mode="after")
     def validate_complete_scope(self) -> "AutomationScheduleBase":
         validate_scope_pair(self.scope_type, self.scope_id)
-        if self.automation_type == "sales.sync_iiko" and self.scope_type != "company":
+        if self.automation_type in {"sales.sync_iiko", "sales.finalize_reports"} and self.scope_type != "company":
             raise ValueError("Sales sync requires company scope")
         self.payload = validate_automation_schedule_contract(
             self.automation_type,

@@ -108,3 +108,34 @@ def _immutable_sales_target(*_args, **_kwargs):
 
 event.listen(SalesTarget, "before_update", _immutable_sales_target, propagate=True)
 event.listen(SalesTarget, "before_delete", _immutable_sales_target, propagate=True)
+
+
+class SalesPeriodSnapshot(Base):
+    """One final, immutable management result per tenant and closed period."""
+    __tablename__ = "sales_period_snapshots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "kind", "period_start", name="uq_sales_snapshot_period"),
+        ForeignKeyConstraint(["tenant_id", "source_id"],
+            ["sales_sync_states.tenant_id", "sales_sync_states.source_id"], ondelete="RESTRICT"),
+        CheckConstraint("kind IN ('week', 'month')", name="ck_sales_snapshot_kind"),
+        CheckConstraint("period_end >= period_start", name="ck_sales_snapshot_dates"),
+        CheckConstraint("format_version = 1", name="ck_sales_snapshot_version"),
+        Index("ix_sales_snapshot_history", "tenant_id", "kind", "period_start"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(8))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    format_version: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+def _immutable_sales_snapshot(*_args, **_kwargs):
+    raise RuntimeError("SalesPeriodSnapshot is immutable")
+
+
+event.listen(SalesPeriodSnapshot, "before_update", _immutable_sales_snapshot, propagate=True)
+event.listen(SalesPeriodSnapshot, "before_delete", _immutable_sales_snapshot, propagate=True)

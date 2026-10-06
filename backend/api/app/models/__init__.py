@@ -1,4 +1,4 @@
-from app.models.sales import SalesFact, SalesSyncState, SalesDaySync, SalesTarget
+from app.models.sales import SalesFact, SalesSyncState, SalesDaySync, SalesTarget, SalesPeriodSnapshot
 from app.models.audit import AuditEvent
 from app.models.automation import (
     AutomationExecution,
