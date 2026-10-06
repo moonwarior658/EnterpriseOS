@@ -63,6 +63,7 @@ from app.schemas.supply import (
 )
 from app.supply.normalization import normalize_product_text
 from app.supply.parser import parse_supply_line, supply_line_product_name
+from app.supply.seller_versions import finalize_seller_requests
 from app.supply.procurement_needs import invalidate_open_request_need
 from app.models.user import User
 
@@ -483,7 +484,12 @@ def update_supply_request_cycle(
     cycle_id: UUID,
     payload: SupplyRequestCycleUpdate,
 ) -> SupplyRequestCycle:
-    cycle = get_supply_request_cycle(session, cycle_id)
+    cycle = session.scalar(select(SupplyRequestCycle).where(
+        SupplyRequestCycle.id == cycle_id,
+        SupplyRequestCycle.tenant_id == settings.default_tenant_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    if cycle is None:
+        raise SupplyRequestCycleNotFoundError
     fields = payload.model_fields_set
     has_requests = session.scalar(
         select(
@@ -537,6 +543,7 @@ def update_supply_request_cycle(
     try:
         session.flush()
         if previous_status != "CLOSED" and cycle.status == "CLOSED":
+            finalize_seller_requests(session, cycle)
             _advance_debts_for_closed_cycle(session, cycle)
         session.commit()
     except IntegrityError as error:
@@ -2702,6 +2709,7 @@ def submit_supply_request(
     expected_version: int,
     audit_context: ActionContext | None = None,
     actor_user: User | None = None,
+    commit: bool = True,
 ) -> SupplyRequest:
     supply_request = _get_supply_request_for_update(
         session,
@@ -2752,7 +2760,8 @@ def submit_supply_request(
                 after={"status": "SUBMITTED", "version": supply_request.version},
             )
         session.flush()
-        session.commit()
+        if commit:
+            session.commit()
     except Exception:
         session.rollback()
         raise

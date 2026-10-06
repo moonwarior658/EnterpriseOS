@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -3887,6 +3888,14 @@ class SupplyRequest(Base):
             "version >= 1",
             name="ck_supply_requests_version",
         ),
+        CheckConstraint(
+            "seller_draft_input IS NULL OR seller_confirmed_snapshot IS NOT NULL",
+            name="ck_supply_requests_seller_draft_confirmed",
+        ),
+        CheckConstraint(
+            "seller_finalized_at IS NULL OR seller_confirmed_snapshot IS NOT NULL",
+            name="ck_supply_requests_seller_finalized_confirmed",
+        ),
         Index(
             "ix_supply_requests_tenant_created",
             "tenant_id",
@@ -3953,6 +3962,9 @@ class SupplyRequest(Base):
         nullable=True,
     )
     raw_input: Mapped[str] = mapped_column(Text, nullable=False)
+    seller_draft_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seller_confirmed_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    seller_finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(
         Integer,
         default=1,

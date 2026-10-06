@@ -53,6 +53,7 @@ from app.models.employee import (
 from app.models.work_request import WorkRequest, ExternalContractor, ContractorSpecialization
 from app.schemas.supply import SupplyRequestCreate
 from app.supply.service import create_supply_request
+from app.automation.supply_actions import SupplyAutomationContext, close_expired_request_cycles
 
 
 DEPARTMENT_DATA = (
@@ -786,6 +787,181 @@ class SupplyApiTests(unittest.TestCase):
             requests = session.scalars(select(SupplyRequest).where(SupplyRequest.created_by_user_id == 3)).all()
             self.assertEqual(len(requests), 1)
             self.assertEqual(requests[0].raw_input, "Молоко — 12 л")
+
+    def seller_version_window(self):
+        department_id, direction_id = self.reference_ids()
+        cycle_id = self.create_cycle(direction_id)
+        self.current_user_id = 3
+        return department_id, cycle_id
+
+    def seller_save(self, department_id, text, version=None):
+        response = self.client.put('/supply/seller/request', json={
+            'department_id': department_id, 'raw_input': text, 'expected_version': version,
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def seller_confirm(self, department_id, version):
+        response = self.client.post('/supply/seller/request/confirm', json={
+            'department_id': department_id, 'expected_version': version,
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def expire_seller_window(self, cycle_id):
+        now = datetime.now(timezone.utc)
+        with self.session_factory.begin() as session:
+            cycle = session.get(SupplyRequestCycle, UUID(cycle_id))
+            cycle.closes_at = now - timedelta(minutes=1)
+        return SupplyAutomationContext(execution_id=uuid4(), tenant_id='eclair',
+                                       requested_at=now, executed_at=now)
+
+    def close_seller_window(self, context):
+        with self.session_factory.begin() as session:
+            return close_expired_request_cycles(session, context, {'timezone': 'Asia/Yekaterinburg'})
+
+    def test_seller_confirm_a_draft_b_close_preserves_a_and_line_identity(self):
+        department, cycle = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        confirmed = self.seller_confirm(department, draft['version'])
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            line_ids = [line.id for line in item.lines]
+            confirmed_at = item.submitted_at
+        edited = self.seller_save(department, 'Молоко — 12 л', confirmed['version'])
+        self.assertEqual(edited['status'], 'DRAFT')
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual(item.raw_input, 'Молоко — 10 л')
+            self.assertEqual(item.status, 'SUBMITTED')
+            self.assertEqual(item.submitted_at, confirmed_at)
+            self.assertEqual([line.id for line in item.lines], line_ids)
+            self.assertEqual(item.seller_confirmed_snapshot['version'], confirmed['version'])
+        context = self.expire_seller_window(cycle)
+        # Even while the scheduler is pending, re-entry cannot present B as confirmed.
+        pending_close = self.client.get('/supply/seller/window').json()
+        self.assertFalse(pending_close['can_write'])
+        self.assertEqual(pending_close['request']['raw_input'], 'Молоко — 10 л')
+        self.assertEqual(self.close_seller_window(context)['closed_count'], 1)
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual(item.raw_input, 'Молоко — 10 л')
+            self.assertEqual(item.status, 'SUBMITTED')
+            self.assertEqual([line.id for line in item.lines], line_ids)
+            self.assertIsNone(item.seller_draft_input)
+            self.assertIsNotNone(item.seller_finalized_at)
+            events = session.scalars(select(AuditEvent).where(AuditEvent.entity_id == draft['id'])).all()
+            self.assertIn('SUPPLY_REQUEST_SELLER_EDITED', [event.event_type for event in events])
+            self.assertIn('SUPPLY_REQUEST_SELLER_CONFIRMED', [event.event_type for event in events])
+            finalized = next(event for event in events if event.event_type == 'SUPPLY_REQUEST_SELLER_FINALIZED')
+            self.assertEqual(finalized.source, 'SYSTEM')
+            self.assertIsNone(finalized.actor_user_id)
+            self.assertEqual(finalized.after['confirmed_version'], confirmed['version'])
+            self.assertTrue(finalized.after['draft_discarded'])
+            self.assertEqual(finalized.correlation_id, str(context.execution_id))
+        closed = self.client.get('/supply/seller/window').json()
+        self.assertEqual(closed['request']['raw_input'], 'Молоко — 10 л')
+        self.assertEqual(closed['request']['status'], 'SUBMITTED')
+
+    def test_seller_confirm_b_close_finalizes_b(self):
+        department, cycle = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        a = self.seller_confirm(department, draft['version'])
+        edit = self.seller_save(department, 'Молоко — 12 л', a['version'])
+        b = self.seller_confirm(department, edit['version'])
+        self.assertEqual(b['id'], a['id'])
+        self.close_seller_window(self.expire_seller_window(cycle))
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual(item.raw_input, 'Молоко — 12 л')
+            self.assertEqual([line.raw_text for line in item.lines], ['Молоко — 12 л'])
+            self.assertEqual(item.seller_confirmed_snapshot['version'], b['version'])
+            self.assertEqual(item.seller_confirmed_snapshot['raw_input'], item.raw_input)
+
+    def test_seller_repeated_edits_confirms_and_reentry_return_current_draft(self):
+        department, cycle = self.seller_version_window()
+        state = self.seller_save(department, 'Молоко — 10 л')
+        state = self.seller_confirm(department, state['version'])
+        request_id = state['id']
+        for amount in (12, 13, 14):
+            state = self.seller_save(department, f'Молоко — {amount} л', state['version'])
+            reopened = self.client.get('/supply/seller/window').json()['request']
+            self.assertEqual(reopened, state)
+            self.assertEqual(reopened['status'], 'DRAFT')
+            state = self.seller_confirm(department, state['version'])
+            self.assertEqual(state['id'], request_id)
+            self.assertEqual(self.client.get('/supply/seller/window').json()['request'], state)
+        state = self.seller_save(department, 'Молоко — 99 л', state['version'])
+        state = self.seller_save(department, 'Молоко — 100 л', state['version'])
+        self.close_seller_window(self.expire_seller_window(cycle))
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(request_id))
+            self.assertEqual(item.raw_input, 'Молоко — 14 л')
+            self.assertEqual(session.scalar(select(func.count()).select_from(SupplyRequest)), 1)
+
+    def test_seller_scheduler_close_is_idempotent(self):
+        department, cycle = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        confirmed = self.seller_confirm(department, draft['version'])
+        self.seller_save(department, 'Молоко — 12 л', confirmed['version'])
+        context = self.expire_seller_window(cycle)
+        self.assertEqual(self.close_seller_window(context)['closed_count'], 1)
+        with self.session_factory() as session:
+            first = session.get(SupplyRequest, UUID(draft['id']))
+            version, finalized_at = first.version, first.seller_finalized_at
+        self.assertEqual(self.close_seller_window(context)['closed_count'], 0)
+        with self.session_factory() as session:
+            second = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual((second.version, second.seller_finalized_at), (version, finalized_at))
+            self.assertEqual(session.scalar(select(func.count()).select_from(AuditEvent).where(
+                AuditEvent.event_type == 'SUPPLY_REQUEST_SELLER_FINALIZED')), 1)
+
+    def test_seller_never_confirmed_draft_remains_draft_on_close(self):
+        department, cycle = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        edit = self.seller_save(department, 'Молоко — 12 л', draft['version'])
+        self.close_seller_window(self.expire_seller_window(cycle))
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual((item.status, item.raw_input, item.version), ('DRAFT', 'Молоко — 12 л', edit['version']))
+            self.assertIsNone(item.submitted_at)
+            self.assertIsNone(item.seller_confirmed_snapshot)
+            self.assertIsNone(item.seller_finalized_at)
+
+    def test_seller_confirm_audit_failure_rolls_back_payload_and_snapshot(self):
+        department, _ = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        confirmed = self.seller_confirm(department, draft['version'])
+        edited = self.seller_save(department, 'Молоко — 12 л', confirmed['version'])
+        with patch('app.supply.seller_requests.record_audit_event', side_effect=RuntimeError('audit failure')):
+            with self.assertRaises(RuntimeError):
+                self.client.post('/supply/seller/request/confirm', json={
+                    'department_id': department, 'expected_version': edited['version'],
+                })
+        with self.session_factory() as session:
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertEqual(item.raw_input, 'Молоко — 10 л')
+            self.assertEqual(item.seller_draft_input, 'Молоко — 12 л')
+            self.assertEqual(item.seller_confirmed_snapshot['version'], confirmed['version'])
+            self.assertEqual(item.version, edited['version'])
+        retry = self.seller_confirm(department, edited['version'])
+        self.assertEqual(retry['raw_input'], 'Молоко — 12 л')
+
+    def test_seller_close_audit_failure_rolls_back_cycle_and_finalization(self):
+        department, cycle = self.seller_version_window()
+        draft = self.seller_save(department, 'Молоко — 10 л')
+        confirmed = self.seller_confirm(department, draft['version'])
+        self.seller_save(department, 'Молоко — 12 л', confirmed['version'])
+        context = self.expire_seller_window(cycle)
+        with patch('app.supply.seller_versions.record_audit_event', side_effect=RuntimeError('audit failure')):
+            with self.assertRaises(RuntimeError):
+                self.close_seller_window(context)
+        with self.session_factory() as session:
+            self.assertEqual(session.get(SupplyRequestCycle, UUID(cycle)).status, 'OPEN')
+            item = session.get(SupplyRequest, UUID(draft['id']))
+            self.assertIsNone(item.seller_finalized_at)
+            self.assertEqual(item.seller_draft_input, 'Молоко — 12 л')
+        self.assertEqual(self.close_seller_window(context)['closed_count'], 1)
 
     def test_seller_unresolved_shift_uses_only_configured_retail_points(self) -> None:
         self.current_user_id = 2

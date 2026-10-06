@@ -276,6 +276,7 @@ class SupplyAutomationActionsTests(unittest.TestCase):
         )
 
         with (
+            patch("app.automation.supply_actions.finalize_seller_requests"),
             patch(
                 "app.automation.supply_actions."
                 "_advance_debts_for_closed_cycle"
@@ -323,10 +324,8 @@ class SupplyAutomationActionsTests(unittest.TestCase):
             closes_at=REQUESTED_AT - timedelta(minutes=2),
             hard_closes_at=REQUESTED_AT - timedelta(minutes=1),
         )
-        with patch(
-            "app.automation.supply_actions."
-            "_advance_debts_for_closed_cycle"
-        ):
+        with (patch("app.automation.supply_actions.finalize_seller_requests"),
+              patch("app.automation.supply_actions._advance_debts_for_closed_cycle")):
             with self.session_factory.begin() as session:
                 first = close_expired_request_cycles(
                     session,

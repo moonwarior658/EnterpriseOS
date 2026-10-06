@@ -97,7 +97,7 @@ from tests.postgres_test_support import reset_disposable_postgres_schema
 TEST_DATABASE_URL = os.getenv("SUPPLY_TEST_DATABASE_URL")
 EXPECTED_DATABASE_NAME = "eos_supply_migration_test"
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
-CURRENT_HEAD = "20261002_0068"
+CURRENT_HEAD = "20261006_0069"
 
 
 @unittest.skipUnless(
@@ -1916,6 +1916,97 @@ class SupplyPostgresMigrationTests(unittest.TestCase):
                 self.assertEqual(missing.created, 0)
         finally:
             settings.default_tenant_id = previous_tenant_id
+
+    def test_01e_seller_confirmed_snapshot_migration_and_close(self) -> None:
+        from sqlalchemy.exc import IntegrityError
+        from app.automation.supply_actions import close_expired_request_cycles
+
+        command.upgrade(self.alembic_config, CURRENT_HEAD)
+        now = datetime.now(timezone.utc)
+        tenant_id = f"seller-version-{uuid4().hex[:8]}"
+        with self.sessions.begin() as session:
+            department = Department(tenant_id=tenant_id, code="SHOP", name="Seller test")
+            direction = SupplyRequestDirection(tenant_id=tenant_id, code="MAIN", name="Seller test")
+            session.add_all([department, direction])
+            session.flush()
+            cycle = SupplyRequestCycle(
+                tenant_id=tenant_id, direction_id=direction.id,
+                cycle_date=date.today() + timedelta(days=190),
+                opens_at=now - timedelta(hours=1), closes_at=now + timedelta(hours=1),
+                status="OPEN",
+            )
+            session.add(cycle)
+            session.flush()
+            request = SupplyRequest(
+                tenant_id=tenant_id, public_number=f"SELLER-PG-{uuid4().hex}",
+                department_id=department.id, direction_id=direction.id, cycle_id=cycle.id,
+                status="SUBMITTED", source_type="INTERNAL", raw_input="Версия A 2 кг",
+                submitted_at=now, creator_authorized_as="SELLER", version=3,
+            )
+            session.add(request)
+            session.flush()
+            line = SupplyRequestLine(tenant_id=tenant_id, request_id=request.id,
+                                     position=1, raw_text=request.raw_input)
+            session.add(line)
+            session.flush()
+            request_id, cycle_id, line_id = request.id, cycle.id, line.id
+
+        command.downgrade(self.alembic_config, "20261002_0068")
+        self.assertNotIn("seller_draft_input", {c[0] for c in self._table_signature("supply_requests")})
+        command.upgrade(self.alembic_config, CURRENT_HEAD)
+        with self.sessions.begin() as session:
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.seller_confirmed_snapshot["raw_input"], "Версия A 2 кг")
+            self.assertEqual(request.seller_confirmed_snapshot["version"], 3)
+            self.assertEqual(request.seller_confirmed_snapshot["lines"][0]["id"], str(line_id))
+            request.seller_draft_input = "Черновик B 8 кг"
+            request.version += 1
+
+        # PostgreSQL enforces that an editable confirmed draft has a snapshot.
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            request.seller_confirmed_snapshot = None
+            with self.assertRaises(IntegrityError):
+                session.flush()
+            session.rollback()
+
+        context = SupplyAutomationContext(
+            execution_id=uuid4(), tenant_id=tenant_id, requested_at=now,
+            executed_at=now + timedelta(hours=2),
+        )
+
+        def scheduler_close():
+            with self.sessions.begin() as session:
+                return close_expired_request_cycles(session, context, {})
+
+        # A Seller write holds the cycle lock; the scheduler must skip it,
+        # then safely retry after the transaction releases that lock.
+        with self.sessions.begin() as session:
+            session.scalar(select(SupplyRequestCycle).where(
+                SupplyRequestCycle.id == cycle_id).with_for_update())
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                self.assertEqual(pool.submit(scheduler_close).result(timeout=10)["closed_count"], 0)
+            self.assertIsNotNone(session.get(SupplyRequest, request_id).seller_draft_input)
+        self.assertEqual(scheduler_close()["closed_count"], 1)
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual(request.raw_input, "Версия A 2 кг")
+            self.assertEqual(request.lines[0].id, line_id)
+            self.assertIsNone(request.seller_draft_input)
+            self.assertIsNotNone(request.seller_finalized_at)
+            version, finalized_at = request.version, request.seller_finalized_at
+        self.assertEqual(scheduler_close()["closed_count"], 0)
+        with self.sessions() as session:
+            request = session.get(SupplyRequest, request_id)
+            self.assertEqual((request.version, request.seller_finalized_at), (version, finalized_at))
+
+        # Downgrade never promotes the discarded B payload to business data.
+        command.downgrade(self.alembic_config, "20261002_0068")
+        with self.engine.connect() as connection:
+            self.assertEqual(connection.scalar(text(
+                "SELECT raw_input FROM supply_requests WHERE id=:id"), {"id": request_id}),
+                "Версия A 2 кг")
+        command.upgrade(self.alembic_config, CURRENT_HEAD)
 
     def test_02_public_mutations_lock_only_supply_request_row(self) -> None:
         command.upgrade(self.alembic_config, "head")

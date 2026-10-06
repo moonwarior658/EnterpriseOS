@@ -35,7 +35,9 @@ const EVENT_LABELS: Record<string, string> = {
   SUPPLIER_PAYMENT_PHOTO_ADDED: 'Прикреплено фото оплаты',
   AUTOMATION_SCHEDULE_DELETED: 'Удалена регламентная задача',
   FIRST_ADMIN_BOOTSTRAPPED: 'Создан первый администратор',
-  SUPPLY_REQUEST_SELLER_EDITED: 'Изменена заявка продавца',
+  SUPPLY_REQUEST_SELLER_EDITED: 'Сохранён черновик заявки продавца',
+  SUPPLY_REQUEST_SELLER_CONFIRMED: 'Подтверждена новая версия заявки продавца',
+  SUPPLY_REQUEST_SELLER_FINALIZED: 'Окно закрыто: подтверждённая заявка зафиксирована',
 }
 const ENTITY_LABELS: Record<string, string> = {
   WorkRequest: 'Ремонт', ExternalContractor: 'Подрядчик', ContractorSpecialization: 'Специализация',
@@ -58,6 +60,9 @@ const FIELD_LABELS: Record<string, string> = {
   notes: 'Примечание', photo_url: 'Фотография', primary_department_id: 'Основное подразделение',
   responsibility_started_at: 'Дата назначения', specialization_ids: 'Специализации',
   valid_from: 'Дата начала', created_at: 'Дата создания', photo_original_name: 'Фото оплаты',
+  raw_input: 'Содержание заявки', confirmed_version: 'Подтверждённая версия',
+  draft_pending: 'Есть незавершённый черновик', draft_discarded: 'Незавершённые правки отброшены',
+  finalized_at: 'Дата фиксации',
 }
 const VALUE_LABELS: Record<string, string> = {
   new: 'Новая', in_progress: 'В работе', waiting_external: 'Ожидается внешний мастер',

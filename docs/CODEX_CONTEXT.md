@@ -71,9 +71,11 @@ smoke_test — технический артефакт, сохранять ег�
   employee/location/department semantics, UI-managed mappings, затем EOS ↔ iiko
   redesign и пересмотр Seller work context. Linking/shifts/mappings работают;
   canonical identity не перепроектировалась; общая архитектура временная.
-- **TODO 3.2:** ТТК-расчёт, chef confirmation, production plan/fact; сохранение
-  последней confirmed версии при закрытии окна после повторного draft без confirm. Request window,
+- **TODO 3.2:** ТТК-расчёт, chef confirmation, production plan/fact. Request window,
   canonical need collector и Supply plan/fact уже CURRENT/PARTIAL, не «с нуля».
+  Seller confirmed snapshot сохраняется отдельно от draft; close фиксирует
+  последний confirm и отбрасывает незавершённые правки (миграция `20261006_0069`,
+  локальные проверки; production deployment отдельно).
 - **DEFERRED:** Weighted Average и Substitutions по business decision.
 - **DEFERRED:** DRIVER assigned transports без достоверного источника назначения;
   physical handover/signed-return и отдельное покрытие старого долга.

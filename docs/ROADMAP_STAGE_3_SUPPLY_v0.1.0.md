@@ -1788,7 +1788,7 @@ legacy facts задним числом.
 
 | Подблок | Статус | Фактическая граница |
 |---|---|---|
-| 3.2A — source/request window | CURRENT / PARTIAL | Seller SupplyRequest/Regulatory Tasks и повторное подтверждение той же заявки работают. TODO: сохранение последней confirmed версии, если правки сохранены как DRAFT и окно закрывается до confirm; см. Supply spec. Это ещё не производственный план |
+| 3.2A — source/request window | CURRENT / PARTIAL | Seller SupplyRequest/Regulatory Tasks и повторное подтверждение той же заявки работают. Сохранение last confirmed snapshot отдельно от draft и идемпотентная финализация при закрытии реализованы и локально проверены (`20261006_0069`); production deployment отдельно. См. Supply spec. Это ещё не производственный план |
 | 3.2B — ТТК / расчёт потребности | TODO | Связать production plan с ТТК; рассчитывать потребность и предварительную заявку цеха. Реализация не найдена |
 | 3.2C — проверка шефом | TODO | Confirmation и обоснованная корректировка шефом, сохранение расчёта EOS и изменений. Реализация не найдена |
 | 3.2D — передача в Supply | CURRENT / PARTIAL | Подтверждённый stock calculation заявки создаёт canonical ProcurementNeed; есть PurchaseRequest collector, allocations и orders. Передачи ТТК/chef result пока нет |

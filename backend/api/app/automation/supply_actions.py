@@ -22,6 +22,7 @@ from app.schemas.automation import (
     SupplyEnsureRequestCyclePayload,
 )
 from app.supply.service import _advance_debts_for_closed_cycle
+from app.supply.seller_versions import finalize_seller_requests
 
 
 class SupplyAutomationActionError(ValueError):
@@ -304,6 +305,7 @@ def close_expired_request_cycles(
     closed_ids: list[str] = []
     for cycle in cycles:
         cycle.status = "CLOSED"
+        finalize_seller_requests(session, cycle, correlation_id=str(context.execution_id))
         _advance_debts_for_closed_cycle(session, cycle)
         closed_ids.append(str(cycle.id))
 

@@ -16,6 +16,7 @@ from app.models.supply import (
 )
 from app.models.user import User
 from app.supply.parser import supported_unit_labels
+from app.supply.seller_versions import confirmed_snapshot
 from app.schemas.seller_supply import (
     SellerDepartmentRead, SellerRequestConfirm, SellerRequestRead,
     SellerRequestSave, SellerWindowRead,
@@ -114,11 +115,14 @@ def _existing(db: Session, tenant_id: str, cycle: SupplyRequestCycle, department
     )
     if lock:
         statement = statement.with_for_update()
-    return db.scalar(statement)
+    return db.scalar(statement.execution_options(populate_existing=True))
 
 
-def _request_read(item: SupplyRequest) -> SellerRequestRead:
-    return SellerRequestRead(id=item.id, status=item.status, version=item.version, raw_input=item.raw_input)
+def _request_read(item: SupplyRequest, *, editable: bool = True) -> SellerRequestRead:
+    draft = editable and item.seller_draft_input is not None
+    return SellerRequestRead(id=item.id, status='DRAFT' if draft else item.status,
+                             version=item.version,
+                             raw_input=item.seller_draft_input if draft else item.raw_input)
 
 
 def current_window(db: Session, user: User, department_id: UUID | None = None, *, now: datetime | None = None) -> SellerWindowRead:
@@ -127,6 +131,24 @@ def current_window(db: Session, user: User, department_id: UUID | None = None, *
     allowed = _departments(db, user)
     cycle = _cycle(db, user.tenant_id, now)
     if cycle is None:
+        # Re-entry after closure shows the confirmed business payload, never pending edits.
+        previous = db.scalar(select(SupplyRequest).join(SupplyRequestCycle).where(
+            SupplyRequest.tenant_id == user.tenant_id,
+            SupplyRequest.created_by_user_id == user.id,
+            SupplyRequestCycle.tenant_id == user.tenant_id,
+            SupplyRequestCycle.status.in_(['OPEN', 'CLOSED']),
+            SupplyRequestCycle.opens_at <= now,
+        ).order_by(SupplyRequestCycle.cycle_date.desc(), SupplyRequest.created_at.desc()))
+        if previous is not None:
+            try:
+                supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_READ,
+                                         request=previous, write=False)
+            except ActionContextError:
+                previous = None
+        if previous is not None:
+            return SellerWindowRead(is_open=False, can_write=False,
+                                    request=_request_read(previous, editable=False),
+                                    reason='Приём заявок сейчас закрыт')
         return SellerWindowRead(is_open=False, can_write=False, reason='Приём заявок сейчас закрыт')
     if not allowed:
         return SellerWindowRead(is_open=True, can_write=False,
@@ -174,6 +196,7 @@ def _write_window(db: Session, user: User, department_id: UUID | None) -> tuple[
     if cycle is None:
         raise SellerWindowUnavailable('Приём заявок сейчас закрыт')
     cycle = db.scalar(select(SupplyRequestCycle).where(SupplyRequestCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))
+    now = datetime.now(timezone.utc)
     if cycle is None or cycle.status != 'OPEN' or not (_aware(cycle.opens_at) <= now <= _aware(cycle.hard_closes_at or cycle.closes_at)):
         raise SellerWindowUnavailable('Приём заявок сейчас закрыт')
     own = _own_window_request(db, user, cycle)
@@ -209,20 +232,26 @@ def save_request(db: Session, user: User, payload: SellerRequestSave) -> SellerR
     if item.status == 'SUBMITTED':
         context = supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_EDIT,
                                            request=item, write=True)
-    before = {'raw_input': item.raw_input, 'status': item.status, 'version': item.version}
-    item.lines.clear()
-    db.flush()
-    item.lines = [SupplyRequestLine(tenant_id=user.tenant_id, position=index, raw_text=line)
-                  for index, line in enumerate(payload.raw_input.splitlines(), start=1)]
-    item.raw_input = payload.raw_input
-    item.status = 'DRAFT'
-    item.submitted_at = None
+    before = {'raw_input': item.seller_draft_input or item.raw_input,
+              'status': _request_read(item).status, 'version': item.version}
+    if item.status == 'SUBMITTED':
+        # Also preserves a still-confirmed legacy request on its first edit after upgrade.
+        if item.seller_confirmed_snapshot is None:
+            item.seller_confirmed_snapshot = confirmed_snapshot(item)
+        item.seller_draft_input = payload.raw_input
+    else:
+        item.lines.clear()
+        db.flush()
+        item.lines = [SupplyRequestLine(tenant_id=user.tenant_id, position=index, raw_text=line)
+                      for index, line in enumerate(payload.raw_input.splitlines(), start=1)]
+        item.raw_input = payload.raw_input
     item.version += 1
     record_audit_event(
         db, tenant_id=user.tenant_id, event_type='SUPPLY_REQUEST_SELLER_EDITED',
         entity_type='SupplyRequest', entity_id=item.id, operation='UPDATE',
         context=context, actor_user=user, before=before,
-        after={'raw_input': item.raw_input, 'status': item.status, 'version': item.version},
+        after={'raw_input': payload.raw_input, 'status': 'DRAFT', 'version': item.version,
+               'confirmed_version': (item.seller_confirmed_snapshot or {}).get('version')},
     )
     db.commit()
     return _request_read(get_supply_request(db, item.id, tenant_id=user.tenant_id))
@@ -235,10 +264,36 @@ def confirm_request(db: Session, user: User, payload: SellerRequestConfirm) -> S
         raise SellerWindowUnavailable('Заявка не найдена')
     if payload.expected_version != item.version:
         raise SupplyRequestVersionConflictError(item.version, payload.expected_version)
-    if item.status == 'SUBMITTED':
+    if item.status == 'SUBMITTED' and item.seller_draft_input is None:
         return _request_read(item)
-    if item.status != 'DRAFT':
+    if item.status not in {'DRAFT', 'SUBMITTED'}:
         raise SellerWindowUnavailable('Эту заявку нельзя подтвердить')
-    return _request_read(submit_supply_request(
-        db, item.id, expected_version=item.version, audit_context=context, actor_user=user,
-    ))
+    before_snapshot = item.seller_confirmed_snapshot
+    try:
+        if item.seller_draft_input is not None:
+            context = supply_request_authorize(db, user, Capability.SUPPLY_REQUEST_EDIT,
+                                               request=item, write=True)
+            item.lines.clear()
+            db.flush()
+            item.raw_input = item.seller_draft_input
+            item.lines = [SupplyRequestLine(tenant_id=user.tenant_id, position=index, raw_text=line)
+                          for index, line in enumerate(item.raw_input.splitlines(), start=1)]
+            item.status = 'DRAFT'
+        item = submit_supply_request(
+            db, item.id, expected_version=item.version, audit_context=context,
+            actor_user=user, commit=False,
+        )
+        item.seller_confirmed_snapshot = confirmed_snapshot(item)
+        item.seller_draft_input = None
+        record_audit_event(
+            db, tenant_id=user.tenant_id, event_type='SUPPLY_REQUEST_SELLER_CONFIRMED',
+            entity_type='SupplyRequest', entity_id=item.id, operation='CONFIRM',
+            context=context, actor_user=user, before={'confirmed': before_snapshot},
+            after={'confirmed': item.seller_confirmed_snapshot,
+                   'confirmed_version': item.version, 'raw_input': item.raw_input},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _request_read(item)
