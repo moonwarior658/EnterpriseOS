@@ -83,6 +83,21 @@ class TargetSegment(BaseModel):
     metrics: MetricsRead
 
 
+class CoverageRead(BaseModel):
+    complete: bool
+    expected_days: int
+    loaded_days: int
+    missing_dates: list[date]
+    checked_through: date | None
+
+
+class CompletenessRead(BaseModel):
+    current: CoverageRead
+    previous: CoverageRead
+    as_of: date
+    warning: bool
+
+
 class DailyMetricsRead(BaseModel):
     date: date
     metrics: MetricsRead
@@ -101,6 +116,7 @@ class AnalyticsRead(BaseModel):
     period: PeriodRead
     metrics: MetricsRead
     target_segments: list[TargetSegment]
+    completeness: CompletenessRead | None = None
     dynamics: list[DailyMetricsRead] = Field(default_factory=list)
 
 
@@ -117,8 +133,8 @@ class PointAnalyticsRead(AnalyticsRead):
 
 class ProductDayRead(BaseModel):
     date: date
-    quantity: Decimal
-    revenue: Decimal
+    quantity: Decimal | None
+    revenue: Decimal | None
 
 
 class ProductRead(BaseModel):
@@ -140,8 +156,18 @@ class ProductSummaryRead(ProductRead):
 
 
 class ProductsRead(BaseModel):
+    completeness: CompletenessRead | None = None
     period: PeriodRead
     products: list[ProductRead]
     categories: list[str] = Field(default_factory=list)
     summaries: list[ProductSummaryRead] = Field(default_factory=list)
     dynamics: list[ProductDayRead] = Field(default_factory=list)
+
+
+class WorkspaceRead(BaseModel):
+    status: FreshnessRead
+    completeness: CompletenessRead
+    analytics: AnalyticsRead | None = None
+    points: list[PointAnalyticsRead] = Field(default_factory=list)
+    sellers: list[EmployeeAnalyticsRead] = Field(default_factory=list)
+    products: ProductsRead | None = None

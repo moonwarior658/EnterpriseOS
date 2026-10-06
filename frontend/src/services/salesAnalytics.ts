@@ -8,6 +8,11 @@ export type Metric = {
 export type MetricName = 'revenue' | 'check_count' | 'average_check' | 'fullness'
 export type Metrics = Record<MetricName, Metric>
 export type Period = { kind: string; start: string; end: string; previous_start: string; previous_end: string }
+export type Completeness = {
+  current: { complete: boolean; loaded_days: number; expected_days: number; missing_dates: string[] }
+  previous: { complete: boolean; loaded_days: number; expected_days: number; missing_dates: string[] }
+  as_of: string; warning: boolean
+}
 export type Analytics = {
   period: Period; metrics: Metrics
   target_segments: { start: string; end: string; metrics: Metrics }[]
@@ -19,7 +24,7 @@ export type Product = {
   iiko_product_id: string; department_id: string; product_name: string | null
   department_name: string | null; category: string | null; quantity: string; revenue: string
   previous_quantity: string; previous_revenue: string; check_count: number
-  dynamics: { date: string; quantity: string; revenue: string }[]
+  dynamics: { date: string; quantity: string | null; revenue: string | null }[]
 }
 export type Products = { period: Period; products: Product[]; summaries: Product[]; categories: string[]; dynamics: Product['dynamics'] }
 export type Freshness = {

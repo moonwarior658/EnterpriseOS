@@ -38,7 +38,7 @@ class SalesMetricsPostgresTests(unittest.TestCase):
         self.tenant = 'metrics-test-' + uuid4().hex[:16]
         now = datetime.now(timezone.utc)
         with self.sessions.begin() as db:
-            self.assertEqual(db.scalar(text('select version_num from alembic_version')), '20261006_0071')
+            self.assertEqual(db.scalar(text('select version_num from alembic_version')), '20261006_0072')
             user = User(username=self.tenant, display_name='Test', hashed_password='test', tenant_id=self.tenant)
             db.add(user); db.flush()
             self.user_id = user.id

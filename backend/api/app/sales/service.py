@@ -6,8 +6,9 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select, func
+from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.orm import Session, defer
 from app.models.employee import Employee, IikoDepartmentMapping, IikoEmployeeLink
 from app.models.iiko import IikoProductMapping, IikoMappingStatus
 from app.models.sales import SalesDaySync, SalesFact, SalesSyncState
@@ -62,7 +63,19 @@ def retail_mappings(db: Session, tenant_id: str) -> dict[UUID, UUID]:
     )).all())
 
 
-def employee_for_fact(db: Session, fact: SalesFact, source_timezone: str) -> UUID | None:
+def historical_links(db: Session, tenant_id: str, facts) -> dict:
+    users = sorted({f.iiko_employee_id for f in facts if f.iiko_employee_id})
+    result = defaultdict(list)
+    for offset in range(0, len(users), 400):
+        for link in db.scalars(select(IikoEmployeeLink).where(
+            IikoEmployeeLink.tenant_id == tenant_id,
+            IikoEmployeeLink.iiko_user_id.in_(users[offset:offset + 400]),
+        )):
+            result[link.iiko_user_id].append(link)
+    return result
+
+
+def employee_for_fact(db: Session | None, fact: SalesFact, source_timezone: str, *, links_by_user=None) -> UUID | None:
     if not fact.iiko_employee_id:
         return None
     local = fact.opened_at.replace(tzinfo=ZoneInfo(source_timezone))
@@ -71,7 +84,7 @@ def employee_for_fact(db: Session, fact: SalesFact, source_timezone: str) -> UUI
             or local.astimezone(timezone.utc).astimezone(ZoneInfo(source_timezone)).replace(tzinfo=None) != fact.opened_at):
         return None
     instant = local.astimezone(timezone.utc)
-    links = db.scalars(select(IikoEmployeeLink).where(
+    links = links_by_user.get(fact.iiko_employee_id, []) if links_by_user is not None else db.scalars(select(IikoEmployeeLink).where(
         IikoEmployeeLink.tenant_id == fact.tenant_id,
         IikoEmployeeLink.iiko_user_id == fact.iiko_employee_id,
     )).all()
@@ -161,10 +174,11 @@ def ingest_day(db: Session, rows: list[dict], *, state: SalesSyncState, day: dat
     for fact in existing.values():
         if fact.business_date == day and key(fact) not in keys:
             fact.is_present = False
+    links = historical_links(db, state.tenant_id, parsed)
     for fact in parsed:
         fact.product_id = product_mappings.get(fact.iiko_product_id)
         fact.department_id = mappings.get(fact.iiko_department_id)
-        fact.employee_id = employee_for_fact(db, fact, state.source_timezone)
+        fact.employee_id = employee_for_fact(db, fact, state.source_timezone, links_by_user=links)
         stored = existing.get(key(fact))
         if stored is None:
             db.add(fact)
@@ -205,11 +219,22 @@ def reconciliation_facts(db: Session, state: SalesSyncState, *,
     The unbounded mode is retained for A1 diagnostics, never used by analytics.
     """
     scope = (SalesFact.tenant_id == state.tenant_id,
-             SalesFact.source_id == state.source_id, SalesFact.is_present.is_(True))
+             SalesFact.source_id == state.source_id, SalesFact.is_present)
     if start is None and end is None:
         return list(db.scalars(select(SalesFact).where(*scope)).all())
     if start is None or end is None or start > end:
         raise SalesContractError("SALES_PERIOD_INVALID")
+    # PostgreSQL walks only the connected receipts via indexed order/source-order edges.
+    # UNION deduplicates visited IDs, including cycles; refund dates remain unbounded.
+    if db.bind.dialect.name == "postgresql":
+        reach = select(SalesFact.iiko_order_id.label("order_id")).where(
+            *scope, SalesFact.business_date.between(start, end), SalesFact.source_order_id.is_(None),
+        ).distinct().cte("sales_receipts", recursive=True)
+        reach = reach.union(select(func.unnest(array([SalesFact.iiko_order_id, SalesFact.source_order_id]))).select_from(
+            SalesFact).join(reach, or_(SalesFact.iiko_order_id == reach.c.order_id,
+                                      SalesFact.source_order_id == reach.c.order_id)).where(*scope))
+        return list(db.scalars(select(SalesFact).join(reach, SalesFact.iiko_order_id == reach.c.order_id)
+                               .where(*scope).options(defer(SalesFact.raw_payload, raiseload=True))).all())
     frontier = set(db.scalars(select(SalesFact.iiko_order_id).where(
         *scope, SalesFact.business_date.between(start, end), SalesFact.source_order_id.is_(None),
     ).distinct()).all())
@@ -220,7 +245,7 @@ def reconciliation_facts(db: Session, state: SalesSyncState, *,
         discovered = set()
         for offset in range(0, len(pending), 400):
             batch = pending[offset:offset + 400]
-            rows = db.scalars(select(SalesFact).where(*scope, or_(
+            rows = db.scalars(select(SalesFact).options(defer(SalesFact.raw_payload, raiseload=True)).where(*scope, or_(
                 SalesFact.iiko_order_id.in_(batch), SalesFact.source_order_id.in_(batch),
             ))).all()
             for fact in rows:
@@ -241,6 +266,13 @@ def reconcile(db: Session, state: SalesSyncState, *,
     refund receipt as an additional check. Keep raw signed measures unchanged.
     """
     facts = reconciliation_facts(db, state, start=start, end=end)
+    return reconcile_loaded(facts, source_timezone=state.source_timezone,
+                            mappings=retail_mappings(db, state.tenant_id),
+                            links=historical_links(db, state.tenant_id, facts), start=start, end=end)
+
+
+def reconcile_loaded(facts, *, source_timezone, mappings, links, start=None, end=None):
+    """Pure reconciliation: all DB reads finish before this function runs."""
     receipts = defaultdict(list)
     for fact in facts:
         receipts[fact.iiko_order_id].append(fact)
@@ -256,13 +288,12 @@ def reconcile(db: Session, state: SalesSyncState, *,
         if root not in receipts or (sources and any(f.source_order_id for f in receipts[root])):
             unresolved.add(root)
         groups[root].extend(items)
-    mappings = retail_mappings(db, state.tenant_id)
     result = []
     for root, items in groups.items():
         originals = [f for f in items if f.iiko_order_id == root and not f.source_order_id]
         if not originals:
             continue
-        employees = {employee_for_fact(db, f, state.source_timezone) for f in originals if f.quantity > 0 and not f.is_deleted}
+        employees = {employee_for_fact(None, f, source_timezone, links_by_user=links) for f in originals if f.quantity > 0 and not f.is_deleted}
         departments = {mappings.get(f.iiko_department_id) for f in originals}
         days = {f.business_date for f in originals}
         issue = "SALES_RETURN_UNRESOLVED" if (root in unresolved or any(f.iiko_order_id in unresolved for f in items)) else None

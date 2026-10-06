@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Date, DateTime, ForeignKeyConstraint, Index, JSON, Numeric, String, UniqueConstraint, event
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Date, DateTime, ForeignKeyConstraint, Index, JSON, Numeric, String, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -19,6 +19,8 @@ class SalesSyncState(Base):
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    lease_token: Mapped[UUID | None]
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SalesDaySync(Base):
@@ -42,6 +44,8 @@ class SalesFact(Base):
         ForeignKeyConstraint(["tenant_id", "department_id"], ["departments.tenant_id", "departments.id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["tenant_id", "product_id"], ["supply_products.tenant_id", "supply_products.id"], ondelete="RESTRICT"),
         Index("ix_sales_fact_day", "tenant_id", "source_id", "business_date"),
+        Index("ix_sales_fact_order_present", "tenant_id", "source_id", "iiko_order_id", postgresql_where=text("is_present")),
+        Index("ix_sales_fact_item", "tenant_id", "source_id", "iiko_item_id"),
         Index("ix_sales_fact_source_order", "tenant_id", "source_id", "source_order_id"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

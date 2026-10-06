@@ -19,12 +19,14 @@ from app.automation.outbox import OutboxWorker, SqlAlchemyOutboxStore, DeliveryS
 from app.automation.scheduler import run_scheduler_once
 from app.integrations.iiko.config import IikoSettings
 from app.models.automation import AutomationExecution, ExecutionStatus, AutomationSchedule
+from app.models.automation import OutboxEvent
 from app.models.employee import Employee, EmployeeRole, EmployeeRoleAssignment, IikoDepartmentMapping, IikoEmployeeLink
 from app.models.sales import SalesFact, SalesSyncState
 from app.models.supply import Department, DepartmentBusinessType
 from app.models.user import User
 from app.sales.configure import configure_source
-from app.sales.service import daily_query, ingest_day, reconcile
+from app.sales.service import daily_query, ingest_day, reconcile, reconciliation_facts
+from app.sales.sync import sync_sales
 
 URL = os.getenv("SALES_TEST_DATABASE_URL")
 
@@ -43,7 +45,7 @@ class SalesPostgresTests(unittest.IsolatedAsyncioTestCase):
         point, department_id, employee_id, order, item, product = [uuid4() for _ in range(6)]
         settings = IikoSettings(enabled=True, base_url="https://sales.test.invalid/resto", login="test", password="test")
         with sessions.begin() as db:
-            self.assertEqual(db.scalar(text('select version_num from alembic_version')), "20261006_0070")
+            self.assertEqual(db.scalar(text('select version_num from alembic_version')), "20261006_0072")
             actor = User(username=tenant, display_name="Test", hashed_password="test", tenant_id=tenant, is_active=True, is_admin=True)
             db.add(actor); db.flush()
             db.add(Department(id=department_id, tenant_id=tenant, code="TEST", name="Test", business_type=DepartmentBusinessType.RETAIL_POINT))
@@ -68,9 +70,24 @@ class SalesPostgresTests(unittest.IsolatedAsyncioTestCase):
             "DishAmountInt":Decimal('1.123456789123456789'), "DishSumInt":Decimal('20.123456789123456789'),
             "DishDiscountSumInt":Decimal('20.123456789123456789'), "DishReturnSum":0,
             "Storned":"FALSE", "OrderDeleted":"NOT_DELETED", "DeletedWithWriteoff":"NOT_DELETED"}
-        client = AsyncMock(); client.__aenter__.return_value = client; client.get_sales_olap.return_value=[row]
+        client = AsyncMock(); client.__aenter__.return_value = client
+        calls = 0
+        async def get_rows(body):
+            nonlocal calls
+            self.assertEqual(engine.pool.checkedout(), 0)
+            if calls == 0:
+                duplicate = await sync_sales(sessions, tenant_id=tenant, source_id=source_id, now=now)
+                self.assertTrue(duplicate['skipped'])
+            calls += 1
+            return [row] if body['filters']['OpenDate.Typed']['from'].startswith(str(day)) else []
+        client.get_sales_olap.side_effect = get_rows
         provider = AsyncMock()
-        worker = OutboxWorker(store=SqlAlchemyOutboxStore(sessions), provider=provider, worker_id="sales-test",
+        class TenantTestStore(SqlAlchemyOutboxStore):
+            @staticmethod
+            def claim_statement(claimed_at, **kwargs):
+                return SqlAlchemyOutboxStore.claim_statement(claimed_at, **kwargs).where(
+                    OutboxEvent.execution.has(AutomationExecution.tenant_id == tenant))
+        worker = OutboxWorker(store=TenantTestStore(sessions), provider=provider, worker_id="sales-test",
             callback_url="http://unused.invalid", local_executor=LocalAutomationActionExecutor(sessions))
         with patch('app.sales.sync.get_iiko_settings', return_value=settings), patch('app.sales.sync.IikoServerClient', return_value=client):
             result = run_scheduler_once(sessions, now=datetime.now(timezone.utc))
@@ -95,4 +112,36 @@ class SalesPostgresTests(unittest.IsolatedAsyncioTestCase):
                 with db.begin_nested():
                     fact = db.scalar(select(SalesFact).where(SalesFact.tenant_id==tenant))
                     fact.employee_id = uuid4(); db.flush()
+        # PostgreSQL recursive traversal must retain distant late returns and the
+        # existing fail-closed treatment of chains/cycles, without unrelated history.
+        late = day + timedelta(days=120)
+        first, second = uuid4(), uuid4()
+        def refund(order_id, source_order):
+            return dict(row, **{'UniqOrderId.Id': str(order_id), 'SourceOrderId': str(source_order),
+                'ItemSaleEvent.Id': str(uuid4()), 'OpenDate.Typed': str(late), 'OpenTime': str(late) + 'T10:00:00',
+                'DishAmountInt': Decimal('-.1'), 'DishDiscountSumInt': Decimal('-2'), 'Storned': 'TRUE'})
+        with sessions.begin() as db:
+            state = db.get(SalesSyncState, (tenant, source_id))
+            old = day - timedelta(days=500)
+            ingest_day(db, [dict(row, **{'UniqOrderId.Id': str(uuid4()), 'ItemSaleEvent.Id': str(uuid4()),
+                'OpenDate.Typed': str(old), 'OpenTime': str(old) + 'T10:00:00'})], state=state,
+                day=old, department_ids=[point], seen_at=now)
+        for rows, excluded in [([refund(first, order)], False),
+                ([refund(first, order), refund(second, first)], True),
+                ([refund(first, order), refund(order, first)], True)]:
+            with sessions.begin() as db:
+                state = db.get(SalesSyncState, (tenant, source_id))
+                ingest_day(db, rows, state=state, day=late, department_ids=[point], seen_at=now)
+            with sessions() as db:
+                state = db.get(SalesSyncState, (tenant, source_id))
+                bounded = reconcile(db, state, start=day, end=day)
+                self.assertEqual(bounded, [o for o in reconcile(db, state) if o.business_date == day])
+                if excluded:
+                    self.assertTrue(all(o.excluded for o in bounded))
+                else:
+                    self.assertFalse(bounded[0].excluded)
+                    self.assertEqual(bounded[0].revenue, Decimal('18.123456789123456789'))
+                facts = reconciliation_facts(db, state, start=day, end=day)
+                self.assertTrue(all(f.business_date != old for f in facts))
+                self.assertTrue(all('raw_payload' not in f.__dict__ for f in facts))
         engine.dispose()

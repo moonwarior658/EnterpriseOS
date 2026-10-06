@@ -21,7 +21,7 @@
 .statistics-table th:first-child, .statistics-table td:first-child { text-align: left; }
 .statistics-table button { border: 0; background: transparent; color: inherit; cursor: pointer; text-align: inherit; }
 .statistics-link { text-decoration: underline; text-underline-offset: 3px; }
-.statistics-chart { width: 100%; height: 180px; display: block; }
+.statistics-chart { width: 100%; height: auto; display: block; }
 .statistics-chart polyline { stroke: var(--color-text-secondary); stroke-width: 3; fill: none; }
 .statistics-panel { padding: 24px; }
 .statistics-panel h2 { font-size: 19px; margin: 0 0 16px; }
@@ -30,3 +30,12 @@
 .statistics-target-form label { display: grid; gap: 6px; }
 @media(max-width: 950px) { .statistics-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media(max-width: 520px) { .statistics-cards { grid-template-columns: 1fr; } .statistics-panel { padding: 16px; } .statistics-filters label { width: 100%; } }
+
+.statistics-chart-scroll { overflow-x: auto; }
+.statistics-chart-frame { position: relative; min-width: 560px; }
+.statistics-chart text { fill: var(--color-text-secondary); font-size: 12px; }
+.statistics-chart-grid { stroke: var(--color-border-soft); stroke-width: 1; }
+.statistics-chart-axis { stroke: var(--color-border); stroke-width: 1; }
+.statistics-chart circle { fill: var(--color-surface-solid); stroke: var(--color-text-secondary); stroke-width: 2; cursor: crosshair; }
+.statistics-chart circle:focus { outline: none; fill: var(--color-text); stroke-width: 3; }
+.statistics-chart-tooltip { position: absolute; top: 24px; right: 28px; display: grid; gap: 6px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface-solid); box-shadow: var(--shadow-small); pointer-events: none; font-size: 13px; }

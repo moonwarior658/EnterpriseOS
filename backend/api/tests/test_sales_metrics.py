@@ -346,7 +346,7 @@ class SalesMetricsTests(unittest.IsolatedAsyncioTestCase):
             result=original(db,state,**kwargs)
             calls.append(len(result))
             return result
-        with patch('app.sales.service.reconciliation_facts',side_effect=capture):
+        with patch('app.sales.metrics.reconciliation_facts',side_effect=capture):
             for endpoint in ('overview','points','sellers','attention','products'):
                 self.assertEqual(self.client.get('/sales/analytics/'+endpoint).status_code,200)
             self.role(EmployeeRole.SELLER,seller=True)
@@ -394,7 +394,7 @@ class SalesMetricsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(overview['dynamics']), 31)
         day = next(r for r in overview['dynamics'] if r['date'] == str(DAY))
         self.assertEqual(Decimal(day['metrics']['revenue']['fact']), 280)
-        self.assertEqual(sum(Decimal(r['metrics']['revenue']['fact']) for r in overview['dynamics']), 280)
+        self.assertEqual(sum(Decimal(r['metrics']['revenue']['fact']) for r in overview['dynamics'] if r['metrics']['revenue']['fact'] is not None), 280)
         self.role(EmployeeRole.SELLER, seller=True)
         personal = self.client.get('/sales/analytics/me').json()
         self.assertNotIn('employee', str(personal)); self.assertNotIn('department', str(personal))
@@ -407,8 +407,8 @@ class SalesMetricsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data['product_name'], 'Эклер')
         self.assertEqual(data['category'], 'Десерты')
         self.assertEqual(data['check_count'], 1)
-        self.assertEqual(len(data['dynamics']), 1)
-        self.assertEqual(Decimal(data['dynamics'][0]['revenue']), 280)
+        self.assertEqual(len(data['dynamics']), 31)
+        self.assertEqual(Decimal(next(r for r in data['dynamics'] if r['date'] == str(DAY))['revenue']), 280)
         self.assertNotIn('employee', str(data)); self.assertNotIn('raw_payload', str(data))
 
     def test_ui_freshness_safe_contract_role_matrix(self):
@@ -453,7 +453,7 @@ class SalesMetricsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Decimal(summary['quantity']), 4)
         self.assertEqual(Decimal(summary['revenue']), 560)
         self.assertEqual(summary['check_count'], 1)
-        self.assertEqual(Decimal(data['dynamics'][0]['revenue']), 560)
+        self.assertEqual(Decimal(next(r for r in data['dynamics'] if r['date'] == str(DAY))['revenue']), 560)
         self.assertIsNone(summary['department_id'])
         self.assertEqual(self.client.get('/sales/analytics/products?category=unknown').json()['summaries'], [])
         self.role(EmployeeRole.SELLER, seller=True)

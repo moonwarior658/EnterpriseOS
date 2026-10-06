@@ -15,3 +15,12 @@ export function metricNumber(value: string | number | null | undefined, money = 
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2, ...(money ? { style: 'currency', currency: 'RUB' } : {}) }).format(Number(value))
 }
+
+export function workspaceQuery(params: URLSearchParams, view: string) {
+  const endpoint = view === 'me' ? 'me' : view === 'products' ? 'products' : 'overview'
+  const query = new URLSearchParams(analyticsQuery(params, endpoint))
+  query.set('view', view)
+  if (['overview', 'points', 'sellers'].includes(view) && params.get('staff')) query.set('staff', params.get('staff')!)
+  if (['overview', 'points'].includes(view)) for (const name of ['iiko_product_id', 'category']) if (params.get(name)) query.set(name, params.get(name)!)
+  return query.toString()
+}
