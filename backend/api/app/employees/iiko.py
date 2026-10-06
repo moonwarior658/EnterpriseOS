@@ -315,6 +315,8 @@ def set_department_mapping(
     source_name: str | None,
     reason: str,
     actor: User,
+    olap_department_id: UUID | None = None,
+    update_olap: bool = False,
 ) -> IikoDepartmentMapping:
     context = resolve_action_context(
         db, actor, required_roles=frozenset({EmployeeRole.ADMIN}),
@@ -353,6 +355,9 @@ def set_department_mapping(
         mapping.reason = reason.strip()
         mapping.decided_by_user_id = actor.id
         event_type = "IIKO_DEPARTMENT_MAPPING_REPLACED"
+    if update_olap:
+        before["olap_department_id"] = str(mapping.olap_department_id) if mapping.olap_department_id else None
+        mapping.olap_department_id = olap_department_id
     try:
         db.flush()
         record_audit_event(
@@ -361,6 +366,7 @@ def set_department_mapping(
             operation="MAP_IIKO_DEPARTMENT", context=context, actor_user=actor,
             before=before,
             after={
+                "olap_department_id": str(mapping.olap_department_id) if mapping.olap_department_id else None,
                 "iiko_department_id": str(mapping.iiko_department_id),
                 "eos_department_id": str(mapping.eos_department_id),
                 "source_name": mapping.source_name,

@@ -165,7 +165,7 @@ class _IikoAuthLogFilter(logging.Filter):
         if not isinstance(record.args, tuple) or len(record.args) < 2:
             return True
         url = record.args[1]
-        if not isinstance(url, httpx.URL) or not url.path.endswith("/api/auth"):
+        if not isinstance(url, httpx.URL) or ("key" not in url.params and not url.path.endswith("/api/auth")):
             return True
         args = list(record.args)
         args[1] = url.copy_with(query=None)
@@ -323,6 +323,31 @@ class IikoServerClient(IikoProvider):
                 raise IikoRateLimitError("IIKO_RATE_LIMITED")
             return response
         raise IikoConnectionError("IIKO_RETRY_EXHAUSTED")
+
+    async def get_sales_olap(self, body: dict[str, Any]) -> list[dict[str, Any]]:
+        """The A0-approved, read-only v2 report contract."""
+        import json
+        from decimal import Decimal
+
+        await self.authenticate()
+        response = await self._raw_request(
+            "POST", "/api/v2/reports/olap",
+            params={"key": self._token}, json=body,
+        )
+        if response.status_code == 401:
+            raise IikoAuthenticationError("IIKO_TOKEN_REJECTED")
+        if response.status_code == 403:
+            raise IikoAuthorizationError("IIKO_ACCESS_DENIED")
+        if not response.is_success:
+            raise IikoResponseError(response.status_code)
+        try:
+            envelope = json.loads(response.text, parse_float=Decimal)
+            rows = envelope["data"]
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError
+        except (ValueError, KeyError, TypeError) as error:
+            raise IikoContractError("IIKO_SALES_RESPONSE_INVALID") from error
+        return rows
 
     async def _get_json_list(
         self,

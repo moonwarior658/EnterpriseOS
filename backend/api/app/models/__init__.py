@@ -1,4 +1,5 @@
-﻿from app.models.audit import AuditEvent
+from app.models.sales import SalesFact, SalesSyncState, SalesDaySync
+from app.models.audit import AuditEvent
 from app.models.automation import (
     AutomationExecution,
     AutomationRuntimeStatus,
@@ -93,6 +94,9 @@ from app.models.work_request import (
 )
 
 __all__ = [
+    "SalesFact",
+    "SalesSyncState",
+    "SalesDaySync",
     "AuditEvent",
     "AutomationExecution",
     "AutomationRuntimeStatus",

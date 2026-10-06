@@ -23,6 +23,7 @@ from app.models.automation import (
 
 
 class LocalAutomationActionExecutor:
+    SALES_SYNC = "sales.sync_iiko"
     IIKO_SHIFT_SYNC = "employee.sync_iiko_shifts"
 
     def __init__(
@@ -35,7 +36,7 @@ class LocalAutomationActionExecutor:
     def supports(automation_type: str) -> bool:
         return (
             automation_type in SUPPLY_ACTION_HANDLERS
-            or automation_type == LocalAutomationActionExecutor.IIKO_SHIFT_SYNC
+            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC)
         )
 
     def execute(
@@ -47,6 +48,8 @@ class LocalAutomationActionExecutor:
         if executed_at.tzinfo is None or executed_at.utcoffset() is None:
             raise ValueError("executed_at must include a timezone")
         executed_at = executed_at.astimezone(timezone.utc)
+        if claim.automation_type == self.SALES_SYNC:
+            return self._execute_sales_sync(claim, executed_at=executed_at)
         if claim.automation_type == self.IIKO_SHIFT_SYNC:
             return self._execute_iiko_shift_sync(claim, executed_at=executed_at)
         handler = SUPPLY_ACTION_HANDLERS.get(claim.automation_type)
@@ -102,6 +105,37 @@ class LocalAutomationActionExecutor:
                 execution.finished_at = executed_at
                 session.flush()
 
+        return result
+
+    async def _execute_sales_sync(self, claim, *, executed_at):
+        from app.sales.sync import sync_sales
+        from app.schemas.automation import SalesSyncPayload
+
+        payload = SalesSyncPayload.model_validate(claim.payload)
+        result = await sync_sales(self._session_factory, tenant_id=claim.tenant_id,
+                                  source_id=payload.source_id, now=executed_at)
+        with self._session_factory() as session:
+            with session.begin():
+                event = session.scalar(select(OutboxEvent).where(
+                    OutboxEvent.id == claim.id,
+                    OutboxEvent.status == OutboxStatus.PROCESSING,
+                    OutboxEvent.locked_by == claim.lock_token,
+                ).with_for_update())
+                if event is None:
+                    raise OutboxClaimLostError("Sales sync claim no longer owned")
+                execution = event.execution
+                if execution.status in (ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED,
+                                         ExecutionStatus.TIMED_OUT, ExecutionStatus.CANCELLED):
+                    raise OutboxClaimLostError("Sales sync execution already terminal")
+                event.status, event.published_at = OutboxStatus.PUBLISHED, executed_at
+                event.next_attempt_at = event.locked_at = event.locked_by = event.last_error = None
+                execution.provider, execution.status = "enterpriseos", ExecutionStatus.SUCCEEDED
+                execution.result = result
+                execution.started_at = execution.started_at or executed_at
+                execution.finished_at = executed_at
+                execution.error_code = execution.error_message = execution.next_retry_at = None
+                execution.attempt_count = event.attempt_count
+                session.flush()
         return result
 
     async def _execute_iiko_shift_sync(

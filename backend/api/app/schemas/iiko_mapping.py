@@ -75,12 +75,14 @@ class IikoWarehouseMappingAction(BaseModel):
 
 
 class IikoDepartmentMappingAction(BaseModel):
+    olap_department_id: UUID | None = None
     eos_department_id: UUID
     source_name: str | None = Field(default=None, max_length=240)
     reason: str = Field(min_length=1, max_length=1000)
 
 
 class IikoDepartmentMappingRead(BaseModel):
+    olap_department_id: UUID | None = None
     id: UUID
     iiko_department_id: UUID
     eos_department_id: UUID

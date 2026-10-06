@@ -132,10 +132,17 @@ class SupplyCloseExpiredRequestCyclesPayload(BaseModel):
         return normalize_timezone(value)
 
 
+class SalesSyncPayload(BaseModel):
+    source_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_config = ConfigDict(extra="forbid")
+
+
 def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == "sales.sync_iiko":
+        return SalesSyncPayload.model_validate(payload).model_dump(mode="json")
     if automation_type == SUPPLY_ENSURE_REQUEST_CYCLE:
         return SupplyEnsureRequestCyclePayload.model_validate(
             payload
@@ -152,6 +159,10 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == "sales.sync_iiko" and (
+        not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 15
+    ):
+        raise ValueError("Sales sync requires a 15 minute interval")
     if (
         automation_type == SUPPLY_ENSURE_REQUEST_CYCLE
         and not isinstance(schedule_config, WeeklyScheduleConfig)

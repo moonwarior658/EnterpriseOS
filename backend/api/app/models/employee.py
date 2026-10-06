@@ -254,6 +254,7 @@ class IikoDepartmentMapping(Base):
             "tenant_id", "iiko_department_id",
             name="uq_iiko_department_mappings_tenant_external",
         ),
+        UniqueConstraint("tenant_id", "olap_department_id", name="uq_iiko_department_mapping_olap"),
         ForeignKeyConstraint(
             ["tenant_id", "eos_department_id"],
             ["departments.tenant_id", "departments.id"],
@@ -265,6 +266,9 @@ class IikoDepartmentMapping(Base):
             name="ck_iiko_department_mappings_reason",
         ),
     )
+
+    # Explicit enterprise ID in SALES OLAP, distinct from personal-shift group IDs.
+    olap_department_id: Mapped[UUID | None] = mapped_column(nullable=True)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)

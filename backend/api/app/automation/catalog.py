@@ -14,6 +14,11 @@ class AutomationTypeDefinition:
 
 AUTOMATION_TYPES = (
     AutomationTypeDefinition(
+        key="sales.sync_iiko", display_name="Обновить данные продаж",
+        description="Обновляет первичные факты розничных продаж из iiko.",
+        category="sales", is_system=True, is_available=True, supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
         key="supply.ensure_request_cycle",
         display_name="Открыть цикл заявок снабжения",
         description=(

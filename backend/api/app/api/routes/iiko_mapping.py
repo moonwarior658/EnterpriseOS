@@ -65,6 +65,7 @@ def department_mapping_read(
 ) -> IikoDepartmentMappingRead:
     return IikoDepartmentMappingRead(
         id=mapping.id,
+        olap_department_id=mapping.olap_department_id,
         iiko_department_id=mapping.iiko_department_id,
         eos_department_id=mapping.eos_department_id,
         eos_department_name=eos_department_name,
@@ -107,6 +108,8 @@ def set_department_mapping(
         source_name=payload.source_name,
         reason=payload.reason,
         actor=current_admin,
+        olap_department_id=payload.olap_department_id,
+        update_olap="olap_department_id" in payload.model_fields_set,
     )
     department_name = db.scalar(select(Department.name).where(
         Department.tenant_id == current_admin.tenant_id,
