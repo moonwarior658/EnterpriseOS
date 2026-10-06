@@ -14,7 +14,7 @@ export type Completeness = {
   as_of: string; warning: boolean
 }
 export type Analytics = {
-  period: Period; metrics: Metrics
+  period: Period; metrics: Metrics; completeness?: Completeness | null
   target_segments: { start: string; end: string; metrics: Metrics }[]
   dynamics: { date: string; metrics: Metrics }[]
 }

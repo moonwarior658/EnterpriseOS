@@ -6,6 +6,8 @@ import DashboardGrid, {
   type DashboardWidgetDefinition,
 } from '../components/dashboard/DashboardGrid'
 import DashboardMascots from '../components/dashboard/DashboardMascots'
+import DashboardSalesWidget from '../components/dashboard/DashboardSalesWidget'
+import { dashboardSalesKind } from './dashboardSalesLogic'
 import { getApiHealth, type ApiHealth } from '../services/api'
 import {
   getWorkRequests,
@@ -38,7 +40,10 @@ const DASHBOARD_EMPTY_TRANSITION_MS = 280
 
 function DashboardPage() {
   const { user } = useAuth()
-  const [roles, setRoles] = useState<EmployeeRole[]>([])
+  const userId = user?.id
+  const [roleContext, setRoleContext] = useState<{ userId: number; roles: EmployeeRole[] } | null>(null)
+  const roles = roleContext?.userId === user?.id ? roleContext?.roles ?? [] : []
+  const salesKind = dashboardSalesKind(roles)
   const access = dashboardAccess(roles)
   const [connectionState, setConnectionState] =
     useState<DashboardConnectionState>('checking')
@@ -54,12 +59,12 @@ function DashboardPage() {
   useEffect(() => {
     let active = true
     getActionContext().then((context) => {
-      if (active) setRoles(context.roles)
+      if (active && userId !== undefined) setRoleContext({ userId, roles: context.roles })
     }).catch(() => {
-      if (active) setRoles([])
+      if (active) setRoleContext(null)
     })
     return () => { active = false }
-  }, [user?.id])
+  }, [userId])
 
   useEffect(() => {
     let isMounted = true
@@ -228,9 +233,13 @@ function DashboardPage() {
       content: widgetContent[widget.id],
     }),
   )
+  if (salesKind) widgets.unshift({
+    id: 'sales-analytics', size: salesKind === 'personal' ? '1x1' : '1x2', order: 0,
+    content: <DashboardSalesWidget key={`${user?.id}:${roles.join(',')}`} kind={salesKind} />,
+  })
   const activeDirectionCount =
     activeDashboardDirectionCount(widgetConfig)
-  const requestedView = attentionTotal || assignedEvents.length ? 'active' : dashboardViewMode(activeDirectionCount)
+  const requestedView = widgets.length || attentionTotal || assignedEvents.length ? 'active' : dashboardViewMode(activeDirectionCount)
 
   useEffect(() => {
     if (requestedView === displayedView) {
@@ -311,7 +320,7 @@ function DashboardPage() {
             {assignedEvents.length ? <div className="dashboard-event-list">{assignedEvents.map((item) => <article key={item.id} className="dashboard-event-item"><time dateTime={item.visit_at!}>{formatDateTime(item.visit_at)}</time><strong>Визит внешнего мастера</strong><span>Ремонт №{item.id} · {item.department}</span><Link className="secondary-action" to={`/requests/${item.id}`}>Открыть ремонт</Link></article>)}</div> : <p className="dashboard-overview-empty">Ближайших визитов нет.</p>}
           </section>
         </div>
-        <DashboardGrid widgets={widgets} />
+        <DashboardGrid widgets={widgets} key={`${user?.id}:${roles.join(',')}`} />
       </div>
 
       <DashboardMascots />

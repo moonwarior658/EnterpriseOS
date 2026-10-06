@@ -1,0 +1,20 @@
+.dashboard-widget:has(.dashboard-sales) { padding: 10px; overflow-y: auto; }
+.dashboard-sales { display: flex; flex-direction: column; gap: 5px; width: 100%; min-height: 100%; color: inherit; text-decoration: none; font-size: 11px; line-height: 1.25; }
+.dashboard-sales:focus-visible { outline: 2px solid #526474; outline-offset: 3px; border-radius: 8px; }
+.dashboard-sales:hover .dashboard-sales-open { text-decoration: underline; }
+.dashboard-widget .dashboard-sales h2 { font-size: 14px; }
+.dashboard-sales-period, .dashboard-sales-updated, .dashboard-sales-assessment { color: #626a75; font-size: 9px; }
+.dashboard-sales-kpi, .dashboard-sales-revenue { display: flex; flex-direction: column; gap: 2px; }
+.dashboard-sales-kpi b, .dashboard-sales-revenue b { font-size: 11px; overflow-wrap: anywhere; }
+.dashboard-sales-kpi.green b { color: #28734c; }
+.dashboard-sales-kpi.red b { color: #a62c35; }
+.dashboard-sales-kpi.warning b { color: #80611e; }
+.dashboard-sales-kpi.no_data b, .dashboard-sales-kpi.no_target b { color: #626a75; }
+.dashboard-sales-personal .dashboard-sales-assessment { display: none; }
+.dashboard-sales-warning { color: #80611e; font-size: 9px; }
+.dashboard-sales-revenue progress { width: 100%; height: 5px; accent-color: #28734c; }
+.dashboard-sales-attention { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid #dde1e6; padding-top: 5px; font-size: 10px; }
+.dashboard-sales-attention div { display: flex; flex-direction: column; }
+.dashboard-sales-attention div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-sales-attention small { font-size: 9px; color: #626a75; }
+.dashboard-sales-open { margin-top: auto; font-weight: 650; font-size: 10px; }
