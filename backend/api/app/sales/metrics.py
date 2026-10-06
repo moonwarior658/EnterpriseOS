@@ -1,5 +1,6 @@
 """Metrics consume the reconciled A1 view, including cross-period refunds."""
 import calendar
+from collections import defaultdict
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -11,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit_event
 from app.core.action_context import ActionContextError, resolve_action_context
+from app.models.supply import Department
 from app.models.employee import Employee, EmployeeRole, EmployeeStatus
-from app.models.sales import SalesSyncState, SalesTarget
+from app.models.sales import SalesSyncState, SalesTarget, SalesFact
 from app.sales.service import reconcile, seller_orders
 from app.schemas.sales import (AnalyticsRead, MetricsRead, MetricRead, PeriodKind,
     PeriodRead, StaffFilter, TargetCreate, TargetSegment)
@@ -139,7 +141,16 @@ def analytics(orders, selected: PeriodRead, targets, *, network=False):
         if name == "revenue" and len(segments) != 1:
             common = None
         result[name] = metric(fact, before[name], common, mixed=len(set(values)) > 1)
-    return AnalyticsRead(period=selected, metrics=MetricsRead(**result), target_segments=segments)
+    dynamics = []
+    by_day = defaultdict(list)
+    for order in current:
+        by_day[order.business_date].append(order)
+    day = selected.start
+    while day <= selected.end:
+        daily = totals(by_day[day])
+        dynamics.append(dict(date=day, metrics=MetricsRead(**{name: metric(value) for name, value in daily.items()})))
+        day += timedelta(days=1)
+    return AnalyticsRead(period=selected, metrics=MetricsRead(**result), target_segments=segments, dynamics=dynamics)
 
 
 def staff_analytics(db, tenant_id, orders, selected, targets, *, staff=StaffFilter.ACTIVE, employee_id=None):
@@ -192,3 +203,74 @@ def create_target(db: Session, user, body: TargetCreate):
                               "value": str(body.value), "revision": target.revision})
     db.flush()
     return target
+
+
+def freshness(state, now=None):
+    now = now or datetime.now(timezone.utc)
+    success = state.last_success_at
+    if success is not None and success.tzinfo is None:
+        success = success.replace(tzinfo=timezone.utc)
+    return dict(last_success_at=success, stale=success is None or now - success > timedelta(minutes=30),
+                update_failed=state.error_code is not None, today=source_today(state, now),
+                history_from=max(state.history_from, shift_month(source_today(state, now), -6)),
+                source_timezone=state.source_timezone)
+
+
+def product_analytics(db, state, selected, *, department_id=None, iiko_product_id=None, category=None):
+    values = defaultdict(lambda: [Decimal(0)] * 4)
+    checks = defaultdict(set)
+    days = defaultdict(lambda: defaultdict(lambda: [Decimal(0), Decimal(0)]))
+    for order in scoped_orders(db, state, selected, department_id=department_id):
+        offset = (0 if selected.start <= order.business_date <= selected.end else
+                  2 if selected.previous_start <= order.business_date <= selected.previous_end else None)
+        if offset is None:
+            continue
+        for product_id, (qty, money) in order.products.items():
+            if iiko_product_id is not None and product_id != iiko_product_id:
+                continue
+            key = (product_id, order.department_id)
+            values[key][offset] += qty
+            values[key][offset + 1] += money
+            if offset == 0 and (qty != 0 or money != 0):
+                checks[key].add(order.order_id)
+                days[key][order.business_date][0] += qty
+                days[key][order.business_date][1] += money
+    # Display metadata only from the selected source/period and resolved retail scope.
+    names = {}
+    for fact in db.scalars(select(SalesFact).where(
+        SalesFact.tenant_id == state.tenant_id, SalesFact.source_id == state.source_id,
+        SalesFact.is_present.is_(True), SalesFact.business_date.between(selected.previous_start, selected.end),
+        SalesFact.department_id.in_({d for _, d in values}),
+        SalesFact.iiko_product_id.in_({p for p, _ in values}),
+    ).order_by(SalesFact.seen_at, SalesFact.id)):
+        names[(fact.iiko_product_id, fact.department_id)] = (fact.product_name, fact.product_category)
+    points = {d.id: d.name for d in db.scalars(select(Department).where(
+        Department.tenant_id == state.tenant_id, Department.id.in_({d for _, d in values})))}
+    categories = sorted({names.get(key, (None, None))[1] or "Без категории" for key in values})
+    if category is not None:
+        values = {key: value for key, value in values.items()
+                  if (names.get(key, (None, None))[1] or "Без категории") == category}
+    summaries = []
+    product_ids = sorted({p for p, _ in values}, key=str)
+    total_days = defaultdict(lambda: [Decimal(0), Decimal(0)])
+    for product in product_ids:
+        keys = [key for key in values if key[0] == product]
+        summed = [sum((values[key][i] for key in keys), Decimal(0)) for i in range(4)]
+        combined_days = defaultdict(lambda: [Decimal(0), Decimal(0)])
+        for key in keys:
+            for day, measures in days[key].items():
+                for i in range(2):
+                    combined_days[day][i] += measures[i]
+                    total_days[day][i] += measures[i]
+        title, product_category = names.get(keys[0], (None, None))
+        summaries.append(dict(iiko_product_id=product, department_id=None, product_name=title,
+            category=product_category, quantity=summed[0], revenue=summed[1],
+            previous_quantity=summed[2], previous_revenue=summed[3],
+            check_count=len(set().union(*(checks[key] for key in keys))),
+            dynamics=[dict(date=day, quantity=v[0], revenue=v[1]) for day, v in sorted(combined_days.items())]))
+    return dict(period=selected, categories=categories, summaries=summaries, dynamics=[dict(date=day, quantity=v[0], revenue=v[1]) for day, v in sorted(total_days.items())], products=[dict(iiko_product_id=p, department_id=d,
+        product_name=names.get((p, d), (None, None))[0], category=names.get((p, d), (None, None))[1],
+        department_name=points.get(d), check_count=len(checks[(p, d)]),
+        dynamics=[dict(date=day, quantity=v[0], revenue=v[1]) for day, v in sorted(days[(p, d)].items())],
+        quantity=v[0], revenue=v[1], previous_quantity=v[2], previous_revenue=v[3])
+        for (p, d), v in sorted(values.items(), key=lambda item: tuple(map(str, item[0])))])

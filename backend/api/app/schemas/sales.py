@@ -83,10 +83,25 @@ class TargetSegment(BaseModel):
     metrics: MetricsRead
 
 
+class DailyMetricsRead(BaseModel):
+    date: date
+    metrics: MetricsRead
+
+
+class FreshnessRead(BaseModel):
+    last_success_at: datetime | None
+    stale: bool
+    update_failed: bool
+    today: date
+    history_from: date
+    source_timezone: str
+
+
 class AnalyticsRead(BaseModel):
     period: PeriodRead
     metrics: MetricsRead
     target_segments: list[TargetSegment]
+    dynamics: list[DailyMetricsRead] = Field(default_factory=list)
 
 
 class EmployeeAnalyticsRead(AnalyticsRead):
@@ -100,15 +115,33 @@ class PointAnalyticsRead(AnalyticsRead):
     department_name: str
 
 
+class ProductDayRead(BaseModel):
+    date: date
+    quantity: Decimal
+    revenue: Decimal
+
+
 class ProductRead(BaseModel):
     iiko_product_id: UUID
     department_id: UUID
+    product_name: str | None = None
+    category: str | None = None
+    department_name: str | None = None
+    check_count: int = 0
+    dynamics: list[ProductDayRead] = Field(default_factory=list)
     quantity: Decimal
     revenue: Decimal
     previous_quantity: Decimal
     previous_revenue: Decimal
 
 
+class ProductSummaryRead(ProductRead):
+    department_id: UUID | None = None
+
+
 class ProductsRead(BaseModel):
     period: PeriodRead
     products: list[ProductRead]
+    categories: list[str] = Field(default_factory=list)
+    summaries: list[ProductSummaryRead] = Field(default_factory=list)
+    dynamics: list[ProductDayRead] = Field(default_factory=list)

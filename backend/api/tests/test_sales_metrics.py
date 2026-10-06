@@ -387,3 +387,74 @@ class SalesMetricsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(reconciliation_facts(db,state,start=date(2020,1,1),end=date(2020,1,2)),[])
             for bounds in (dict(start=DAY),dict(end=DAY),dict(start=NOW.date(),end=DAY)):
                 with self.assertRaises(SalesContractError): reconciliation_facts(db,state,**bounds)
+
+
+    def test_ui_dynamics_restate_returns_and_preserve_personal_scope(self):
+        overview = self.client.get('/sales/analytics/overview').json()
+        self.assertEqual(len(overview['dynamics']), 31)
+        day = next(r for r in overview['dynamics'] if r['date'] == str(DAY))
+        self.assertEqual(Decimal(day['metrics']['revenue']['fact']), 280)
+        self.assertEqual(sum(Decimal(r['metrics']['revenue']['fact']) for r in overview['dynamics']), 280)
+        self.role(EmployeeRole.SELLER, seller=True)
+        personal = self.client.get('/sales/analytics/me').json()
+        self.assertNotIn('employee', str(personal)); self.assertNotIn('department', str(personal))
+        self.assertEqual(personal['dynamics'], overview['dynamics'])
+
+    def test_ui_product_names_category_checks_and_daily_values(self):
+        self.ingest([self.row(DishName='Эклер', DishCategory='Десерты')])
+        self.role(EmployeeRole.CHEF_CONFECTIONER)
+        data = self.client.get('/sales/analytics/products').json()['products'][0]
+        self.assertEqual(data['product_name'], 'Эклер')
+        self.assertEqual(data['category'], 'Десерты')
+        self.assertEqual(data['check_count'], 1)
+        self.assertEqual(len(data['dynamics']), 1)
+        self.assertEqual(Decimal(data['dynamics'][0]['revenue']), 280)
+        self.assertNotIn('employee', str(data)); self.assertNotIn('raw_payload', str(data))
+
+    def test_ui_freshness_safe_contract_role_matrix(self):
+        allowed = {EmployeeRole.ADMIN, EmployeeRole.DIRECTOR, EmployeeRole.DEPUTY_DIRECTOR,
+                   EmployeeRole.NETWORK_MANAGER, EmployeeRole.CHEF_CONFECTIONER,
+                   EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.SELLER}
+        for role in EmployeeRole:
+            self.role(role, seller=role == EmployeeRole.SELLER)
+            result = self.client.get('/sales/analytics/status')
+            self.assertEqual(result.status_code, 200 if role in allowed else 403)
+            if role in allowed:
+                self.assertNotIn('source_id', result.text)
+                self.assertNotIn('error_code', result.text)
+                self.assertIn('last_success_at', result.json())
+        self.role(EmployeeRole.SELLER, seller=True)
+        self.assertEqual(self.client.get('/sales/analytics/status?employee_id=other').status_code, 422)
+
+    def test_ui_freshness_no_success_stale_and_failed(self):
+        from app.sales.metrics import freshness
+        with self.sessions() as db:
+            state = source_state(db, 'eclair')
+            state.last_success_at = None
+            state.error_code = None
+            self.assertTrue(freshness(state, NOW)['stale'])
+            state.last_success_at = NOW - timedelta(minutes=29)
+            self.assertFalse(freshness(state, NOW)['stale'])
+            state.last_success_at = NOW - timedelta(minutes=31)
+            state.error_code = 'PRIVATE_PROVIDER_ERROR'
+            result = freshness(state, NOW)
+            self.assertTrue(result['stale']); self.assertTrue(result['update_failed'])
+            self.assertNotIn('PRIVATE_PROVIDER_ERROR', str(result))
+
+
+    def test_ui_server_product_summary_category_filter_and_check_deduplication(self):
+        self.ingest([self.row(DishName='Эклер', DishCategory='Десерты'),
+                     self.row(DishName='Эклер', DishCategory='Десерты'),
+                     self.row(DishId=str(uuid4()), DishName='Кофе', DishCategory='Напитки')])
+        data = self.client.get('/sales/analytics/products?category=Десерты').json()
+        self.assertEqual(data['categories'], ['Десерты', 'Напитки'])
+        self.assertEqual(len(data['summaries']), 1)
+        summary = data['summaries'][0]
+        self.assertEqual(Decimal(summary['quantity']), 4)
+        self.assertEqual(Decimal(summary['revenue']), 560)
+        self.assertEqual(summary['check_count'], 1)
+        self.assertEqual(Decimal(data['dynamics'][0]['revenue']), 560)
+        self.assertIsNone(summary['department_id'])
+        self.assertEqual(self.client.get('/sales/analytics/products?category=unknown').json()['summaries'], [])
+        self.role(EmployeeRole.SELLER, seller=True)
+        self.assertEqual(self.client.get('/sales/analytics/products?category=Десерты').status_code, 403)

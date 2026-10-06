@@ -1,4 +1,5 @@
-﻿import { useState } from 'react'
+﻿import { statisticsViews } from '../pages/salesAnalyticsLogic'
+import { useState } from 'react'
 import {
   NavLink,
   Outlet,
@@ -164,6 +165,8 @@ function AppLayout() {
             <span>Главная</span>
             <span>→</span>
           </NavLink>
+
+          {statisticsViews(roles).length > 0 && <NavLink to={`/statistics/${statisticsViews(roles)[0]}`} onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Статистика</span><span>→</span></NavLink>}
 
           {roles.some((role) => repairCreators.includes(role)) && (
             <>

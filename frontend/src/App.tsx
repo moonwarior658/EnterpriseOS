@@ -25,6 +25,9 @@ import WorkRequestDetailPage from './pages/WorkRequestDetailPage'
 import WorkRequestFormPage from './pages/WorkRequestFormPage'
 import WorkRequestListPage from './pages/WorkRequestListPage'
 import RepairContractorsPage from './pages/RepairContractorsPage'
+import StatisticsPage from './pages/StatisticsPage'
+import { SALES_ROLES } from './pages/salesAnalyticsLogic'
+import type { EmployeeRole } from './services/actionContext'
 import './App.css'
 
 function App() {
@@ -58,6 +61,9 @@ function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/statistics" element={<ProtectedRoute allowedRoles={SALES_ROLES as EmployeeRole[]}><StatisticsPage /></ProtectedRoute>} />
+        <Route path="/statistics/:view" element={<ProtectedRoute allowedRoles={SALES_ROLES as EmployeeRole[]}><StatisticsPage /></ProtectedRoute>} />
+
         <Route
           path="/dashboard"
           element={<DashboardPage />}

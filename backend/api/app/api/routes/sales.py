@@ -2,8 +2,6 @@
 from datetime import date
 from typing import Annotated
 from uuid import UUID
-from collections import defaultdict
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
@@ -18,7 +16,7 @@ from app.models.supply import Department
 from app.models.user import User
 from app.sales import metrics as service
 from app.schemas.sales import (AnalyticsRead, EmployeeAnalyticsRead, PointAnalyticsRead,
-    PeriodKind, ProductsRead, StaffFilter, TargetCreate, TargetRead, TargetMetric)
+    FreshnessRead, PeriodKind, ProductsRead, StaffFilter, TargetCreate, TargetRead, TargetMetric)
 
 router = APIRouter(prefix="/sales/analytics", tags=["sales analytics"])
 Db = Annotated[Session, Depends(get_db)]
@@ -109,22 +107,21 @@ def attention(db: Db, current_user: Actor, period: PeriodKind = PeriodKind.MONTH
 @router.get("/products", response_model=ProductsRead)
 def products(db: Db, current_user: Actor, period: PeriodKind = PeriodKind.MONTH,
              anchor: date | None = None, start: date | None = None, end: date | None = None,
-             department_id: UUID | None = None, iiko_product_id: UUID | None = None):
+             department_id: UUID | None = None, iiko_product_id: UUID | None = None, category: str | None = None):
     require(db, current_user, "product")
     state, selected = selection(db, current_user, period, anchor, start, end)
-    values = defaultdict(lambda: [Decimal(0)] * 4)
-    for order in service.scoped_orders(db, state, selected, department_id=department_id):
-        offset = (0 if selected.start <= order.business_date <= selected.end else
-                  2 if selected.previous_start <= order.business_date <= selected.previous_end else None)
-        if offset is None:
-            continue
-        for product_id, (qty, money) in order.products.items():
-            if iiko_product_id is not None and product_id != iiko_product_id:
-                continue
-            values[(product_id, order.department_id)][offset] += qty
-            values[(product_id, order.department_id)][offset + 1] += money
-    return dict(period=selected, products=[dict(iiko_product_id=p, department_id=d, quantity=v[0], revenue=v[1],
-        previous_quantity=v[2], previous_revenue=v[3]) for (p, d), v in sorted(values.items(), key=lambda item: tuple(map(str, item[0])))])
+    return service.product_analytics(db, state, selected, department_id=department_id,
+                                     iiko_product_id=iiko_product_id, category=category)
+
+
+@router.get("/status", response_model=FreshnessRead)
+def status(db: Db, current_user: Actor):
+    try:
+        service.sales_context(db, current_user, "product")
+    except ActionContextError:
+        require(db, current_user, "self")
+    return service.freshness(service.source_state(db, current_user.tenant_id))
+
 
 
 @router.get("/targets", response_model=list[TargetRead])
