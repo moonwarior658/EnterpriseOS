@@ -74,18 +74,28 @@ function SellerMixContent({ mix, today, category, selectedProduct, onFilter }: {
   mix: SellerMix; today: string; category: string; selectedProduct: string
   onFilter: (changes: Record<string, string>) => void
 }) {
+  type MixSortKey = Exclude<ProductSortKey, 'department_name'> | 'share_percent' | 'quantity_change' | 'revenue_change'
+  const [sort, setSort] = useState<{ key: MixSortKey; direction: 'asc' | 'desc' } | null>(null)
+  const columns: { key: MixSortKey; label: string }[] = [
+    { key: 'product_name', label: 'Позиция' }, { key: 'category', label: 'Категория' },
+    { key: 'quantity', label: 'Количество' }, { key: 'revenue', label: 'Выручка' },
+    { key: 'share_percent', label: 'Доля, %' }, { key: 'previous_quantity', label: 'Предыдущее количество' },
+    { key: 'previous_revenue', label: 'Предыдущая выручка' },
+    { key: 'quantity_change', label: 'Изменение количества' }, { key: 'revenue_change', label: 'Изменение выручки' },
+  ]
+  const products = sort ? sortSalesProducts(mix.products, sort.key, sort.direction) : mix.products
   return <>
       <label className="eos-field">Категория<EosSelect value={category} onChange={e => onFilter({ category: e.target.value, iiko_product_id: '' })}><option value="">Все категории</option>{mix.categories.map(c => <option key={c}>{c}</option>)}</EosSelect></label>
       {selectedProduct && <button type="button" className="statistics-link" onClick={() => onFilter({ iiko_product_id: '' })}>← Все позиции</button>}
-      <div className="statistics-table-wrap"><table className="statistics-table"><thead><tr><th>Позиция</th><th>Категория</th><th>Количество</th><th>Выручка</th><th>Доля, %</th><th>Предыдущее количество</th><th>Предыдущая выручка</th><th>Изменение количества</th><th>Изменение выручки</th></tr></thead><tbody>{mix.products.map(p => <tr key={p.iiko_product_id}><td><button type="button" className="statistics-link" onClick={() => onFilter({ iiko_product_id: p.iiko_product_id })}>{p.product_name || 'Без названия'}</button></td><td>{p.category || 'Без категории'}</td><td>{fmt(p.quantity)}</td><td>{fmt(p.revenue, true)}</td><td>{fmt(p.share_percent)}</td><td>{fmt(p.previous_quantity)}</td><td>{fmt(p.previous_revenue, true)}</td><td>{fmt(p.quantity_change)}</td><td>{fmt(p.revenue_change, true)}</td></tr>)}</tbody></table></div>
+      <div className="statistics-table-wrap"><table className="statistics-table"><thead><tr>{columns.map(column => <th key={column.key} aria-sort={sort?.key === column.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="statistics-sort-heading" onClick={() => setSort(previous => ({ key: column.key, direction: previous?.key === column.key && previous.direction === 'asc' ? 'desc' : 'asc' }))}>{column.label} <span aria-hidden="true">{sort?.key === column.key ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button></th>)}</tr></thead><tbody>{products.map(p => <tr key={p.iiko_product_id}><td><button type="button" className="statistics-link" onClick={() => onFilter({ iiko_product_id: p.iiko_product_id })}>{p.product_name || 'Без названия'}</button></td><td>{p.category || 'Без категории'}</td><td>{fmt(p.quantity)}</td><td>{fmt(p.revenue, true)}</td><td>{fmt(p.share_percent)}</td><td>{fmt(p.previous_quantity)}</td><td>{fmt(p.previous_revenue, true)}</td><td>{fmt(p.quantity_change)}</td><td>{fmt(p.revenue_change, true)}</td></tr>)}</tbody></table></div>
       {!mix.products.length && <p>Нет атрибутированных продаж продукции за выбранный период</p>}
       <SalesTrendChart through={today} money rows={mix.dynamics.map(r => ({ date: r.date, value: r.revenue === null ? null : Number(r.revenue) }))} />
   </>
 }
 
-function InlineSellerMix({ seller, queryContext, refresh, onClear, onFilter }: {
+function InlineSellerMix({ seller, queryContext, refresh, onFilter }: {
   seller: { id: string; name: string }; queryContext: string; refresh: number
-  onClear: () => void; onFilter: (changes: Record<string, string>) => void
+  onFilter: (changes: Record<string, string>) => void
 }) {
   const params = new URLSearchParams(queryContext)
   params.set('employee_id', seller.id)
@@ -115,7 +125,7 @@ function InlineSellerMix({ seller, queryContext, refresh, onClear, onFilter }: {
   const current = result?.query === query ? result : null
   const failure = error?.query === query ? error.message : null
   return <section className="page-panel statistics-panel statistics-seller-mix" aria-label={`Продукция продавца: ${seller.name}`}>
-    <div className="statistics-title-row"><h2>Продукция продавца: {seller.name}</h2><button type="button" className="secondary-action" onClick={onClear}>Снять выбор</button></div>
+    <div className="statistics-title-row"><h2>Продукция продавца: {seller.name}</h2></div>
     {failure && <p className="statistics-warning" role="alert">{failure} <button type="button" className="statistics-link" onClick={() => setRetry(n => n + 1)}>Повторить</button></p>}
     {!current && !failure && <p className="statistics-muted" role="status">Загружаем продукцию продавца…</p>}
     {current && <>
@@ -136,11 +146,13 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState<{ key: string; message: string } | null>(null)
   const [refresh, setRefresh] = useState(0)
-  const [selectedSeller, setSelectedSeller] = useState<{ id: string; name: string } | null>(null)
   const [sort, setSort] = useState('revenue')
   const [productSort, setProductSort] = useState<{ key: ProductSortKey; direction: 'asc' | 'desc' } | null>(null)
   const [trendMetric, setTrendMetric] = useState<MetricName>('revenue')
-  const queryKey = params.toString()
+  const listParams = new URLSearchParams(params)
+  // Selecting a master row changes the detail, not the list of available sellers.
+  if (view === 'sellers') listParams.delete('employee_id')
+  const queryKey = listParams.toString()
   const key = `${userId}:${roles.join(',')}:${view}:${queryKey}`
   useEffect(() => {
     if (!viewAllowed) return
@@ -175,14 +187,15 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
     return `/statistics/${nextView}?${next}`
   }
   const period = current?.analytics?.period || current?.products?.period || current?.seller_mix?.period
-  const department = params.get('department_id') || '', employee = params.get('employee_id') || ''
+  const department = params.get('department_id') || '', selectedSellerId = params.get('employee_id') || ''
   const productRows = current?.products?.products || []
   const pointOptions = current?.points.length ? current.points.map((p) => ({ id: p.department_id, name: p.department_name })) : [...new Map(productRows.map((p) => [p.department_id, { id: p.department_id, name: p.department_name || 'Без названия' }])).values()]
-  const sellerRows = [...(current?.sellers || [])].filter((s) => !employee || s.employee_id === employee).sort((a, b) => {
+  const sellerRows = [...(current?.sellers || [])].filter((s) => view === 'sellers' || !selectedSellerId || s.employee_id === selectedSellerId).sort((a, b) => {
     const name = sort.replace('_completion', '') as MetricName
     const value = (s: Seller) => sort.endsWith('_completion') ? s.metrics[name].completion_percent : s.metrics[name].fact
     return (value(b) === null ? -Infinity : Number(value(b))) - (value(a) === null ? -Infinity : Number(value(a))) || a.employee_name.localeCompare(b.employee_name)
   })
+  const selectedSeller = current?.sellers.find(s => s.employee_id === selectedSellerId)
   const categories = current?.products?.categories || []
   const category = params.get('category') || ''
   const selectedProduct = params.get('iiko_product_id') || ''
@@ -213,11 +226,11 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
           {!pickerOptions.some(option => option.value === pickerValue) && <option value={pickerValue}>{period ? `${dateLabel(period.start)} — ${dateLabel(period.end)}` : 'Загружаем периоды…'}</option>}
           {pickerOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </EosSelect></label>}
-      {!['me', 'me-products'].includes(view) && <label>Точка<EosSelect value={department} onChange={(e) => change({ department_id: e.target.value, ...(view === 'seller-products' ? {} : { employee_id: '' }) })}><option value="">Все точки</option>{pointOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</EosSelect></label>}
-      {full && ['overview', 'points', 'sellers'].includes(view) && <><label>Статус продавцов<EosSelect value={params.get('staff') || 'active'} onChange={(e) => change({ staff: e.target.value, employee_id: '' })}><option value="active">Активные</option><option value="dismissed">Уволенные</option><option value="all">Все</option></EosSelect></label><label>Продавец<EosSelect value={employee} onChange={(e) => change({ employee_id: e.target.value })}><option value="">Все продавцы</option>{current?.sellers.map((s) => <option key={s.employee_id} value={s.employee_id}>{s.employee_name}</option>)}</EosSelect></label></>}
+      {!['me', 'me-products'].includes(view) && <label>Точка<EosSelect value={department} onChange={(e) => change({ department_id: e.target.value, ...(['seller-products', 'sellers'].includes(view) ? {} : { employee_id: '' }) })}><option value="">Все точки</option>{pointOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</EosSelect></label>}
+      {full && ['overview', 'points', 'sellers'].includes(view) && <><label>Статус продавцов<EosSelect value={params.get('staff') || 'active'} onChange={(e) => change({ staff: e.target.value, ...(view === 'sellers' ? {} : { employee_id: '' }) })}><option value="active">Активные</option><option value="dismissed">Уволенные</option><option value="all">Все</option></EosSelect></label><label>Продавец<EosSelect value={selectedSellerId} onChange={(e) => change({ employee_id: e.target.value })}><option value="">Все продавцы</option>{current?.sellers.map((s) => <option key={s.employee_id} value={s.employee_id}>{s.employee_name}</option>)}</EosSelect></label></>}
       {view === 'products' && <label>Категория<EosSelect value={category} onChange={(e) => change({ category: e.target.value, iiko_product_id: '' })}><option value="">Все категории</option>{categories.map((c) => <option key={c}>{c}</option>)}</EosSelect></label>}
       <button className="secondary-action" type="button" disabled={busyKey === key} onClick={() => setRefresh((n) => n + 1)}>Обновить</button>
-      <button className="secondary-action" type="button" onClick={() => setParams({ ...(view === 'seller-products' ? { employee_id: employee, ...(params.get('staff') ? { staff: params.get('staff')! } : {}) } : {}), period: params.get('period') || 'month', ...(params.get('anchor') ? { anchor: params.get('anchor')! } : {}), ...(params.get('period') === 'custom' ? { start: params.get('start') || '', end: params.get('end') || '' } : {}) })}>Сбросить фильтры</button>
+      <button className="secondary-action" type="button" onClick={() => setParams({ ...(view === 'seller-products' ? { employee_id: selectedSellerId, ...(params.get('staff') ? { staff: params.get('staff')! } : {}) } : {}), period: params.get('period') || 'month', ...(params.get('anchor') ? { anchor: params.get('anchor')! } : {}), ...(params.get('period') === 'custom' ? { start: params.get('start') || '', end: params.get('end') || '' } : {}) })}>Сбросить фильтры</button>
       {salesExportAllowed(roles, view) && <SalesExportButtons key={key} endpoint="export" query={format => salesExportQuery(params, view, format)} />}
     </section>
     {error?.key === key && <p className="statistics-warning" role="alert">{error.message}{current ? '. Показаны последние загруженные данные' : ''}</p>}
@@ -234,10 +247,10 @@ function StatisticsContent({ roles, userId }: { roles: string[]; userId: number 
       <label className="statistics-title-row">Динамика показателя<EosSelect value={trendMetric} onChange={(e) => setTrendMetric(e.target.value as MetricName)}>{names.map((n) => <option key={n} value={n}>{metricLabels[n]}</option>)}</EosSelect></label>
       <SalesTrendChart through={current.status.today} money={isMoney(trendMetric)} title={`Динамика: ${metricLabels[trendMetric]}`} rows={current.analytics.dynamics.map((r) => ({ date: r.date, value: r.metrics[trendMetric].fact === null ? null : Number(r.metrics[trendMetric].fact) }))} />
     </>}
-    {current && full && ['overview', 'points'].includes(view) && !employee && <section className="page-panel statistics-panel"><h2>Точки</h2><div className="statistics-table-wrap"><table className="statistics-table"><thead><tr><th>Точка</th>{names.map((n) => <th key={n}>{metricLabels[n]}</th>)}</tr></thead><tbody>{current.points.filter((p) => !department || p.department_id === department).map((p) => <tr key={p.department_id}><td><Link to={link('points', { department_id: p.department_id, employee_id: '' })}>{p.department_name}</Link></td>{names.map((n) => <td key={n}>{fmt(p.metrics[n].fact, isMoney(n))}</td>)}</tr>)}</tbody></table></div>{!current.points.length && <p>Нет продаж по точкам за выбранный период</p>}</section>}
-    {current && full && ['overview', 'points', 'sellers'].includes(view) && <section className="page-panel statistics-panel"><div className="statistics-title-row"><h2>Продавцы</h2><SalesControlMenu label={`Сортировка: ${sellerSortOptions.find(option => option.value === sort)?.label}`} items={sellerSortOptions.map(option => ({ label: option.label, selected: sort === option.value, onSelect: () => setSort(option.value) }))} /></div><div className="statistics-table-wrap"><table className="statistics-table"><thead><tr><th>Продавец</th>{names.map((n) => <th key={n}>{metricLabels[n]}</th>)}<th>Цель среднего чека</th><th>Цель наполняемости</th></tr></thead><tbody>{sellerRows.map((s) => <tr key={s.employee_id} className={`statistics-seller-row${selectedSeller?.id === s.employee_id ? ' is-active' : ''}`} onClick={() => setSelectedSeller({ id: s.employee_id, name: s.employee_name })}><td><button type="button" className="statistics-link statistics-seller-name" aria-pressed={selectedSeller?.id === s.employee_id} onClick={() => setSelectedSeller({ id: s.employee_id, name: s.employee_name })}>{s.employee_name}</button>{s.employee_status === 'DISMISSED' && <span className="statistics-muted"> · Уволен</span>}</td>{names.map((n) => <td key={n}>{fmt(s.metrics[n].fact, isMoney(n))}</td>)}<td><Status metric={s.metrics.average_check} /></td><td><Status metric={s.metrics.fullness} /></td></tr>)}</tbody></table></div>{!sellerRows.length && <p>Нет продаж сотрудников по выбранным фильтрам</p>}</section>}
+    {current && full && ['overview', 'points'].includes(view) && !selectedSellerId && <section className="page-panel statistics-panel"><h2>Точки</h2><div className="statistics-table-wrap"><table className="statistics-table"><thead><tr><th>Точка</th>{names.map((n) => <th key={n}>{metricLabels[n]}</th>)}</tr></thead><tbody>{current.points.filter((p) => !department || p.department_id === department).map((p) => <tr key={p.department_id}><td><Link to={link('points', { department_id: p.department_id, employee_id: '' })}>{p.department_name}</Link></td>{names.map((n) => <td key={n}>{fmt(p.metrics[n].fact, isMoney(n))}</td>)}</tr>)}</tbody></table></div>{!current.points.length && <p>Нет продаж по точкам за выбранный период</p>}</section>}
+    {current && full && ['overview', 'points', 'sellers'].includes(view) && <section className="page-panel statistics-panel"><div className="statistics-title-row"><h2>Продавцы</h2><SalesControlMenu label={`Сортировка: ${sellerSortOptions.find(option => option.value === sort)?.label}`} items={sellerSortOptions.map(option => ({ label: option.label, selected: sort === option.value, onSelect: () => setSort(option.value) }))} /></div><div className="statistics-table-wrap"><table className="statistics-table"><thead><tr><th>Продавец</th>{names.map((n) => <th key={n}>{metricLabels[n]}</th>)}<th>Цель среднего чека</th><th>Цель наполняемости</th></tr></thead><tbody>{sellerRows.map((s) => <tr key={s.employee_id} className={`statistics-seller-row${selectedSellerId === s.employee_id ? ' is-active' : ''}`} onClick={() => change({ employee_id: s.employee_id })}><td><button type="button" className="statistics-link statistics-seller-name" aria-pressed={selectedSellerId === s.employee_id} onClick={event => { event.stopPropagation(); change({ employee_id: s.employee_id }) }}>{s.employee_name}</button>{s.employee_status === 'DISMISSED' && <span className="statistics-muted"> · Уволен</span>}</td>{names.map((n) => <td key={n}>{fmt(s.metrics[n].fact, isMoney(n))}</td>)}<td><Status metric={s.metrics.average_check} /></td><td><Status metric={s.metrics.fullness} /></td></tr>)}</tbody></table></div>{!sellerRows.length && <p>Нет продаж сотрудников по выбранным фильтрам</p>}</section>}
     {view === 'me' && <Link to={link('me-products')}>Моя продукция →</Link>}
-    {full && ['overview', 'points', 'sellers'].includes(view) && selectedSeller && <InlineSellerMix key={`${userId}:${roles.join(',')}`} seller={selectedSeller} queryContext={queryKey} refresh={refresh} onClear={() => setSelectedSeller(null)} onFilter={change} />}
+    {full && ['overview', 'points', 'sellers'].includes(view) && selectedSeller && <InlineSellerMix key={`${userId}:${roles.join(',')}`} seller={{ id: selectedSellerId, name: selectedSeller.employee_name }} queryContext={params.toString()} refresh={refresh} onFilter={change} />}
     {current?.seller_mix && <section className="page-panel statistics-panel"><h2>{current.seller_mix.employee_name || 'Продавец'} → Продукция</h2>
       <Link to={link(view === 'me-products' ? 'me' : 'sellers', { iiko_product_id: '', category: '' })}>← К показателям продавца</Link>
       <SellerMixContent mix={current.seller_mix} today={current.status.today} category={category} selectedProduct={selectedProduct} onFilter={change} />

@@ -32,7 +32,7 @@ export function workspaceQuery(params: URLSearchParams, view: string) {
 }
 
 export type ProductSortKey = 'product_name' | 'department_name' | 'category' | 'quantity' | 'revenue' | 'previous_quantity' | 'previous_revenue'
-export function sortSalesProducts<T extends Record<ProductSortKey, string | null>>(rows: readonly T[], key: ProductSortKey, direction: 'asc' | 'desc') {
+export function sortSalesProducts<K extends string, T extends Record<K, string | null>>(rows: readonly T[], key: K, direction: 'asc' | 'desc') {
   const text = ['product_name', 'department_name', 'category'].includes(key)
   const label = (row: T) => row[key] || (key === 'category' ? 'Без категории' : 'Без названия')
   return [...rows].sort((a, b) => (text ? label(a).localeCompare(label(b), 'ru') : Number(a[key]) - Number(b[key])) * (direction === 'asc' ? 1 : -1))
