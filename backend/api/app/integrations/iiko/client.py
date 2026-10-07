@@ -667,7 +667,8 @@ class IikoServerClient(IikoProvider):
                         role_ids=repeated_text(element, "rolesIds"),
                         main_role_code=optional_text(element, "mainRoleCode"),
                         role_codes=repeated_text(element, "roleCodes"),
-                        is_employee=boolean(element, "employee"),
+                        is_employee=(boolean(element, "employee")
+                                     if optional_text(element, "employee") is not None else True),
                     ))
                 else:
                     records.append(IikoSupplierDto(

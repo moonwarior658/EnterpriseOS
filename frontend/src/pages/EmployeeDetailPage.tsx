@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { EosCheckbox, EosSelect } from '../components/EosFormControls'
 import { EosDialog } from '../components/EosDialog'
@@ -43,7 +43,7 @@ type ReasonDialogProps = {
   busy: boolean
   reasonRequired?: boolean
   onCancel: () => void
-  onConfirm: (reason: string, date: string) => Promise<void>
+  onConfirm: (reason: string, date: string) => Promise<unknown>
 }
 
 function ReasonDialog({ title, dateLabel, dateType = 'datetime-local', initialDate, confirmLabel, busy, reasonRequired = true, onCancel, onConfirm }: ReasonDialogProps) {
@@ -216,11 +216,15 @@ function EmployeeDetailPage() {
     networkOnly,
   )
 
+  const mutationPending = useRef(false)
+
   async function mutation(action: () => Promise<unknown>, fallback: string) {
+    if (mutationPending.current) return false
+    mutationPending.current = true
     setBusy(true); setError('')
-    try { await action(); setDialog(null); await load() }
-    catch (requestError) { setError(employeeErrorMessage(requestError, fallback)) }
-    finally { setBusy(false) }
+    try { await action(); setDialog(null); await load(); return true }
+    catch (requestError) { setError(employeeErrorMessage(requestError, fallback)); return false }
+    finally { mutationPending.current = false; setBusy(false) }
   }
 
   async function saveBasic(event: FormEvent) {
@@ -236,8 +240,8 @@ function EmployeeDetailPage() {
   async function addRole(event: FormEvent) {
     event.preventDefault()
     if (!roleReason.trim()) { setError('Укажите причину изменения'); return }
-    await mutation(() => assignEmployeeRole(employeeId, selectedRole, iso(roleFrom), roleReason.trim()), 'Не удалось назначить роль')
-    setRoleReason('')
+    if (!selectedRole || !roleFrom || Number.isNaN(new Date(roleFrom).getTime())) { setError('Выберите роль и корректную дату начала'); return }
+    if (await mutation(() => assignEmployeeRole(employeeId, selectedRole, iso(roleFrom), roleReason.trim()), 'Не удалось назначить роль')) setRoleReason('')
   }
 
   async function addDepartment(event: FormEvent) {
@@ -358,6 +362,7 @@ function EmployeeDetailPage() {
 
   </EosDialog>}
   {settingsOpen && <EosDialog title="Рабочие настройки" onClose={() => setSettingsOpen(false)} className="employee-settings-dialog">
+    {error && <p className="page-error" role="alert">{error}</p>}
     <div className="employee-settings-tabs" role="tablist">{([['iiko', 'iiko'], ['roles', 'Роли'], ['departments', 'Подразделения'], ['history', 'История']] as const).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={settingsTab === key} className={settingsTab === key ? 'secondary-action is-active' : 'secondary-action'} onClick={() => setSettingsTab(key)}>{label}</button>)}</div>
     {settingsTab === 'iiko' && <>
     {isAdmin && <section className="employee-card"><div className="employee-section-heading"><h2>Техническая связь iiko</h2><button className="secondary-action" type="button" disabled={iikoLoading} onClick={() => void loadIikoAdmin(true)}>Найти сотрудника iiko</button></div>
@@ -365,14 +370,14 @@ function EmployeeDetailPage() {
       {iikoLink ? <dl className="employee-facts"><div><dt>Связанный сотрудник</dt><dd>{iikoLink.iiko_display_name}</dd></div><div><dt>iiko user ID</dt><dd>{iikoLink.iiko_user_id}</dd></div><div><dt>Статус</dt><dd><b className="badge badge-active">Активна</b></dd></div><div><dt>Создана</dt><dd>{dateTimeLabel(iikoLink.valid_from)}</dd></div></dl>
         : <p className="employee-help">Связь с сотрудником iiko ещё не подтверждена.</p>}
       {iikoCandidates.length > 0 && <form className="employee-assignment-form employee-iiko-form" onSubmit={saveIikoLink}><label><span>Кандидат iiko</span><EosSelect value={selectedIikoUserId} onChange={(event) => setSelectedIikoUserId(event.target.value)} required><option value="">Выберите сотрудника</option>{iikoCandidates.filter((item) => !item.is_deleted && item.iiko_user_id !== iikoLink?.iiko_user_id).map((item) => <option key={item.iiko_user_id} value={item.iiko_user_id}>{item.display_name}{item.code ? ` · ${item.code}` : ''}</option>)}</EosSelect></label><label><span>Причина изменения</span><input value={iikoReason} onChange={(event) => setIikoReason(event.target.value)} required /></label><button className={iikoLink ? 'danger-action' : 'primary-action'} type="submit" disabled={iikoLoading || !selectedIikoUserId}>{iikoLink ? 'Исправить связь с iiko' : 'Связать с iiko'}</button></form>}
-      {iikoCandidates.length === 0 && !iikoLoading && <p className="employee-help">Кандидаты по ФИО не найдены. Это не мешает работе карточки Employee.</p>}
+      {iikoCandidates.length === 0 && !iikoLoading && !iikoError && <p className="employee-help">Кандидаты по ФИО не найдены. Это не мешает работе карточки Employee.</p>}
       {iikoHistory.length > 0 && <div className="employee-history"><h3>История связи</h3>{iikoHistory.map((item, index) => <article key={item.id}><div><strong>{item.iiko_display_name}</strong><span>{item.iiko_user_id}</span><span>{dateTimeLabel(item.valid_from)} — {dateTimeLabel(item.valid_to)}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина исправления: {item.ended_reason}</span>}{item.valid_to && iikoHistory[index - 1] && <span>Исправлено на: {iikoHistory[index - 1].iiko_display_name} ({iikoHistory[index - 1].iiko_user_id})</span>}<span>Автор связи: User #{item.created_by_user_id}</span>{item.ended_by_user_id && <span>Исправил: User #{item.ended_by_user_id}</span>}</div></article>)}</div>}
     </section>}
 
       {isAdmin && <button className="secondary-action" type="button" disabled={iikoLoading || !iikoLink} onClick={() => void refreshShifts()}>{iikoLoading ? 'Обновляем…' : 'Обновить смены сейчас'}</button>}
     </>}
     {settingsTab === 'roles' && <>    {employee.profile_level === 'FULL' && <section className="employee-card"><h2>Роли</h2>
-      {roleChoices.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form employee-role-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={selectedRole} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{roleChoices.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button className="primary-action" disabled={busy}>Назначить роль</button></form>}
+      {roleChoices.length > 0 && employee.status === 'ACTIVE' && <form className="employee-assignment-form employee-role-assignment-form" onSubmit={addRole}><label><span>Роль</span><EosSelect value={selectedRole} onChange={(e) => setRole(e.target.value as EmployeeRole)}>{roleChoices.map((item) => <option key={item} value={item}>{ROLE_LABELS[item]}</option>)}</EosSelect></label><label><span>Действует с</span><input type="datetime-local" value={roleFrom} onChange={(e) => setRoleFrom(e.target.value)} required /></label><label><span>Причина изменения</span><input value={roleReason} onChange={(e) => setRoleReason(e.target.value)} required /></label><button type="submit" className="primary-action" disabled={busy}>Назначить роль</button></form>}
       <div className="employee-history">{[...employee.role_assignments].reverse().map((item) => <article key={item.id}><div><strong>{ROLE_LABELS[item.role]}</strong><span>{formatDateOnly(item.valid_from)} — {formatDateOnly(item.valid_to, 'по настоящее время')}</span><span>Причина: {item.reason}</span>{item.ended_reason && <span>Причина завершения: {item.ended_reason}</span>}</div>{canWrite && allowedRoles.includes(item.role) && activeAt(item.valid_from, item.valid_to) && <button className="secondary-action" type="button" onClick={() => setDialog({ kind: 'endRole', assignmentId: item.id })}>Завершить</button>}</article>)}</div>
     </section>}
 

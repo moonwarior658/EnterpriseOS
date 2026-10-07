@@ -128,12 +128,29 @@ def status(db: Db, current_user: Actor):
 
 @router.get("/workspace", response_model=WorkspaceRead)
 def workspace(db: Db, current_user: Actor, response: Response,
-              view: Literal["overview", "points", "sellers", "products", "me"] = "overview",
+              view: Literal["overview", "points", "sellers", "products", "me", "seller-products", "me-products"] = "overview",
               period: PeriodKind = PeriodKind.MONTH, anchor: date | None = None,
               start: date | None = None, end: date | None = None,
               department_id: UUID | None = None, employee_id: UUID | None = None,
               staff: StaffFilter = StaffFilter.ACTIVE,
               iiko_product_id: UUID | None = None, category: str | None = None):
+    if view in {"seller-products", "me-products"}:
+        if view == "me-products":
+            if employee_id is not None or department_id is not None or staff != StaffFilter.ACTIVE:
+                raise HTTPException(422, "Недопустимый фильтр личной статистики")
+            context = require(db, current_user, "self")
+            selected_employee_id = context.employee_id
+            scope = "self"
+        else:
+            require(db, current_user, "full")
+            if employee_id is None:
+                raise HTTPException(422, "Выберите продавца")
+            selected_employee_id, scope = employee_id, "full"
+        snapshot = read(db, current_user, response, scope, period, anchor, start, end)
+        return dict(status=snapshot.status, completeness=snapshot.completeness,
+            points=service.points_read(snapshot) if scope == "full" else [],
+            seller_mix=service.seller_product_mix(snapshot, employee_id=selected_employee_id,
+                department_id=department_id, iiko_product_id=iiko_product_id, category=category))
     if view == "me" and (department_id is not None or employee_id is not None or staff != StaffFilter.ACTIVE
                          or iiko_product_id is not None or category is not None):
         raise HTTPException(422, "Недопустимый фильтр личной статистики")

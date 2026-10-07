@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { previousDayDelta, trendGeometry } from '../src/pages/salesTrendLogic.ts'
+import { previousDayDelta, trendGeometry, visibleTrendRows } from '../src/pages/salesTrendLogic.ts'
 import { workspaceQuery } from '../src/pages/salesAnalyticsLogic.ts'
 
 test('chart sorts dates, positions by calendar interval, and breaks missing-day lines', () => {
@@ -24,4 +24,20 @@ test('one workspace query preserves drill-down and excludes personal identity fi
   assert.equal(workspaceQuery(p, 'me'), 'period=custom&start=2026-09-01&end=2026-09-30&view=me')
   assert.equal(workspaceQuery(p, 'sellers'), 'period=custom&start=2026-09-01&end=2026-09-30&department_id=point&employee_id=seller&view=sellers&staff=dismissed')
   assert.equal(workspaceQuery(p, 'products'), 'period=custom&start=2026-09-01&end=2026-09-30&department_id=point&iiko_product_id=item&category=Cake&view=products')
+})
+
+test('unfinished periods stop at source today, closed periods keep all days and ticks are real', () => {
+  const rows = Array.from({ length: 31 }, (_, i) => ({ date: `2026-10-${String(i + 1).padStart(2, '0')}`, value: i < 7 ? i : null }))
+  assert.equal(visibleTrendRows(rows, '2026-10-07').at(-1)?.date, '2026-10-07')
+  assert.equal(visibleTrendRows(rows, '2026-11-07').length, 31)
+  const narrow = trendGeometry(rows, 560, 240), wide = trendGeometry(rows, 1400, 240)
+  assert(narrow.dates.length < wide.dates.length)
+  assert(narrow.dates.every(date => rows.some(row => row.date === date)))
+  assert.equal(wide.x(rows.at(-1)!.date), 1375)
+})
+
+test('seller mix drill-down preserves period/category and strips personal identity selection', () => {
+  const p = new URLSearchParams('period=custom&start=2026-09-01&end=2026-09-30&employee_id=seller&department_id=point&staff=all&iiko_product_id=item&category=Cake')
+  assert.equal(workspaceQuery(p, 'seller-products'), 'period=custom&start=2026-09-01&end=2026-09-30&view=seller-products&employee_id=seller&department_id=point&staff=all&category=Cake&iiko_product_id=item')
+  assert.equal(workspaceQuery(p, 'me-products'), 'period=custom&start=2026-09-01&end=2026-09-30&view=me-products&category=Cake&iiko_product_id=item')
 })

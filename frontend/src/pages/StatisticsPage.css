@@ -38,7 +38,7 @@
 .statistics-chart-axis { stroke: var(--color-border); stroke-width: 1; }
 .statistics-chart circle { fill: var(--color-surface-solid); stroke: var(--color-text-secondary); stroke-width: 2; cursor: crosshair; }
 .statistics-chart circle:focus { outline: none; fill: var(--color-text); stroke-width: 3; }
-.statistics-chart-tooltip { position: absolute; top: 24px; right: 28px; display: grid; gap: 6px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface-solid); box-shadow: var(--shadow-small); pointer-events: none; font-size: 13px; }
+.statistics-chart-tooltip { position: absolute; z-index: 3; max-width: 260px; display: grid; gap: 6px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface-solid); box-shadow: var(--shadow-small); pointer-events: none; font-size: 13px; }
 
 .statistics-page { min-width: 0; }
 .statistics-page > * { min-width: 0; }
@@ -63,7 +63,7 @@
 .statistics-targets summary { cursor: pointer; font-weight: 600; }
 .statistics-targets summary span { margin-left: 12px; font-weight: 400; }
 .statistics-target-form { margin: 20px 0; }
-.statistics-chart { height: 260px; }
+.statistics-chart { height: 240px; }
 .statistics-table th { color: var(--color-text-secondary); font-weight: 500; }
 .statistics-table .statistics-sort-heading { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; font: inherit; }
 .statistics-sort-heading:hover { color: var(--color-text); }

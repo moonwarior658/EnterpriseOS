@@ -1,7 +1,7 @@
 import os
 import unittest
 from datetime import UTC, date, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -300,6 +300,9 @@ class EmployeesApiTests(unittest.TestCase):
             json={"role": "SELLER", "valid_from": start.isoformat(), "reason": "Повтор"},
         )
         self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        with self.sessions() as db:
+            self.assertEqual(len(db.scalars(select(EmployeeRoleAssignment).where(EmployeeRoleAssignment.employee_id == UUID(employee_id))).all()), 1)
+            self.assertEqual(len(db.scalars(select(AuditEvent).where(AuditEvent.entity_id == employee_id, AuditEvent.event_type == 'EMPLOYEE_ROLE_ASSIGNED')).all()), 1)
 
         second_primary = self.client.post(
             f"/employees/{employee_id}/departments",

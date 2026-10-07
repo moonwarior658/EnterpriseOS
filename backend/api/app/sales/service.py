@@ -90,7 +90,13 @@ def employee_for_fact(db: Session | None, fact: SalesFact, source_timezone: str,
     )).all()
     matches = [link.employee_id for link in links if as_utc(link.valid_from) <= instant
                and (link.valid_to is None or instant < as_utc(link.valid_to))]
-    return matches[0] if len(matches) == 1 else None
+    if matches:
+        return matches[0] if len(matches) == 1 else None
+    # A first, still-confirmed stable identity can identify sales predating
+    # registration in EOS. Do not backdate records or extend closed/reused IDs.
+    if len(links) == 1 and links[0].valid_to is None and instant < as_utc(links[0].valid_from):
+        return links[0].employee_id
+    return None
 
 
 def parse_fact(row: dict, *, tenant_id: str, source_id: str, day: date, seen_at: datetime) -> SalesFact:

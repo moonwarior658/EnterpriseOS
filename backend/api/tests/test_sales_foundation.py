@@ -134,7 +134,7 @@ class SalesFoundationTests(unittest.IsolatedAsyncioTestCase):
         with self.sessions.begin() as db:
             db.scalar(select(IikoEmployeeLink).where(IikoEmployeeLink.iiko_user_id == "cashier")).valid_from = NOW
         with self.sessions() as db:
-            self.assertEqual(seller_orders(db, db.get(SalesSyncState, ("eclair", self.source_id)), user=db.get(User, 1)), [])
+            self.assertEqual(len(seller_orders(db, db.get(SalesSyncState, ("eclair", self.source_id)), user=db.get(User, 1))), 1)
         self.ingest([self.row(**{"Cashier.Id": "unknown"})]); self.assertIsNone(self.orders()[0].employee_id)
 
     def test_point_namespace_is_explicit(self):

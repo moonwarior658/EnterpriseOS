@@ -8,6 +8,21 @@ from tests.test_iiko_client import make_settings, response
 
 
 class IikoEmployeeClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_employee_endpoint_without_redundant_flag_and_logout(self):
+        paths = []
+        async def handler(request):
+            paths.append(request.url.path)
+            if request.url.path.endswith('/api/auth'):
+                return response(request, text='token')
+            if request.url.path.endswith('/api/logout'):
+                return response(request, text='')
+            return response(request, text='<employees><employee><id>stable</id><name>Иванов Иван</name></employee><employee><id>system</id><name>System</name><employee>false</employee></employee></employees>')
+        async with IikoServerClient(make_settings(), transport=httpx.MockTransport(handler)) as client:
+            people = await client.get_employees()
+        self.assertTrue(people[0].is_employee)
+        self.assertFalse(people[1].is_employee)
+        self.assertTrue(any(p.endswith('/api/logout') for p in paths))
+
     async def test_employee_and_attendance_contracts(self) -> None:
         requests: list[httpx.Request] = []
 

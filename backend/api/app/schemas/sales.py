@@ -164,6 +164,23 @@ class ProductsRead(BaseModel):
     dynamics: list[ProductDayRead] = Field(default_factory=list)
 
 
+class SellerMixProductRead(ProductSummaryRead):
+    share_percent: Decimal | None
+    quantity_change: Decimal
+    revenue_change: Decimal
+
+
+class SellerMixRead(BaseModel):
+    employee_id: UUID
+    employee_name: str | None
+    period: PeriodRead
+    completeness: CompletenessRead
+    revenue: Decimal
+    categories: list[str]
+    dynamics: list[ProductDayRead]
+    products: list[SellerMixProductRead]
+
+
 class WorkspaceRead(BaseModel):
     status: FreshnessRead
     completeness: CompletenessRead
@@ -171,3 +188,4 @@ class WorkspaceRead(BaseModel):
     points: list[PointAnalyticsRead] = Field(default_factory=list)
     sellers: list[EmployeeAnalyticsRead] = Field(default_factory=list)
     products: ProductsRead | None = None
+    seller_mix: SellerMixRead | None = None

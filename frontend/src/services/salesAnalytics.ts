@@ -75,3 +75,9 @@ export async function downloadSalesExport(endpoint: string, query: string, forma
     document.body.appendChild(anchor); anchor.click(); anchor.remove()
   } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
 }
+
+export type SellerMix = {
+  employee_id: string; employee_name: string | null; period: Period; completeness: Completeness; revenue: string
+  categories: string[]; dynamics: Product['dynamics']
+  products: (Omit<Product, 'department_id'> & { department_id: null; share_percent: string | null; quantity_change: string; revenue_change: string })[]
+}

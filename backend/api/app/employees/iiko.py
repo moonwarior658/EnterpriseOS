@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
@@ -29,7 +30,7 @@ def _utc(value: datetime) -> datetime:
 
 
 def _normalized_name(value: str) -> str:
-    return " ".join(value.casefold().replace("ё", "е").split())
+    return " ".join(re.findall(r"[^\W_]+", value.casefold().replace("ё", "е")))
 
 
 def _conflict(detail: str) -> HTTPException:
@@ -48,12 +49,17 @@ async def find_candidates(
     for employee in await provider.get_employees():
         if employee.is_deleted or not employee.is_employee:
             continue
-        candidate_name = _normalized_name(employee.name)
+        # Display name can contain a job title or omit the patronymic.
+        # Structured identity fields are candidates only, never an auto-link.
+        candidate_name = _normalized_name(" ".join(filter(None, (
+            employee.name, employee.last_name, employee.first_name, employee.middle_name,
+        ))))
         candidate_parts = set(candidate_name.split())
         if not needle_parts or not (
             candidate_name == needle
             or needle_parts.issubset(candidate_parts)
-            or candidate_parts.issubset(needle_parts)
+            or (candidate_parts and candidate_parts.issubset(needle_parts))
+            or len(needle_parts & candidate_parts) >= 2
         ):
             continue
         results.append(IikoEmployeeCandidateRead(

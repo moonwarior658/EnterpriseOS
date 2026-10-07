@@ -17,6 +17,12 @@ export function metricNumber(value: string | number | null | undefined, money = 
 }
 
 export function workspaceQuery(params: URLSearchParams, view: string) {
+  if (['seller-products', 'me-products'].includes(view)) {
+    const query = new URLSearchParams(analyticsQuery(params, 'me'))
+    query.set('view', view)
+    for (const name of [...(view === 'seller-products' ? ['employee_id', 'department_id', 'staff'] : []), 'category', 'iiko_product_id']) if (params.get(name)) query.set(name, params.get(name)!)
+    return query.toString()
+  }
   const endpoint = view === 'me' ? 'me' : view === 'products' ? 'products' : 'overview'
   const query = new URLSearchParams(analyticsQuery(params, endpoint))
   query.set('view', view)

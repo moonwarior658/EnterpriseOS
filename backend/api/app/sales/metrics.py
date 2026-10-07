@@ -402,3 +402,18 @@ def workspace_read(snapshot, *, view, department_id=None, employee_id=None, staf
         result['products'] = product_analytics(snapshot, department_id=department_id,
                                               iiko_product_id=iiko_product_id, category=category)
     return result
+
+
+def seller_product_mix(snapshot, *, employee_id, department_id=None, iiko_product_id=None, category=None):
+    if employee_id is None:
+        raise HTTPException(403, "Личная статистика недоступна без сотрудника")
+    orders = filtered_orders(snapshot, department_id=department_id, employee_id=employee_id)
+    total = sum((o.revenue for o in orders if snapshot.selected.start <= o.business_date <= snapshot.selected.end), Decimal(0))
+    products = product_analytics(replace(snapshot, orders=orders),
+        iiko_product_id=iiko_product_id, category=category)
+    return dict(employee_id=employee_id, employee_name=next((e.full_name for e in snapshot.employees if e.id == employee_id), None),
+        period=snapshot.selected, completeness=snapshot.completeness,
+        revenue=total, dynamics=products['dynamics'], categories=products['categories'],
+        products=[dict(row, share_percent=row['revenue'] / total * 100 if total else None,
+            quantity_change=row['quantity'] - row['previous_quantity'],
+            revenue_change=row['revenue'] - row['previous_revenue']) for row in products['summaries']])

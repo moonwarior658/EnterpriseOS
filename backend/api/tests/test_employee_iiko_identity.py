@@ -115,6 +115,20 @@ class EmployeeIikoIdentityTests(unittest.IsolatedAsyncioTestCase):
         missing = await find_candidates(self.provider, full_name="Петров Пётр Петрович")
         self.assertEqual(missing, [])
 
+    async def test_structured_name_with_title_typo_and_normalization_is_only_candidate(self):
+        provider = FakeIikoProvider([
+            IikoEmployeeDto(external_id='stable', name='Алакбаров Эльшад Руководитель',
+                first_name='Эльшад', middle_name='Абулфат оглы', last_name='Алакбаров', is_employee=True),
+            IikoEmployeeDto(external_id='other', name='Алакбаров Другой', is_employee=True),
+            IikoEmployeeDto(external_id='empty', name='---', is_employee=True),
+            IikoEmployeeDto(external_id='deleted', name='Эльшад Абулфат оглы', is_employee=True, is_deleted=True),
+        ])
+        candidates = await find_candidates(provider, full_name=' Алакабаров  ЭЛЬШАД Абулфат-оглы ')
+        self.assertEqual([c.iiko_user_id for c in candidates], ['stable'])
+        with self.sessions() as db:
+            self.assertIsNone(current_link(db, self.employee(db)))
+        self.assertEqual(await find_candidates(provider, full_name='Несуществующий Сотрудник'), [])
+
     async def test_link_duplicate_forbidden_and_correction_preserves_history(self) -> None:
         with self.sessions() as db:
             first = await create_link(
