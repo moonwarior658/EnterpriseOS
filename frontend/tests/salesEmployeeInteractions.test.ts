@@ -79,26 +79,77 @@ test('Employee role submit displays failure inside dialog, preserves reason, gua
     const { default: Statistics } = await server.ssrLoadModule('/src/pages/StatisticsPage.tsx')
     const calls: string[] = []
     const period = { kind: 'month', start: '2026-09-01', end: '2026-09-30', previous_start: '2026-08-02', previous_end: '2026-08-31' }
+    const emptyMetric = { fact: '100', completion_percent: null, status: 'no_target' }
+    const metrics = Object.fromEntries(['revenue', 'check_count', 'average_check', 'fullness'].map(key => [key, emptyMetric]))
+    let failMix = false, deferMix = false
+    const pending: { resolve: (value: Response) => void; response: Response }[] = []
     globalThis.fetch = async input => {
       const url = String(input); calls.push(url)
       if (url === '/api/auth/me') return Response.json({ id: 1 })
       if (url.includes('action-context')) return Response.json({ roles: ['ADMIN'] })
-      return Response.json({ status: { today: '2026-10-07', history_from: '2026-04-01' }, completeness: { warning: false },
-        points: [{ department_id: 'point', department_name: 'Точка' }], sellers: [],
-        seller_mix: { employee_id: 'employee', employee_name: 'Test Employee', period, categories: ['Dessert'], dynamics: [], products: [{ iiko_product_id: 'cake', product_name: 'Cake', category: 'Dessert', quantity: '2', revenue: '100', share_percent: '50', previous_quantity: '1', previous_revenue: '40', quantity_change: '1', revenue_change: '60' }] } })
+      const query = new URL(url, 'http://localhost').searchParams
+      const id = query.get('employee_id') || 'employee'
+      if (query.get('view') === 'seller-products' && failMix) return Response.json({}, { status: 503 })
+      const response = Response.json({ status: { today: '2026-10-07', history_from: '2026-04-01' }, completeness: { warning: false },
+        points: [{ department_id: 'point', department_name: 'Точка' }],
+        sellers: [{ employee_id: 'employee', employee_name: 'Test Employee', metrics }, { employee_id: 'second', employee_name: 'Second Employee', metrics }],
+        ...(query.get('view') === 'seller-products' ? { seller_mix: { employee_id: id, employee_name: id === 'employee' ? 'Test Employee' : 'Second Employee', period, completeness: { warning: false }, categories: ['Dessert'], dynamics: [], products: [{ iiko_product_id: 'cake', product_name: id === 'employee' ? 'Cake' : 'Second Cake', category: 'Dessert', quantity: '2', revenue: '100', share_percent: '50', previous_quantity: '1', previous_revenue: '40', quantity_change: '1', revenue_change: '60' }] } } : {}) })
+      if (query.get('view') === 'seller-products' && deferMix) {
+        deferMix = false
+        return new Promise<Response>(resolve => pending.push({ resolve, response }))
+      }
+      return response
     }
-    await act(async () => root!.render(React.createElement(AuthProvider, { key: 'statistics' }, React.createElement(MemoryRouter, { initialEntries: ['/statistics/seller-products?period=month&anchor=2026-09-01&employee_id=employee&category=Dessert'] }, React.createElement(Routes, null, React.createElement(Route, { path: '/statistics/:view', element: React.createElement(Statistics) }))))))
+    await act(async () => root!.render(React.createElement(AuthProvider, { key: 'statistics' }, React.createElement(MemoryRouter, { initialEntries: ['/statistics/sellers?period=month&anchor=2026-09-01&department_id=point&staff=all&category=Dessert'] }, React.createElement(Routes, null, React.createElement(Route, { path: '/statistics/:view', element: React.createElement(Statistics) }))))))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 220)) })
-    const productLink = Array.from(document.querySelectorAll<HTMLAnchorElement>('a')).find(a => a.textContent === 'Cake')!
-    assert(productLink.href.includes('employee_id=employee') && productLink.href.includes('category=Dessert') && productLink.href.includes('iiko_product_id=cake'))
+    assert(!document.querySelector('.statistics-seller-mix'))
+    assert(!Array.from(document.querySelectorAll('a')).some(a => a.href.includes('/statistics/seller-products')))
+    assert(!Array.from(document.querySelectorAll('.statistics-seller-row a')).some(a => a.textContent === 'Продукция'))
+    await act(async () => button('Test Employee').click())
+    let mix = document.querySelector('.statistics-seller-mix')!
+    assert(mix.querySelector('h2')?.textContent === 'Продукция продавца: Test Employee')
+    assert(mix.textContent?.includes('Cake'))
+    assert(button('Test Employee').closest('tr')?.classList.contains('is-active'))
+    assert.equal(button('Test Employee').getAttribute('aria-pressed'), 'true')
+    assert.equal(button('Test Employee').closest('section')?.nextElementSibling, mix)
+    const mixCall = calls.findLast(url => url.includes('view=seller-products'))!
+    for (const filter of ['anchor=2026-09-01', 'department_id=point', 'staff=all', 'category=Dessert', 'employee_id=employee']) assert(mixCall.includes(filter), filter)
+    assert.equal(document.querySelector('.statistics-tabs a[aria-current="page"]')?.textContent, 'Продавцы')
+    await act(async () => button('Second Employee').closest('tr')!.querySelectorAll('td')[1].click())
+    mix = document.querySelector('.statistics-seller-mix')!
+    assert.equal(mix.querySelector('h2')?.textContent, 'Продукция продавца: Second Employee')
+    assert(mix.textContent?.includes('Second Cake'))
+    assert(!button('Test Employee').closest('tr')?.classList.contains('is-active'))
+    assert(button('Second Employee').closest('tr')?.classList.contains('is-active'))
+    await act(async () => button('Second Cake').click())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)) })
+    assert(calls.findLast(url => url.includes('view=seller-products'))?.includes('employee_id=second'))
+    assert(calls.findLast(url => url.includes('view=seller-products'))?.includes('iiko_product_id=cake'))
     const point = Array.from(document.querySelectorAll<HTMLSelectElement>('.statistics-filters select')).find(s => s.closest('label')?.textContent?.startsWith('Точка'))!
-    await act(async () => { point.value = 'point'; point.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    await act(async () => { point.value = ''; point.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)) })
-    assert(calls.at(-1)?.includes('department_id=point') && calls.at(-1)?.includes('employee_id=employee'))
-    await act(async () => button('Сбросить фильтры').click())
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)) })
-    assert(calls.at(-1)?.includes('employee_id=employee'))
-    assert(!calls.at(-1)?.includes('department_id='))
+    assert(!calls.findLast(url => url.includes('view=seller-products'))?.includes('department_id='))
+    assert(calls.findLast(url => url.includes('view=seller-products'))?.includes('employee_id=second'))
+    failMix = true
+    await act(async () => button('Test Employee').click())
+    assert(document.querySelector('.statistics-seller-mix [role="alert"]'))
+    assert(!document.querySelector('.statistics-seller-mix')?.textContent?.includes('Second Cake'))
+    failMix = false
+    await act(async () => button('Повторить').click())
+    assert(document.querySelector('.statistics-seller-mix')?.textContent?.includes('Cake'))
+    deferMix = true
+    await act(async () => button('Second Employee').click())
+    assert(document.querySelector('.statistics-seller-mix [role="status"]')?.textContent?.includes('Загружаем'))
+    assert(!document.querySelector('.statistics-seller-mix')?.textContent?.includes('Cake'))
+    await act(async () => button('Test Employee').click())
+    await act(async () => { const stale = pending.pop()!; stale.resolve(stale.response) })
+    assert.equal(document.querySelector('.statistics-seller-mix h2')?.textContent, 'Продукция продавца: Test Employee')
+    assert(!document.querySelector('.statistics-seller-mix')?.textContent?.includes('Second Cake'))
+    await act(async () => button('Снять выбор').click())
+    assert(!document.querySelector('.statistics-seller-mix'))
+    assert(!document.querySelector('.statistics-seller-row.is-active'))
+    assert(document.querySelector('.statistics-seller-row'))
+
   } finally {
     if (root) await act(async () => root!.unmount())
     globalThis.fetch = originalFetch

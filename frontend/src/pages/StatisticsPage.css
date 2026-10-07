@@ -76,3 +76,11 @@
   .statistics-menu-options { right: auto; left: 0; }
 }
 .statistics-panel:has(.statistics-menu-options) { position: relative; z-index: 2; }
+
+.statistics-page a, .statistics-page a:visited { color: var(--color-text); }
+.statistics-seller-row { cursor: pointer; }
+.statistics-seller-row td { transition: background 150ms; }
+.statistics-seller-row:hover td, .statistics-seller-row:focus-within td, .statistics-seller-row.is-active td { background: var(--color-surface-muted); }
+.statistics-table .statistics-seller-name { padding: 0; font: inherit; font-weight: 600; }
+.statistics-seller-mix > .statistics-title-row { justify-content: space-between; }
+.statistics-seller-mix .statistics-link { background: transparent; border: 0; padding: 0; font: inherit; cursor: pointer; }
