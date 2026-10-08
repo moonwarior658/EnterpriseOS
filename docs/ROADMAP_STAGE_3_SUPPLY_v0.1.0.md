@@ -2,8 +2,8 @@
 
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
-Дата обновления: **6 октября 2026 года**
-Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; 3.1P DONE и развёрнут; 3.2 PARTIAL: source/request window работает, производственный расчёт и проверка шефом — TODO.**
+Дата обновления: **8 октября 2026 года**
+Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; 3.1P DONE и развёрнут; 3.1V COMPLETED / production business-verified после stabilization pass; 3.2 PARTIAL: source/request window работает, производственный расчёт и проверка шефом — TODO.**
 Общий прогресс этапа 3: **не завершён; без фиктивного процента по разному объёму пунктов.**
 
 ---
@@ -1730,6 +1730,7 @@ signed-return, Dashboard exception и отдельное покрытие уже
 | 3.1C email и остальные сценарии | Operational contour production/business verified; получение email адресатом и состав master data не подтверждены отдельными артефактами | P2 — дополнительный evidence/observability; не блокирует завершённый operational scope |
 | 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot | P2 UX/observability |
 | 3.1P | DONE и развёрнут: Employee/User, 13 ролей, ActionContext, iiko linking/shifts и immutable audit | [Employee/User spec](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md) |
+| 3.1V | COMPLETED / production business-verified после stabilization pass: Sales Analytics | NONE; эксплуатационные/визуальные мелочи — maintenance, см. блок 3.1V ниже |
 | 3.2 | PARTIAL: source/request window и передача canonical needs работают; ТТК/chef/production plan-fact — TODO | См. 3.2A–3.2E ниже |
 | 3.3 | PARTIAL: базовый Dashboard заявок/mapping/debt есть; unified procurement/print exceptions, owner/deadline/severity не реализованы | Later stage, P2 |
 | 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; расширения permissions, departments admin, графики, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2; базовая iiko-связь Employee и факты личных смен перенесены в обязательный 3.1P |
@@ -1740,9 +1741,11 @@ signed-return, Dashboard exception и отдельное покрытие уже
 receipt write obsolete для работающего контура; package/VAT/legacy ограничения
 остаются границами расширения. iiko integration в целом требует отдельного research.
 
-### Next recommended work
+### Next stage
 
-Stage 3.1P **DONE**. Следующий продуктовый объём — недостающие части 3.2;
+Stage 3.1P **DONE**; Stage 3.1V **COMPLETED / production business-verified**
+после stabilization pass. Следующий основной этап — **Stage 3.2 Production Demand
+(Производственная потребность)**: недостающие части существующего scope 3.2.
 iiko contracts research — отдельная задача без заранее выбранной новой модели.
 
 ### Критерий готовности 3.1C
@@ -1782,9 +1785,37 @@ legacy facts задним числом.
 
 ---
 
+# Этап 3.1V — Sales Analytics
+
+**COMPLETED / production business-verified** после текущего stabilization pass. Дата фиксации: **08.10.2026**.
+
+Завершение и production business verification зафиксированы по подтверждению владельца от 08.10.2026; этот документационный проход не является повторным live production audit.
+
+- [x] OLAP v2 sales ingestion; background sync каждые 15 минут; historical backfill.
+- [x] Seller attribution через confirmed stable iiko identity.
+- [x] Points / sellers / products analytics; avg check / fill / revenue / checks.
+- [x] Targets и revenue plan; previous-period comparison; attention sellers.
+- [x] Statistics UI; Dashboard widgets; role-based access; ADMIN full analytics visibility.
+- [x] Weekly/monthly snapshots; Reports; XLSX/PDF exports; seller product mix.
+- [x] Current-period completeness/stale/error states.
+- [x] Performance stabilization и отсутствие iiko calls в request path.
+
+Архитектурное решение: `iikoServer → background sync → EOS DB → analytics API → UI`.
+EOS хранит факты и snapshots, рассчитывает метрики и проверяет права;
+пользовательские запросы, Reports и exports работают с EOS DB.
+
+**Maintenance / TODO (при возникновении мелочей):** эксплуатационное наблюдение sync/backfill и
+completeness/stale/error states; точечная responsive/визуальная полировка
+существующих Statistics, Dashboard и Reports. Эти мелочи не оставляют 3.1V
+открытым и не расширяют scope. Детали —
+[Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
+
+---
+
 # Этап 3.2 — Производственная потребность
 
-**PARTIAL**, без фиктивного процента. Предусловие Stage 3.1P выполнено.
+**PARTIAL**, без фиктивного процента. Следующий основной этап —
+**Stage 3.2 Production Demand**; Stage 3.1P завершён, Stage 3.1V закрыт.
 
 | Подблок | Статус | Фактическая граница |
 |---|---|---|

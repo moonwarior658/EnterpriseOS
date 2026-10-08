@@ -10,6 +10,21 @@ Mac / origin / production предоставлены владельцем. Эт�
 Stage 3 Supply: 3.0 DONE; operational 3.1A/3.1B/3.1C production/business verified;
 Stage 3.1P **DONE и развёрнут**. 3.2 PARTIAL; весь Stage 3 не завершён.
 
+## Current stage / Next stage — 08.10.2026
+
+Stage 3.1V — Sales Analytics: **COMPLETED / production business-verified** после текущего stabilization pass.
+Завершение и production business verification зафиксированы по подтверждению владельца от 08.10.2026; этот документационный проход не является повторным live production audit.
+
+Архитектура аналитики: `iikoServer → background sync → EOS DB → analytics API → UI`; iiko calls отсутствуют в request path.
+Реализованы продажи/KPI, Statistics и Dashboard, ролевой доступ (включая полный
+просмотр ADMIN), snapshots, Reports и XLSX/PDF exports. Подробный scope и
+maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
+
+Следующий основной этап — **Stage 3.2 Production Demand (Производственная
+потребность)**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Контрольная точка Git/Alembic от 06.10.2026 выше сохранена как датированная запись;
+новые production SHA/head в этом проходе не устанавливаются.
+
 ## Sources of truth
 
 1. [Project Charter](PROJECT_CHARTER_v1.1.md) — governing constraints.

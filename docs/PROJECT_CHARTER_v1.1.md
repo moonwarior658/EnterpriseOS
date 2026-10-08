@@ -2,7 +2,7 @@
 
 > Версия: 1.1
 > Статус: Активная разработка
-> Последнее обновление: 6 октября 2026
+> Последнее обновление: 8 октября 2026
 
 ## Current production baseline
 
@@ -15,6 +15,20 @@ Seller SupplyRequest через системное окно и repair contractor
 **TODO:** iiko contracts research/redesign; текущая интеграция работает, но не финальна.
 Подробности и оставшийся scope — в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
 
+## Current stage / Next stage — 08.10.2026
+
+Stage 3.1V — Sales Analytics: **COMPLETED / production business-verified** после текущего stabilization pass.
+Завершение и production business verification зафиксированы по подтверждению владельца от 08.10.2026; этот документационный проход не является повторным live production audit.
+
+Архитектура аналитики: `iikoServer → background sync → EOS DB → analytics API → UI`; iiko calls отсутствуют в request path.
+Реализованы продажи/KPI, Statistics и Dashboard, ролевой доступ (включая полный
+просмотр ADMIN), snapshots, Reports и XLSX/PDF exports. Подробный scope и
+maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
+
+Следующий основной этап — **Stage 3.2 Production Demand (Производственная
+потребность)**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Контрольная точка Git/Alembic от 06.10.2026 выше сохранена как датированная запись;
+новые production SHA/head в этом проходе не устанавливаются.
 
 ---
 

@@ -1,5 +1,5 @@
 Версия: v0.12.0
-Последнее обновление: 2026-09-18
+Последнее обновление: 2026-10-08
 Прогресс этапа 2: 100%
 
 # EnterpriseOS — Roadmap
@@ -16,6 +16,21 @@
 Stage 3.1P **DONE и развёрнут** по контрольной точке владельца.
 Детали current Supply/Repairs и TEMPORARY Seller fallback, TODO iiko redesign —
 в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md#current-production-baseline).
+
+## Current stage / Next stage — 08.10.2026
+
+Stage 3.1V — Sales Analytics: **COMPLETED / production business-verified** после текущего stabilization pass.
+Завершение и production business verification зафиксированы по подтверждению владельца от 08.10.2026; этот документационный проход не является повторным live production audit.
+
+Архитектура аналитики: `iikoServer → background sync → EOS DB → analytics API → UI`; iiko calls отсутствуют в request path.
+Реализованы продажи/KPI, Statistics и Dashboard, ролевой доступ (включая полный
+просмотр ADMIN), snapshots, Reports и XLSX/PDF exports. Подробный scope и
+maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
+
+Следующий основной этап — **Stage 3.2 Production Demand (Производственная
+потребность)**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Контрольная точка Git/Alembic от 06.10.2026 выше сохранена как датированная запись;
+новые production SHA/head в этом проходе не устанавливаются.
 
 ## Текущий статус
 
@@ -321,7 +336,9 @@ Stage 3.1P **DONE и развёрнут** по контрольной точке
 Перенести работу отдела снабжения в EnterpriseOS.
 
 **CURRENT:** 3.0 DONE; operational 3.1A/3.1B/3.1C production/business verified;
-3.1P **DONE и развёрнут**. 3.2 **PARTIAL**: request window и Supply передача
+3.1P **DONE и развёрнут**; 3.1V **COMPLETED / production business-verified**
+после stabilization pass. Следующий основной этап — **Stage 3.2 Production Demand**.
+3.2 **PARTIAL**: request window и Supply передача
 работают; ТТК, chef confirmation и production plan/fact — TODO.
 Весь Stage 3 не завершён. Weighted Average/Substitutions — DEFERRED.
 Текущая iiko integration работает, но архитектурно временная; research/redesign — TODO.
