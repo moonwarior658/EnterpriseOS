@@ -27,8 +27,11 @@ Stage 3.1V — Sales Analytics: **COMPLETED / production business-verified** п�
 просмотр ADMIN), snapshots, Reports и XLSX/PDF exports. Подробный scope и
 maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
 
-Следующий основной этап — **Stage 3.2 Production Demand (Производственная
-потребность)**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Следующий основной этап — **Stage 3.2: база знаний продукции → производственная
+потребность**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Первая часть реализуется и проверяется до начала разработки производственной части.
+Проектный пакет на review — [Stage 3.2 spec](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md);
+подробная последовательность — [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md).
 Контрольная точка Git/Alembic от 06.10.2026 выше сохранена как датированная запись;
 новые production SHA/head в этом проходе не устанавливаются.
 
@@ -337,9 +340,11 @@ maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
 
 **CURRENT:** 3.0 DONE; operational 3.1A/3.1B/3.1C production/business verified;
 3.1P **DONE и развёрнут**; 3.1V **COMPLETED / production business-verified**
-после stabilization pass. Следующий основной этап — **Stage 3.2 Production Demand**.
-3.2 **PARTIAL**: request window и Supply передача
-работают; ТТК, chef confirmation и production plan/fact — TODO.
+после stabilization pass. Следующий основной этап — **Stage 3.2**:
+сначала база знаний продукции, после её реализации и проверки — производственная
+потребность. 3.2 **PARTIAL**: request window и Supply передача работают; база
+продукции, ТТК, chef confirmation и production plan/fact — TODO. Подробный backlog
+остаётся в [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md), связанном с Supply roadmap.
 Весь Stage 3 не завершён. Weighted Average/Substitutions — DEFERRED.
 Текущая iiko integration работает, но архитектурно временная; research/redesign — TODO.
 Детали и задачи — только в [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md).

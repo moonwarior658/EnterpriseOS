@@ -20,8 +20,11 @@ Stage 3.1V — Sales Analytics: **COMPLETED / production business-verified** п�
 просмотр ADMIN), snapshots, Reports и XLSX/PDF exports. Подробный scope и
 maintenance — в [Sales Analytics spec](STAGE_3_1V_SALES_ANALYTICS_SPEC.md).
 
-Следующий основной этап — **Stage 3.2 Production Demand (Производственная
-потребность)**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Следующий основной этап — **Stage 3.2: база знаний продукции → производственная
+потребность**, существующий статус **PARTIAL**. Весь Stage 3 остаётся незавершённым.
+Первая часть реализуется и проверяется до начала разработки производственной части.
+Проектный пакет на review — [Stage 3.2 spec](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md);
+подробная последовательность — [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md).
 Контрольная точка Git/Alembic от 06.10.2026 выше сохранена как датированная запись;
 новые production SHA/head в этом проходе не устанавливаются.
 
@@ -86,7 +89,8 @@ smoke_test — технический артефакт, сохранять ег�
   employee/location/department semantics, UI-managed mappings, затем EOS ↔ iiko
   redesign и пересмотр Seller work context. Linking/shifts/mappings работают;
   canonical identity не перепроектировалась; общая архитектура временная.
-- **TODO 3.2:** ТТК-расчёт, chef confirmation, production plan/fact. Request window,
+- **TODO 3.2:** сначала база знаний продукции; после gate её приёмки — ТТК-расчёт,
+  chef confirmation, production plan/fact. Подробные слайсы — Roadmap 3.2 выше. Request window,
   canonical need collector и Supply plan/fact уже CURRENT/PARTIAL, не «с нуля».
   Seller confirmed snapshot сохраняется отдельно от draft; close фиксирует
   последний confirm и отбрасывает незавершённые правки (миграция `20261006_0069`,

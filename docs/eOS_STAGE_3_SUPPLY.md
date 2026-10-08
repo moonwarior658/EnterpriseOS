@@ -1389,6 +1389,13 @@ COVERED_WITH_DELAY
 ТТК-расчёт, chef confirmation и production plan/fact не реализованы.
 Работающее request window не закрывает этот объём; см. 3.2A–3.2E в roadmap.
 
+**Уточнение Stage 3.2 — 08.10.2026:** база знаний продукции реализуется первой;
+производственная часть начинается только после её реализации и проверки.
+Бизнес-правила базы и целевой процесс —
+[Stage 3.2 spec](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md),
+подробные зависимости — [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md).
+Существующие Supply lifecycle, request window и procurement contracts не меняются.
+
 Будущая зависимость:
 
 ```text

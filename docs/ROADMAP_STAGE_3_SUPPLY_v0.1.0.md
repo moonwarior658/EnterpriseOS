@@ -3,7 +3,7 @@
 Версия: **v0.1.0**  
 Дата создания: **22 июля 2026 года**  
 Дата обновления: **8 октября 2026 года**
-Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; 3.1P DONE и развёрнут; 3.1V COMPLETED / production business-verified после stabilization pass; 3.2 PARTIAL: source/request window работает, производственный расчёт и проверка шефом — TODO.**
+Статус: **3.0 DONE; 3.1A/3.1B operational scope завершён и production-verified; 3.1C operational scope завершён и production/business verified; 3.1P DONE и развёрнут; 3.1V COMPLETED / production business-verified после stabilization pass; 3.2 PARTIAL: source/request window работает; сначала база знаний продукции, после её приёмки — производственная часть; оба новых блока TODO.**
 Общий прогресс этапа 3: **не завершён; без фиктивного процента по разному объёму пунктов.**
 
 ---
@@ -15,7 +15,8 @@
 Во время разработки этапа 3:
 
 - Codex сначала читает этот документ;
-- задачи этапа 3 берутся только отсюда;
+- задачи этапа 3 берутся отсюда; подробные слайсы 3.2 — из связанного
+  [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md), без дублирования backlog;
 - после завершения функционального подблока обновляется этот файл;
 - основная roadmap EnterpriseOS получает только укрупнённый статус;
 - детали этапа 3 не дублируются полностью в основной roadmap;
@@ -1731,7 +1732,7 @@ signed-return, Dashboard exception и отдельное покрытие уже
 | 3.1C receipt UI/stock | В admin UI видны UUID/raw status/error code; stock GET после POSTED не сохраняет EOS staging snapshot | P2 UX/observability |
 | 3.1P | DONE и развёрнут: Employee/User, 13 ролей, ActionContext, iiko linking/shifts и immutable audit | [Employee/User spec](STAGE_3.1P_USERS_AND_RESPONSIBILITY_BUSINESS_SPEC.md) |
 | 3.1V | COMPLETED / production business-verified после stabilization pass: Sales Analytics | NONE; эксплуатационные/визуальные мелочи — maintenance, см. блок 3.1V ниже |
-| 3.2 | PARTIAL: source/request window и передача canonical needs работают; ТТК/chef/production plan-fact — TODO | См. 3.2A–3.2E ниже |
+| 3.2 | PARTIAL: source/request window и canonical needs работают; база продукции и производственная часть — TODO | Сначала база и gate приёмки; затем производство. См. раздел 3.2 ниже и связанный Roadmap 3.2 |
 | 3.3 | PARTIAL: базовый Dashboard заявок/mapping/debt есть; unified procurement/print exceptions, owner/deadline/severity не реализованы | Later stage, P2 |
 | 3.4 | PARTIAL: отдельные UX/аудит/архивные механизмы уже есть; расширения permissions, departments admin, графики, трёхсторонняя передача, business-regulations UI, retention jobs, межединичное объединение долгов остаются | Later stage, P2; базовая iiko-связь Employee и факты личных смен перенесены в обязательный 3.1P |
 | Main roadmap | Min/Max, auto-order по календарю поставщиков и полная политика кратности не реализованы; package allocation уже есть | P2 / будущий согласованный scope |
@@ -1744,8 +1745,9 @@ receipt write obsolete для работающего контура; package/VAT
 ### Next stage
 
 Stage 3.1P **DONE**; Stage 3.1V **COMPLETED / production business-verified**
-после stabilization pass. Следующий основной этап — **Stage 3.2 Production Demand
-(Производственная потребность)**: недостающие части существующего scope 3.2.
+после stabilization pass. Следующий основной этап — **Stage 3.2: база знаний
+продукции → производственная потребность**. Часть II начинается только после
+реализации и проверки части I; детали — [Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md).
 iiko contracts research — отдельная задача без заранее выбранной новой модели.
 
 ### Критерий готовности 3.1C
@@ -1812,10 +1814,29 @@ completeness/stale/error states; точечная responsive/визуальна�
 
 ---
 
-# Этап 3.2 — Производственная потребность
+# Этап 3.2 — База знаний продукции и производственная потребность
 
-**PARTIAL**, без фиктивного процента. Следующий основной этап —
-**Stage 3.2 Production Demand**; Stage 3.1P завершён, Stage 3.1V закрыт.
+**PARTIAL**, без фиктивного процента: существующая Supply-основа ниже работает,
+но база знаний и полный производственный контур не реализованы. Stage 3.1P
+завершён, Stage 3.1V закрыт.
+
+**Решение 08.10.2026:** две последовательные части. Сначала база знаний продукции
+с read-only iiko, локальным статусом EOS, таблицей и карточкой; затем, только
+после реализации и бизнес-проверки базы (gate K), производственная потребность.
+Разработка частей параллельно запрещена. Production reconnaissance — обязательная
+отдельная стадия после review документации; в текущем задании она не выполняется.
+
+Проектный пакет на review:
+
+- [Бизнес-правила и функциональная спецификация](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md).
+- [Архитектура и повторное использование](STAGE_3_2_ARCHITECTURE.md).
+- [Подробная Roadmap 3.2](ROADMAP_STAGE_3_2_v0.1.0.md) — R0/K1–K6/gate K, затем предварительные P0–P4.
+- [Открытые вопросы, допущения и риски](STAGE_3_2_OPEN_QUESTIONS.md).
+- [План production reconnaissance](STAGE_3_2_PRODUCTION_RECONNAISSANCE_PLAN.md).
+
+Ниже сохранены фактические границы прежних 3.2A–3.2E **производственной части**.
+Они не задают порядок разработки перед базой продукции и не означают готовность
+заказа готовых изделий. Подробный новый backlog хранится только в Roadmap 3.2.
 
 | Подблок | Статус | Фактическая граница |
 |---|---|---|
@@ -1968,6 +1989,13 @@ Checkbox здесь отражает наличие функции в текущ
 ---
 
 # Changelog
+
+## 2026-10-08 — проектирование Stage 3.2
+
+- Зафиксированы база знаний продукции → gate приёмки → производственная часть.
+- Добавлен связанный пакет spec/architecture/roadmap/questions/reconnaissance plan.
+- Прежние 3.2A–3.2E сохранены как фактическая основа части II; production
+  evidence и статус PARTIAL не повышены. Код/миграции/разведка не выполнялись.
 
 Исторические записи ниже относятся к своей дате и не задают текущий статус.
 
