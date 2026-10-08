@@ -3,7 +3,8 @@
 **Тип:** ARCHITECTURE PROPOSAL · **Версия:** 0.1.0 · **Дата:** 08.10.2026
 **Статус:** на review. Обозначения и бизнес-правила — в
 [спецификации](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md).
-Все новые модели/API ниже — предложения, не реализованные контракты.
+Целевая часть K2–K6 ниже остаётся предложением. Реализованный K1 и отличия
+зафиксированы в разделе «K1 implementation» в конце документа.
 
 ## 1. Проверенная локальная основа
 
@@ -280,3 +281,36 @@ Additive rollout: verified backup и recovery rehearsal → affected images →
 безопасный rollback — в [Roadmap](ROADMAP_STAGE_3_2_v0.1.0.md). Откат обычно
 выключает новое действие/расписание и возвращает совместимые images, сохраняя
 новые данные и audit; downgrade с потерей локального контента не штатный rollback.
+
+
+## K1 implementation — 08.10.2026, локально на review
+
+Текущее задание разрешило внутреннюю архитектуру и реализацию; Q07 решён для K1
+source-first identity, допустимой альтернативой из раздела 3. SupplyProduct имеет
+уникальное normalized_name и обязательную EOS единицу; его расширение для всех
+проданных UUID потребовало бы менять matching/parser/Supply consumers. Поэтому
+`ProductKnowledgeProduct` хранит единую идентичность изделия для knowledge по
+`tenant + Sales source + iiko UUID` и явный nullable tenant FK к SupplyProduct.
+Это не второй импорт Supply: новые SupplyProduct и mappings не создаются,
+уже подтверждённые связи используются. Supply/Sales API и данные не переписаны.
+Будущие production consumers должны использовать эту же knowledge identity,
+а переход в Supply — её подтверждённую связь, без склейки по имени.
+
+Реализованы ProductKnowledgeBatch/Product/Price, миграция 0074, read API,
+capability PRODUCT_KNOWLEDGE_READ, ручные collect/preview/publish/rollback.
+Первоначальный набор — 141 уникальный фактически проданный сентябрьский UUID
+по трём подтверждённым точкам, не фильтр DISH. Источник единиц/веса/типа —
+текущий iiko snapshot; `useBalanceForSell` подтверждает тип продажи.
+Цены публикуются только с явно подтверждённым context/currency/unit/evidence.
+Price observations, media, recipes, денежный cost и scheduled refresh не реализованы.
+K1 read grants не включают стоимость/ТТК; API их не выдаёт ни одной роли.
+Seller price scope — своя подтверждённая active retail point. Управление
+status/content не реализовано. Начальный статус EOS задаётся явно при bootstrap,
+не из меню/deleted. Publication и unpublication аудируются существующим AuditEvent.
+
+CLI не зарегистрирован в Automation Core и не имеет расписания. После bootstrap
+другой ассортимент отклоняется; последующее добавление требует отдельного ручного
+решения и подтверждения mapping. Operational rollback скрывает партию, не удаляет
+identity/prices/history. Schema downgrade при непустом каталоге запрещён.
+Подробности, evidence и business checklist: [K1 report](STAGE_3_2_K1_REPORT_2026-10-08.md).
+Production write/deploy и бизнес-приёмка не выполнены; gate K остаётся открытым.

@@ -179,3 +179,5 @@ __all__ = [
     "WorkRequestAttachment",
     "WorkRequestComment",
 ]
+
+from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice

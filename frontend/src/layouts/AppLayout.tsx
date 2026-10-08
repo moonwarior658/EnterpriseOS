@@ -1,4 +1,5 @@
-﻿import { statisticsViews } from '../pages/salesAnalyticsLogic'
+import { PRODUCT_KNOWLEDGE_ROLES } from '../services/productKnowledge'
+import { statisticsViews } from '../pages/salesAnalyticsLogic'
 import { useState } from 'react'
 import {
   NavLink,
@@ -165,6 +166,8 @@ function AppLayout() {
             <span>Главная</span>
             <span>→</span>
           </NavLink>
+
+          {roles.some(role => PRODUCT_KNOWLEDGE_ROLES.includes(role)) && <NavLink to="/products" onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Продукция</span><span>→</span></NavLink>}
 
           {statisticsViews(roles).length > 0 && <NavLink to={`/statistics/${statisticsViews(roles)[0]}`} onClick={closeMenu} className={({ isActive }) => isActive ? 'menu-link menu-link-active' : 'menu-link'}><span>Статистика</span><span>→</span></NavLink>}
 

@@ -15,6 +15,7 @@ from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    PRODUCT_KNOWLEDGE_READ = "PRODUCT_KNOWLEDGE_READ"
     SUPPLY_REQUEST_READ = "SUPPLY_REQUEST_READ"
     SUPPLY_REQUEST_CREATE = "SUPPLY_REQUEST_CREATE"
     SUPPLY_REQUEST_EDIT = "SUPPLY_REQUEST_EDIT"
@@ -54,6 +55,14 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
+    Capability.PRODUCT_KNOWLEDGE_READ: tuple((role, scope) for role, scope in (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
+        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
+        (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION), (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
+        (EmployeeRole.CONFECTIONER, Scope.PRODUCTION), (EmployeeRole.BAKER, Scope.PRODUCTION),
+        (EmployeeRole.SELLER, Scope.PRIMARY_DEPARTMENT),
+    )),
     Capability.SUPPLY_REQUEST_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
         (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),
@@ -422,3 +431,17 @@ def repair_authorize(
             role_precedence=(role,), write=write,
         )
     raise ActionContextError("PERMISSION_DENIED", "Недостаточно прав для действия")
+
+
+def product_knowledge_context(db: Session, user: User) -> ActionContext:
+    """Safe shared catalog has no target employee/object; price scope is separate."""
+    base = resolve_action_context(db, user, write=False)
+    for role, scope in GRANTS[Capability.PRODUCT_KNOWLEDGE_READ]:
+        if role not in base.roles:
+            continue
+        context = resolve_action_context(db, user, required_roles=frozenset({role}),
+                                         role_precedence=(role,), write=False)
+        if scope == Scope.PRODUCTION and not scoped_department_ids(db, user, scope, context):
+            continue
+        return context
+    raise ActionContextError("PERMISSION_DENIED", "Недостаточно прав для продукции")

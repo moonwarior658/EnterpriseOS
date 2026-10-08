@@ -1,0 +1,65 @@
+import { useEffect, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { EosDateField, EosPagination, EosSearchField, EosSelect } from '../components/EosFormControls'
+import { getProduct, getProductCatalog, priceLabel, saleModeLabel, saleStatusLabel, weightLabel, type Catalog, type Product } from '../services/productKnowledge'
+import './ProductKnowledgePage.css'
+
+const PAGE_SIZE = 25
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yekaterinburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+const checkedAt = (value: string) => new Date(value).toLocaleString('ru-RU', { timeZone: 'Asia/Yekaterinburg' })
+function MissingSection({ title, text = null }: { title: string; text?: string | null }) {
+  return <section className="product-knowledge-section"><h2>{title}</h2><p>{text || 'Нет данных'}</p><small>{text ? 'Источник: справочник iiko' : 'Подтверждённые сведения отсутствуют'}</small></section>
+}
+export default function ProductKnowledgePage() {
+  const { productId } = useParams()
+  const [params, setParams] = useSearchParams()
+  const [retry, setRetry] = useState(0)
+  const [state, setState] = useState<{ key: string; catalog: Catalog | null; product: Product | null; error: string | null }>({key: '', catalog: null, product: null, error: null})
+  const point = params.get('point') || '', date = params.get('date') || today()
+  const query = params.get('q') || '', status = params.get('status') || '', mode = params.get('mode') || '', category = params.get('category') || ''
+  const rawPage = Number(params.get('page') || '1'), page = Number.isSafeInteger(rawPage) && rawPage > 0 && rawPage < 1000000 ? rawPage : 1
+  const offset = (page - 1) * PAGE_SIZE
+  const key = JSON.stringify([productId, point, date, query, status, mode, category, offset, retry])
+  useEffect(() => {
+    const controller = new AbortController()
+    const request = new URLSearchParams({ price_at: date, offset: String(productId ? 0 : offset), limit: String(productId ? 1 : PAGE_SIZE) })
+    if (point) request.set('department_id', point)
+    if (!productId) { if (query) request.set('q', query); if (status) request.set('status', status); if (mode) request.set('mode', mode); if (category) request.set('category_id', category) }
+    const selected = new URLSearchParams({price_at: date}); if (point) selected.set('department_id', point)
+    const timer = setTimeout(() => {
+      Promise.all([getProductCatalog(request, controller.signal), productId ? getProduct(productId, selected, controller.signal) : Promise.resolve(null)])
+        .then(([catalog, product]) => { if (!controller.signal.aborted) setState({key, catalog, product, error: null}) })
+        .catch((error: unknown) => { if (!controller.signal.aborted) setState({key, catalog: null, product: null, error: error instanceof Error && error.name === 'ProductApiError' ? error.message : 'Не удалось загрузить продукцию. Повторите позже'}) })
+    }, 200)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [key, productId, point, date, query, status, mode, category, offset])
+  const loading = state.key !== key, catalog = state.catalog, product = state.product
+  const update = (name: string, value: string) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(name, value); else next.delete(name)
+    if (name !== 'page') next.delete('page')
+    setParams(next, { replace: true })
+  }
+  const queryString = params.size ? `?${params.toString()}` : ''
+  const controls = <div className="product-price-controls"><label>Точка цены<EosSelect aria-label="Точка цены" value={point} onChange={e => update('point', e.target.value)}><option value="">Выберите точку</option>{catalog?.points.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</EosSelect></label><EosDateField label="Дата цены" value={date} onChange={e => update('date', e.target.value)} /></div>
+  return <div className="page-shell"><section className="page-panel product-page">
+    <div className="page-title-row"><div><p className="eyebrow">БАЗА ЗНАНИЙ</p><h1>{productId && !loading ? product?.name || 'Карточка продукции' : 'Продукция'}</h1><p className="muted-text">Изделия, характеристики и материалы для работы</p></div></div>
+    {productId && <Link className="product-back" to={`/products${queryString}`}>← К списку продукции</Link>}
+    {!productId && <>
+      <div className="product-filters"><EosSearchField label="Поиск" placeholder="Название или артикул" value={query} onChange={e => update('q', e.target.value)} /><label>Статус<EosSelect value={status} onChange={e => update('status', e.target.value)}><option value="">Все статусы</option><option value="ON_SALE">В продаже</option><option value="OFF_SALE">Выведено из продажи</option></EosSelect></label><label>Категория EOS<EosSelect value={category} onChange={e => update('category', e.target.value)}><option value="">Все категории</option>{catalog?.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</EosSelect></label><label>Тип продажи<EosSelect value={mode} onChange={e => update('mode', e.target.value)}><option value="">Все типы</option><option value="PORTION">Порционный</option><option value="WEIGHT">Весовой</option><option value="UNKNOWN">Нет данных</option></EosSelect></label></div>
+      <div className="product-filter-footer">{controls}<button className="secondary-action" onClick={() => { const next = new URLSearchParams(params); ['q','status','mode','category','page'].forEach(k => next.delete(k)); setParams(next, {replace:true}) }}>Сбросить фильтры</button></div>
+    </>}
+    {loading ? <div className="product-state" role="status">Загружаем продукцию…</div> : state.error ? <div className="product-state" role="alert"><p>{state.error}</p><button className="secondary-action" onClick={() => setRetry(x => x + 1)}>Повторить</button></div> : productId && product ? <>
+      <div className="product-card-overview"><div className="product-image product-image-large">Нет фото</div><div><p className="muted-text">{product.sku || 'Артикул отсутствует'} · {product.category_name || 'Категория не подтверждена'}</p><span className={`product-status ${product.sale_status === 'OFF_SALE' ? 'product-status-off' : ''}`}>{saleStatusLabel(product.sale_status)}</span><dl><dt>Единица</dt><dd>{product.unit_name}</dd><dt>Вес основной единицы</dt><dd>{weightLabel(product)}</dd><dt>Тип продажи</dt><dd>{saleModeLabel(product.sale_mode)}</dd><dt>Цена</dt><dd>{priceLabel(product.price, point)}</dd></dl><small>Источник: iiko · проверено {checkedAt(product.observed_at)}</small></div></div>
+      {controls}
+      {product.source_deleted && <p className="product-notice" role="status">Запись удалена в источнике iiko. Статус ассортимента EOS требует отдельной проверки.</p>}
+      <div className="product-knowledge-grid"><MissingSection title="Описание и характеристики" text={product.description} /><MissingSection title="Состав и ингредиенты" /><MissingSection title="Аллергены" /><MissingSection title="Сроки и условия хранения" /><MissingSection title="Обучение продавцов" /><MissingSection title="Технологическая информация" /><section className="product-knowledge-section"><h2>Цены по точкам</h2>{catalog?.points.map(p => <p key={p.id}>{p.name}: <strong>{priceLabel(product.prices.find(price => price.department_id === p.id) || null, p.id)}</strong></p>)}<small>Подтверждённые цены на {date}</small></section></div>
+    </> : catalog ? <>
+      {catalog.observed_at && <p className="muted-text">Справочник проверен {checkedAt(catalog.observed_at)}. Автоматическое расширение ассортимента отключено.</p>}
+      <p className="product-scroll-hint">Прокрутите таблицу вправо, чтобы увидеть все колонки.</p>
+      <div className="product-table-wrap" role="region" aria-label="Таблица продукции с горизонтальной прокруткой" tabIndex={0}><table className="product-table"><caption className="product-sr-only">Каталог продукции</caption><thead><tr>{['Фото','Название','Вес','Порционный / весовой товар','Цена','Статус'].map(c => <th scope="col" key={c}>{c}</th>)}</tr></thead><tbody>{catalog.items.map(p => <tr key={p.id}><td><div className="product-image">Нет фото</div></td><td><Link to={`/products/${p.id}${queryString}`}>{p.name}</Link><small>{p.sku || 'Артикул отсутствует'} · {p.category_name || 'Категория не подтверждена'} · {p.unit_name}</small></td><td>{weightLabel(p)}</td><td>{saleModeLabel(p.sale_mode)}</td><td>{priceLabel(p.price, point)}</td><td>{saleStatusLabel(p.sale_status)}</td></tr>)}</tbody></table></div>
+      {catalog.items.length === 0 && <div className="product-state" role="status"><h2>{catalog.total === 0 && !query && !status && !mode && !category ? 'Каталог пока пуст' : 'Ничего не найдено'}</h2><p>Измените фильтры или дождитесь подтверждённого наполнения базы.</p></div>}
+      <EosPagination offset={offset} total={catalog.total} pageSize={PAGE_SIZE} itemCount={catalog.items.length} onPageChange={next => update('page', String(next / PAGE_SIZE + 1))} />
+    </> : null}
+  </section></div>
+}

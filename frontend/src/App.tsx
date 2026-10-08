@@ -28,11 +28,19 @@ import RepairContractorsPage from './pages/RepairContractorsPage'
 import StatisticsPage from './pages/StatisticsPage'
 import { SALES_ROLES } from './pages/salesAnalyticsLogic'
 import type { EmployeeRole } from './services/actionContext'
+import ProductKnowledgePage from './pages/ProductKnowledgePage'
+import { PRODUCT_KNOWLEDGE_ROLES } from './services/productKnowledge'
+import ProductKnowledgeDemoPage from './pages/ProductKnowledgeDemoPage'
+import ProductKnowledgeDemoLayout from './pages/ProductKnowledgeDemoLayout'
 import './App.css'
 
 function App() {
   return (
     <Routes>
+      {import.meta.env.DEV && <Route element={<ProductKnowledgeDemoLayout />}>
+        <Route path="/dev/products" element={<ProductKnowledgeDemoPage basePath="/dev/products" />} />
+        <Route path="/dev/products/:productId" element={<ProductKnowledgeDemoPage basePath="/dev/products" />} />
+      </Route>}
       <Route
         path="/login"
         element={<LoginPage />}
@@ -61,6 +69,8 @@ function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/products" element={<ProtectedRoute allowedRoles={PRODUCT_KNOWLEDGE_ROLES}><ProductKnowledgePage /></ProtectedRoute>} />
+        <Route path="/products/:productId" element={<ProtectedRoute allowedRoles={PRODUCT_KNOWLEDGE_ROLES}><ProductKnowledgePage /></ProtectedRoute>} />
         <Route path="/statistics" element={<ProtectedRoute allowedRoles={SALES_ROLES as EmployeeRole[]}><StatisticsPage /></ProtectedRoute>} />
         <Route path="/statistics/:view" element={<ProtectedRoute allowedRoles={SALES_ROLES as EmployeeRole[]}><StatisticsPage /></ProtectedRoute>} />
 
