@@ -1,0 +1,72 @@
+{
+  "stage": "3.2/K5B",
+  "status": "LOCAL_REVIEW",
+  "created_at": "2026-10-09T13:51:49.331501+05:00",
+  "source_basis": {
+    "k5a_report": "STAGE_3_2_K5A_REPORT_2026-10-09.md",
+    "evidence_sha256": "92bd43e58cc51994580b160db1e770a2e02c5e171e3d7a5f58f764a220c47342",
+    "accepted_by": "user task; no repeated live audit"
+  },
+  "verification": {
+    "local_recipe_tests": {
+      "count": 17,
+      "result": "PASS"
+    },
+    "postgres_recipe_tests": {
+      "count": 2,
+      "result": "PASS",
+      "postgres_version": "17.10",
+      "disposable_database": true
+    },
+    "migration_cycle": {
+      "revisions": [
+        "20261009_0077",
+        "20261009_0078",
+        "20261009_0077",
+        "20261009_0078"
+      ],
+      "result": "PASS"
+    },
+    "full_backend": {
+      "count": 1216,
+      "skipped": 44,
+      "result": "PASS",
+      "seconds": 125.73,
+      "log_sha256": "8b12f551176737bf873b4dc79a43c1a44494b2e58fe824af9490e9b620269c6d"
+    },
+    "diff_check": "PASS",
+    "new_files_whitespace": "PASS",
+    "report_links": "PASS",
+    "temporary_postgres_removed": true
+  },
+  "limits": {
+    "pilot": "synthetic local fixtures; nested and version transition",
+    "live_pilot": false,
+    "all_141_loaded": false,
+    "production_migration": false,
+    "office_acceptance": false,
+    "monetary_cost": false,
+    "production_calculations": false,
+    "schedule_created": false,
+    "commit": false,
+    "push": false,
+    "deployment": false
+  },
+  "file_sha256": {
+    "backend/api/app/integrations/iiko/recipes.py": "82d909940a7dbe5b5dbe2b649ed2c6074ad8f0d12172a03c63ae5a6fc45c67a1",
+    "backend/api/app/integrations/iiko/client.py": "620b0a3a996ca5d21c89b3cbf75d1ef3948a2d24ef3806673a2ddf7da44f89d9",
+    "backend/api/app/models/product_recipe.py": "bf632d77cf3f439190a51e98899147e5756dca2a5f6fcba5236bc6978166a0f5",
+    "backend/api/app/models/__init__.py": "08eaea4e3f5c49d302cfd7594b29320d54bed902ca3afaf856a6412c7cf59579",
+    "backend/api/app/product_knowledge/recipes.py": "87788c4533100c313e757c97e9efc75a84a6df8023e4bdc947c3eb8511d4bb95",
+    "backend/api/app/api/routes/product_knowledge.py": "65fbd4416f211df69bf861cfbc4a2d8325c1f6f9c86353c08b7d5df7399377e1",
+    "backend/api/app/automation/local_actions.py": "652aead99e032f40cf9d0f3a323a061a1f1aacda4bebe7e6eaab19999047c7bf",
+    "backend/api/app/schemas/automation.py": "43bb0ec626e6734d13e558140131cd16a0cf85b9cc0eead0cf4cfc1db8827ed6",
+    "backend/api/alembic/versions/20261009_0078_product_recipes.py": "43c60d5c396e538a7b09e24a787f1e6c4dcc4211c7fa6a8451b9f35a9d5752a3",
+    "backend/api/tests/test_product_recipes.py": "17219428f230e53262edc630b89662a904e3f3ecd567b40aaad9efb927acca80",
+    "backend/api/tests/test_product_recipes_postgres.py": "2dbfc468770089c9a29304e202f3c35860982b1d98974f73e49ef83649367d53",
+    "backend/api/tests/test_requests_api.py": "d8612287a495508d4f5d7d44b77b2db24bf87dbe2175aed238f1568391fb35bd",
+    "docs/STAGE_3_2_K5B_REPORT_2026-10-09.md": "6164dd2a8150e162918984d8246d1f671941e210d2f568a808ed7a2e71d775dd",
+    "docs/ROADMAP_STAGE_3_2_v0.1.0.md": "cab2192eea85ba7001667893050277c953e2baafeb7491c010080f4a458e6af1",
+    "docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md": "7ed7cb8126ecdaad114ae2691340736793912db4b863849bbb0bd653269b2732"
+  }
+}

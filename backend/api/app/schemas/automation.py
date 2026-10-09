@@ -141,6 +141,9 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_recipes':
+        from app.product_knowledge.recipes import RecipeRefreshPayload
+        return RecipeRefreshPayload.model_validate(payload).model_dump(mode='json')
     if automation_type == 'products.sync_iiko_prices':
         from app.product_knowledge.price_refresh import PriceRefreshPayload
         return PriceRefreshPayload.model_validate(payload).model_dump(mode='json')
@@ -166,6 +169,8 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_recipes':
+        raise ValueError('Recipe refresh is manual-only during K5B review')
     if automation_type == 'products.sync_iiko_prices' and (
         not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 60
     ):

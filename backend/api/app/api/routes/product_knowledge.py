@@ -13,6 +13,7 @@ from app.models.user import User
 from app.product_knowledge import service, management
 from app.product_knowledge.snapshot import collect
 from app.product_knowledge.bootstrap import PublicationError
+from app.product_knowledge.recipes import RecipeRefreshPayload, enqueue
 from app.integrations.iiko.exceptions import IikoError
 from app.schemas.product_knowledge import CatalogRead, ProductRead, ProductCommand, KnowledgeUpdate, StatusUpdate, VerificationUpdate, ManualAdd
 
@@ -46,6 +47,20 @@ async def source_snapshot(db, actor):
         return await collect(source_id)
     except (IikoError, PublicationError, ValueError) as error:
         raise HTTPException(503, 'Не удалось проверить справочник iiko. Повторите позже') from error
+
+
+@router.post('/recipes/refresh', status_code=202)
+def refresh_recipes(command: RecipeRefreshPayload, db: Db, actor: Actor):
+    try:
+        enqueue(db, actor, command)
+        db.commit()
+        return dict(message='Загрузка рецептур поставлена в очередь', accepted=True)
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except PublicationError as error:
+        db.rollback()
+        raise HTTPException(409, 'Проверьте источник, UUID изделий и подтверждённый контекст пилота') from error
 
 
 @router.get('/iiko-candidates')

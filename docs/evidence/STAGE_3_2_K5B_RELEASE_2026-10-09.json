@@ -1,0 +1,87 @@
+{
+  "stage": "K5B",
+  "phase": "PRE_DEPLOYMENT",
+  "base_sha": "a5a02823906ac467bceb8f98ad971377a5f31d6e",
+  "reviews": {
+    "migration_sql_sha256": "7c79c71f61e011543e1a87a1c9d6fc0e7b956a02ef5bf136125c48b068df6584",
+    "rehearsal": {
+      "result": "PASS",
+      "existing_tables": 92,
+      "populated_tables": 14,
+      "all_existing_table_data_preserved": true,
+      "new_tables_empty": true,
+      "cycle": [
+        "0077",
+        "0078",
+        "0077",
+        "0078"
+      ],
+      "production_backup_used": false
+    },
+    "full_backend": {
+      "count": 1219,
+      "skipped": 45,
+      "result": "PASS",
+      "seconds": 121.175,
+      "log_sha256": "7b8bd168de2d6f5a2a526a84a9a7b74c64ced64448cd37a6589631118ebacb3c"
+    },
+    "local_recipe_and_operator_tests": {
+      "count": 19,
+      "result": "PASS"
+    },
+    "postgres_recipe_and_operator_tests": {
+      "count": 3,
+      "result": "PASS"
+    },
+    "whitespace": "PASS",
+    "temporary_postgres_removed": true
+  },
+  "pilot": {
+    "product_keys": [
+      "5fcc771dd5101343",
+      "b22356f1bc446f77",
+      "47d5bdfb4b6f1aa7"
+    ],
+    "department_key": "a8e0fe727d8767fd",
+    "dates": [
+      "2026-10-09",
+      "2026-10-09",
+      "2026-05-31",
+      "2026-06-01"
+    ],
+    "root_count_per_execution": 3,
+    "real_uuids_resolved": false,
+    "resolver": "SHA-256 exact unique match of confirmed K5A keys, no name mapping"
+  },
+  "boundaries": {
+    "production_readonly_preflight": "SSH authentication unavailable",
+    "production_updated": false,
+    "production_backup_used": false,
+    "live_pilot_executed": false,
+    "office_acceptance": false,
+    "schedule_enabled": false,
+    "full_141_loaded": false
+  },
+  "file_sha256": {
+    "backend/api/alembic/versions/20261009_0078_product_recipes.py": "43c60d5c396e538a7b09e24a787f1e6c4dcc4211c7fa6a8451b9f35a9d5752a3",
+    "backend/api/app/api/routes/product_knowledge.py": "65fbd4416f211df69bf861cfbc4a2d8325c1f6f9c86353c08b7d5df7399377e1",
+    "backend/api/app/automation/local_actions.py": "652aead99e032f40cf9d0f3a323a061a1f1aacda4bebe7e6eaab19999047c7bf",
+    "backend/api/app/integrations/iiko/client.py": "620b0a3a996ca5d21c89b3cbf75d1ef3948a2d24ef3806673a2ddf7da44f89d9",
+    "backend/api/app/integrations/iiko/recipes.py": "82d909940a7dbe5b5dbe2b649ed2c6074ad8f0d12172a03c63ae5a6fc45c67a1",
+    "backend/api/app/models/__init__.py": "08eaea4e3f5c49d302cfd7594b29320d54bed902ca3afaf856a6412c7cf59579",
+    "backend/api/app/models/product_recipe.py": "bf632d77cf3f439190a51e98899147e5756dca2a5f6fcba5236bc6978166a0f5",
+    "backend/api/app/product_knowledge/recipes.py": "87788c4533100c313e757c97e9efc75a84a6df8023e4bdc947c3eb8511d4bb95",
+    "backend/api/app/schemas/automation.py": "43bb0ec626e6734d13e558140131cd16a0cf85b9cc0eead0cf4cfc1db8827ed6",
+    "backend/api/tests/test_requests_api.py": "d8612287a495508d4f5d7d44b77b2db24bf87dbe2175aed238f1568391fb35bd",
+    "backend/api/tests/test_product_recipes.py": "17219428f230e53262edc630b89662a904e3f3ecd567b40aaad9efb927acca80",
+    "backend/api/tests/test_product_recipes_postgres.py": "06a1323059685e9c960248898cb5e2e00a95e3100f3b351238a9ac0b954bbde1",
+    "backend/api/tests/test_k5b_pilot_tools.py": "65ab5f46c4ce8cc4b9aac8432d5dbabfcc0a800c57a52d0d30e41e391ecf10bf",
+    "docs/ROADMAP_STAGE_3_2_v0.1.0.md": "cab2192eea85ba7001667893050277c953e2baafeb7491c010080f4a458e6af1",
+    "docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md": "7ed7cb8126ecdaad114ae2691340736793912db4b863849bbb0bd653269b2732",
+    "docs/STAGE_3_2_K5B_REPORT_2026-10-09.md": "f2932cce3ee86c7855f7834edf0be043c6c6774ea8914c109e5a9513867a3a95",
+    "docs/STAGE_3_2_K5B_RELEASE_REVIEW_2026-10-09.md": "7857b5714a3c3d56c1a5c51185e598766988738650e997f46c4e2a820e927c49",
+    "docs/STAGE_3_2_K5B_PRODUCTION_RUNBOOK_2026-10-09.md": "bbddd492a3d35b45fcda81b3c5b4b875a63df2b5b3aa311f724189b933e7d154",
+    "docs/evidence/STAGE_3_2_K5B_2026-10-09.json": "f36619702043edc408b6b059892286c846d59e4879001b405bed4c3754157e35",
+    "scripts/k5b_pilot.py": "c4268ce6d87bb4ce93346ca59cd15fd99e93e93b59b969dff24676d8d2adc55e"
+  }
+}

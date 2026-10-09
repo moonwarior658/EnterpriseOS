@@ -238,6 +238,18 @@ production DB+volume recovery и browser/business acceptance остаются о
 
 ## 8. K5 — ТТК и независимое решение о себестоимости
 
+**K5B — 09.10.2026: локальная реализация на review.** K5A принят владельцем
+в текущем задании; его датированный отчёт сохранён. Добавлены bounded recipe
+reader, immutable versions/observations, dependency manifest и ручная загрузка
+через существующий execution/outbox/local worker. Первый batch ≤5 UUID;
+расширение до 141 существующего UUID требует ссылки на структурно полный pilot
+observation того же source/department. Это технический guard, не business acceptance.
+Расписания запрещены в K5B review; денежный источник K5C, защищённый просмотр
+и независимая приёмка K5D остаются отдельными работами.
+[Отчёт K5B](STAGE_3_2_K5B_REPORT_2026-10-09.md) содержит проверки и runbook.
+Live-загрузка 141 изделий, iikoOffice acceptance и production migration не выполнены.
+K5/Q05/Q06/Gate K не объявлены закрытыми; часть II P0–P4 не начата.
+
 - **Цель/результат:** прослеживаемая рецептура изделия и честный cost contract.
 - **Зависимости:** K4; P05/Q06 и P06/Q05. Финальные границы зависят от R0.
 - **Scope:** версии ТТК/история/tree/prepared, read-only chef card; денежные
