@@ -16,7 +16,7 @@ AUTOMATION_TYPES = (
     AutomationTypeDefinition(
         key="products.sync_iiko_prices", display_name="Обновить цены продукции",
         description="Обновляет обычные цены уже включённой продукции на подтверждённых точках.",
-        category="products", is_system=True, is_available=True, supports_manual_run=False,
+        category="products", is_system=True, is_available=True, supports_manual_run=True,
     ),
     AutomationTypeDefinition(
         key="sales.finalize_reports", display_name="Зафиксировать отчёты продаж",

@@ -23,6 +23,7 @@ from app.automation.dispatch import (
     AutomationScheduleNotFoundError,
     DisabledAutomationScheduleError,
     ManualRunNotSupportedError,
+    InvalidProductPriceRunError,
     dispatch_schedule_now,
 )
 from app.automation.diagnostics import build_diagnostics_snapshot
@@ -151,6 +152,18 @@ def read_latest_schedule_executions(
     ]
 
 
+@router.get('/product-price-configuration')
+def read_product_price_configuration(
+    db: Annotated[Session, Depends(get_db)],
+    current_admin: Annotated[User, Depends(get_current_admin)],
+):
+    from app.automation.schedules import product_price_configuration
+    try:
+        return product_price_configuration(db, current_admin.tenant_id)
+    except InvalidAutomationScheduleActionError as error:
+        raise HTTPException(409, detail=str(error)) from None
+
+
 @router.post(
     "/schedules",
     response_model=AutomationScheduleRead,
@@ -271,6 +284,8 @@ def run_automation_schedule(
             status_code=status.HTTP_409_CONFLICT,
             detail="Disabled automation schedule cannot be started",
         ) from error
+    except InvalidProductPriceRunError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from None
     except ManualRunNotSupportedError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

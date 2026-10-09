@@ -4,6 +4,8 @@ import type { AutomationExecution } from '../src/services/automation.ts'
 import {
   createManualRunGuard,
   runScheduleNow,
+  getManualRunErrorMessage,
+  manualRunDisabledReason,
   updateLatestExecution,
 } from '../src/pages/automationScheduleRunLogic.ts'
 
@@ -105,4 +107,23 @@ test('обновляет последний статус только для з�
   })
   assert.equal(updated.get(7), previousExecution)
   assert.equal(current.get(42), null)
+})
+
+
+test('K3 manual run preserves backend diagnostics without exposing internal errors', async () => {
+  const message='Параметры регламента цен не соответствуют K3. Проверьте источник, подтверждённые точки, RUB, сверку и интервал 60 минут'
+  assert.equal(getManualRunErrorMessage(Error(message)),message)
+  assert.match(getManualRunErrorMessage(Error('Automation type does not support manual run')),/ручной запуск не предусмотрен/)
+  assert.match(getManualRunErrorMessage(Error('Administrator access required')),/только администратору/)
+  const result=await runScheduleNow(13,async(id)=>({...EXECUTION,schedule_id:id,automation_type:'products.sync_iiko_prices'}),createManualRunGuard())
+  assert.equal(result.status,'success')
+})
+
+
+test('manual run button follows authoritative catalog availability', () => {
+  const type={key:'products.sync_iiko_prices',display_name:'Цены',description:'',category:'products',is_system:true,supports_manual_run:true}
+  assert.equal(manualRunDisabledReason(true,type),undefined)
+  assert.match(manualRunDisabledReason(false,type)!,/включите/)
+  assert.match(manualRunDisabledReason(true,{...type,supports_manual_run:false})!,/не предусмотрен/)
+  assert.match(manualRunDisabledReason(true,undefined)!,/Обновите список/)
 })

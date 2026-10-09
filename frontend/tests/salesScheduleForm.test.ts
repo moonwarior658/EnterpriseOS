@@ -28,3 +28,19 @@ test('UI submission sends empty source payload for server resolution', async () 
   assert.equal(result.status, 'success'); assert.equal(count, 1)
   assert.match(translateScheduleApiError(Error('Источник данных продаж не настроен однозначно. Обратитесь к администратору')), /Источник данных продаж/)
 })
+
+test('K3 prices require confirmed policy, preserve payload and use company/hourly defaults', async () => {
+  const values = selectScheduleAutomationType({...DEFAULT_SCHEDULE_FORM_VALUES,name:'Цены'}, 'products.sync_iiko_prices')
+  assert.equal(values.scopeType,'company'); assert.equal(values.intervalMinutes,'60'); assert.equal(values.scheduleType,'interval')
+  assert(validateScheduleForm(values).pricePolicy)
+  const policy={source_id:'a'.repeat(64),confirmed_point_ids:['11111111-1111-4111-8111-111111111111'],currency:'RUB',office_evidence:'Office confirmed'}
+  values.pricePolicy=policy
+  assert.deepEqual(validateScheduleForm(values),{})
+  assert.deepEqual(buildCreateInput(values).payload,policy)
+  const result=await submitScheduleForm({type:'create'},values,{async create(input){assert.deepEqual(input.payload,policy);return {...input,id:4} as AutomationSchedule},async update(){throw Error('unexpected')}},createSubmissionGuard())
+  assert.equal(result.status,'success')
+  assert(validateScheduleForm({...values,intervalMinutes:'15'}).intervalMinutes)
+  const error=Object.assign(Error('Field required'),{fieldErrors:{pricePolicy:'Проверьте точки'}})
+  const failed=await submitScheduleForm({type:'create'},values,{async create(){throw error},async update(){throw error}},createSubmissionGuard())
+  assert.deepEqual(failed,{status:'validation',errors:{pricePolicy:'Проверьте точки'}})
+})

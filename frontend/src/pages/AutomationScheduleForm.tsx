@@ -7,6 +7,8 @@ import {
 } from 'react'
 import {
   createAutomationSchedule,
+  getProductPriceConfiguration,
+  type ProductPriceConfiguration,
   deleteAutomationSchedule,
   updateAutomationSchedule,
   type AutomationSchedule,
@@ -25,6 +27,7 @@ import {
   selectScheduleAutomationType,
   SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES,
   SUPPLY_ENSURE_REQUEST_CYCLE,
+  PRODUCT_PRICES,
   submitScheduleForm,
   type ScheduleFormErrors,
   type ScheduleFormValues,
@@ -90,6 +93,8 @@ function AutomationScheduleForm({
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [directions, setDirections] = useState<SupplyDirection[]>([])
   const [directionsError, setDirectionsError] = useState('')
+  const [priceConfiguration, setPriceConfiguration] = useState<ProductPriceConfiguration | null>(null)
+  const [priceConfigurationError, setPriceConfigurationError] = useState('')
   const guardRef = useRef(createSubmissionGuard())
   const nameInputRef = useRef<HTMLInputElement>(null)
   const isDirty = JSON.stringify(values) !== initialSnapshot
@@ -123,6 +128,18 @@ function AutomationScheduleForm({
     values,
     directionName,
   )
+
+  useEffect(() => {
+    if (values.automationType !== PRODUCT_PRICES) return
+    let active = true
+    void getProductPriceConfiguration().then(config => {
+      if (!active || !config) return
+      setPriceConfiguration(config)
+      setValues(current => ({...current, pricePolicy: config.payload}))
+      setPriceConfigurationError('')
+    }).catch(error => { if (active) setPriceConfigurationError(error instanceof Error && /^(Нет опубликованной|Подтверждённая конфигурация)/.test(error.message) ? error.message : 'Не удалось загрузить подтверждённые параметры цен. Откройте форму повторно') })
+    return () => { active = false }
+  }, [values.automationType])
 
   useEffect(() => {
     nameInputRef.current?.focus()
@@ -215,6 +232,8 @@ function AutomationScheduleForm({
   }
 
   function selectAutomationType(automationType: string) {
+    setPriceConfiguration(null)
+    setPriceConfigurationError('')
     setValues((current) => selectScheduleAutomationType(current, automationType))
     setErrors({})
     setSubmitError('')
@@ -359,6 +378,12 @@ function AutomationScheduleForm({
             <small>Выберите поддерживаемый тип из каталога.</small>
           )}
         </label>
+
+        {values.automationType === PRODUCT_PRICES && <section className="automation-form-field automation-form-field-wide" aria-label="Параметры цен продукции">
+          <strong>Подтверждённые параметры цен K3</strong>
+          {priceConfiguration ? <><p>Точки: {priceConfiguration.points.map(p => p.name).join(', ')}</p><p>Валюта: RUB. Обычный прейскурант без категории. Интервал: 60 минут.</p><small>Источник и сверка получены из опубликованного снимка K3. Ассортимент автоматически не расширяется.</small></> : <p role="status">{priceConfigurationError || 'Загружаем подтверждённые параметры цен…'}</p>}
+          {errors.pricePolicy && <small className="automation-field-error" role="alert">{errors.pricePolicy}</small>}
+        </section>}
 
         <label className="automation-form-field">
           <span>Область действия</span>
@@ -660,7 +685,7 @@ function AutomationScheduleForm({
         <button
           className="primary-action"
           type="submit"
-          disabled={isSubmitting || catalogUnavailable}
+          disabled={isSubmitting || catalogUnavailable || (values.automationType === PRODUCT_PRICES && (!priceConfiguration || Boolean(priceConfigurationError)))}
         >
           {isSubmitting
             ? 'Сохраняем…'

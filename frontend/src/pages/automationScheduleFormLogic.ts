@@ -22,6 +22,7 @@ export type ScheduleFormValues = {
   closesTime: string
   hardClosesTime: string
   hardCloseNextDay: boolean
+  pricePolicy?: Record<string, unknown>
   isEnabled: boolean
 }
 
@@ -60,13 +61,15 @@ export const SUPPLY_ENSURE_REQUEST_CYCLE =
 export const SUPPLY_CLOSE_EXPIRED_REQUEST_CYCLES =
   'supply.close_expired_request_cycles'
 export const SALES_SYNC = 'sales.sync_iiko'
+export const PRODUCT_PRICES = 'products.sync_iiko_prices'
 
 export function selectScheduleAutomationType(current: ScheduleFormValues, automationType: string): ScheduleFormValues {
   const sales = automationType === SALES_SYNC
-  const company = sales || automationType.startsWith('supply.')
+  const prices = automationType === PRODUCT_PRICES
+  const company = sales || prices || automationType.startsWith('supply.')
   return { ...current, automationType,
-    scheduleType: sales ? 'interval' : automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'weekly' : current.automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'daily' : current.scheduleType,
-    intervalMinutes: sales ? '15' : current.intervalMinutes,
+    scheduleType: sales || prices ? 'interval' : automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'weekly' : current.automationType === SUPPLY_ENSURE_REQUEST_CYCLE ? 'daily' : current.scheduleType,
+    intervalMinutes: sales ? '15' : prices ? '60' : current.intervalMinutes,
     scopeType: company ? 'company' : current.scopeType,
     scopeId: company ? '' : current.scopeId,
   }
@@ -168,6 +171,7 @@ export function scheduleToFormValues(
       'hard_close_next_day',
       true,
     ),
+    pricePolicy: schedule.automation_type === PRODUCT_PRICES ? schedule.payload : undefined,
     isEnabled: schedule.is_enabled,
   }
 }
@@ -187,6 +191,17 @@ export function validateScheduleForm(
     if (values.intervalMinutes !== '15') errors.intervalMinutes = 'Для обновления продаж нужен интервал 15 минут'
   }
 
+  if (automationType === PRODUCT_PRICES) {
+    if (values.scopeType !== 'company') errors.scopeType = 'Цены обновляются только для всей компании'
+    if (values.scheduleType !== 'interval') errors.scheduleType = 'Для цен нужен интервальный регламент'
+    if (values.intervalMinutes !== '60') errors.intervalMinutes = 'Для цен нужен интервал 60 минут'
+    const policy = values.pricePolicy
+    if (!policy || typeof policy.source_id !== 'string' || !/^[a-f0-9]{64}$/.test(policy.source_id) ||
+        !Array.isArray(policy.confirmed_point_ids) || policy.confirmed_point_ids.length < 1 || policy.confirmed_point_ids.length > 3 ||
+        policy.currency !== 'RUB' || typeof policy.office_evidence !== 'string' || !policy.office_evidence.trim()) {
+      errors.pricePolicy = 'Не загружена подтверждённая конфигурация цен K3: источник, точки, валюта и сверка'
+    }
+  }
   if (!name) {
     errors.name = 'Укажите название регламента'
   } else if (name.length > 160) {
@@ -325,6 +340,7 @@ function buildEditableInput(
 function buildActionPayload(
   values: ScheduleFormValues,
 ): Record<string, unknown> | null {
+  if (values.automationType === PRODUCT_PRICES) return values.pricePolicy ?? {}
   if (values.automationType === SALES_SYNC) return {}
   if (values.automationType === SUPPLY_ENSURE_REQUEST_CYCLE) {
     return {
@@ -433,6 +449,7 @@ export function createSubmissionGuard(): SubmissionGuard {
 
 export function translateScheduleApiError(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (/^Регламент обновления цен|^Нет опубликованной|^Подтверждённая конфигурация/.test(message)) return message
   if (/^Источник данных продаж|^Обновление продаж/.test(message)) return message
   if (/Sales sync requires a 15 minute interval/i.test(message)) return 'Для обновления продаж нужен интервал 15 минут'
   if (/Sales sync requires company scope/i.test(message)) return 'Обновление продаж доступно только для всей компании'
@@ -493,6 +510,8 @@ export async function submitScheduleForm(
 
     return { status: 'success', schedule }
   } catch (error) {
+    const fields = (error as { fieldErrors?: Record<string, string> })?.fieldErrors
+    if (fields && Object.keys(fields).length) return { status: 'validation', errors: fields as ScheduleFormErrors }
     return { status: 'error', message: translateScheduleApiError(error) }
   } finally {
     guard.finish()

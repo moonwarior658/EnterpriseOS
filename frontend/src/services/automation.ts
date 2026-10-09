@@ -251,6 +251,26 @@ function getApiErrorMessage(errorBody: unknown): string {
   return 'Не удалось выполнить запрос'
 }
 
+export type ProductPriceConfiguration = { payload: Record<string, unknown>; points: {id: string; name: string}[] }
+export const getProductPriceConfiguration = () => authorizedRequest<ProductPriceConfiguration>('/automation/product-price-configuration')
+class ScheduleApiValidationError extends Error {
+  fieldErrors: Record<string, string>
+  constructor(message: string, fields: Record<string, string>) { super(message); this.fieldErrors = fields }
+}
+function scheduleFieldErrors(body: unknown): Record<string, string> {
+  if (!isRecord(body) || !Array.isArray(body.detail)) return {}
+  const fields: Record<string, string> = {}
+  const names: Record<string, string> = { name:'name', automation_type:'automationType', scope_type:'scopeType', scope_id:'scopeId', timezone:'timezone', payload:'pricePolicy', schedule_config:'scheduleType' }
+  for (const item of body.detail) {
+    if (!isRecord(item) || !Array.isArray(item.loc)) continue
+    const key = names[String(item.loc[1])] || (typeof item.msg === 'string' && /PriceRefreshPayload|PRICE_|Prices sync requires/.test(item.msg) ? 'pricePolicy' : undefined)
+    if (!key) continue
+    const messages: Record<string, string> = { name:'Укажите название регламента (до 160 символов)', automationType:'Выберите доступный тип автоматизации', scopeType:'Проверьте область действия', scopeId:'Укажите идентификатор области', timezone:'Укажите действующий часовой пояс', pricePolicy:'Проверьте подтверждённую конфигурацию цен: источник, точки, RUB и сверку', scheduleType:'Проверьте тип расписания и его параметры' }
+    fields[key] = messages[key]
+  }
+  return fields
+}
+
 async function authorizedRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -273,7 +293,7 @@ async function authorizedRequest<T>(
 
   if (!response.ok) {
     const errorBody: unknown = await response.json().catch(() => null)
-    throw new Error(getApiErrorMessage(errorBody))
+    throw new ScheduleApiValidationError(getApiErrorMessage(errorBody), scheduleFieldErrors(errorBody))
   }
 
   if (response.status === 204) {

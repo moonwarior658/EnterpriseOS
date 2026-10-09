@@ -33,6 +33,10 @@ class ManualRunNotSupportedError(ValueError):
     pass
 
 
+class InvalidProductPriceRunError(ValueError):
+    pass
+
+
 def create_automation_execution(
     session: Session,
     *,
@@ -114,6 +118,15 @@ def dispatch_schedule_now(
             raise ManualRunNotSupportedError
 
         scope_type = getattr(schedule.scope_type, "value", schedule.scope_type)
+        if automation_type.key == 'products.sync_iiko_prices':
+            from app.automation.schedules import _validated_action_payload, InvalidAutomationScheduleActionError
+            if scope_type != 'company' or schedule.scope_id is not None:
+                raise InvalidProductPriceRunError('Регламент цен должен действовать для всей компании. Проверьте область действия')
+            try:
+                _validated_action_payload(session, automation_type=schedule.automation_type,
+                    schedule_config=schedule.schedule_config, payload=schedule.payload, tenant_id=schedule.tenant_id)
+            except InvalidAutomationScheduleActionError:
+                raise InvalidProductPriceRunError('Параметры регламента цен не соответствуют K3. Проверьте источник, подтверждённые точки, RUB, сверку и интервал 60 минут') from None
         execution = create_automation_execution(
             session,
             automation_type=automation_type.key,

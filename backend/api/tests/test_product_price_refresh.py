@@ -135,6 +135,11 @@ class PriceRefreshTests(unittest.IsolatedAsyncioTestCase):
             callback_url='http://unused.invalid',local_executor=LocalAutomationActionExecutor(self.sessions))
         with patch('app.product_knowledge.price_refresh.collect_prices',new=AsyncMock(return_value=self.data)):
             self.assertEqual(run_scheduler_once(self.sessions,now=scheduled).created,1)
+            from app.models.automation import AutomationExecution, OutboxEvent
+            with self.sessions() as db:
+                execution=db.scalar(select(AutomationExecution));event=db.scalar(select(OutboxEvent))
+                self.assertEqual(execution.payload,body['payload']);self.assertEqual(event.payload,body['payload'])
+                self.assertEqual(execution.schedule_id,schedule_id)
             self.assertEqual((await worker.process_one()).status,DeliveryStatus.PUBLISHED)
         provider.send_command.assert_not_called()
         with self.sessions() as db:
@@ -197,3 +202,89 @@ class PriceRefreshTests(unittest.IsolatedAsyncioTestCase):
         with self.sessions() as db: pid = db.scalar(select(Product.id))
         body = self.client.get(f'/products/{pid}?price_at=2026-10-09').json()
         self.assertEqual(body['price_health'][0]['last_success_at'], recovered.observed_at.isoformat().replace('+00:00','Z'))
+
+    async def test_ui_configuration_create_saved_payload_duplicate_and_edit(self):
+        from tests.test_sales_schedule_ui import SalesScheduleUiTests
+        self.store()
+        with SalesScheduleUiTests.client(self) as client:
+            config = client.get('/automation/product-price-configuration')
+            self.assertEqual(config.status_code,200,config.text)
+            policy = config.json()['payload']
+            self.assertEqual(policy['confirmed_point_ids'],[str(self.department_id)])
+            self.assertEqual(policy['source_id'],self.source_id)
+            self.assertEqual(policy['currency'],'RUB'); self.assertEqual(policy['office_evidence'],self.data.office_evidence)
+            body=dict(name='Цены',automation_type='products.sync_iiko_prices',scope_type='company',scope_id=None,
+                schedule_config={'type':'interval','minutes':60},payload=policy,recipients=[],timezone='Asia/Yekaterinburg',is_enabled=True)
+            missing=client.post('/automation/schedules',json={**body,'payload':{}})
+            self.assertEqual(missing.status_code,422)
+            created=client.post('/automation/schedules',json=body)
+            self.assertEqual(created.status_code,201,created.text)
+            self.assertEqual(created.json()['payload'],policy)
+            duplicate=client.post('/automation/schedules',json=body)
+            self.assertEqual(duplicate.status_code,422); self.assertIn('уже существует',duplicate.json()['detail'])
+            sid=created.json()['id']
+            self.assertEqual(client.patch(f'/automation/schedules/{sid}',json={'name':'Цены обновлённые'}).status_code,200)
+            self.assertEqual(client.get(f'/automation/schedules/{sid}').json()['payload'],policy)
+
+    async def test_manual_price_run_creates_execution_outbox_and_uses_same_worker(self):
+        from tests.test_sales_schedule_ui import SalesScheduleUiTests
+        from app.models.automation import AutomationExecution, OutboxEvent, ExecutionStatus
+        from app.automation.outbox import OutboxWorker, SqlAlchemyOutboxStore, DeliveryStatus
+        from app.automation.local_actions import LocalAutomationActionExecutor
+        from app.automation.catalog import require_available_automation_type
+        policy=self.data.model_dump(mode='json',include={'source_id','confirmed_point_ids','currency','office_evidence'})
+        with SalesScheduleUiTests.client(self) as client:
+            created=client.post('/automation/schedules',json=dict(name='Цены ручной запуск',automation_type='products.sync_iiko_prices',scope_type='company',scope_id=None,
+                schedule_config={'type':'interval','minutes':60},payload=policy,recipients=[],timezone='Asia/Yekaterinburg',is_enabled=True))
+            self.assertEqual(created.status_code,201,created.text);sid=created.json()['id'];next_run=created.json()['next_run_at']
+            response=client.post(f'/automation/schedules/{sid}/run')
+            self.assertEqual(response.status_code,201,response.text)
+            self.assertEqual(response.json()['status'],'pending')
+            self.assertEqual(client.get(f'/automation/schedules/{sid}').json()['next_run_at'].removesuffix('Z'),next_run.removesuffix('Z'))
+        self.assertTrue(require_available_automation_type('products.sync_iiko_prices').supports_manual_run)
+        with self.sessions() as db:
+            execution=db.scalar(select(AutomationExecution));event=db.scalar(select(OutboxEvent))
+            self.assertEqual(execution.payload,policy);self.assertEqual(event.payload,policy)
+            self.assertEqual(execution.schedule_id,sid);self.assertEqual(event.execution_id,execution.execution_id)
+        provider=AsyncMock()
+        worker=OutboxWorker(store=SqlAlchemyOutboxStore(self.sessions),provider=provider,worker_id='price-manual-test',
+            callback_url='http://unused.invalid',local_executor=LocalAutomationActionExecutor(self.sessions))
+        with patch('app.product_knowledge.price_refresh.collect_prices',new=AsyncMock(return_value=self.data)):
+            self.assertEqual((await worker.process_one()).status,DeliveryStatus.PUBLISHED)
+        provider.send_command.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(select(AutomationExecution)).status,ExecutionStatus.SUCCEEDED)
+            self.assertEqual(db.scalar(select(func.count()).select_from(Snapshot)),1)
+
+    async def test_manual_price_run_invalid_saved_payload_scope_interval_disabled_and_permissions(self):
+        from tests.test_sales_schedule_ui import SalesScheduleUiTests
+        from app.models.automation import AutomationSchedule, AutomationExecution, OutboxEvent
+        from app.api.dependencies import get_current_admin, get_current_user
+        from app.models.employee import EmployeeRoleAssignment
+        policy=self.data.model_dump(mode='json',include={'source_id','confirmed_point_ids','currency','office_evidence'})
+        with SalesScheduleUiTests.client(self) as client:
+            created=client.post('/automation/schedules',json=dict(name='Цены проверки',automation_type='products.sync_iiko_prices',scope_type='company',scope_id=None,
+                schedule_config={'type':'interval','minutes':60},payload=policy,recipients=[],timezone='Asia/Yekaterinburg',is_enabled=True))
+            sid=created.json()['id']
+            for changes in [dict(payload={}),dict(scope_type='department',scope_id='wrong'),dict(schedule_config={'type':'interval','minutes':15})]:
+                with self.sessions.begin() as db:
+                    schedule=db.get(AutomationSchedule,sid)
+                    schedule.payload=policy;schedule.scope_type='company';schedule.scope_id=None;schedule.schedule_config={'type':'interval','minutes':60}
+                    for key,value in changes.items():setattr(schedule,key,value)
+                rejected=client.post(f'/automation/schedules/{sid}/run')
+                self.assertEqual(rejected.status_code,422,rejected.text)
+                self.assertRegex(rejected.json()['detail'],'Регламент цен должен|Параметры регламента цен')
+            with self.sessions.begin() as db:db.get(AutomationSchedule,sid).is_enabled=False
+            self.assertEqual(client.post(f'/automation/schedules/{sid}/run').status_code,409)
+            # Real ActionContext dependency rejects a non-admin role before dispatch.
+            client.app.dependency_overrides.pop(get_current_admin)
+            def actor():
+                with self.sessions() as db:return db.get(User,1)
+            client.app.dependency_overrides[get_current_user]=actor
+            with self.sessions.begin() as db:
+                for role in db.scalars(select(EmployeeRoleAssignment).where(EmployeeRoleAssignment.tenant_id=='eclair')):
+                    role.role='SELLER'
+            self.assertEqual(client.post(f'/automation/schedules/{sid}/run').status_code,403)
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(select(func.count()).select_from(AutomationExecution)),0)
+            self.assertEqual(db.scalar(select(func.count()).select_from(OutboxEvent)),0)

@@ -1,6 +1,7 @@
 import type {
   AutomationExecution,
   AutomationLatestExecution,
+  AutomationType,
 } from '../services/automation'
 import { latestExecutionFromManualRun } from './automationLatestExecutionsLogic.ts'
 
@@ -21,8 +22,19 @@ export function createManualRunGuard(): ManualRunGuard {
   return { runningIds: new Set() }
 }
 
+export function manualRunDisabledReason(isEnabled: boolean, type: AutomationType | undefined): string | undefined {
+  if (!isEnabled) return 'Сначала включите регламент'
+  if (!type) return 'Не удалось определить возможность ручного запуска. Обновите список'
+  if (!type.supports_manual_run) return 'Для этого типа регламента ручной запуск не предусмотрен'
+  return undefined
+}
+
 export function getManualRunErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+
+  if (/^Регламент цен должен|^Параметры регламента цен/.test(message)) return message
+  if (/Automation type does not support manual run/i.test(message)) return 'Для этого типа регламента ручной запуск не предусмотрен'
+  if (/Administrator access required/i.test(message)) return 'Ручной запуск доступен только администратору'
 
   if (/disabled automation schedule/i.test(message)) {
     return 'Сначала включите регламент'

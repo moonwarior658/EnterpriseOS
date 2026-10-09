@@ -38,6 +38,28 @@ class PriceRefreshPostgresTests(unittest.TestCase):
             self.assertEqual(db.scalar(select(func.count()).select_from(Snapshot).where(Snapshot.tenant_id==self.tenant)),1)
         self.assertIn('ck_pk_price_snapshot_dates',{c['name'] for c in inspect(self.engine).get_check_constraints('product_knowledge_price_snapshots')})
 
+        from app.automation.schedules import create_schedule, InvalidAutomationScheduleActionError
+        from app.schemas.automation import AutomationScheduleCreate
+        from app.models.automation import AutomationSchedule
+        from app.core.config import settings
+        from unittest.mock import patch
+        payload = AutomationScheduleCreate(name='Prices fixture', automation_type='products.sync_iiko_prices',
+            scope_type='company', scope_id=None, schedule_config={'type':'interval','minutes':60},
+            payload=snapshot.model_dump(mode='json',include={'source_id','confirmed_point_ids','currency','office_evidence'}),
+            recipients=[],timezone='Asia/Yekaterinburg',is_enabled=False)
+        def create(_):
+            with self.sessions() as db:
+                try:
+                    return create_schedule(db,payload,created_by_user_id=self.actor).id
+                except InvalidAutomationScheduleActionError as error:
+                    return str(error)
+        with patch.object(settings,'default_tenant_id',self.tenant):
+            with ThreadPoolExecutor(max_workers=2) as workers: outcomes=list(workers.map(create,range(2)))
+        self.assertEqual(sum(isinstance(value,int) for value in outcomes),1)
+        self.assertTrue(any(isinstance(value,str) and 'уже существует' in value for value in outcomes))
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(select(func.count()).select_from(AutomationSchedule).where(AutomationSchedule.tenant_id==self.tenant)),1)
+
         from app.product_knowledge.service import price_health
         from app.models.supply import Department
         from alembic import command

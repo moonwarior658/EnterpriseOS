@@ -21,6 +21,7 @@ import { EosSelect } from '../components/EosFormControls'
 import { formatDateTime } from '../utils/dateFormat'
 import {
   createManualRunGuard,
+  manualRunDisabledReason,
   runScheduleNow,
   updateLatestExecution,
 } from './automationScheduleRunLogic'
@@ -750,6 +751,7 @@ function AutomationSchedulesPage() {
                       const latestExecution = latestExecutions.get(schedule.id)
                       const isUpdating = updatingIds.has(schedule.id)
                       const isRunning = runningIds.has(schedule.id)
+                      const runDisabledReason = manualRunDisabledReason(schedule.is_enabled, automationTypes.find(type => type.key === schedule.automation_type))
 
                       return (
                         <tr key={schedule.id}>
@@ -851,14 +853,12 @@ function AutomationSchedulesPage() {
                                 className="automation-row-actions automation-run-action"
                                 type="button"
                                 disabled={
-                                  !schedule.is_enabled ||
+                                  Boolean(runDisabledReason) ||
                                   isRunning ||
                                   isFormOpen
                                 }
                                 title={
-                                  schedule.is_enabled
-                                    ? 'Запустить регламент сейчас'
-                                    : 'Сначала включите регламент'
+                                  runDisabledReason || 'Запустить регламент сейчас'
                                 }
                                 aria-label={`Запустить сейчас задачу ${schedule.name}`}
                                 onClick={() => void handleManualRun(schedule)}

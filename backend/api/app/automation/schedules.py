@@ -125,6 +125,43 @@ def get_schedule(
     return session.get(AutomationSchedule, schedule_id)
 
 
+def product_price_configuration(session, tenant_id):
+    from app.models.product_knowledge import ProductKnowledgePriceSnapshot
+    from app.product_knowledge.price_refresh import PriceRefreshPayload, scope
+    from app.models.supply import Department
+    snapshot = session.scalar(select(ProductKnowledgePriceSnapshot).where(
+        ProductKnowledgePriceSnapshot.tenant_id == tenant_id)
+        .order_by(ProductKnowledgePriceSnapshot.observed_at.desc()).limit(1))
+    if snapshot is None:
+        raise InvalidAutomationScheduleActionError('Нет опубликованной подтверждённой конфигурации цен K3')
+    try:
+        policy = PriceRefreshPayload.model_validate({key: snapshot.payload[key] for key in
+            ('source_id', 'confirmed_point_ids', 'currency', 'office_evidence')})
+        _, links, _ = scope(session, tenant_id, policy)
+    except (ValueError, KeyError):
+        raise InvalidAutomationScheduleActionError('Подтверждённая конфигурация точек K3 изменилась: требуется проверка') from None
+    if links != snapshot.payload['point_links']:
+        raise InvalidAutomationScheduleActionError('Подтверждённая конфигурация точек K3 изменилась: требуется проверка')
+    return dict(payload=policy.model_dump(mode='json'), points=[dict(id=str(p.id), name=p.name)
+        for p in session.scalars(select(Department).where(Department.tenant_id == tenant_id,
+            Department.id.in_(policy.confirmed_point_ids)).order_by(Department.name))])
+
+
+def guard_price_schedule_duplicate(session, tenant_id, automation_type, payload, *, exclude_id=None):
+    if automation_type != 'products.sync_iiko_prices':
+        return
+    # Serialize cooperating creates/updates on the same existing source row.
+    session.scalar(select(SalesSyncState).where(SalesSyncState.tenant_id == tenant_id,
+        SalesSyncState.source_id == payload['source_id']).with_for_update())
+    query = select(AutomationSchedule.id).where(AutomationSchedule.tenant_id == tenant_id,
+        AutomationSchedule.automation_type == automation_type,
+        AutomationSchedule.payload['source_id'].as_string() == payload['source_id'])
+    if exclude_id is not None:
+        query = query.where(AutomationSchedule.id != exclude_id)
+    if session.scalar(query.limit(1)) is not None:
+        raise InvalidAutomationScheduleActionError('Регламент обновления цен этого источника уже существует. Откройте существующий регламент')
+
+
 def create_schedule(
     session: Session,
     payload: AutomationScheduleCreate,
@@ -140,6 +177,7 @@ def create_schedule(
             payload=payload.payload,
             tenant_id=settings.default_tenant_id,
         )
+        guard_price_schedule_duplicate(session, settings.default_tenant_id, payload.automation_type, action_payload)
         next_run_at = (
             calculate_next_run_at(schedule_config, payload.timezone)
             if payload.is_enabled
@@ -223,6 +261,7 @@ def update_schedule(
             payload=final_payload,
             tenant_id=schedule.tenant_id,
         )
+        guard_price_schedule_duplicate(session, schedule.tenant_id, final_automation_type, updates["payload"], exclude_id=schedule.id)
         final_timezone = updates.get("timezone", schedule.timezone)
         schedule_changed = (
             "schedule_config" in updates or "timezone" in updates
