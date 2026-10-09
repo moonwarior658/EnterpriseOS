@@ -14,6 +14,11 @@ class AutomationTypeDefinition:
 
 AUTOMATION_TYPES = (
     AutomationTypeDefinition(
+        key="products.sync_iiko_costs", display_name="Обновить себестоимость продукции",
+        description="Получает ССН по проверенным рецептурам и складскому учёту iiko.",
+        category="products", is_system=True, is_available=True, supports_manual_run=True,
+    ),
+    AutomationTypeDefinition(
         key="products.sync_iiko_prices", display_name="Обновить цены продукции",
         description="Обновляет обычные цены уже включённой продукции на подтверждённых точках.",
         category="products", is_system=True, is_available=True, supports_manual_run=True,

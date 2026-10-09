@@ -182,3 +182,4 @@ __all__ = [
 
 from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot
 from app.models.product_recipe import ProductRecipeVersion, ProductRecipeObservation
+from app.models.product_cost import ProductCostObservation, ProductCostVerification

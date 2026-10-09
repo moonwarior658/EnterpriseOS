@@ -1,4 +1,4 @@
-"""Tenant-scoped DB reads only. Public responses deliberately exclude cost/recipes."""
+"""Tenant-scoped DB reads; monetary projections require their own capability."""
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 from fastapi import HTTPException
@@ -155,7 +155,11 @@ def catalog(db: Session, user, *, q='', status=None, mode=None, category_id=None
         .order_by(SupplyProductCategory.name)))
     manager = can_manage(db, user)
     active = select(Product).where(Product.tenant_id == user.tenant_id, Product.published.is_(True), Product.deleted_at.is_(None))
-    return dict(items=[projection(p, prices[p.id], department_id, manager, conflicts[p.id], health[p.source_id]) for p in rows], total=total,
+    from app.product_knowledge.cost_portal import cost_rows
+    cost_access, costs = cost_rows(db,user,[p.id for p in rows])
+    items = [dict(**projection(p,prices[p.id],department_id,manager,conflicts[p.id],health[p.source_id]),
+        cost_access=cost_access,cost=costs.get(p.id)) for p in rows]
+    return dict(items=items, cost_access=cost_access, total=total,
         offset=offset, limit=limit, points=[dict(id=p.id, name=p.name) for p in points],
         categories=[dict(id=p.id, name=p.name) for p in category_rows],
         observed_at=db.scalar(select(func.min(Product.observed_at)).where(Product.tenant_id == user.tenant_id, Product.published.is_(True))),
@@ -175,4 +179,7 @@ def detail(db, user, product_id: UUID, *, department_id, price_at):
     from app.core.authorization import Capability
     result = projection(product, prices[product.id], department_id, can_manage(db, user), conflicts[product.id], price_health(db, user, product.source_id, points))
     result['recipe_access'] = permitted(db, user, Capability.PRODUCT_RECIPE_READ)
+    from app.product_knowledge.cost_portal import cost_rows
+    result['cost_access'], costs = cost_rows(db,user,[product.id])
+    result['cost'] = costs.get(product.id)
     return result

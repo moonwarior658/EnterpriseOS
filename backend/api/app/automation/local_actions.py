@@ -25,6 +25,7 @@ from app.models.automation import (
 class LocalAutomationActionExecutor:
     SALES_REPORTS = "sales.finalize_reports"
     SALES_SYNC = "sales.sync_iiko"
+    PRODUCT_COSTS = "products.sync_iiko_costs"
     PRODUCT_RECIPES = "products.sync_iiko_recipes"
     PRODUCT_PRICES = "products.sync_iiko_prices"
     IIKO_SHIFT_SYNC = "employee.sync_iiko_shifts"
@@ -39,7 +40,7 @@ class LocalAutomationActionExecutor:
     def supports(automation_type: str) -> bool:
         return (
             automation_type in SUPPLY_ACTION_HANDLERS
-            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS, LocalAutomationActionExecutor.PRODUCT_PRICES, LocalAutomationActionExecutor.PRODUCT_RECIPES)
+            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS, LocalAutomationActionExecutor.PRODUCT_PRICES, LocalAutomationActionExecutor.PRODUCT_RECIPES, LocalAutomationActionExecutor.PRODUCT_COSTS)
         )
 
     def execute(
@@ -51,7 +52,7 @@ class LocalAutomationActionExecutor:
         if executed_at.tzinfo is None or executed_at.utcoffset() is None:
             raise ValueError("executed_at must include a timezone")
         executed_at = executed_at.astimezone(timezone.utc)
-        if claim.automation_type in (self.SALES_SYNC, self.PRODUCT_PRICES, self.PRODUCT_RECIPES):
+        if claim.automation_type in (self.SALES_SYNC, self.PRODUCT_PRICES, self.PRODUCT_RECIPES, self.PRODUCT_COSTS):
             return self._execute_sales_sync(claim, executed_at=executed_at)
         if claim.automation_type == self.IIKO_SHIFT_SYNC:
             return self._execute_iiko_shift_sync(claim, executed_at=executed_at)
@@ -121,7 +122,13 @@ class LocalAutomationActionExecutor:
         from app.schemas.automation import SalesSyncPayload
 
         snapshot = None
-        if claim.automation_type == self.PRODUCT_RECIPES:
+        if claim.automation_type == self.PRODUCT_COSTS:
+            from app.product_knowledge.costs import CostRefreshPayload, collect_costs
+            payload = CostRefreshPayload.model_validate(claim.payload)
+            snapshot = await collect_costs(self._session_factory, tenant_id=claim.tenant_id,
+                payload=payload, now=executed_at)
+            result = {}
+        elif claim.automation_type == self.PRODUCT_RECIPES:
             from app.product_knowledge.recipes import RecipeRefreshPayload, collect_recipes
             payload = RecipeRefreshPayload.model_validate(claim.payload)
             snapshot = await collect_recipes(self._session_factory, tenant_id=claim.tenant_id,
@@ -150,7 +157,10 @@ class LocalAutomationActionExecutor:
                 if execution.status in (ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED,
                                          ExecutionStatus.TIMED_OUT, ExecutionStatus.CANCELLED):
                     raise OutboxClaimLostError("Sales sync execution already terminal")
-                if claim.automation_type == self.PRODUCT_RECIPES:
+                if claim.automation_type == self.PRODUCT_COSTS:
+                    from app.product_knowledge.costs import publish_costs
+                    result = publish_costs(session, claim.tenant_id, snapshot, execution_id=claim.execution_id)
+                elif claim.automation_type == self.PRODUCT_RECIPES:
                     from app.product_knowledge.recipes import publish_recipes
                     result = publish_recipes(session, claim.tenant_id, snapshot, execution_id=claim.execution_id)
                 elif snapshot is not None:

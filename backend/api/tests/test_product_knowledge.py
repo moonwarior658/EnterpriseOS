@@ -21,6 +21,7 @@ from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledge
 from app.product_knowledge.bootstrap import preview, publish, rollback_publication, PublicationError
 from app.schemas.product_knowledge import SourceSnapshot, ConfirmedPrice
 from app.models.audit import AuditEvent
+from app.models.product_cost import ProductCostObservation, ProductCostVerification
 
 
 class ProductKnowledgeTests(unittest.TestCase):
@@ -30,7 +31,7 @@ class ProductKnowledgeTests(unittest.TestCase):
     def setUp(self):
         foundation.SalesFoundationTests.setUp(self)
         for model in (SupplyUnit, SupplyProductCategory, SupplyRequestDirection, SupplyStorageZone, IikoUnitMapping,
-                      ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot):
+                      ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot, ProductCostObservation, ProductCostVerification):
             model.__table__.create(self.engine)
         from sqlalchemy import MetaData, JSON, Integer, BigInteger
         from sqlalchemy.dialects.postgresql import JSONB
@@ -124,7 +125,7 @@ class ProductKnowledgeTests(unittest.TestCase):
             self.assertEqual(self.client.get('/products?status=OFF_SALE').json()['total'],0)
             detail=self.client.get('/products/'+first['id']).json()
             self.assertIsNone(detail['price']);self.assertIsNone(detail['photo'])
-            for key in ('cost','recipe','raw_payload','iiko_product_id','provenance'):self.assertNotIn(key,detail)
+            for key in ('recipe','raw_payload','iiko_product_id','provenance'):self.assertNotIn(key,detail)
             self.assertEqual(detail['allowed_actions'],['EDIT','STATUS','DELETE','VERIFY'])
         self.assertEqual(self.client.get('/products?limit=101').status_code,422)
         self.assertEqual(self.client.get('/products?department_id='+str(uuid4())).status_code,404)

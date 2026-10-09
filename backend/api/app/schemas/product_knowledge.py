@@ -96,6 +96,8 @@ class PriceHealthRead(BaseModel):
 
 
 class ProductRead(BaseModel):
+    cost_access: bool = False
+    cost: dict | None = None
     recipe_access: bool = False
     id: UUID
     name: str
@@ -135,6 +137,7 @@ class OptionRead(BaseModel):
 
 
 class CatalogRead(BaseModel):
+    cost_access: bool = False
     items: list[ProductRead]
     total: int
     offset: int

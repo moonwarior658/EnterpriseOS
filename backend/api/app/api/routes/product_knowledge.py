@@ -17,7 +17,8 @@ from app.product_knowledge.recipes import RecipeRefreshPayload, enqueue
 from app.integrations.iiko.exceptions import IikoError
 from app.schemas.product_knowledge import CatalogRead, ProductRead, ProductCommand, KnowledgeUpdate, StatusUpdate, VerificationUpdate, ManualAdd
 from app.schemas.product_recipes import RecipeConfirmation, RecipePortalRefresh
-from app.product_knowledge import recipe_portal
+from app.product_knowledge import recipe_portal, cost_portal
+from app.product_knowledge.costs import CostRefreshPayload, enqueue as enqueue_costs
 
 router = APIRouter(prefix='/products', tags=['product knowledge'])
 Db = Annotated[Session, Depends(get_db)]
@@ -49,6 +50,47 @@ async def source_snapshot(db, actor):
         return await collect(source_id)
     except (IikoError, PublicationError, ValueError) as error:
         raise HTTPException(503, 'Не удалось проверить справочник iiko. Повторите позже') from error
+
+
+@router.post('/costs/refresh', status_code=202)
+def refresh_costs(command: CostRefreshPayload, db: Db, actor: Actor):
+    try:
+        enqueue_costs(db,actor,command)
+        db.commit()
+        return dict(message='Обновление себестоимости поставлено в очередь',accepted=True)
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except PublicationError as error:
+        db.rollback()
+        raise HTTPException(409,'Проверьте источник, UUID изделий и контекст расчёта') from error
+
+
+@router.get('/{product_id}/costs')
+def product_costs(product_id: UUID, db: Db, actor: Actor, response: Response,
+    context_key: str | None = Query(None, pattern=r'^[a-f0-9]{64}$'),
+    offset: int = Query(0,ge=0),limit: int = Query(25,ge=1,le=100),review: bool = Query(False)):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        return cost_portal.detail(db,actor,product_id,context_key=context_key,offset=offset,limit=limit,review=review)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+@router.post('/{product_id}/costs/confirm')
+def confirm_product_cost(product_id: UUID, command: cost_portal.CostConfirmation, db: Db, actor: Actor, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        cost_portal.confirm(db,actor,product_id,command)
+        result = cost_portal.detail(db,actor,product_id)
+        db.commit()
+        return result
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except HTTPException:
+        db.rollback()
+        raise
 
 
 @router.post('/recipes/refresh', status_code=202)

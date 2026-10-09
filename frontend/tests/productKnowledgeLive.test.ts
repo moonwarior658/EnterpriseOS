@@ -13,7 +13,7 @@ test('live catalog: API filters, paging, safe card, errors and empty data withou
   let root:ReturnType<typeof import('react-dom/client').createRoot>|undefined
   const calls:URL[]=[]
   const product={id:'11111111-1111-4111-8111-111111111111',name:'Реальный эклер',sku:'001',unit_name:'шт',unit_weight_kg:'0.055',sale_mode:'UNKNOWN',sale_status:'ON_SALE',category_id:null,category_name:null,description:null,observed_at:'2026-10-08T09:00:00Z',source_deleted:false,price:null,prices:[],allowed_actions:[]}
-  let failure=false,empty=false
+  let failure=false,empty=false,costAccess=false
   try {
     Object.entries(values).forEach(([name,value])=>Object.defineProperty(globalThis,name,{configurable:true,value}))
     dom.window.scrollTo=()=>{}
@@ -22,7 +22,7 @@ test('live catalog: API filters, paging, safe card, errors and empty data withou
       if(failure)return new Response('{}',{status:503})
       if(url.pathname.endsWith('/history'))return Response.json([])
       if(url.pathname.includes(product.id))return Response.json(product)
-      return Response.json({items:empty?[]:[{...product,id:url.searchParams.get('offset')==='25'?'22222222-2222-4222-8222-222222222222':product.id}],total:empty?0:26,offset:Number(url.searchParams.get('offset')),limit:25,points:[{id:'point',name:'Подтверждённая точка'}],categories:[],observed_at:product.observed_at})
+      return Response.json({cost_access:costAccess,items:empty?[]:[{...product,id:url.searchParams.get('offset')==='25'?'22222222-2222-4222-8222-222222222222':product.id}],total:empty?0:26,offset:Number(url.searchParams.get('offset')),limit:25,points:[{id:'point',name:'Подтверждённая точка'}],categories:[],observed_at:product.observed_at})
     }
     const {createRoot}=await import('react-dom/client'),{default:Page}=await server.ssrLoadModule('/src/pages/ProductKnowledgePage.tsx')
     root=createRoot(document.getElementById('root')!)
@@ -50,6 +50,10 @@ test('live catalog: API filters, paging, safe card, errors and empty data withou
     Object.assign(product,{price:null,prices:[],price_conflict_points:['point']})
     await render('/products?point=point&date=2026-10-08');await settle()
     assert.match(document.querySelector('tbody')!.textContent!,/Цена требует проверки/)
+    costAccess=true;Object.assign(product,{cost:{status:'VERIFIED',amount:'25.88',note:'Сверено с Office',estimated:false}})
+    await render('/products');await settle();assert.match(document.querySelector('thead')!.textContent!,/Себестоимость/);assert.match(document.querySelector('tbody')!.textContent!,/25,88 ₽/)
+    Object.assign(product,{cost:{status:'UNVERIFIED',amount:'999.99',note:'Требует сверки',estimated:false}})
+    await render('/products');await settle();assert.match(document.querySelector('tbody')!.textContent!,/Требует сверки/);assert.doesNotMatch(document.querySelector('tbody')!.textContent!,/999/)
     failure=true;await render('/products');await settle();assert(document.querySelector('[role="alert"]'))
     failure=false;empty=true;await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Повторить')!.click());await settle()
     assert.match(document.body.textContent!,/Каталог пока пуст/)

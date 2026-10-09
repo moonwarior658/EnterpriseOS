@@ -15,6 +15,9 @@ from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    PRODUCT_COST_REVIEW = "PRODUCT_COST_REVIEW"
+    PRODUCT_COST_READ = "PRODUCT_COST_READ"
+    PRODUCT_COST_CONFIRM = "PRODUCT_COST_CONFIRM"
     PRODUCT_RECIPE_READ = "PRODUCT_RECIPE_READ"
     PRODUCT_RECIPE_CONFIRM = "PRODUCT_RECIPE_CONFIRM"
     PRODUCT_RECIPE_REFRESH = "PRODUCT_RECIPE_REFRESH"
@@ -59,6 +62,21 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
+    Capability.PRODUCT_COST_READ: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.ALL_COMPANY),
+    ),
+    Capability.PRODUCT_COST_REVIEW: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.ALL_COMPANY),
+    ),
+    Capability.PRODUCT_COST_CONFIRM: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
+        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.ALL_COMPANY),
+    ),
     Capability.PRODUCT_RECIPE_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
         (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),

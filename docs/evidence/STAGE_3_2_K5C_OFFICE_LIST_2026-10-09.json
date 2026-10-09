@@ -1,0 +1,302 @@
+{
+  "effective_on": "2026-10-09",
+  "office_context": "ЦЕХ Полярная Производство",
+  "context_confirmed_by_user": true,
+  "warehouse_uuid_confirmed": false,
+  "rows": [
+    {
+      "article": "76214",
+      "code": "18474",
+      "ssn": "61.28",
+      "estimated": false
+    },
+    {
+      "article": "00241",
+      "code": "285",
+      "ssn": "25.88",
+      "estimated": false
+    },
+    {
+      "article": "75911",
+      "code": "18156",
+      "ssn": "39.05",
+      "estimated": false
+    },
+    {
+      "article": "75753",
+      "code": "17983",
+      "ssn": "45.50",
+      "estimated": false
+    },
+    {
+      "article": "75834",
+      "code": "18072",
+      "ssn": "26.62",
+      "estimated": false
+    },
+    {
+      "article": "74796",
+      "code": "16924",
+      "ssn": "26.06",
+      "estimated": false
+    },
+    {
+      "article": "75835",
+      "code": "18073",
+      "ssn": "31.38",
+      "estimated": false
+    },
+    {
+      "article": "75836",
+      "code": "18074",
+      "ssn": "31.91",
+      "estimated": false
+    },
+    {
+      "article": "00236",
+      "code": "280",
+      "ssn": "33.32",
+      "estimated": false
+    },
+    {
+      "article": "75837",
+      "code": "18075",
+      "ssn": "31.21",
+      "estimated": false
+    },
+    {
+      "article": "76409",
+      "code": "18674",
+      "ssn": "39.28",
+      "estimated": false
+    },
+    {
+      "article": "76397",
+      "code": "18661",
+      "ssn": "74.25",
+      "estimated": false
+    },
+    {
+      "article": "11612",
+      "code": "3570",
+      "ssn": "34.49",
+      "estimated": false
+    },
+    {
+      "article": "76387",
+      "code": "18650",
+      "ssn": "41.34",
+      "estimated": false
+    },
+    {
+      "article": "76347",
+      "code": "18609",
+      "ssn": "152.62",
+      "estimated": false
+    },
+    {
+      "article": "76065",
+      "code": "18315",
+      "ssn": "49.91",
+      "estimated": false
+    },
+    {
+      "article": "75751",
+      "code": "17981",
+      "ssn": "51.63",
+      "estimated": false
+    },
+    {
+      "article": "75919",
+      "code": "18164",
+      "ssn": "61.37",
+      "estimated": false
+    },
+    {
+      "article": "75951",
+      "code": "18198",
+      "ssn": "8.14",
+      "estimated": false
+    },
+    {
+      "article": "76060",
+      "code": "18310",
+      "ssn": "43.44",
+      "estimated": false
+    },
+    {
+      "article": "76354",
+      "code": "18616",
+      "ssn": "45.55",
+      "estimated": false
+    },
+    {
+      "article": "75913",
+      "code": "18158",
+      "ssn": "50.73",
+      "estimated": false
+    },
+    {
+      "article": "76366",
+      "code": "18629",
+      "ssn": "93.12",
+      "estimated": false
+    },
+    {
+      "article": "01412",
+      "code": "1619",
+      "ssn": "114.22",
+      "estimated": false
+    },
+    {
+      "article": "76410",
+      "code": "18675",
+      "ssn": "113.08",
+      "estimated": true
+    },
+    {
+      "article": "00152",
+      "code": "191",
+      "ssn": "27.29",
+      "estimated": false
+    },
+    {
+      "article": "75950",
+      "code": "18197",
+      "ssn": "38.25",
+      "estimated": false
+    },
+    {
+      "article": "75915",
+      "code": "18160",
+      "ssn": "60.99",
+      "estimated": false
+    },
+    {
+      "article": "75922",
+      "code": "18167",
+      "ssn": "96.05",
+      "estimated": false
+    },
+    {
+      "article": "76070",
+      "code": "18320",
+      "ssn": "90.34",
+      "estimated": false
+    },
+    {
+      "article": "12441",
+      "code": "4437",
+      "ssn": "70.93",
+      "estimated": false
+    },
+    {
+      "article": "75683",
+      "code": "17910",
+      "ssn": "21.96",
+      "estimated": false
+    },
+    {
+      "article": "00201",
+      "code": "245",
+      "ssn": "17.84",
+      "estimated": false
+    },
+    {
+      "article": "75685",
+      "code": "17912",
+      "ssn": "39.71",
+      "estimated": false
+    },
+    {
+      "article": "75690",
+      "code": "17917",
+      "ssn": "36.68",
+      "estimated": false
+    },
+    {
+      "article": "76243",
+      "code": "18504",
+      "ssn": "388.57",
+      "estimated": false
+    },
+    {
+      "article": "76242",
+      "code": "18503",
+      "ssn": "425.32",
+      "estimated": false
+    },
+    {
+      "article": "74872",
+      "code": "17007",
+      "ssn": "149.89",
+      "estimated": false
+    },
+    {
+      "article": "12425",
+      "code": "4421",
+      "ssn": "246.12",
+      "estimated": false
+    },
+    {
+      "article": "75810",
+      "code": "18046",
+      "ssn": "312.29",
+      "estimated": false
+    },
+    {
+      "article": "13756",
+      "code": "5843",
+      "ssn": "336.20",
+      "estimated": false
+    },
+    {
+      "article": "75957",
+      "code": "18204",
+      "ssn": "356.68",
+      "estimated": false
+    },
+    {
+      "article": "75806",
+      "code": "18042",
+      "ssn": "309.28",
+      "estimated": false
+    },
+    {
+      "article": "75800",
+      "code": "18036",
+      "ssn": "313.16",
+      "estimated": false
+    },
+    {
+      "article": "75808",
+      "code": "18044",
+      "ssn": "278.44",
+      "estimated": false
+    },
+    {
+      "article": "76411",
+      "code": "18676",
+      "ssn": "469.05",
+      "estimated": false
+    },
+    {
+      "article": "76069",
+      "code": "18319",
+      "ssn": "767.59",
+      "estimated": false
+    },
+    {
+      "article": "75802",
+      "code": "18038",
+      "ssn": "404.40",
+      "estimated": false
+    },
+    {
+      "article": "11602",
+      "code": "3560",
+      "ssn": "1188.18",
+      "estimated": false
+    }
+  ]
+}

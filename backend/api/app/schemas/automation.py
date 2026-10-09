@@ -141,6 +141,9 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_costs':
+        from app.product_knowledge.costs import CostRefreshPayload
+        return CostRefreshPayload.model_validate(payload).model_dump(mode='json')
     if automation_type == 'products.sync_iiko_recipes':
         from app.product_knowledge.recipes import RecipeRefreshPayload
         return RecipeRefreshPayload.model_validate(payload).model_dump(mode='json')
@@ -169,6 +172,10 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_costs' and (
+        not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 60
+    ):
+        raise ValueError('Costs sync requires a 60 minute interval')
     if automation_type == 'products.sync_iiko_recipes':
         raise ValueError('Recipe refresh is manual-only during K5B review')
     if automation_type == 'products.sync_iiko_prices' and (
@@ -273,7 +280,7 @@ class AutomationScheduleBase(BaseModel):
     @model_validator(mode="after")
     def validate_complete_scope(self) -> "AutomationScheduleBase":
         validate_scope_pair(self.scope_type, self.scope_id)
-        if self.automation_type in {"sales.sync_iiko", "sales.finalize_reports", 'products.sync_iiko_prices'} and self.scope_type != "company":
+        if self.automation_type in {"sales.sync_iiko", "sales.finalize_reports", 'products.sync_iiko_prices', 'products.sync_iiko_costs'} and self.scope_type != "company":
             raise ValueError("Sales sync requires company scope")
         self.payload = validate_automation_schedule_contract(
             self.automation_type,

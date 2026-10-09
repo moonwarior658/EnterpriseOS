@@ -1,0 +1,4145 @@
+{
+  "head": [
+    "20261009_0078"
+  ],
+  "observed_at": "2026-10-09T15:48:43.542395+05:00",
+  "roots": [
+    {
+      "key": "0ea35d0437aba09f",
+      "name": "Торт Медовик 1000 гр",
+      "unit": "шт",
+      "recipe_status": "OFFICE_COMPARISON_PENDING",
+      "department_key": null,
+      "warehouse_key": null,
+      "charts": [
+        {
+          "key": "3bbb77cc708f067f",
+          "root_key": "0ea35d0437aba09f",
+          "assembledAmount": 1,
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-02-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "cf07f451b1ea1c32",
+              "amountIn": "0.4",
+              "amountOut": "0.25",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "8b61db29f2feb398",
+              "amountIn": "0.75",
+              "amountOut": "0.75",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "cc2816b5903dc5c4",
+              "amountIn": "0.006",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "511cd6da8175fb02",
+              "amountIn": 1,
+              "amountOut": 1,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            }
+          ]
+        },
+        {
+          "key": "7d8f26f57fd8f3e0",
+          "root_key": "cf07f451b1ea1c32",
+          "assembledAmount": "0.434",
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-04-27",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "6a7cea1436bc5093",
+              "amountIn": 1,
+              "amountOut": 1,
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amountIn": "0.08",
+              "amountOut": "0.08",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "f795511e8702ec2b",
+              "amountIn": "0.05",
+              "amountOut": "0.05",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "51d9b3fdca5af7f4",
+              "amountIn": "0.05",
+              "amountOut": "0.05",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "0406befccb47dc84",
+              "amountIn": "0.0065",
+              "amountOut": "0.0043",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amountIn": "0.2",
+              "amountOut": "0.2",
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        },
+        {
+          "key": "d283a40000a38371",
+          "root_key": "8b61db29f2feb398",
+          "assembledAmount": "0.75",
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-02-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "amountIn": "0.4",
+              "amountOut": "0.4",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "09027e738bd5f706",
+              "amountIn": "0.3",
+              "amountOut": "0.3",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "15c2da6f16875b62",
+              "amountIn": "0.05",
+              "amountOut": "0.05",
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "key": "0406befccb47dc84",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00334",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "c0d933eb67123f0d",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00018",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "812943a5d32fadb3",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00178",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "51d9b3fdca5af7f4",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00060",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "8b61db29f2feb398",
+          "type": "PREPARED",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "75956",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "cf07f451b1ea1c32",
+          "type": "PREPARED",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "75955",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "511cd6da8175fb02",
+          "type": "GOODS",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "00679",
+          "unitWeight": 0,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "1ac45e5c6437f7fa",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "10538",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "cc2816b5903dc5c4",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00765",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "15c2da6f16875b62",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00902",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "f795511e8702ec2b",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00377",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "09027e738bd5f706",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "01159",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "6a7cea1436bc5093",
+          "type": "GOODS",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "00044",
+          "unitWeight": "0.05",
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "0ea35d0437aba09f",
+          "type": "DISH",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "75957",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        }
+      ],
+      "prepared_keys": [
+        "assemblyCharts",
+        "deletedAssemblyChartIds",
+        "deletedPreparedChartIds",
+        "knownRevision",
+        "preparedCharts"
+      ],
+      "prepared_sample": [
+        {
+          "keys": [
+            "assembledProductId",
+            "dateFrom",
+            "dateTo",
+            "effectiveDirectWriteoffStoreSpecification",
+            "id",
+            "items",
+            "productSizeAssemblyStrategy"
+          ],
+          "assembledAmount": null,
+          "items": [
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "amount": "0.4",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "51d9b3fdca5af7f4",
+              "amount": "0.046082949",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "09027e738bd5f706",
+              "amount": "0.3",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amount": "0.073732719",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "15c2da6f16875b62",
+              "amount": "0.05",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "amount": "0.921658986",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "cc2816b5903dc5c4",
+              "amount": "0.006",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "f795511e8702ec2b",
+              "amount": "0.046082949",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "0406befccb47dc84",
+              "amount": "0.005990783",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "511cd6da8175fb02",
+              "amount": 1,
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amount": "0.184331797",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            }
+          ]
+        }
+      ],
+      "balances": [
+        {
+          "store_key": null,
+          "scope": "ALL_STORES_EXPLORATORY",
+          "rows": [
+            {
+              "product_key": "0406befccb47dc84",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 3,
+              "sum": "280.8",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "cc2816b5903dc5c4",
+              "store_key": "a83edb2217d10e87",
+              "amount": "8.381",
+              "sum": "2732.78",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "0406befccb47dc84",
+              "store_key": "a83edb2217d10e87",
+              "amount": "2.606706703",
+              "sum": "141.14",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "store_key": "074f0628ed8a8019",
+              "amount": 2,
+              "sum": "436.92",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "51d9b3fdca5af7f4",
+              "store_key": "a83edb2217d10e87",
+              "amount": "8.977095634",
+              "sum": "9599.21",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "51d9b3fdca5af7f4",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 5,
+              "sum": 3000,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "09027e738bd5f706",
+              "store_key": "a83edb2217d10e87",
+              "amount": "14.586342266",
+              "sum": "3909.72",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "f795511e8702ec2b",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "7.053",
+              "sum": "2093.29",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "f795511e8702ec2b",
+              "store_key": "a83edb2217d10e87",
+              "amount": "24.425267911",
+              "sum": "4885.55",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "511cd6da8175fb02",
+              "store_key": "78ffaa0c8746f57f",
+              "amount": 790,
+              "sum": "35851.86",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 20,
+              "sum": "183.74",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 5,
+              "sum": "374.65",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "15c2da6f16875b62",
+              "store_key": "a83edb2217d10e87",
+              "amount": "20.792091216",
+              "sum": "3611.85",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-38.896638603",
+              "sum": "-439.53",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a83edb2217d10e87",
+              "amount": "23.389302256",
+              "sum": "2225.51",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-90.948031212",
+              "sum": "-5192.28",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "6.167",
+              "sum": "202.61",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "511cd6da8175fb02",
+              "store_key": "a83edb2217d10e87",
+              "amount": 167,
+              "sum": "7056.93",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "store_key": "a83edb2217d10e87",
+              "amount": "171.819876008",
+              "sum": "63573.35",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "644426929e9e917f",
+      "name": "Пирожное Малина 100 гр",
+      "unit": "шт",
+      "recipe_status": "OFFICE_COMPARISON_PENDING",
+      "department_key": null,
+      "warehouse_key": null,
+      "charts": [
+        {
+          "key": "0d1ab85f07004ade",
+          "root_key": "644426929e9e917f",
+          "assembledAmount": 1,
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-05-16",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "1580d3c2b722b84f",
+              "amountIn": "0.06",
+              "amountOut": "0.058",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "277ae9981486b0cf",
+              "amountIn": "0.001",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amountIn": "0.003",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "5a71c9712a3fa018",
+              "amountIn": "0.037",
+              "amountOut": "0.037",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "a78f969ad0ba5d41",
+              "amountIn": "0.001",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "35a401b96dada772",
+              "amountIn": "0.013",
+              "amountOut": "0.005",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "amountIn": "0.002",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "63cd62996b2cb699",
+              "amountIn": "0.002",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "amountIn": "0.026",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "amountIn": 1,
+              "amountOut": 1,
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        },
+        {
+          "key": "31614b45761a98f0",
+          "root_key": "5a71c9712a3fa018",
+          "assembledAmount": 1,
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-03-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "8c7c4222cfa016d8",
+              "amountIn": 1,
+              "amountOut": 1,
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "key": "812943a5d32fadb3",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00178",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "277ae9981486b0cf",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "75474",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "1ac45e5c6437f7fa",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "10538",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "63cd62996b2cb699",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "01093",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "a78f969ad0ba5d41",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00866",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "1580d3c2b722b84f",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "10029",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "35a401b96dada772",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "11504",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "091a39b0d8cab84b",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "00061",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "644426929e9e917f",
+          "type": "DISH",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "76347",
+          "unitWeight": "0.1",
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "8c7c4222cfa016d8",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "10725",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "5a71c9712a3fa018",
+          "type": "PREPARED",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "76073",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "a5627ac6dd64745e",
+          "type": "GOODS",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "00673",
+          "unitWeight": 0,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        }
+      ],
+      "prepared_keys": [
+        "assemblyCharts",
+        "deletedAssemblyChartIds",
+        "deletedPreparedChartIds",
+        "knownRevision",
+        "preparedCharts"
+      ],
+      "prepared_sample": [
+        {
+          "keys": [
+            "assembledProductId",
+            "dateFrom",
+            "dateTo",
+            "effectiveDirectWriteoffStoreSpecification",
+            "id",
+            "items",
+            "productSizeAssemblyStrategy"
+          ],
+          "assembledAmount": null,
+          "items": [
+            {
+              "product_key": "35a401b96dada772",
+              "amount": "0.013",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "277ae9981486b0cf",
+              "amount": "0.001",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amount": "0.003",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "a78f969ad0ba5d41",
+              "amount": "0.001",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "8c7c4222cfa016d8",
+              "amount": "0.037",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "63cd62996b2cb699",
+              "amount": "0.002",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "amount": 1,
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "amount": "0.002",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "1580d3c2b722b84f",
+              "amount": "0.06",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "amount": "0.026",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            }
+          ]
+        }
+      ],
+      "balances": [
+        {
+          "store_key": null,
+          "scope": "ALL_STORES_EXPLORATORY",
+          "rows": [
+            {
+              "product_key": "644426929e9e917f",
+              "store_key": "7920a551b339a755",
+              "amount": 2,
+              "sum": "716.86",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "store_key": "074f0628ed8a8019",
+              "amount": 2,
+              "sum": "436.92",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "store_key": "7920a551b339a755",
+              "amount": -388,
+              "sum": "-3367.84",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1580d3c2b722b84f",
+              "store_key": "a83edb2217d10e87",
+              "amount": "83.306999997",
+              "sum": "57899.08",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "644426929e9e917f",
+              "store_key": "d5487e8f5b261853",
+              "amount": 3,
+              "sum": 1350,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "63cd62996b2cb699",
+              "store_key": "a83edb2217d10e87",
+              "amount": "1.415028721",
+              "sum": "2407.58",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1580d3c2b722b84f",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "7.575",
+              "sum": "5081.98",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "store_key": "d5487e8f5b261853",
+              "amount": 56,
+              "sum": "423.36",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-412.9",
+              "sum": "-2861.09",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "35a401b96dada772",
+              "store_key": "a83edb2217d10e87",
+              "amount": "1.80272",
+              "sum": "5770.19",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 5,
+              "sum": "374.65",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "a78f969ad0ba5d41",
+              "store_key": "a83edb2217d10e87",
+              "amount": "5.316493476",
+              "sum": "10269.72",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "8c7c4222cfa016d8",
+              "store_key": "a83edb2217d10e87",
+              "amount": "28.16431695",
+              "sum": "31460.27",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "a5627ac6dd64745e",
+              "store_key": "78ffaa0c8746f57f",
+              "amount": 800,
+              "sum": "5862.83",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "277ae9981486b0cf",
+              "store_key": "a83edb2217d10e87",
+              "amount": "0.672019985",
+              "sum": "3576.1",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a83edb2217d10e87",
+              "amount": "23.389302256",
+              "sum": "2225.51",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "store_key": "a83edb2217d10e87",
+              "amount": "8.290693042",
+              "sum": "1042.58",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "1ac45e5c6437f7fa",
+              "store_key": "a83edb2217d10e87",
+              "amount": "171.819876008",
+              "sum": "63573.35",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "4346d8f830d17e6c",
+      "name": "Сосиска в тесте",
+      "unit": "шт",
+      "recipe_status": "OFFICE_COMPARISON_PENDING",
+      "department_key": null,
+      "warehouse_key": null,
+      "charts": [
+        {
+          "key": "e01d4ff2f711a85e",
+          "root_key": "4346d8f830d17e6c",
+          "assembledAmount": 1,
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2026-07-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "aae3772b9b5e3f13",
+              "amountIn": "0.1",
+              "amountOut": "0.08",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "186b14c6b43c576e",
+              "amountIn": "0.065",
+              "amountOut": "0.04",
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "8a7bf164b2e3a207",
+              "amountIn": 0,
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            }
+          ]
+        },
+        {
+          "key": "41e14d6724e7315c",
+          "root_key": "aae3772b9b5e3f13",
+          "assembledAmount": "14.7",
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2025-05-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amountIn": 8,
+              "amountOut": 8,
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "amountIn": "2.3",
+              "amountOut": "2.3",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "0ae35d1c2639772b",
+              "amountIn": 1,
+              "amountOut": 1,
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amountIn": "0.3",
+              "amountOut": "0.3",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "amountIn": "0.11",
+              "amountOut": "0.11",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "amountIn": "0.2",
+              "amountOut": "0.2",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "amountIn": "2.3",
+              "amountOut": "2.3",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "amountIn": "0.5",
+              "amountOut": "0.5",
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "key": "c0d933eb67123f0d",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00018",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "812943a5d32fadb3",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00178",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "aae3772b9b5e3f13",
+          "type": "PREPARED",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "73426",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "7d7a6c7f0dd058aa",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00863",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "4346d8f830d17e6c",
+          "type": "DISH",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "00229",
+          "unitWeight": "0.12",
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "6aa03c014aaab614",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00183",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "0ae35d1c2639772b",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00184",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "af09c0dd9de21fe9",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "00004",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "8a7bf164b2e3a207",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "12359",
+          "unitWeight": 0,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "186b14c6b43c576e",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00372",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "b62aafd31a78c1bb",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "00186",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "091a39b0d8cab84b",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "00061",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        }
+      ],
+      "prepared_keys": [
+        "assemblyCharts",
+        "deletedAssemblyChartIds",
+        "deletedPreparedChartIds",
+        "knownRevision",
+        "preparedCharts"
+      ],
+      "prepared_sample": [
+        {
+          "keys": [
+            "assembledProductId",
+            "dateFrom",
+            "dateTo",
+            "effectiveDirectWriteoffStoreSpecification",
+            "id",
+            "items",
+            "productSizeAssemblyStrategy"
+          ],
+          "assembledAmount": null,
+          "items": [
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "amount": "0.015646259",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "amount": "0.000748299",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "186b14c6b43c576e",
+              "amount": "0.065",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "0ae35d1c2639772b",
+              "amount": "0.006802721",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "amount": "0.003401361",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amount": "0.002040816",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "amount": "0.001360544",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "amount": "0.015646259",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amount": "0.054421769",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            }
+          ]
+        }
+      ],
+      "balances": [
+        {
+          "store_key": null,
+          "scope": "ALL_STORES_EXPLORATORY",
+          "rows": [
+            {
+              "product_key": "0ae35d1c2639772b",
+              "store_key": "a83edb2217d10e87",
+              "amount": "69.582899486",
+              "sum": "16748.6",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "store_key": "a83edb2217d10e87",
+              "amount": "63.995551931",
+              "sum": "6566.15",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "store_key": "a9a477b4025c27f7",
+              "amount": "-0.2",
+              "sum": 0,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "store_key": "fc44f0a0e0f6fcca",
+              "amount": -19,
+              "sum": 0,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "store_key": "a83edb2217d10e87",
+              "amount": "44.288598202",
+              "sum": "752.91",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "store_key": "074f0628ed8a8019",
+              "amount": 2,
+              "sum": "96.83",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "store_key": "a83edb2217d10e87",
+              "amount": "1846.919108891",
+              "sum": "3.59",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "b62aafd31a78c1bb",
+              "store_key": "d5487e8f5b261853",
+              "amount": "-2.38",
+              "sum": "-153.59",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "11.5",
+              "sum": "251.06",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "8a7bf164b2e3a207",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-1.728",
+              "sum": "-593.57",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 8,
+              "sum": "4257.08",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 5,
+              "sum": "374.65",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "4346d8f830d17e6c",
+              "store_key": "a024fc490494cfc2",
+              "amount": 1,
+              "sum": 100,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a83edb2217d10e87",
+              "amount": "23.389302256",
+              "sum": "2225.51",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-90.948031212",
+              "sum": "-5192.28",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "store_key": "a83edb2217d10e87",
+              "amount": "11.924663057",
+              "sum": "6779.17",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "6.167",
+              "sum": "202.61",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "091a39b0d8cab84b",
+              "store_key": "a83edb2217d10e87",
+              "amount": "8.290693042",
+              "sum": "1042.58",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "186b14c6b43c576e",
+              "store_key": "a83edb2217d10e87",
+              "amount": "5.315",
+              "sum": "1371.8",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "2a411f2751bc9ad7",
+      "name": "Плюшка  Московская",
+      "unit": "шт",
+      "recipe_status": "OFFICE_COMPARISON_PENDING",
+      "department_key": null,
+      "warehouse_key": null,
+      "charts": [
+        {
+          "key": "d152e5a46f37657b",
+          "root_key": "2a411f2751bc9ad7",
+          "assembledAmount": 1,
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2025-05-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "812943a5d32fadb3",
+              "amountIn": "0.02",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "0ae35d1c2639772b",
+              "amountIn": "0.005",
+              "amountOut": 0,
+              "storeSpecification": {
+                "departments": [],
+                "inverse": true
+              },
+              "size_specified": false
+            },
+            {
+              "product_key": "4ddc21b4592b53f6",
+              "amountIn": "0.15",
+              "amountOut": "0.15",
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        },
+        {
+          "key": "fe8190cc4104d8ae",
+          "root_key": "4ddc21b4592b53f6",
+          "assembledAmount": "2.051",
+          "writeoff": "ASSEMBLE",
+          "dateFrom": "2025-05-01",
+          "dateTo": null,
+          "items": [
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amountIn": "1.1",
+              "amountOut": "1.1",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amountIn": "0.2",
+              "amountOut": "0.2",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "amountIn": "0.01",
+              "amountOut": "0.01",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "amountIn": "0.2",
+              "amountOut": "0.2",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "amountIn": "0.5",
+              "amountOut": "0.5",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "0ae35d1c2639772b",
+              "amountIn": "0.2",
+              "amountOut": "0.2",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "amountIn": "0.025",
+              "amountOut": "0.025",
+              "storeSpecification": null,
+              "size_specified": false
+            },
+            {
+              "product_key": "2615fdf8442973b3",
+              "amountIn": "0.006",
+              "amountOut": "0.006",
+              "storeSpecification": null,
+              "size_specified": false
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "key": "4ddc21b4592b53f6",
+          "type": "PREPARED",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00180",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "c0d933eb67123f0d",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00018",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "812943a5d32fadb3",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00178",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "7d7a6c7f0dd058aa",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00863",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "6aa03c014aaab614",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00183",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "0ae35d1c2639772b",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "00184",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "af09c0dd9de21fe9",
+          "type": "GOODS",
+          "mainUnit_key": "45078567beb736f3",
+          "num": "00004",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "2a411f2751bc9ad7",
+          "type": "DISH",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "11913",
+          "unitWeight": "0.15",
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "2615fdf8442973b3",
+          "type": "GOODS",
+          "mainUnit_key": "d252c479251965e8",
+          "num": "01162",
+          "unitWeight": 1,
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        },
+        {
+          "key": "6a7cea1436bc5093",
+          "type": "GOODS",
+          "mainUnit_key": "ac353f8e32951e9a",
+          "num": "00044",
+          "unitWeight": "0.05",
+          "estimatedPurchasePrice": 0,
+          "cost_fields": {}
+        }
+      ],
+      "prepared_keys": [
+        "assemblyCharts",
+        "deletedAssemblyChartIds",
+        "deletedPreparedChartIds",
+        "knownRevision",
+        "preparedCharts"
+      ],
+      "prepared_sample": [
+        {
+          "keys": [
+            "assembledProductId",
+            "dateFrom",
+            "dateTo",
+            "effectiveDirectWriteoffStoreSpecification",
+            "id",
+            "items",
+            "productSizeAssemblyStrategy"
+          ],
+          "assembledAmount": null,
+          "items": [
+            {
+              "product_key": "c0d933eb67123f0d",
+              "amount": "0.080448562",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "amount": "0.014627011",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "2615fdf8442973b3",
+              "amount": "0.00043881",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "amount": "0.036567528",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "amount": "0.034627011",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "amount": "0.001828376",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "amount": "0.000731351",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            },
+            {
+              "product_key": "0ae35d1c2639772b",
+              "amount": "0.019627011",
+              "amountIn": null,
+              "keys": [
+                "amount",
+                "id",
+                "productId",
+                "productSizeSpecification",
+                "sortWeight",
+                "storeSpecification"
+              ]
+            }
+          ]
+        }
+      ],
+      "balances": [
+        {
+          "store_key": null,
+          "scope": "ALL_STORES_EXPLORATORY",
+          "rows": [
+            {
+              "product_key": "0ae35d1c2639772b",
+              "store_key": "a83edb2217d10e87",
+              "amount": "69.582899486",
+              "sum": "16748.6",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "store_key": "a83edb2217d10e87",
+              "amount": "63.995551931",
+              "sum": "6566.15",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "store_key": "a83edb2217d10e87",
+              "amount": "44.288598202",
+              "sum": "752.91",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "af09c0dd9de21fe9",
+              "store_key": "074f0628ed8a8019",
+              "amount": 2,
+              "sum": "96.83",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6aa03c014aaab614",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "11.5",
+              "sum": "251.06",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "2a411f2751bc9ad7",
+              "store_key": "a024fc490494cfc2",
+              "amount": 1,
+              "sum": 100,
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 8,
+              "sum": "4257.08",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 20,
+              "sum": "183.74",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": 5,
+              "sum": "374.65",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "6a7cea1436bc5093",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-38.896638603",
+              "sum": "-439.53",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "812943a5d32fadb3",
+              "store_key": "a83edb2217d10e87",
+              "amount": "23.389302256",
+              "sum": "2225.51",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-90.948031212",
+              "sum": "-5192.28",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "7d7a6c7f0dd058aa",
+              "store_key": "a83edb2217d10e87",
+              "amount": "11.924663057",
+              "sum": "6779.17",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "c0d933eb67123f0d",
+              "store_key": "a6a96fef7ae5c1b2",
+              "amount": "6.167",
+              "sum": "202.61",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            },
+            {
+              "product_key": "2615fdf8442973b3",
+              "store_key": "a83edb2217d10e87",
+              "amount": "-0.31469342",
+              "sum": "-101.17",
+              "keys": [
+                "amount",
+                "product",
+                "store",
+                "sum"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stores": [
+    {
+      "key": "7920a551b339a755",
+      "name": "Павильон Эклер Матросова 15а",
+      "status": "IGNORED",
+      "role": null
+    },
+    {
+      "key": "a6a96fef7ae5c1b2",
+      "name": "ЦС Эверест Продукты Полярная 1 а",
+      "status": "CONFIRMED",
+      "role": "MAIN"
+    },
+    {
+      "key": "fc44f0a0e0f6fcca",
+      "name": "ЦС ИП Продукты Полярная 1а",
+      "status": "CONFIRMED",
+      "role": "MAIN"
+    },
+    {
+      "key": "074f0628ed8a8019",
+      "name": "ОС и МБП (Кухня Чубынина)",
+      "status": "UNMAPPED",
+      "role": null
+    },
+    {
+      "key": "a9a477b4025c27f7",
+      "name": "Маяковского 6а Малоценка",
+      "status": "CONFIRMED",
+      "role": "OTHER"
+    },
+    {
+      "key": "a83edb2217d10e87",
+      "name": "Цех Производство ИП",
+      "status": "CONFIRMED",
+      "role": "MAIN"
+    },
+    {
+      "key": "78ffaa0c8746f57f",
+      "name": "ЦС ИП  Упаковка Полярная 1а",
+      "status": "CONFIRMED",
+      "role": "PACKAGING"
+    },
+    {
+      "key": "d5487e8f5b261853",
+      "name": "Павильон Эклер Маяковского 6а",
+      "status": "IGNORED",
+      "role": null
+    },
+    {
+      "key": "a024fc490494cfc2",
+      "name": "Павильон Эклер Матросова 35",
+      "status": "IGNORED",
+      "role": null
+    }
+  ],
+  "requests": [
+    {
+      "path": "api/v2/assemblyCharts/getTree",
+      "status": 200,
+      "bytes": 8490
+    },
+    {
+      "path": "api/v2/entities/products/list",
+      "status": 200,
+      "bytes": 79633
+    },
+    {
+      "path": "api/v2/assemblyCharts/getPrepared",
+      "status": 200,
+      "bytes": 2516
+    },
+    {
+      "path": "api/v2/reports/balance/stores",
+      "status": 200,
+      "bytes": 2448
+    },
+    {
+      "path": "api/v2/assemblyCharts/getTree",
+      "status": 200,
+      "bytes": 7284
+    },
+    {
+      "path": "api/v2/entities/products/list",
+      "status": 200,
+      "bytes": 50310
+    },
+    {
+      "path": "api/v2/assemblyCharts/getPrepared",
+      "status": 200,
+      "bytes": 2297
+    },
+    {
+      "path": "api/v2/reports/balance/stores",
+      "status": 200,
+      "bytes": 2318
+    },
+    {
+      "path": "api/v2/assemblyCharts/getTree",
+      "status": 200,
+      "bytes": 8857
+    },
+    {
+      "path": "api/v2/entities/products/list",
+      "status": 200,
+      "bytes": 58228
+    },
+    {
+      "path": "api/v2/assemblyCharts/getPrepared",
+      "status": 200,
+      "bytes": 2163
+    },
+    {
+      "path": "api/v2/reports/balance/stores",
+      "status": 200,
+      "bytes": 2428
+    },
+    {
+      "path": "api/v2/assemblyCharts/getTree",
+      "status": 200,
+      "bytes": 6798
+    },
+    {
+      "path": "api/v2/entities/products/list",
+      "status": 200,
+      "bytes": 54910
+    },
+    {
+      "path": "api/v2/assemblyCharts/getPrepared",
+      "status": 200,
+      "bytes": 1975
+    },
+    {
+      "path": "api/v2/reports/balance/stores",
+      "status": 200,
+      "bytes": 1933
+    },
+    {
+      "path": "api/v2/reports/olap/columns",
+      "status": 200,
+      "bytes": 22686
+    }
+  ],
+  "publication_allowed": false,
+  "transaction_fields": {
+    "Product.Id": {
+      "name": "ID элемента номенклатуры",
+      "type": "ID_STRING",
+      "groupingAllowed": true,
+      "aggregationAllowed": false,
+      "filteringAllowed": true
+    },
+    "Product.MeasureUnit": {
+      "name": "Единица измерения",
+      "type": "STRING",
+      "groupingAllowed": true,
+      "aggregationAllowed": false,
+      "filteringAllowed": true
+    },
+    "Amount": {
+      "name": "Количество",
+      "type": "AMOUNT",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "FinalBalance.Money": {
+      "name": "Конечный денежный остаток",
+      "type": "MONEY",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "FinalBalance.Amount": {
+      "name": "Конечный остаток товара",
+      "type": "AMOUNT",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "Amount.In": {
+      "name": "Приход (кол-во)",
+      "type": "AMOUNT",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "Product.AvgSum": {
+      "name": "Средняя цена",
+      "type": "MONEY",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "Sum.Incoming": {
+      "name": "Сумма прихода",
+      "type": "MONEY",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "Sum.Outgoing": {
+      "name": "Сумма расхода",
+      "type": "MONEY",
+      "groupingAllowed": false,
+      "aggregationAllowed": true,
+      "filteringAllowed": false
+    },
+    "DateTime.DateTyped": {
+      "name": "Учетный день",
+      "type": "DATE",
+      "groupingAllowed": true,
+      "aggregationAllowed": false,
+      "filteringAllowed": true
+    }
+  },
+  "logout_status": 200,
+  "production_head": "4e4ff2fb7d29de1f4886bf49f5d6f4c5a3ac7ad4",
+  "office_evidence": {
+    "source": "four user screenshots in this conversation",
+    "observed_on": "2026-10-09",
+    "context_owner_statement": "ЦЕХ Полярная Производство; только что",
+    "visible_selector": "Все подразделения",
+    "currency_label": "р.",
+    "unit": "шт",
+    "writeoff_label": "Списывать готовое блюдо",
+    "exact_screenshot_time": null,
+    "confirmed_warehouse_uuid": null,
+    "confirmed_office_department_uuid": null,
+    "rows": [
+      {
+        "product_key": "0ea35d0437aba09f",
+        "name": "Торт Медовик 1000 гр",
+        "recipe_from": "2026-02-01",
+        "sss": "1321.88",
+        "spp": "1321.88",
+        "ssn": "356.68",
+        "ssn_prime": "356.68",
+        "ssnpp": "356.68",
+        "gross_norms": [
+          "0.4",
+          "0.75",
+          "0.006",
+          "1"
+        ]
+      },
+      {
+        "product_key": "644426929e9e917f",
+        "name": "Пирожное Малина 100 гр",
+        "recipe_from": "2026-05-16",
+        "sss": "413.37",
+        "spp": "413.37",
+        "ssn": "152.62",
+        "ssn_prime": "152.62",
+        "ssnpp": "152.62",
+        "gross_norms": [
+          "0.06",
+          "0.001",
+          "0.003",
+          "0.037",
+          "0.001",
+          "0.013",
+          "0.002",
+          "0.002",
+          "0.026",
+          "1"
+        ]
+      },
+      {
+        "product_key": "4346d8f830d17e6c",
+        "name": "Сосиска в тесте",
+        "recipe_from": "2026-07-01",
+        "sss": "100.00",
+        "spp": "100.00",
+        "ssn": "22.83",
+        "ssn_prime": "22.83",
+        "ssnpp": "22.83",
+        "gross_norms": [
+          "0.1",
+          "0.065",
+          "0"
+        ]
+      },
+      {
+        "product_key": "2a411f2751bc9ad7",
+        "name": "Плюшка Московская",
+        "recipe_from": "2025-05-01",
+        "sss": "100.00",
+        "spp": "100.00",
+        "ssn": "15.55",
+        "ssn_prime": "15.55",
+        "ssnpp": "15.55",
+        "gross_norms": [
+          "0.02",
+          "0.005",
+          "0.15"
+        ]
+      }
+    ]
+  },
+  "prototype_results": {
+    "positive_pool": [
+      {
+        "product_key": "0ea35d0437aba09f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "POSITIVE_ONLY",
+        "diagnostic_amount": "356.677327675779910967316859437030766",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "20",
+            "sum": "183.74",
+            "unit_cost": "9.187",
+            "stores": [
+              "a6a96fef7ae5c1b2"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "f795511e8702ec2b",
+            "quantity": "31.478267911",
+            "sum": "6978.84",
+            "unit_cost": "221.703431069701972332260324410833813",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "51d9b3fdca5af7f4",
+            "quantity": "13.977095634",
+            "sum": "12599.21",
+            "unit_cost": "901.418315358147602411976170356365754",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0406befccb47dc84",
+            "quantity": "5.606706703",
+            "sum": "421.94",
+            "unit_cost": "75.2562997051782824459972469510502947",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "6.167",
+            "sum": "202.61",
+            "unit_cost": "32.8538997892005837522296092103129561",
+            "stores": [
+              "a6a96fef7ae5c1b2"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "173.819876008",
+            "sum": "64010.27",
+            "unit_cost": "368.256332187545395225685449448799034",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "09027e738bd5f706",
+            "quantity": "14.586342266",
+            "sum": "3909.72",
+            "unit_cost": "268.039781920745997117136343494601500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "15c2da6f16875b62",
+            "quantity": "20.792091216",
+            "sum": "3611.85",
+            "unit_cost": "173.712685389750360164060565364153027",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "cc2816b5903dc5c4",
+            "quantity": "8.381",
+            "sum": "2732.78",
+            "unit_cost": "326.068488247225868034840711132323112",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "511cd6da8175fb02",
+            "quantity": "957",
+            "sum": "42908.79",
+            "unit_cost": "44.8367711598746081504702194357366771",
+            "stores": [
+              "78ffaa0c8746f57f",
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "644426929e9e917f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "POSITIVE_ONLY",
+        "diagnostic_amount": "152.621143414572285530198018524622655",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "1580d3c2b722b84f",
+            "quantity": "90.881999997",
+            "sum": "62981.06",
+            "unit_cost": "692.998173478565552259365954278934199",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "277ae9981486b0cf",
+            "quantity": "0.672019985",
+            "sum": "3576.1",
+            "unit_cost": "5321.41912416488625706570318738363116",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "8c7c4222cfa016d8",
+            "quantity": "28.16431695",
+            "sum": "31460.27",
+            "unit_cost": "1117.02584713313986476778376121775607",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a78f969ad0ba5d41",
+            "quantity": "5.316493476",
+            "sum": "10269.72",
+            "unit_cost": "1931.67170172598176625694405347559576",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "35a401b96dada772",
+            "quantity": "1.80272",
+            "sum": "5770.19",
+            "unit_cost": "3200.82430993165882666193307890299104",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "091a39b0d8cab84b",
+            "quantity": "8.290693042",
+            "sum": "1042.58",
+            "unit_cost": "125.753057641667780853778231100984477",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "63cd62996b2cb699",
+            "quantity": "1.415028721",
+            "sum": "2407.58",
+            "unit_cost": "1701.43542973358489166666179632971563",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "173.819876008",
+            "sum": "64010.27",
+            "unit_cost": "368.256332187545395225685449448799034",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a5627ac6dd64745e",
+            "quantity": "856",
+            "sum": "6286.19",
+            "unit_cost": "7.34367990654205607476635514018691589",
+            "stores": [
+              "78ffaa0c8746f57f",
+              "d5487e8f5b261853"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "4346d8f830d17e6c",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "POSITIVE_ONLY",
+        "diagnostic_amount": "22.8351718391322275384820850967914408",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "6.167",
+            "sum": "202.61",
+            "unit_cost": "32.8538997892005837522296092103129561",
+            "stores": [
+              "a6a96fef7ae5c1b2"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "65.995551931",
+            "sum": "6662.98",
+            "unit_cost": "100.961046692454549388106700096687763",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "19.924663057",
+            "sum": "11036.25",
+            "unit_cost": "553.898952691333333798117437344225399",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "55.788598202",
+            "sum": "1003.97",
+            "unit_cost": "17.9959710829229628830170906540893479",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "b62aafd31a78c1bb",
+            "quantity": "1846.919108891",
+            "sum": "3.59",
+            "unit_cost": "0.00194377760385816212745706107256093134",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "091a39b0d8cab84b",
+            "quantity": "8.290693042",
+            "sum": "1042.58",
+            "unit_cost": "125.753057641667780853778231100984477",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "186b14c6b43c576e",
+            "quantity": "5.315",
+            "sum": "1371.8",
+            "unit_cost": "258.099717779868297271872060206961430",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "2a411f2751bc9ad7",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "POSITIVE_ONLY",
+        "diagnostic_amount": null,
+        "amount": null,
+        "publication_allowed": false,
+        "status": "INCOMPLETE",
+        "reason": "MISSING_USABLE_BALANCE:2615fdf8442973b3",
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "6.167",
+            "sum": "202.61",
+            "unit_cost": "32.8538997892005837522296092103129561",
+            "stores": [
+              "a6a96fef7ae5c1b2"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "55.788598202",
+            "sum": "1003.97",
+            "unit_cost": "17.9959710829229628830170906540893479",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "20",
+            "sum": "183.74",
+            "unit_cost": "9.187",
+            "stores": [
+              "a6a96fef7ae5c1b2"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "65.995551931",
+            "sum": "6662.98",
+            "unit_cost": "100.961046692454549388106700096687763",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "19.924663057",
+            "sum": "11036.25",
+            "unit_cost": "553.898952691333333798117437344225399",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      }
+    ],
+    "signed_pool": [
+      {
+        "product_key": "0ea35d0437aba09f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "365.478445208413167283664420910492863",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "-18.896638603",
+            "sum": "-255.79",
+            "unit_cost": "13.5362698823795672502759987296985192",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "f795511e8702ec2b",
+            "quantity": "31.478267911",
+            "sum": "6978.84",
+            "unit_cost": "221.703431069701972332260324410833813",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "51d9b3fdca5af7f4",
+            "quantity": "13.977095634",
+            "sum": "12599.21",
+            "unit_cost": "901.418315358147602411976170356365754",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0406befccb47dc84",
+            "quantity": "5.606706703",
+            "sum": "421.94",
+            "unit_cost": "75.2562997051782824459972469510502947",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-84.781031212",
+            "sum": "-4989.67",
+            "unit_cost": "58.8536129918381630170351365553522350",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "173.819876008",
+            "sum": "64010.27",
+            "unit_cost": "368.256332187545395225685449448799034",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "09027e738bd5f706",
+            "quantity": "14.586342266",
+            "sum": "3909.72",
+            "unit_cost": "268.039781920745997117136343494601500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "15c2da6f16875b62",
+            "quantity": "20.792091216",
+            "sum": "3611.85",
+            "unit_cost": "173.712685389750360164060565364153027",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "cc2816b5903dc5c4",
+            "quantity": "8.381",
+            "sum": "2732.78",
+            "unit_cost": "326.068488247225868034840711132323112",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "511cd6da8175fb02",
+            "quantity": "957",
+            "sum": "42908.79",
+            "unit_cost": "44.8367711598746081504702194357366771",
+            "stores": [
+              "78ffaa0c8746f57f",
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "644426929e9e917f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "146.316664959935855589732933801858607",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "1580d3c2b722b84f",
+            "quantity": "90.881999997",
+            "sum": "62981.06",
+            "unit_cost": "692.998173478565552259365954278934199",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "277ae9981486b0cf",
+            "quantity": "0.672019985",
+            "sum": "3576.1",
+            "unit_cost": "5321.41912416488625706570318738363116",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "8c7c4222cfa016d8",
+            "quantity": "28.16431695",
+            "sum": "31460.27",
+            "unit_cost": "1117.02584713313986476778376121775607",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a78f969ad0ba5d41",
+            "quantity": "5.316493476",
+            "sum": "10269.72",
+            "unit_cost": "1931.67170172598176625694405347559576",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "35a401b96dada772",
+            "quantity": "1.80272",
+            "sum": "5770.19",
+            "unit_cost": "3200.82430993165882666193307890299104",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "091a39b0d8cab84b",
+            "quantity": "8.290693042",
+            "sum": "1042.58",
+            "unit_cost": "125.753057641667780853778231100984477",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "63cd62996b2cb699",
+            "quantity": "1.415028721",
+            "sum": "2407.58",
+            "unit_cost": "1701.43542973358489166666179632971563",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "173.819876008",
+            "sum": "64010.27",
+            "unit_cost": "368.256332187545395225685449448799034",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a5627ac6dd64745e",
+            "quantity": "55.1",
+            "sum": "57.26",
+            "unit_cost": "1.03920145190562613430127041742286751",
+            "stores": [
+              "78ffaa0c8746f57f",
+              "7920a551b339a755",
+              "a83edb2217d10e87",
+              "d5487e8f5b261853"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "4346d8f830d17e6c",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": null,
+        "amount": null,
+        "publication_allowed": false,
+        "status": "INCOMPLETE",
+        "reason": "NEGATIVE_VALUATION:b62aafd31a78c1bb",
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-84.781031212",
+            "sum": "-4989.67",
+            "unit_cost": "58.8536129918381630170351365553522350",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "65.995551931",
+            "sum": "6662.98",
+            "unit_cost": "100.961046692454549388106700096687763",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "19.924663057",
+            "sum": "11036.25",
+            "unit_cost": "553.898952691333333798117437344225399",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "55.788598202",
+            "sum": "1003.97",
+            "unit_cost": "17.9959710829229628830170906540893479",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "2a411f2751bc9ad7",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": null,
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "17.6872374686605726533234835559180198",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "ALL_STORES_POOL",
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-84.781031212",
+            "sum": "-4989.67",
+            "unit_cost": "58.8536129918381630170351365553522350",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "28.389302256",
+            "sum": "2600.16",
+            "unit_cost": "91.5894295870009775417426518381424499",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "55.788598202",
+            "sum": "1003.97",
+            "unit_cost": "17.9959710829229628830170906540893479",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "-18.896638603",
+            "sum": "-255.79",
+            "unit_cost": "13.5362698823795672502759987296985192",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "65.995551931",
+            "sum": "6662.98",
+            "unit_cost": "100.961046692454549388106700096687763",
+            "stores": [
+              "074f0628ed8a8019",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "19.924663057",
+            "sum": "11036.25",
+            "unit_cost": "553.898952691333333798117437344225399",
+            "stores": [
+              "a6a96fef7ae5c1b2",
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "2615fdf8442973b3",
+            "quantity": "-0.31469342",
+            "sum": "-101.17",
+            "unit_cost": "321.487497260031684170581005475106534",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      }
+    ],
+    "production_candidate_signed": [
+      {
+        "product_key": "0ea35d0437aba09f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": "a83edb2217d10e87",
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "368.083480254334617968630092248070834",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "STORE_REQUIRES_CONTEXT_CONFIRMATION",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "-38.896638603",
+            "sum": "-439.53",
+            "unit_cost": "11.2999481648293422328147392484849779",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "23.389302256",
+            "sum": "2225.51",
+            "unit_cost": "95.1507648941983898059553983131013500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "f795511e8702ec2b",
+            "quantity": "24.425267911",
+            "sum": "4885.55",
+            "unit_cost": "200.020323944933125446117854866709716",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "51d9b3fdca5af7f4",
+            "quantity": "8.977095634",
+            "sum": "9599.21",
+            "unit_cost": "1069.30018252716321680660843453369409",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0406befccb47dc84",
+            "quantity": "2.606706703",
+            "sum": "141.14",
+            "unit_cost": "54.1449484276712660910359426808133696",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-90.948031212",
+            "sum": "-5192.28",
+            "unit_cost": "57.0906256111997341693483870596180575",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "171.819876008",
+            "sum": "63573.35",
+            "unit_cost": "369.999976004173115524577698308916126",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "09027e738bd5f706",
+            "quantity": "14.586342266",
+            "sum": "3909.72",
+            "unit_cost": "268.039781920745997117136343494601500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "15c2da6f16875b62",
+            "quantity": "20.792091216",
+            "sum": "3611.85",
+            "unit_cost": "173.712685389750360164060565364153027",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "cc2816b5903dc5c4",
+            "quantity": "8.381",
+            "sum": "2732.78",
+            "unit_cost": "326.068488247225868034840711132323112",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "511cd6da8175fb02",
+            "quantity": "167",
+            "sum": "7056.93",
+            "unit_cost": "42.2570658682634730538922155688622754",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "644426929e9e917f",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": "a83edb2217d10e87",
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "152.383363287266363275087079428624325",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "STORE_REQUIRES_CONTEXT_CONFIRMATION",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "1580d3c2b722b84f",
+            "quantity": "83.306999997",
+            "sum": "57899.08",
+            "unit_cost": "695.008582737165253198548690501346178",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "277ae9981486b0cf",
+            "quantity": "0.672019985",
+            "sum": "3576.1",
+            "unit_cost": "5321.41912416488625706570318738363116",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "23.389302256",
+            "sum": "2225.51",
+            "unit_cost": "95.1507648941983898059553983131013500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "8c7c4222cfa016d8",
+            "quantity": "28.16431695",
+            "sum": "31460.27",
+            "unit_cost": "1117.02584713313986476778376121775607",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a78f969ad0ba5d41",
+            "quantity": "5.316493476",
+            "sum": "10269.72",
+            "unit_cost": "1931.67170172598176625694405347559576",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "35a401b96dada772",
+            "quantity": "1.80272",
+            "sum": "5770.19",
+            "unit_cost": "3200.82430993165882666193307890299104",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "091a39b0d8cab84b",
+            "quantity": "8.290693042",
+            "sum": "1042.58",
+            "unit_cost": "125.753057641667780853778231100984477",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "63cd62996b2cb699",
+            "quantity": "1.415028721",
+            "sum": "2407.58",
+            "unit_cost": "1701.43542973358489166666179632971563",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "1ac45e5c6437f7fa",
+            "quantity": "171.819876008",
+            "sum": "63573.35",
+            "unit_cost": "369.999976004173115524577698308916126",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "a5627ac6dd64745e",
+            "quantity": "-412.9",
+            "sum": "-2861.09",
+            "unit_cost": "6.92925647856623879874061516105594575",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "4346d8f830d17e6c",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": "a83edb2217d10e87",
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "24.1967102494857316281095648205984492",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "STORE_REQUIRES_CONTEXT_CONFIRMATION",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-90.948031212",
+            "sum": "-5192.28",
+            "unit_cost": "57.0906256111997341693483870596180575",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "63.995551931",
+            "sum": "6566.15",
+            "unit_cost": "102.603224784741641265117507655736887",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "23.389302256",
+            "sum": "2225.51",
+            "unit_cost": "95.1507648941983898059553983131013500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "11.924663057",
+            "sum": "6779.17",
+            "unit_cost": "568.499920508907004834627253149732330",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "44.288598202",
+            "sum": "752.91",
+            "unit_cost": "17.0000864910192580224397683455043394",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "b62aafd31a78c1bb",
+            "quantity": "1846.919108891",
+            "sum": "3.59",
+            "unit_cost": "0.00194377760385816212745706107256093134",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "091a39b0d8cab84b",
+            "quantity": "8.290693042",
+            "sum": "1042.58",
+            "unit_cost": "125.753057641667780853778231100984477",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "186b14c6b43c576e",
+            "quantity": "5.315",
+            "sum": "1371.8",
+            "unit_cost": "258.099717779868297271872060206961430",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "2a411f2751bc9ad7",
+        "method": "EOS_EXPERIMENTAL_RECIPE_BALANCE",
+        "source": "IIKO_RECIPE_AND_STOCK_FACTS",
+        "store_key": "a83edb2217d10e87",
+        "effective_on": "2026-10-09",
+        "stock_policy": "SIGNED_BALANCE_DIAGNOSTIC",
+        "diagnostic_amount": "17.7220334820856776306438610284462954",
+        "amount": null,
+        "publication_allowed": false,
+        "status": "UNVERIFIED",
+        "reason": null,
+        "warnings": [
+          "CURRENCY_VAT_UNCONFIRMED",
+          "EXPERIMENTAL_NESTED_POLICY",
+          "NONPOSITIVE_STOCK_PRESENT",
+          "STORE_REQUIRES_CONTEXT_CONFIRMATION",
+          "UNVERIFIED_OFFICE_METHOD"
+        ],
+        "components": [
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "23.389302256",
+            "sum": "2225.51",
+            "unit_cost": "95.1507648941983898059553983131013500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "c0d933eb67123f0d",
+            "quantity": "-90.948031212",
+            "sum": "-5192.28",
+            "unit_cost": "57.0906256111997341693483870596180575",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "812943a5d32fadb3",
+            "quantity": "23.389302256",
+            "sum": "2225.51",
+            "unit_cost": "95.1507648941983898059553983131013500",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6aa03c014aaab614",
+            "quantity": "44.288598202",
+            "sum": "752.91",
+            "unit_cost": "17.0000864910192580224397683455043394",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "6a7cea1436bc5093",
+            "quantity": "-38.896638603",
+            "sum": "-439.53",
+            "unit_cost": "11.2999481648293422328147392484849779",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "af09c0dd9de21fe9",
+            "quantity": "63.995551931",
+            "sum": "6566.15",
+            "unit_cost": "102.603224784741641265117507655736887",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "0ae35d1c2639772b",
+            "quantity": "69.582899486",
+            "sum": "16748.6",
+            "unit_cost": "240.699943861491417356945291464855299",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "7d7a6c7f0dd058aa",
+            "quantity": "11.924663057",
+            "sum": "6779.17",
+            "unit_cost": "568.499920508907004834627253149732330",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          },
+          {
+            "product_key": "2615fdf8442973b3",
+            "quantity": "-0.31469342",
+            "sum": "-101.17",
+            "unit_cost": "321.487497260031684170581005475106534",
+            "stores": [
+              "a83edb2217d10e87"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "NO_DIRECT_CURRENT_COST_ENDPOINT_CONFIRMED",
+    "ALL_STORES_POSITIVE_POOL_IS_EMPIRICAL",
+    "OFFICE_CONTEXT_UUID_UNCONFIRMED",
+    "UNKNOWN_VAT_BASIS",
+    "ESTIMATED_STATUS_UNCONFIRMED",
+    "ROOT_WRITE_OFF_SCREEN_IS_NOT_SOURCE_CHART_STRATEGY",
+    "NO_PRODUCTION_PUBLICATION"
+  ],
+  "official_docs": [
+    {
+      "url": "https://ru.iiko.help/article/iikooffice-9-2/topic-3?cm=1&ds=1&gc=1",
+      "retrieved_on": "2026-10-09"
+    },
+    {
+      "url": "https://ru.iiko.help/article/api-documentations/otchety-vv2?cm=1&ds=1&gc=1",
+      "retrieved_on": "2026-10-09"
+    }
+  ],
+  "scope_checks": {
+    "db_mapping": {
+      "store_key": "a83edb2217d10e87",
+      "source_name": "Цех Производство ИП",
+      "status": "CONFIRMED",
+      "role": "MAIN",
+      "eos_department_name": "Цех производство",
+      "matches_office_context": null
+    },
+    "api_groups": {
+      "status": 200,
+      "hidden_records": 6,
+      "target_visible": false
+    },
+    "api_departments": {
+      "status": 200,
+      "hidden_records": 10,
+      "target_visible": false
+    },
+    "logout_statuses": [
+      200,
+      200
+    ]
+  },
+  "production_postflight": {
+    "head": "4e4ff2fb7d29de1f4886bf49f5d6f4c5a3ac7ad4",
+    "alembic": [
+      "20261009_0078"
+    ],
+    "published_active_products": 134,
+    "recipe_observations": {
+      "UNCONFIRMED": 2,
+      "INCOMPLETE": 1
+    },
+    "temporary_artifact": {
+      "name": "'scope'",
+      "cause": "Windows CMD interpreted SQL operator as output redirection",
+      "bytes": 0,
+      "removed": true
+    }
+  }
+}
