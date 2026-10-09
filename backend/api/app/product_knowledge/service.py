@@ -171,4 +171,8 @@ def detail(db, user, product_id: UUID, *, department_id, price_at):
         raise HTTPException(404, 'Точка недоступна')
     product = find_product(db, user, product_id)
     prices, conflicts = price_rows(db, user, [product.id], points, price_at)
-    return projection(product, prices[product.id], department_id, can_manage(db, user), conflicts[product.id], price_health(db, user, product.source_id, points))
+    from app.product_knowledge.recipe_portal import permitted
+    from app.core.authorization import Capability
+    result = projection(product, prices[product.id], department_id, can_manage(db, user), conflicts[product.id], price_health(db, user, product.source_id, points))
+    result['recipe_access'] = permitted(db, user, Capability.PRODUCT_RECIPE_READ)
+    return result

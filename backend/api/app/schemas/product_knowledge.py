@@ -96,6 +96,7 @@ class PriceHealthRead(BaseModel):
 
 
 class ProductRead(BaseModel):
+    recipe_access: bool = False
     id: UUID
     name: str
     sku: str | None

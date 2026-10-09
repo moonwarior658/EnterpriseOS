@@ -1816,6 +1816,15 @@ completeness/stale/error states; точечная responsive/визуальна�
 
 # Этап 3.2 — База знаний продукции и производственная потребность
 
+**K5D — 09.10.2026: local review интерфейса ТТК.** Владелец сообщил о production
+K5B и первом live-run: 3 ТТК, 2 UNCONFIRMED / 1 INCOMPLETE. Защищённая карточка,
+подтверждение исходной версии и ручное обновление локально реализованы внутри «Продукция»;
+стоимость/производственные расчёты/Supply не входят. Исторический K5B snapshot
+ниже сохранён; Gate K не закрыт. Без commit/push/deployment.
+[Отчёт K5D](STAGE_3_2_K5D_REPORT_2026-10-09.md).
+Отдельное release-задание разрешило commit/push K5D; production update не выполняется.
+[Release runbook](STAGE_3_2_K5D_RELEASE_RUNBOOK_2026-10-09.md).
+
 **Обновление 09.10.2026 — K5B на review:** локально реализован источник версий
 ТТК и истории наблюдений через Automation Core, начиная с ограниченного пилота.
 Без live-загрузки 141 изделий, production migration, schedule enabling или

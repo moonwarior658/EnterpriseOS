@@ -238,6 +238,22 @@ production DB+volume recovery и browser/business acceptance остаются о
 
 ## 8. K5 — ТТК и независимое решение о себестоимости
 
+**K5D — 09.10.2026: интерфейс локально реализован, на review.** По сообщению владельца
+K5B развёрнут в production; первый live-run сохранил 3 ТТК (2 UNCONFIRMED,
+1 INCOMPLETE). Это owner-reported факт, не повторный production audit.
+Ниже K5B review сохранён как исторический snapshot. Текущий scope K5D: защищённая
+карточка ТТК внутри «Продукция», nested/source/prepared/history, ручное обновление
+через существующий Automation Core и version-specific подтверждение сотрудником.
+Отдельные backend capabilities READ/CONFIRM/REFRESH: ADMIN, HEAD_OF_PRODUCTION,
+CHEF_CONFECTIONER; SELLER и прочие роли не получают технологические тексты/нормы.
+Подтверждение сверки исходной версии записывается в immutable AuditEvent и не
+снимает неизвестный склад/размер или production gate. INCOMPLETE/CONFLICT и
+устаревшее наблюдение нельзя подтверждать. Стоимость, расчёты, iiko writes,
+расписание и batch 141 отсутствуют. Без commit/push/deployment.
+[Отчёт и критерии K5D](STAGE_3_2_K5D_REPORT_2026-10-09.md).
+Отдельное release-задание разрешило commit/push K5D; production update не выполняется.
+[Release runbook](STAGE_3_2_K5D_RELEASE_RUNBOOK_2026-10-09.md).
+
 **K5B — 09.10.2026: локальная реализация на review.** K5A принят владельцем
 в текущем задании; его датированный отчёт сохранён. Добавлены bounded recipe
 reader, immutable versions/observations, dependency manifest и ручная загрузка

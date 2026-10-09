@@ -56,6 +56,11 @@ def scope(db, tenant, payload):
 
 def enqueue(db, actor, payload):
     context = authorize(db, actor, Capability.TECHNICAL_ADMIN, write=True)
+    return enqueue_authorized(db, actor, payload, context)
+
+
+def enqueue_authorized(db, actor, payload, context):
+    """Shared enqueue after the caller has authorized its specific capability."""
     scope(db, actor.tenant_id, payload)
     from app.automation.dispatch import create_automation_execution
     execution = create_automation_execution(db, automation_type=ACTION, tenant_id=actor.tenant_id,

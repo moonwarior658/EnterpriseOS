@@ -16,6 +16,8 @@ from app.product_knowledge.bootstrap import PublicationError
 from app.product_knowledge.recipes import RecipeRefreshPayload, enqueue
 from app.integrations.iiko.exceptions import IikoError
 from app.schemas.product_knowledge import CatalogRead, ProductRead, ProductCommand, KnowledgeUpdate, StatusUpdate, VerificationUpdate, ManualAdd
+from app.schemas.product_recipes import RecipeConfirmation, RecipePortalRefresh
+from app.product_knowledge import recipe_portal
 
 router = APIRouter(prefix='/products', tags=['product knowledge'])
 Db = Annotated[Session, Depends(get_db)]
@@ -110,6 +112,53 @@ def product_history(product_id: UUID, db: Db, actor: Actor, response: Response,
         return management.history(db, actor, product_id, offset=offset, limit=limit)
     except ActionContextError as error:
         raise action_context_http_error(error) from error
+
+
+@router.get('/{product_id}/recipes')
+def recipe_detail(product_id: UUID, db: Db, actor: Actor, response: Response,
+                  context_key: str | None = Query(None, pattern=r'^[a-f0-9]{64}$'),
+                  observation_id: UUID | None = None,
+                  offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        return recipe_portal.detail(db, actor, product_id, selected_context=context_key,
+                                    observation_id=observation_id, offset=offset, limit=limit)
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+@router.post('/{product_id}/recipes/confirm')
+def recipe_confirm(product_id: UUID, command: RecipeConfirmation, db: Db, actor: Actor, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        row = recipe_portal.confirm(db, actor, product_id, command)
+        result = recipe_portal.detail(db, actor, product_id, observation_id=row.id)
+        db.commit()
+        return result
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post('/{product_id}/recipes/refresh', status_code=202)
+def recipe_refresh(product_id: UUID, command: RecipePortalRefresh, db: Db, actor: Actor, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        result = recipe_portal.refresh(db, actor, product_id, command)
+        db.commit()
+        return dict(refresh=result)
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except PublicationError as error:
+        db.rollback()
+        raise HTTPException(409, 'Источник или контекст рецептуры изменён. Обновите карточку') from error
+    except Exception:
+        db.rollback()
+        raise
 
 
 def execute(db, actor, product_id, operation, command):

@@ -1,0 +1,134 @@
+{
+  "stage": "3.2/K5D",
+  "review_date": "2026-10-09",
+  "timezone": "Asia/Yekaterinburg",
+  "status": "LOCAL_REVIEW",
+  "base_head": "a254d75c51fbf7a3eb2210c8b59016cc414e66f1",
+  "production_baseline": {
+    "provenance": "owner message, not independently reverified",
+    "k5b_deployed": true,
+    "first_live_observations": {
+      "UNCONFIRMED": 2,
+      "INCOMPLETE": 1
+    }
+  },
+  "storage": "Existing K5B versions/observations + immutable AuditEvent approvals",
+  "new_migration": false,
+  "alembic_head": "20261009_0078",
+  "capabilities": {
+    "PRODUCT_RECIPE_READ": [
+      "ADMIN",
+      "HEAD_OF_PRODUCTION",
+      "CHEF_CONFECTIONER"
+    ],
+    "PRODUCT_RECIPE_CONFIRM": [
+      "ADMIN",
+      "HEAD_OF_PRODUCTION",
+      "CHEF_CONFECTIONER"
+    ],
+    "PRODUCT_RECIPE_REFRESH": [
+      "ADMIN",
+      "HEAD_OF_PRODUCTION",
+      "CHEF_CONFECTIONER"
+    ]
+  },
+  "scope": {
+    "ui": "existing /products/:productId",
+    "source_identity": "UUID only",
+    "refresh": "one existing product, explicitly selected observed source context/date",
+    "auto_schedule": false,
+    "auto_full_batch": false,
+    "money_cost": false,
+    "production_calculations": false,
+    "iiko_writes": false,
+    "catalog_prices_photos_sales_supply_changes": false,
+    "confirmation_means": "Independent Office review of exact observation/manifest; immutable author/date/versions",
+    "ready_for_production": false
+  },
+  "checks": {
+    "backend_full": {
+      "tests": 1229,
+      "skipped": 47,
+      "result": "PASS",
+      "seconds": 112.986,
+      "log_sha256": "c7d8e17fef5d3e607c0ffefdff3068399ed21f2f10d803cb7894acc90f0a0475",
+      "upload_dir": "temporary fixture directory, removed"
+    },
+    "backend_new_tests": {
+      "tests": 8,
+      "result": "PASS",
+      "coverage": "roles/tenant/source/product/service isolation, decimals, history, confirmation/stale/version, commands/outbox/retries/rollback/progress"
+    },
+    "postgres_profile": {
+      "tests": 5,
+      "new_k5d_tests": 2,
+      "result": "PASS",
+      "version": "17.10",
+      "log_sha256": "d459181510d3dd91a87c639dd0c94e0e64ce524d5bfad9279fa12919b0354666",
+      "temporary_cluster_stopped_removed": true
+    },
+    "frontend_full": {
+      "tests": 210,
+      "result": "PASS",
+      "log_sha256": "07968af2f03c52ab1116455ba099bd57e6cd4a578adebb455e2f0dc28a5ebd45"
+    },
+    "frontend_final_profile": {
+      "tests": 4,
+      "result": "PASS",
+      "log_sha256": "f39cd53fb11f3428e272711c2be7720baae6692e8fe000c8d00e353de8810c74"
+    },
+    "frontend_build": "PASS; existing chunk-size warning",
+    "eslint_changed_files": "PASS",
+    "git_diff_check": "PASS",
+    "new_file_whitespace": "PASS",
+    "real_browser": "NOT VERIFIED: CUA inventory empty; local review server stopped and temporary fixture removed"
+  },
+  "not_performed": [
+    "commit",
+    "push",
+    "deployment",
+    "production read or mutation",
+    "new live iiko run",
+    "independent iikoOffice business verification"
+  ],
+  "unchanged_input_evidence_sha256": "92bd43e58cc51994580b160db1e770a2e02c5e171e3d7a5f58f764a220c47342",
+  "changed_files_sha256": {
+    "backend/api/app/api/routes/product_knowledge.py": "2eb43bedcfb59321f50f4c4de6ada2dc3b5d037977b8ab04e7d4827c3ab2e1f7",
+    "backend/api/app/core/authorization.py": "dfec5af8f8331dcf38af13cf484e838bdf8929ab27d2aad271d72ade361cda8d",
+    "backend/api/app/product_knowledge/recipe_portal.py": "977a81e909dd3908d4f7045d8b67d9d5406559ceb43964c11b4c61cdaf20e9da",
+    "backend/api/app/product_knowledge/recipes.py": "28ee41b760ffe17293ebcaa3f48bced9784fa9e3eeaf45cc67d690ad410bab15",
+    "backend/api/app/product_knowledge/service.py": "2c736ac29587fceaeca94a22aba094b09825fc3f7136c6a6a4b19f5d9be58584",
+    "backend/api/app/schemas/product_knowledge.py": "b97ea2a3a806611ba29a10b280a711cb8616c57f23aae54657760e81477d97d5",
+    "backend/api/app/schemas/product_recipes.py": "1d02776ea31ff5b7245eddc1b2e156187446ee575b8df5fe9e6b578a261c10d0",
+    "backend/api/tests/test_product_recipe_portal.py": "6b047390687cbd80752b0bc84637691545c10a3dd5d537bfe245c09c61959cfc",
+    "backend/api/tests/test_product_recipe_portal_postgres.py": "f9704ca587641ad7ac890c7077beb97a25e1d876bec73300cdd1d746ffe5f12b",
+    "docs/ROADMAP_STAGE_3_2_v0.1.0.md": "8f2a85e802737d000f25e41c2f515c4a1ea458852118172c96820ae766a1f4d5",
+    "docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md": "88602df135ca5eb9bac303da750cec06fb48ea794e688a485ae49ba1e9f2c350",
+    "docs/STAGE_3_2_K5D_REPORT_2026-10-09.md": "ad6fae2875f81cfb1bca3d1ad4d4ec5e5a0953258eb7b005c5fbfcbad0ba3e9f",
+    "frontend/src/pages/ProductKnowledgePage.tsx": "381aa9302d0a5d870c2a17b0d3eb114e387e78f89eb5e60cc2a9b5a06e3d0f8f",
+    "frontend/src/pages/productKnowledge/ProductRecipes.css": "37316516191fab3c95a5eb5849bbbc525dde0a4d61be64092acc3fab80efc45c",
+    "frontend/src/pages/productKnowledge/ProductRecipes.tsx": "d25c0843432766e03cf9d19801d69d3c5b3fe56e41e61837a255fad92e363ec7",
+    "frontend/src/services/productKnowledge.ts": "61be59c7ab3952d8bec717d39c51858e1a444ce11f612a75f415daf11b3fba9f",
+    "frontend/src/services/productRecipes.ts": "8b35d90d6b13cec1e733f765e90167560e9e0f4070f06c827ab063880ef94a6f",
+    "frontend/tests/productRecipes.test.ts": "75805f638bff394485740c0499d9cd3d8560aaf375630470c27bb869c2da4f29",
+    "docs/STAGE_3_2_K5D_RELEASE_RUNBOOK_2026-10-09.md": "ae2720caf4f5ace9bc86182d8a826722ff39e7d7315ba0a21fdba2c97bee7109"
+  },
+  "remaining_review": [
+    "Real browser desktop/mobile/keyboard acceptance",
+    "Independent iikoOffice comparison and confirmation on three live cards after separately authorized deployment",
+    "Gate K and production readiness remain open"
+  ],
+  "release_review": {
+    "date": "2026-10-09",
+    "scope": "commit/push K5D only; no production access or deployment",
+    "base_head": "a254d75c51fbf7a3eb2210c8b59016cc414e66f1",
+    "tested_implementation_hashes_verified": true,
+    "test_log_hashes_verified": true,
+    "schema_models_unchanged": true,
+    "alembic_heads_result": "20261009_0078 (head)",
+    "migration_required": false,
+    "runbook": "docs/STAGE_3_2_K5D_RELEASE_RUNBOOK_2026-10-09.md",
+    "file_count": 20,
+    "k5a_input_files_excluded": true
+  }
+}

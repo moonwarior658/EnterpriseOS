@@ -4,6 +4,7 @@ export const PRODUCT_KNOWLEDGE_ROLES: EmployeeRole[] = ['ADMIN','DIRECTOR','DEPU
 export type ProductPrice = { department_id: string; department_name: string; amount: string; currency: string; price_unit: string; valid_from: string; valid_to: string; observed_at: string }
 export type PriceHealth = { department_id: string; last_success_at: string | null; stale: boolean; update_failed: boolean }
 export type Product = {
+  recipe_access?: boolean
   photo?: string | null; id: string; name: string; sku: string | null; unit_name: string; unit_weight_kg: string | null
   sale_mode: string; sale_status: string; category_id: string | null; category_name: string | null
   description_source: 'EOS' | 'iiko'; description: string | null; observed_at: string; source_deleted: boolean
