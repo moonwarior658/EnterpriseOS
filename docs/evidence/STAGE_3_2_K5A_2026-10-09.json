@@ -1,0 +1,1644 @@
+{
+  "schema": "K5A_RESEARCH_EVIDENCE_V1",
+  "date": "2026-10-09",
+  "timezone": "Asia/Yekaterinburg",
+  "classification": "sanitized technical evidence, not business acceptance",
+  "identity_note": "key: is first 16 hexadecimal characters of SHA-256 of source UUID; never an EOS mapping",
+  "numeric_note": "Decimal fields in detailed observation serialized as decimal strings; original JSON uses numbers",
+  "baseline": {
+    "local_head": "a5a02823906ac467bceb8f98ad971377a5f31d6e",
+    "production_head_before_after": "a5a02823906ac467bceb8f98ad971377a5f31d6e",
+    "alembic": "20261009_0077",
+    "eos_product_rows": 141,
+    "published_not_deleted": 134,
+    "source_match": true
+  },
+  "detail": {
+    "utc": "2026-10-09T08:15:52.108658+00:00",
+    "http": [
+      {
+        "path": "/api/v2/assemblyCharts/getAll",
+        "status": 200,
+        "bytes": 10486227,
+        "seconds": 0.598941
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getTree",
+        "status": 200,
+        "bytes": 20062,
+        "seconds": 0.091946
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getHistory",
+        "status": 200,
+        "bytes": 4074,
+        "seconds": 0.080598
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getTree",
+        "status": 200,
+        "bytes": 16641,
+        "seconds": 0.083374
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getHistory",
+        "status": 200,
+        "bytes": 2554,
+        "seconds": 0.082259
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getTree",
+        "status": 200,
+        "bytes": 12688,
+        "seconds": 0.114135
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getHistory",
+        "status": 200,
+        "bytes": 5975,
+        "seconds": 0.082963
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getAssembled",
+        "status": 200,
+        "bytes": 3114,
+        "seconds": 0.093129
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getAssembled",
+        "status": 200,
+        "bytes": 3106,
+        "seconds": 0.094361
+      },
+      {
+        "path": "/api/v2/assemblyCharts/byId",
+        "status": 200,
+        "bytes": 2755,
+        "seconds": 0.081558
+      },
+      {
+        "path": "/api/v2/entities/products/list",
+        "status": 200,
+        "bytes": 182056,
+        "seconds": 0.089784
+      },
+      {
+        "path": "/api/v2/entities/products/list",
+        "status": 200,
+        "bytes": 192911,
+        "seconds": 0.10939
+      },
+      {
+        "path": "/api/v2/entities/products/list",
+        "status": 200,
+        "bytes": 181677,
+        "seconds": 0.124551
+      },
+      {
+        "path": "/api/v2/entities/products/list",
+        "status": 200,
+        "bytes": 161139,
+        "seconds": 0.087229
+      },
+      {
+        "path": "/api/v2/entities/list",
+        "status": 200,
+        "bytes": 1133,
+        "seconds": 0.088889
+      },
+      {
+        "path": "/api/v2/entities/products/productScales",
+        "status": 200,
+        "bytes": 133,
+        "seconds": 0.082702
+      },
+      {
+        "path": "/api/v2/assemblyCharts/getAllUpdate",
+        "status": 200,
+        "bytes": 128,
+        "seconds": 0.1406
+      },
+      {
+        "path": "/api/v2/reports/olap/columns",
+        "status": 200,
+        "bytes": 54384,
+        "seconds": 0.102411
+      },
+      {
+        "path": "/api/v2/reports/olap",
+        "method": "POST",
+        "status": 200,
+        "bytes": 11034,
+        "seconds": 0.184827
+      }
+    ],
+    "missing": [
+      {
+        "product_key": "af1a4c33c681306a",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "cea2178b717cc326",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "68d06cdfc9ca52db",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "5c5e97b2981b346e",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "4fac4b0daa8c431b",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "c73d728d93791755",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "0dbb271ace97bc55",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "fbbd8d1f054ae2d8",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "77be6ccdfbb89dc0",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "59ad80acb216c0b1",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "ded754e5ae38ce2e",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "c711bbf6db2b923d",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      },
+      {
+        "product_key": "da5190ca940a9004",
+        "unit": "шт",
+        "published": true,
+        "deleted": false
+      }
+    ],
+    "live_published": {
+      "count": 134,
+      "chart_matches": 121
+    },
+    "samples": [
+      {
+        "product_key": "5fcc771dd5101343",
+        "eos_key": "09f6848bcc0202df",
+        "unit": "шт",
+        "root": {
+          "id": "key:fedff96e2cb44f8a",
+          "assembledProductId": "key:5fcc771dd5101343",
+          "dateFrom": "2026-08-28",
+          "dateTo": null,
+          "assembledAmount": 1,
+          "productWriteoffStrategy": "ASSEMBLE",
+          "effectiveDirectWriteoffStoreSpecification": {
+            "departments": [
+              "key:a8e0fe727d8767fd"
+            ],
+            "inverse": false
+          },
+          "productSizeAssemblyStrategy": "COMMON",
+          "items": [
+            {
+              "id": "key:6e5413be919f220a",
+              "sortWeight": "0.0",
+              "productId": "key:7bed85eff66bab7c",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.15",
+              "amountMiddle": "0.15",
+              "amountOut": "0.1",
+              "amountIn1": "0.084",
+              "amountOut1": "0.084",
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.084",
+              "packageTypeId": null
+            },
+            {
+              "id": "key:22420bae2be158d7",
+              "sortWeight": "1.0",
+              "productId": "key:8abfde458d73f2b5",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.03",
+              "amountMiddle": "0.03",
+              "amountOut": "0.03",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.01",
+              "packageTypeId": null
+            },
+            {
+              "id": "key:54e6bc28af4fc10e",
+              "sortWeight": "2.0",
+              "productId": "key:1ee21b1efad47c26",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.03",
+              "amountMiddle": "0.03",
+              "amountOut": "0.03",
+              "amountIn1": "0.02",
+              "amountOut1": "0.02",
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.02",
+              "packageTypeId": null
+            },
+            {
+              "id": "key:67e841342f83e174",
+              "sortWeight": "3.0",
+              "productId": "key:8457dab8bad7e7d7",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.03",
+              "amountMiddle": "0.03",
+              "amountOut": "0.03",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.03",
+              "packageTypeId": null
+            },
+            {
+              "id": "key:247ef01791f59052",
+              "sortWeight": "4.0",
+              "productId": "key:74405a665c3ef32c",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": 1,
+              "amountMiddle": 1,
+              "amountOut": 1,
+              "amountIn1": "0.104",
+              "amountOut1": "0.104",
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.104",
+              "packageTypeId": null
+            },
+            {
+              "id": "key:be64d5fc7482b901",
+              "sortWeight": "5.0",
+              "productId": "key:41da54dc19b93462",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": 0,
+              "amountMiddle": 0,
+              "amountOut": 0,
+              "amountIn1": 1,
+              "amountOut1": 1,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            }
+          ],
+          "outputComment": "290"
+        },
+        "tree_count": 9,
+        "tree_strategies": {
+          "ASSEMBLE": 9
+        },
+        "prepared_items": 17,
+        "history_intervals": [
+          {
+            "id": "fedff96e2cb44f8a",
+            "from": "2026-08-28",
+            "to": null,
+            "norms": [
+              "0.15",
+              "0.03",
+              "0.03",
+              "0.03",
+              1,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "b22356f1bc446f77",
+        "eos_key": "185958b3515747ae",
+        "unit": "шт",
+        "root": {
+          "id": "key:f6bc1ba5e1cb4c91",
+          "assembledProductId": "key:b22356f1bc446f77",
+          "dateFrom": "2025-12-01",
+          "dateTo": null,
+          "assembledAmount": 1,
+          "productWriteoffStrategy": "ASSEMBLE",
+          "effectiveDirectWriteoffStoreSpecification": {
+            "departments": [
+              "key:a8e0fe727d8767fd"
+            ],
+            "inverse": false
+          },
+          "productSizeAssemblyStrategy": "COMMON",
+          "items": [
+            {
+              "id": "key:6f7ac4d3c9c30904",
+              "sortWeight": "0.0",
+              "productId": "key:997f3383b96a072b",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": 1,
+              "amountMiddle": 1,
+              "amountOut": 1,
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:49effcc0e649807a",
+              "sortWeight": "1.0",
+              "productId": "key:36ac7a5fc63dde0e",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.02",
+              "amountMiddle": "0.02",
+              "amountOut": "0.02",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:d52af4bf7af2c29d",
+              "sortWeight": "2.0",
+              "productId": "key:3da38c94f402970d",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.015",
+              "amountMiddle": "0.015",
+              "amountOut": "0.015",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:bc5105926038868c",
+              "sortWeight": "3.0",
+              "productId": "key:8eee9ad66255cabf",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.01",
+              "amountMiddle": "0.01",
+              "amountOut": "0.01",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:cd82f5eacca223c6",
+              "sortWeight": "4.0",
+              "productId": "key:a97dfa04a61fdc52",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.005",
+              "amountMiddle": "0.005",
+              "amountOut": "0.005",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            }
+          ],
+          "outputComment": "75"
+        },
+        "tree_count": 6,
+        "tree_strategies": {
+          "ASSEMBLE": 6
+        },
+        "prepared_items": 14,
+        "history_intervals": [
+          {
+            "id": "f6bc1ba5e1cb4c91",
+            "from": "2025-12-01",
+            "to": null,
+            "norms": [
+              1,
+              "0.02",
+              "0.015",
+              "0.01",
+              "0.005"
+            ]
+          }
+        ]
+      },
+      {
+        "product_key": "47d5bdfb4b6f1aa7",
+        "eos_key": "cd965e38e90f5c45",
+        "unit": "шт",
+        "root": {
+          "id": "key:240e551c518867b2",
+          "assembledProductId": "key:47d5bdfb4b6f1aa7",
+          "dateFrom": "2026-06-01",
+          "dateTo": null,
+          "assembledAmount": 1,
+          "productWriteoffStrategy": "ASSEMBLE",
+          "effectiveDirectWriteoffStoreSpecification": {
+            "departments": [
+              "key:a8e0fe727d8767fd"
+            ],
+            "inverse": false
+          },
+          "productSizeAssemblyStrategy": "SPECIFIC",
+          "items": [
+            {
+              "id": "key:0510197f96d1ed92",
+              "sortWeight": "0.0",
+              "productId": "key:4b81b1578d8cb96d",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.04",
+              "amountMiddle": "0.04",
+              "amountOut": "0.04",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:3a841a179ea1c68d",
+              "sortWeight": "1.0",
+              "productId": "key:7955e891d630a0d0",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.05",
+              "amountMiddle": "0.05",
+              "amountOut": "0.05",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:1f12b2263852e107",
+              "sortWeight": "2.0",
+              "productId": "key:1da09376f2026007",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.014",
+              "amountMiddle": "0.014",
+              "amountOut": "0.014",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:f7f175ebb2392c4a",
+              "sortWeight": "3.0",
+              "productId": "key:e059f1f775b17b19",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.01",
+              "amountMiddle": "0.01",
+              "amountOut": "0.01",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:c3b2272b3f710331",
+              "sortWeight": "4.0",
+              "productId": "key:026b36f8ba5106c6",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.006",
+              "amountMiddle": "0.006",
+              "amountOut": "0.006",
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": 0,
+              "packageTypeId": null
+            },
+            {
+              "id": "key:4494da77bab05dce",
+              "sortWeight": "5.0",
+              "productId": "key:72025fcf7e80e34e",
+              "productSizeSpecification": null,
+              "storeSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "amountIn": "0.01",
+              "amountMiddle": "0.01",
+              "amountOut": 0,
+              "amountIn1": 0,
+              "amountOut1": 0,
+              "amountIn2": 0,
+              "amountOut2": 0,
+              "amountIn3": 0,
+              "amountOut3": 0,
+              "packageCount": "0.01",
+              "packageTypeId": null
+            }
+          ],
+          "outputComment": "100"
+        },
+        "tree_count": 5,
+        "tree_strategies": {
+          "ASSEMBLE": 5
+        },
+        "prepared_items": 13,
+        "history_intervals": [
+          {
+            "id": "984eeddca4392a8e",
+            "from": "2025-09-03",
+            "to": "2026-06-01",
+            "norms": [
+              "0.04",
+              "0.03",
+              "0.014",
+              "0.01",
+              "0.006",
+              "0.01"
+            ]
+          },
+          {
+            "id": "240e551c518867b2",
+            "from": "2026-06-01",
+            "to": null,
+            "norms": [
+              "0.04",
+              "0.05",
+              "0.014",
+              "0.01",
+              "0.006",
+              "0.01"
+            ]
+          }
+        ]
+      }
+    ],
+    "boundary": [
+      {
+        "date": "2026-05-31",
+        "response": {
+          "knownRevision": -1,
+          "assemblyCharts": [
+            {
+              "id": "key:984eeddca4392a8e",
+              "assembledProductId": "key:47d5bdfb4b6f1aa7",
+              "dateFrom": "2025-09-03",
+              "dateTo": "2026-06-01",
+              "assembledAmount": 1,
+              "productWriteoffStrategy": "ASSEMBLE",
+              "effectiveDirectWriteoffStoreSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "productSizeAssemblyStrategy": "SPECIFIC",
+              "items": [
+                {
+                  "id": "key:e89343cd18ca3779",
+                  "sortWeight": "0.0",
+                  "productId": "key:4b81b1578d8cb96d",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.04",
+                  "amountMiddle": "0.04",
+                  "amountOut": "0.04",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:791a23a90f99e864",
+                  "sortWeight": "1.0",
+                  "productId": "key:7955e891d630a0d0",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.03",
+                  "amountMiddle": "0.03",
+                  "amountOut": "0.03",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:f6514412d9dee34f",
+                  "sortWeight": "2.0",
+                  "productId": "key:1da09376f2026007",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.014",
+                  "amountMiddle": "0.014",
+                  "amountOut": "0.014",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:584be892b9637a4c",
+                  "sortWeight": "3.0",
+                  "productId": "key:e059f1f775b17b19",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.01",
+                  "amountMiddle": "0.01",
+                  "amountOut": "0.01",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:af7a5ff6195e1f3d",
+                  "sortWeight": "4.0",
+                  "productId": "key:026b36f8ba5106c6",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.006",
+                  "amountMiddle": "0.006",
+                  "amountOut": "0.006",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:c495cb56db305e52",
+                  "sortWeight": "5.0",
+                  "productId": "key:72025fcf7e80e34e",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.01",
+                  "amountMiddle": "0.01",
+                  "amountOut": 0,
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": "0.01",
+                  "packageTypeId": null
+                }
+              ],
+              "outputComment": "100"
+            }
+          ],
+          "preparedCharts": null,
+          "deletedAssemblyChartIds": null,
+          "deletedPreparedChartIds": null
+        }
+      },
+      {
+        "date": "2026-06-01",
+        "response": {
+          "knownRevision": -1,
+          "assemblyCharts": [
+            {
+              "id": "key:240e551c518867b2",
+              "assembledProductId": "key:47d5bdfb4b6f1aa7",
+              "dateFrom": "2026-06-01",
+              "dateTo": null,
+              "assembledAmount": 1,
+              "productWriteoffStrategy": "ASSEMBLE",
+              "effectiveDirectWriteoffStoreSpecification": {
+                "departments": [
+                  "key:a8e0fe727d8767fd"
+                ],
+                "inverse": false
+              },
+              "productSizeAssemblyStrategy": "SPECIFIC",
+              "items": [
+                {
+                  "id": "key:0510197f96d1ed92",
+                  "sortWeight": "0.0",
+                  "productId": "key:4b81b1578d8cb96d",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.04",
+                  "amountMiddle": "0.04",
+                  "amountOut": "0.04",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:3a841a179ea1c68d",
+                  "sortWeight": "1.0",
+                  "productId": "key:7955e891d630a0d0",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.05",
+                  "amountMiddle": "0.05",
+                  "amountOut": "0.05",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:1f12b2263852e107",
+                  "sortWeight": "2.0",
+                  "productId": "key:1da09376f2026007",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.014",
+                  "amountMiddle": "0.014",
+                  "amountOut": "0.014",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:f7f175ebb2392c4a",
+                  "sortWeight": "3.0",
+                  "productId": "key:e059f1f775b17b19",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.01",
+                  "amountMiddle": "0.01",
+                  "amountOut": "0.01",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:c3b2272b3f710331",
+                  "sortWeight": "4.0",
+                  "productId": "key:026b36f8ba5106c6",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.006",
+                  "amountMiddle": "0.006",
+                  "amountOut": "0.006",
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": 0,
+                  "packageTypeId": null
+                },
+                {
+                  "id": "key:4494da77bab05dce",
+                  "sortWeight": "5.0",
+                  "productId": "key:72025fcf7e80e34e",
+                  "productSizeSpecification": null,
+                  "storeSpecification": {
+                    "departments": [
+                      "key:a8e0fe727d8767fd"
+                    ],
+                    "inverse": false
+                  },
+                  "amountIn": "0.01",
+                  "amountMiddle": "0.01",
+                  "amountOut": 0,
+                  "amountIn1": 0,
+                  "amountOut1": 0,
+                  "amountIn2": 0,
+                  "amountOut2": 0,
+                  "amountIn3": 0,
+                  "amountOut3": 0,
+                  "packageCount": "0.01",
+                  "packageTypeId": null
+                }
+              ],
+              "outputComment": "100"
+            }
+          ],
+          "preparedCharts": null,
+          "deletedAssemblyChartIds": null,
+          "deletedPreparedChartIds": null
+        }
+      }
+    ],
+    "byId": {
+      "id": "key:984eeddca4392a8e",
+      "assembledProductId": "key:47d5bdfb4b6f1aa7",
+      "dateFrom": "2025-09-03",
+      "dateTo": "2026-06-01",
+      "assembledAmount": 1,
+      "productWriteoffStrategy": "ASSEMBLE",
+      "effectiveDirectWriteoffStoreSpecification": {
+        "departments": [
+          "key:fdd2b1a65bf40d86"
+        ],
+        "inverse": true
+      },
+      "productSizeAssemblyStrategy": "SPECIFIC",
+      "items": [
+        {
+          "id": "key:e89343cd18ca3779",
+          "sortWeight": "0.0",
+          "productId": "key:4b81b1578d8cb96d",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.04",
+          "amountMiddle": "0.04",
+          "amountOut": "0.04",
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": 0,
+          "packageTypeId": null
+        },
+        {
+          "id": "key:791a23a90f99e864",
+          "sortWeight": "1.0",
+          "productId": "key:7955e891d630a0d0",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.03",
+          "amountMiddle": "0.03",
+          "amountOut": "0.03",
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": 0,
+          "packageTypeId": null
+        },
+        {
+          "id": "key:f6514412d9dee34f",
+          "sortWeight": "2.0",
+          "productId": "key:1da09376f2026007",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.014",
+          "amountMiddle": "0.014",
+          "amountOut": "0.014",
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": 0,
+          "packageTypeId": null
+        },
+        {
+          "id": "key:584be892b9637a4c",
+          "sortWeight": "3.0",
+          "productId": "key:e059f1f775b17b19",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.01",
+          "amountMiddle": "0.01",
+          "amountOut": "0.01",
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": 0,
+          "packageTypeId": null
+        },
+        {
+          "id": "key:af7a5ff6195e1f3d",
+          "sortWeight": "4.0",
+          "productId": "key:026b36f8ba5106c6",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.006",
+          "amountMiddle": "0.006",
+          "amountOut": "0.006",
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": 0,
+          "packageTypeId": null
+        },
+        {
+          "id": "key:c495cb56db305e52",
+          "sortWeight": "5.0",
+          "productId": "key:72025fcf7e80e34e",
+          "productSizeSpecification": null,
+          "storeSpecification": {
+            "departments": [],
+            "inverse": true
+          },
+          "amountIn": "0.01",
+          "amountMiddle": "0.01",
+          "amountOut": 0,
+          "amountIn1": 0,
+          "amountOut1": 0,
+          "amountIn2": 0,
+          "amountOut2": 0,
+          "amountIn3": 0,
+          "amountOut3": 0,
+          "packageCount": "0.01",
+          "packageTypeId": null
+        }
+      ],
+      "outputComment": "100"
+    },
+    "identity": {
+      "requested": 191,
+      "received": 191,
+      "missing_refs": 0,
+      "k_unit_conflicts": 0,
+      "unmapped_ingredient_units": 0,
+      "sample_ingredients": [
+        {
+          "product_key": "7bed85eff66bab7c",
+          "unit": "кг",
+          "unitWeight": 1,
+          "type": "PREPARED"
+        },
+        {
+          "product_key": "8abfde458d73f2b5",
+          "unit": "кг",
+          "unitWeight": 1,
+          "type": "PREPARED"
+        },
+        {
+          "product_key": "1ee21b1efad47c26",
+          "unit": "кг",
+          "unitWeight": 1,
+          "type": "PREPARED"
+        },
+        {
+          "product_key": "8457dab8bad7e7d7",
+          "unit": "кг",
+          "unitWeight": 1,
+          "type": "PREPARED"
+        },
+        {
+          "product_key": "74405a665c3ef32c",
+          "unit": "шт",
+          "unitWeight": "0.13",
+          "type": "DISH"
+        },
+        {
+          "product_key": "41da54dc19b93462",
+          "unit": "шт",
+          "unitWeight": 0,
+          "type": "GOODS"
+        }
+      ],
+      "missing_types": {
+        "GOODS": 13
+      }
+    },
+    "scales": {
+      "key:b22356f1bc446f77": null,
+      "key:47d5bdfb4b6f1aa7": null,
+      "key:5fcc771dd5101343": null
+    },
+    "delta": {
+      "knownRevision": 16367310,
+      "assemblyCharts": 0,
+      "preparedCharts": null,
+      "deletedAssemblyChartIds": 0,
+      "deletedPreparedChartIds": null
+    },
+    "cost_columns": {
+      "ProductCostBase.Profit": {
+        "name": "Наценка",
+        "type": "MONEY",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      },
+      "ProductCostBase.MarkUp": {
+        "name": "Наценка(%)",
+        "type": "PERCENT",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      },
+      "ProductCostBase.ProductCost": {
+        "name": "Себестоимость",
+        "type": "MONEY",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      },
+      "ProductCostBase.PercentWithoutVAT": {
+        "name": "Себестоимость без НДС(%)",
+        "type": "PERCENT",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      },
+      "ProductCostBase.OneItem": {
+        "name": "Себестоимость единицы",
+        "type": "MONEY",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      },
+      "ProductCostBase.Percent": {
+        "name": "Себестоимость(%)",
+        "type": "PERCENT",
+        "aggregationAllowed": true,
+        "groupingAllowed": false,
+        "filteringAllowed": false,
+        "tags": [
+          "Себестоимость"
+        ]
+      }
+    },
+    "sales": {
+      "rows": 51,
+      "k_rows": 50,
+      "null_cost": 0,
+      "zero_cost": 1,
+      "example": {
+        "Department.Id": "key:a8e0fe727d8767fd",
+        "DishAmountInt": 6,
+        "DishId": "key:0532d212b77cbbeb",
+        "DishMeasureUnit": "шт",
+        "ProductCostBase.OneItem": 120,
+        "ProductCostBase.ProductCost": 720
+      },
+      "query": {
+        "reportType": "SALES",
+        "buildSummary": false,
+        "groupByRowFields": [
+          "DishId",
+          "DishMeasureUnit",
+          "Department.Id"
+        ],
+        "groupByColFields": [],
+        "aggregateFields": [
+          "DishAmountInt",
+          "ProductCostBase.ProductCost",
+          "ProductCostBase.OneItem"
+        ],
+        "filters": {
+          "OpenDate.Typed": {
+            "filterType": "DateRange",
+            "periodType": "CUSTOM",
+            "from": "2026-10-08T00:00:00.000",
+            "to": "2026-10-09T00:00:00.000",
+            "includeLow": true,
+            "includeHigh": false
+          },
+          "Department.Id": {
+            "filterType": "IncludeValues",
+            "values": [
+              "key:a8e0fe727d8767fd"
+            ]
+          }
+        }
+      }
+    },
+    "logout_status": 200
+  },
+  "scope_comparison": {
+    "http": [
+      {
+        "method": "getTree",
+        "status": 200,
+        "bytes": 19826,
+        "seconds": 0.093715
+      },
+      {
+        "method": "getTree",
+        "status": 200,
+        "bytes": 20062,
+        "seconds": 0.094847
+      },
+      {
+        "method": "getPrepared",
+        "status": 200,
+        "bytes": 3645,
+        "seconds": 0.080382
+      },
+      {
+        "method": "getTree",
+        "status": 200,
+        "bytes": 20062,
+        "seconds": 0.096246
+      },
+      {
+        "method": "getPrepared",
+        "status": 200,
+        "bytes": 3645,
+        "seconds": 0.082338
+      },
+      {
+        "method": "getTree",
+        "status": 200,
+        "bytes": 20062,
+        "seconds": 0.108906
+      },
+      {
+        "method": "getPrepared",
+        "status": 200,
+        "bytes": 3645,
+        "seconds": 0.081087
+      }
+    ],
+    "union_direct": {
+      "departments": [
+        "key:4590e79908b53614"
+      ],
+      "inverse": true
+    },
+    "union_items": 17,
+    "points": [
+      {
+        "department_key": "a8e0fe727d8767fd",
+        "tree_prepared_equal": true,
+        "direct": {
+          "departments": [
+            "key:a8e0fe727d8767fd"
+          ],
+          "inverse": false
+        },
+        "prepared_items": 17,
+        "prepared_example": {
+          "id": "key:5e7de8e4ec99176a",
+          "assembledProductId": "key:5fcc771dd5101343",
+          "dateFrom": "2026-08-28",
+          "dateTo": null,
+          "effectiveDirectWriteoffStoreSpecification": {
+            "departments": [
+              "key:a8e0fe727d8767fd"
+            ],
+            "inverse": false
+          },
+          "productSizeAssemblyStrategy": "COMMON",
+          "items": [
+            {
+              "id": "key:4bd1ec833ff18692",
+              "sortWeight": 0.0,
+              "productId": "key:7d7a6c7f0dd058aa",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.0013
+            },
+            {
+              "id": "key:cc6cce6f5610b058",
+              "sortWeight": 0.0,
+              "productId": "key:812943a5d32fadb3",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.00195
+            },
+            {
+              "id": "key:e164ffe9d2fcec0f",
+              "sortWeight": 0.0,
+              "productId": "key:b62aafd31a78c1bb",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.00325
+            },
+            {
+              "id": "key:529bb07bb67d81ae",
+              "sortWeight": 0.0,
+              "productId": "key:c0d933eb67123f0d",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.065
+            },
+            {
+              "id": "key:0734e74b73c47937",
+              "sortWeight": 0.0,
+              "productId": "key:af09c0dd9de21fe9",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.0325
+            },
+            {
+              "id": "key:8b9c50e3d45f5974",
+              "sortWeight": 0.0,
+              "productId": "key:0ae35d1c2639772b",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.0065
+            },
+            {
+              "id": "key:b2f717d1beb30ad1",
+              "sortWeight": 0.0,
+              "productId": "key:e55dac819f9dc503",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.15375
+            },
+            {
+              "id": "key:2de970e2386b7235",
+              "sortWeight": 0.0,
+              "productId": "key:a4e59dbb77cc0fd3",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.015
+            },
+            {
+              "id": "key:2648796709b51e42",
+              "sortWeight": 0.0,
+              "productId": "key:53bed1510de343a1",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.00225
+            },
+            {
+              "id": "key:1a97bc6ba1a42a22",
+              "sortWeight": 0.0,
+              "productId": "key:6fea6155c2f751cb",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.0003
+            },
+            {
+              "id": "key:a04ee8019c20fc37",
+              "sortWeight": 0.0,
+              "productId": "key:4e5cbea026c5621b",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.046153846
+            },
+            {
+              "id": "key:73d25df3aa4d0086",
+              "sortWeight": 0.0,
+              "productId": "key:2389db7decf1e029",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.015
+            },
+            {
+              "id": "key:1aa5ba20f051ab53",
+              "sortWeight": 0.0,
+              "productId": "key:6aa03c014aaab614",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.001135
+            },
+            {
+              "id": "key:b769e18736d03692",
+              "sortWeight": 0.0,
+              "productId": "key:cd501da5473dc307",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.008823529
+            },
+            {
+              "id": "key:969cd3ffa9982bc2",
+              "sortWeight": 0.0,
+              "productId": "key:5a5a2c86cca5f69c",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.032727273
+            },
+            {
+              "id": "key:84ff3b980f2f2cfb",
+              "sortWeight": 0.0,
+              "productId": "key:79960b4a44f6a7f1",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.015
+            },
+            {
+              "id": "key:767d032e266df13a",
+              "sortWeight": 0.0,
+              "productId": "key:6a7cea1436bc5093",
+              "productSizeSpecification": null,
+              "storeSpecification": null,
+              "amount": 0.265
+            }
+          ]
+        }
+      },
+      {
+        "department_key": "3a07d3cba88939eb",
+        "tree_prepared_equal": true,
+        "direct": {
+          "departments": [
+            "key:3a07d3cba88939eb"
+          ],
+          "inverse": false
+        },
+        "prepared_items": 17,
+        "prepared_example": null
+      },
+      {
+        "department_key": "ed50118e82269ba9",
+        "tree_prepared_equal": true,
+        "direct": {
+          "departments": [
+            "key:ed50118e82269ba9"
+          ],
+          "inverse": false
+        },
+        "prepared_items": 17,
+        "prepared_example": null
+      }
+    ],
+    "logout_status": 200
+  }
+}
