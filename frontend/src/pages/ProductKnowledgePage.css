@@ -61,3 +61,12 @@
   .product-card-overview dl { grid-template-columns: 100px 1fr; }
   .product-card-overview { gap: 14px; }
 }
+
+.product-management { margin: 20px 0; }
+.product-management label { display: grid; gap: 6px; margin: 12px 0; }
+.product-management input, .product-management textarea, .product-management select { font: inherit; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; max-width: 100%; }
+.product-management textarea { min-height: 100px; resize: vertical; }
+.product-management fieldset { border: 0; padding: 0; margin-top: 16px; min-width: 0; }
+.product-management-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.product-management summary { cursor: pointer; font-weight: 600; }
+.product-knowledge-section article { border-bottom: 1px solid #e3e5e9; padding: 12px 0; overflow-wrap: anywhere; }

@@ -112,7 +112,7 @@ class ProductKnowledgeTests(unittest.TestCase):
             detail=self.client.get('/products/'+first['id']).json()
             self.assertIsNone(detail['price']);self.assertIsNone(detail['photo'])
             for key in ('cost','recipe','raw_payload','iiko_product_id','provenance'):self.assertNotIn(key,detail)
-            self.assertEqual(detail['allowed_actions'],[])
+            self.assertEqual(detail['allowed_actions'],['EDIT','STATUS','DELETE','VERIFY'])
         self.assertEqual(self.client.get('/products?limit=101').status_code,422)
         self.assertEqual(self.client.get('/products?department_id='+str(uuid4())).status_code,404)
         with self.sessions.begin() as db:
@@ -181,19 +181,17 @@ class ProductKnowledgeTests(unittest.TestCase):
             for point in [self.department_id,other_id]:
                 db.add(ProductKnowledgePrice(tenant_id='eclair',product_id=product.id,department_id=point,valid_from=date(2026,10,1),valid_to=date(2026,11,1),amount=140,currency='RUB',price_unit='шт',evidence='verified test',verified_by_user_id=1,observed_at=self.snapshot.observed_at))
             for role in db.scalars(select(EmployeeRoleAssignment)):role.role=EmployeeRole.SELLER
-        result=self.client.get('/products?price_at=2026-10-08').json()
-        self.assertEqual([p['id'] for p in result['points']],[str(self.department_id)])
-        self.assertEqual({p['department_id'] for item in result['items'] for p in item['prices']},{str(self.department_id)})
-        self.assertEqual(self.client.get('/products?department_id='+str(other_id)).status_code,404)
+        self.assertEqual(self.client.get('/products').status_code,403)
+        self.assertEqual(self.client.get('/products?department_id='+str(other_id)).status_code,403)
 
     def test_business_reader_roles_and_production_assignment(self):
         from app.models.supply import Department
         self.load()
-        for role in (EmployeeRole.NETWORK_MANAGER, EmployeeRole.DIRECTOR, EmployeeRole.ACCOUNTANT):
+        for role in (EmployeeRole.NETWORK_MANAGER, EmployeeRole.DIRECTOR, EmployeeRole.DEPUTY_DIRECTOR):
             with self.sessions.begin() as db:
                 for assignment in db.scalars(select(EmployeeRoleAssignment)):assignment.role=role
             self.assertEqual(self.client.get('/products').status_code,200,role)
-        for role in (EmployeeRole.CHEF_CONFECTIONER, EmployeeRole.HEAD_OF_PRODUCTION, EmployeeRole.CONFECTIONER, EmployeeRole.BAKER):
+        for role in (EmployeeRole.CHEF_CONFECTIONER, EmployeeRole.HEAD_OF_PRODUCTION):
             with self.sessions.begin() as db:
                 db.get(Department,self.department_id).business_type='RETAIL_POINT'
                 for assignment in db.scalars(select(EmployeeRoleAssignment)):assignment.role=role

@@ -3,7 +3,8 @@
 **Тип:** ARCHITECTURE PROPOSAL · **Версия:** 0.1.0 · **Дата:** 08.10.2026
 **Статус:** на review. Обозначения и бизнес-правила — в
 [спецификации](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md).
-Целевая часть K2–K6 ниже остаётся предложением. Реализованный K1 и отличия
+CURRENT 09.10.2026: K2 реализован локально, см. раздел «K2 implementation» ниже.
+Целевая часть K3–K6 ниже остаётся предложением. Реализованный K1 и отличия
 зафиксированы в разделе «K1 implementation» в конце документа.
 
 ## 1. Проверенная локальная основа
@@ -189,7 +190,8 @@ DB-транзакции; файл публикуется атомарно, по�
 
 ## 7. Ролевой доступ, audit и API
 
-Следующая матрица — **предложение Q02**. Используются существующие 13 ролей,
+Следующая матрица — **историческое предложение Q02 от 08.10.2026**,
+заменённое матрицей K2 ниже; это не действующие grants. Используются существующие 13 ролей,
 без новой роли «технолог» или «владелец каталога». По умолчанию новые действия
 закрыты до утверждения grants; role hierarchy не даёт права автоматически.
 
@@ -235,7 +237,9 @@ append-only `AuditEvent`, ActionContext и before/after либо безопас�
 
 UUID чужого tenant → безопасное not found; отсутствие capability → 403;
 конфликт expected_version → 409; невалидный ввод → 422. Тексты русские и безопасные.
-Не создавать DELETE продукта/статуса, writeback iiko или публичную раздачу ТТК.
+Первоначальное предложение запрещало DELETE продукта. Задание K2 разрешило
+отдельный soft-delete endpoint EOS с восстановлением, без физического удаления.
+Writeback iiko и публичная раздача ТТК по-прежнему запрещены.
 
 Предлагаемый frontend: `ProductKnowledgePage`, `ProductKnowledgeDetailPage`,
 `services/productKnowledge.ts` и компоненты колонок/карточки в существующем stack;
@@ -314,3 +318,60 @@ CLI не зарегистрирован в Automation Core и не имеет р
 identity/prices/history. Schema downgrade при непустом каталоге запрещён.
 Подробности, evidence и business checklist: [K1 report](STAGE_3_2_K1_REPORT_2026-10-08.md).
 Production write/deploy и бизнес-приёмка не выполнены; gate K остаётся открытым.
+
+
+## K2 implementation — 09.10.2026, локально на review
+
+K1 production / 141 позиции подтверждены владельцем в задании; здесь нет нового
+live production preflight. K2 готов к review, не развёрнут. Критерии проверок и
+порядок production handoff — [отчёт K2](STAGE_3_2_K2_REPORT_2026-10-09.md).
+
+Миграция `20261009_0075` additive: local_name/local_description и пять текстовых
+полей, version=1 для существующих записей, nullable deleted_at и данные проверки
+(verified_at, employee tenant FK, snapshot имени). Старые UUID/source/batch,
+Supply/Sales связи, цены и публикация не меняются; существующие записи непроверены.
+category_id/category_name остаются локальной категорией EOS, не iiko classification.
+Новые status/delete/edit/verify изменения и AuditEvent атомарны в одной транзакции.
+
+`PRODUCT_KNOWLEDGE_READ`: ADMIN, DIRECTOR, DEPUTY_DIRECTOR, NETWORK_MANAGER,
+CHEF_CONFECTIONER, HEAD_OF_PRODUCTION. `PRODUCT_KNOWLEDGE_MANAGE`: те же четыре
+управляющие роли без DIRECTOR/DEPUTY_DIRECTOR. Это общая база продукции tenant,
+без неявной role hierarchy; существующие guards ActionContext для действующих
+назначений, сотрудника и production department сохранены. Supply/Sales grants не менялись.
+
+| API (`/api` в reverse proxy) | Реализованный контракт |
+|---|---|
+| GET /products | Добавлены deleted/unverified, общий active_count/verified_count, allowed_actions; рабочий каталог исключает deleted_at |
+| GET /products/{id} | Локальные сведения, версия, проверивший сотрудник/дата, deleted_at, eligibility; удалённая карточка доступна утверждённым reader ролям |
+| PATCH /products/{id}/knowledge | Полная локальная форма + expected_version/reason; extra=forbid |
+| PATCH /products/{id}/sale-status | Только ON_SALE/OFF_SALE + expected_version/reason |
+| DELETE /products/{id} | Только soft deletion + expected_version/reason; published/batch не меняются |
+| POST /products/{id}/restore | Та же identity/история/контент/статус + expected_version/reason |
+| PATCH /products/{id}/verification | verified true/false + expected_version/reason; сотрудник/дата из ActionContext |
+| GET /products/{id}/history | Scoped AuditEvent projection: actor/reason/time/local before/after; pagination offset/limit, без raw/source payload |
+| GET /products/iiko-candidates | Manage-only, read-only collect из подтверждённого source K1, выбор UUID и checksum, скрывает уже активные записи |
+| POST /products | UUID/source/checksum/status/reason; повторное read-only подтверждение источника перед записью |
+
+Карточка блокируется FOR UPDATE; устаревшая версия — 409. Идентичная команда
+того же сотрудника определяется через correlation hash существующего AuditEvent,
+не создаёт второй audit/transition. Добавления сериализуются через существующий
+SalesSyncState source lock и уникальность tenant/source/UUID. Новая запись получает
+свою manual batch, report.kind=MANUAL_UUID_CONFIRMATION; исходная партия K1 не меняется.
+Bootstrap retry игнорирует manual batches; повторное добавление удалённой записи
+не создаёт product/batch, не стирает локальный контент и подтверждённые связи.
+Неразрешённые Supply mappings/Sales links блокируют новое добавление; связи только по UUID.
+
+Name/description source остаются отдельно от local overrides; все K2 write DTO
+запрещают изменение UUID/source/unit/source_deleted/provenance/published/batch.
+Существующий iiko reference sync не пишет ProductKnowledgeProduct, bootstrap retry
+не обновляет карточки. Scheduled knowledge refresh остаётся K6; новый sync/job не создан.
+`eligible_for_production` и `require_production_eligible` проверяют published,
+not deleted, ON_SALE; будущие consumers обязаны использовать guard при create/confirm,
+подключение производственных заявок этим слайсом не выполнено (gate K открыт).
+
+Откат images сохраняет schema/audit/local fields. Downgrade 0075 разрешён только
+без локальных изменений/данных проверки/удалений и product audit; при данных K2
+операция останавливается. Старый backend не знает deleted_at и новой матрицы:
+его нельзя возвращать с доступным `/products` после удаления изделий; при rollback
+раздел должен быть временно закрыт до совместимого backend. Backups/recovery и
+реальная миграция на production требуют отдельного задания.

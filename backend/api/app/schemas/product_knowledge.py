@@ -103,11 +103,19 @@ class ProductRead(BaseModel):
     source_deleted: bool
     price: PriceRead | None
     prices: list[PriceRead]
+    description_source: Literal['EOS', 'iiko']
     photo: None = None
-    composition: None = None
-    allergens: None = None
-    storage: None = None
-    training: None = None
+    characteristics: str | None = None
+    composition: str | None = None
+    allergens: str | None = None
+    storage: str | None = None
+    training: str | None = None
+    version: int
+    deleted_at: datetime | None = None
+    verified_at: datetime | None = None
+    verified_by_employee_id: UUID | None = None
+    verified_by_name: str | None = None
+    eligible_for_production: bool
     allowed_actions: list[str] = Field(default_factory=list)
 
 
@@ -124,3 +132,59 @@ class CatalogRead(BaseModel):
     points: list[OptionRead]
     categories: list[OptionRead]
     observed_at: datetime | None
+    verified_count: int
+    active_count: int
+    allowed_actions: list[str] = Field(default_factory=list)
+
+
+class ProductCommand(StrictModel):
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason')
+    @classmethod
+    def meaningful_reason(cls, value):
+        if not value.strip():
+            raise ValueError('Укажите причину')
+        return value.strip()
+
+
+class KnowledgeUpdate(ProductCommand):
+    name: str = Field(min_length=1, max_length=500)
+    category_id: UUID | None = None
+    description: str | None = Field(default=None, max_length=10000)
+    characteristics: str | None = Field(default=None, max_length=10000)
+    composition: str | None = Field(default=None, max_length=10000)
+    allergens: str | None = Field(default=None, max_length=10000)
+    storage: str | None = Field(default=None, max_length=10000)
+    training: str | None = Field(default=None, max_length=10000)
+
+    @field_validator('name')
+    @classmethod
+    def meaningful_name(cls, value):
+        if not value.strip():
+            raise ValueError('Укажите название')
+        return value.strip()
+
+
+class StatusUpdate(ProductCommand):
+    sale_status: Literal['ON_SALE', 'OFF_SALE']
+
+
+class VerificationUpdate(ProductCommand):
+    verified: bool
+
+
+class ManualAdd(StrictModel):
+    source_id: str = Field(min_length=1, max_length=64)
+    iiko_product_id: UUID
+    confirmation_hash: str = Field(pattern=r'^[a-f0-9]{64}$')
+    sale_status: Literal['ON_SALE', 'OFF_SALE']
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason')
+    @classmethod
+    def meaningful_reason(cls, value):
+        if not value.strip():
+            raise ValueError('Укажите причину')
+        return value.strip()

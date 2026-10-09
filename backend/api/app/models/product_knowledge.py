@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, JSON, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, JSON, Index, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -33,6 +33,9 @@ class ProductKnowledgeProduct(Base):
         ForeignKeyConstraint(['tenant_id', 'source_id'], ['sales_sync_states.tenant_id', 'sales_sync_states.source_id'], ondelete='RESTRICT'),
         ForeignKeyConstraint(['tenant_id', 'supply_product_id'], ['supply_products.tenant_id', 'supply_products.id'], ondelete='RESTRICT'),
         ForeignKeyConstraint(['tenant_id', 'batch_id'], ['product_knowledge_batches.tenant_id', 'product_knowledge_batches.id'], ondelete='RESTRICT'),
+        Index('ix_pk_work_catalog', 'tenant_id', 'published', 'deleted_at', 'verified_at'),
+        CheckConstraint('version > 0', name='ck_pk_version'),
+        ForeignKeyConstraint(['tenant_id', 'verified_by_employee_id'], ['employees.tenant_id', 'employees.id'], ondelete='RESTRICT'),
         CheckConstraint("sale_status IN ('ON_SALE', 'OFF_SALE')", name='ck_pk_sale_status'),
         CheckConstraint("sale_mode IN ('UNKNOWN', 'PORTION', 'WEIGHT')", name='ck_pk_sale_mode'),
         CheckConstraint('unit_weight_kg IS NULL OR unit_weight_kg > 0', name='ck_pk_weight'),
@@ -56,6 +59,19 @@ class ProductKnowledgeProduct(Base):
     source_deleted: Mapped[bool] = mapped_column(Boolean)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     provenance: Mapped[dict] = mapped_column(JSON)
+    # Local EOS fields are separate from all source attributes.
+    local_name: Mapped[str | None] = mapped_column(String(500))
+    local_description: Mapped[str | None] = mapped_column(String(10000))
+    characteristics: Mapped[str | None] = mapped_column(String(10000))
+    composition: Mapped[str | None] = mapped_column(String(10000))
+    allergens: Mapped[str | None] = mapped_column(String(10000))
+    storage: Mapped[str | None] = mapped_column(String(10000))
+    training: Mapped[str | None] = mapped_column(String(10000))
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_by_employee_id: Mapped[UUID | None]
+    verified_by_name: Mapped[str | None] = mapped_column(String(240))
     published: Mapped[bool] = mapped_column(Boolean, default=True)
 
 

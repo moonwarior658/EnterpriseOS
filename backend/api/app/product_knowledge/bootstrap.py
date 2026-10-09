@@ -181,6 +181,7 @@ def publish(db: Session, actor: User, report: dict, *, expected_hash: str, initi
         raise PublicationError('SOURCE_MISMATCH')
     batches = list(db.scalars(select(ProductKnowledgeBatch).where(ProductKnowledgeBatch.tenant_id == actor.tenant_id,
         ProductKnowledgeBatch.source_id == report['source_id']).with_for_update()))
+    batches = [batch for batch in batches if batch.report.get('kind') != 'MANUAL_UUID_CONFIRMATION']
     if batches:
         batch = batches[0]
         if batch.plan_hash != expected_hash or batch.initial_status != initial_status:

@@ -15,6 +15,7 @@ from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    PRODUCT_KNOWLEDGE_MANAGE = "PRODUCT_KNOWLEDGE_MANAGE"
     PRODUCT_KNOWLEDGE_READ = "PRODUCT_KNOWLEDGE_READ"
     SUPPLY_REQUEST_READ = "SUPPLY_REQUEST_READ"
     SUPPLY_REQUEST_CREATE = "SUPPLY_REQUEST_CREATE"
@@ -55,14 +56,15 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
-    Capability.PRODUCT_KNOWLEDGE_READ: tuple((role, scope) for role, scope in (
+    Capability.PRODUCT_KNOWLEDGE_MANAGE: (
+        (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.NETWORK_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.ALL_COMPANY), (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
+    ),
+    Capability.PRODUCT_KNOWLEDGE_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
-        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.NETWORK_MANAGER, Scope.ECLAIR_POINTS),
-        (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY), (EmployeeRole.ACCOUNTANT, Scope.ALL_COMPANY),
-        (EmployeeRole.HEAD_OF_PRODUCTION, Scope.PRODUCTION), (EmployeeRole.CHEF_CONFECTIONER, Scope.PRODUCTION),
-        (EmployeeRole.CONFECTIONER, Scope.PRODUCTION), (EmployeeRole.BAKER, Scope.PRODUCTION),
-        (EmployeeRole.SELLER, Scope.PRIMARY_DEPARTMENT),
-    )),
+        (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.NETWORK_MANAGER, Scope.ALL_COMPANY),
+        (EmployeeRole.CHEF_CONFECTIONER, Scope.ALL_COMPANY), (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
+    ),
     Capability.SUPPLY_REQUEST_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.DIRECTOR, Scope.ALL_COMPANY),
         (EmployeeRole.DEPUTY_DIRECTOR, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY),

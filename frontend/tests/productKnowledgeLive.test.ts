@@ -20,6 +20,7 @@ test('live catalog: API filters, paging, safe card, errors and empty data withou
     globalThis.fetch=async input=>{
       const url=new URL(String(input),'http://localhost');calls.push(url)
       if(failure)return new Response('{}',{status:503})
+      if(url.pathname.endsWith('/history'))return Response.json([])
       if(url.pathname.includes(product.id))return Response.json(product)
       return Response.json({items:empty?[]:[{...product,id:url.searchParams.get('offset')==='25'?'22222222-2222-4222-8222-222222222222':product.id}],total:empty?0:26,offset:Number(url.searchParams.get('offset')),limit:25,points:[{id:'point',name:'Подтверждённая точка'}],categories:[],observed_at:product.observed_at})
     }
