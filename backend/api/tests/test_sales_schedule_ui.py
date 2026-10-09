@@ -39,7 +39,7 @@ class SalesScheduleUiTests(unittest.IsolatedAsyncioTestCase):
                 if isinstance(column.type, JSONB):
                     column.type = JSON(); column.server_default = None
                 if column.primary_key and isinstance(column.type, BigInteger): column.type = Integer()
-            table.create(self.engine)
+            table.create(self.engine, checkfirst=True)
         def restore_sqlite_timezone(session, instance):
             if isinstance(instance, (AutomationSchedule, AutomationExecution, OutboxEvent)):
                 for field in inspect(instance).mapper.column_attrs:

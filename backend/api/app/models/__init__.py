@@ -180,4 +180,4 @@ __all__ = [
     "WorkRequestComment",
 ]
 
-from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice
+from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot

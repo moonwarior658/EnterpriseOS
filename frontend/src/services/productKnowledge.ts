@@ -2,6 +2,7 @@ import { getStoredToken } from './auth'
 import type { EmployeeRole } from './actionContext'
 export const PRODUCT_KNOWLEDGE_ROLES: EmployeeRole[] = ['ADMIN','DIRECTOR','DEPUTY_DIRECTOR','NETWORK_MANAGER','HEAD_OF_PRODUCTION','CHEF_CONFECTIONER']
 export type ProductPrice = { department_id: string; department_name: string; amount: string; currency: string; price_unit: string; valid_from: string; valid_to: string; observed_at: string }
+export type PriceHealth = { department_id: string; last_success_at: string | null; stale: boolean; update_failed: boolean }
 export type Product = {
   id: string; name: string; sku: string | null; unit_name: string; unit_weight_kg: string | null
   sale_mode: string; sale_status: string; category_id: string | null; category_name: string | null
@@ -9,7 +10,7 @@ export type Product = {
   characteristics: string | null; composition: string | null; allergens: string | null; storage: string | null; training: string | null
   version: number; deleted_at: string | null; verified_at: string | null; verified_by_employee_id: string | null; verified_by_name: string | null
   eligible_for_production: boolean
-  price: ProductPrice | null; prices: ProductPrice[]; allowed_actions: string[]
+  price_health?: PriceHealth[]; price: ProductPrice | null; prices: ProductPrice[]; price_conflict_points?: string[]; allowed_actions: string[]
 }
 export type Catalog = { items: Product[]; total: number; offset: number; limit: number; points: {id: string; name: string}[]; categories: {id: string; name: string}[]; observed_at: string | null; active_count: number; verified_count: number; allowed_actions: string[] }
 export class ProductApiError extends Error { status: number; constructor(status: number) { super(status === 403 ? 'Нет доступа к продукции' : status === 404 ? 'Изделие или точка недоступны' : status === 409 ? 'Данные изменились. Обновите карточку или выберите изделие заново' : status === 422 ? 'Проверьте заполнение полей и категорию' : 'Не удалось загрузить продукцию. Повторите позже'); this.name = 'ProductApiError'; this.status = status } }
@@ -23,8 +24,9 @@ export function getProductCatalog(params: URLSearchParams, signal: AbortSignal) 
 export function getProduct(id: string, params: URLSearchParams, signal: AbortSignal) { return read<Product>(`/${encodeURIComponent(id)}`, params, signal) }
 export const saleModeLabel = (mode: string) => mode === 'PORTION' ? 'Порционный' : mode === 'WEIGHT' ? 'Весовой' : 'Нет данных'
 export const saleStatusLabel = (status: string) => status === 'OFF_SALE' ? 'Выведено из продажи' : 'В продаже'
-export function priceLabel(price: ProductPrice | null, point: string) {
+export function priceLabel(price: ProductPrice | null, point: string, conflicts: string[] = []) {
   if (!point) return 'Выберите точку'
+  if (conflicts.includes(point)) return 'Цена требует проверки'
   if (!price) return 'Нет подтверждённой цены'
   return `${Number(price.amount).toLocaleString('ru-RU', { maximumFractionDigits: 6 })} ${price.currency} / ${price.price_unit}`
 }

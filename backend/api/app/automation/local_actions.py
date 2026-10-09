@@ -25,6 +25,7 @@ from app.models.automation import (
 class LocalAutomationActionExecutor:
     SALES_REPORTS = "sales.finalize_reports"
     SALES_SYNC = "sales.sync_iiko"
+    PRODUCT_PRICES = "products.sync_iiko_prices"
     IIKO_SHIFT_SYNC = "employee.sync_iiko_shifts"
 
     def __init__(
@@ -37,7 +38,7 @@ class LocalAutomationActionExecutor:
     def supports(automation_type: str) -> bool:
         return (
             automation_type in SUPPLY_ACTION_HANDLERS
-            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS)
+            or automation_type in (LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS, LocalAutomationActionExecutor.PRODUCT_PRICES)
         )
 
     def execute(
@@ -49,7 +50,7 @@ class LocalAutomationActionExecutor:
         if executed_at.tzinfo is None or executed_at.utcoffset() is None:
             raise ValueError("executed_at must include a timezone")
         executed_at = executed_at.astimezone(timezone.utc)
-        if claim.automation_type == self.SALES_SYNC:
+        if claim.automation_type in (self.SALES_SYNC, self.PRODUCT_PRICES):
             return self._execute_sales_sync(claim, executed_at=executed_at)
         if claim.automation_type == self.IIKO_SHIFT_SYNC:
             return self._execute_iiko_shift_sync(claim, executed_at=executed_at)
@@ -118,9 +119,17 @@ class LocalAutomationActionExecutor:
         from app.sales.sync import sync_sales
         from app.schemas.automation import SalesSyncPayload
 
-        payload = SalesSyncPayload.model_validate(claim.payload)
-        result = await sync_sales(self._session_factory, tenant_id=claim.tenant_id,
-                                  source_id=payload.source_id, now=executed_at)
+        snapshot = None
+        if claim.automation_type == self.PRODUCT_PRICES:
+            from app.product_knowledge.price_refresh import PriceRefreshPayload, collect_prices
+            payload = PriceRefreshPayload.model_validate(claim.payload)
+            snapshot = await collect_prices(self._session_factory, tenant_id=claim.tenant_id,
+                                            payload=payload, now=executed_at)
+            result = dict(products=len(snapshot.products), contexts=len(snapshot.contexts))
+        else:
+            payload = SalesSyncPayload.model_validate(claim.payload)
+            result = await sync_sales(self._session_factory, tenant_id=claim.tenant_id,
+                                      source_id=payload.source_id, now=executed_at)
         with self._session_factory() as session:
             with session.begin():
                 event = session.scalar(select(OutboxEvent).where(
@@ -134,6 +143,12 @@ class LocalAutomationActionExecutor:
                 if execution.status in (ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED,
                                          ExecutionStatus.TIMED_OUT, ExecutionStatus.CANCELLED):
                     raise OutboxClaimLostError("Sales sync execution already terminal")
+                if snapshot is not None:
+                    from app.product_knowledge.price_refresh import source_price_preview, publish_source_prices
+                    report = source_price_preview(session, claim.tenant_id, snapshot)
+                    row = publish_source_prices(session, claim.tenant_id, snapshot,
+                        expected_hash=report['plan_hash'], execution_id=claim.execution_id)
+                    result['snapshot_id'] = str(row.id)
                 event.status, event.published_at = OutboxStatus.PUBLISHED, executed_at
                 event.next_attempt_at = event.locked_at = event.locked_by = event.last_error = None
                 execution.provider, execution.status = "enterpriseos", ExecutionStatus.SUCCEEDED

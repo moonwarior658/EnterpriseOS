@@ -17,7 +17,7 @@ from app.models.iiko import IikoProductMapping, IikoUnitMapping
 from app.models.sales import SalesSyncState, SalesDaySync
 from app.models.supply import SupplyUnit, SupplyProductCategory, SupplyRequestDirection, SupplyStorageZone
 from app.models.user import User
-from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice
+from app.models.product_knowledge import ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot
 from app.product_knowledge.bootstrap import preview, publish, rollback_publication, PublicationError
 from app.schemas.product_knowledge import SourceSnapshot, ConfirmedPrice
 from app.models.audit import AuditEvent
@@ -30,8 +30,21 @@ class ProductKnowledgeTests(unittest.TestCase):
     def setUp(self):
         foundation.SalesFoundationTests.setUp(self)
         for model in (SupplyUnit, SupplyProductCategory, SupplyRequestDirection, SupplyStorageZone, IikoUnitMapping,
-                      ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice):
+                      ProductKnowledgeBatch, ProductKnowledgeProduct, ProductKnowledgePrice, ProductKnowledgePriceSnapshot):
             model.__table__.create(self.engine)
+        from sqlalchemy import MetaData, JSON, Integer, BigInteger
+        from sqlalchemy.dialects.postgresql import JSONB
+        from app.models.automation import AutomationSchedule, AutomationExecution
+        metadata = MetaData()
+        User.__table__.to_metadata(metadata)
+        for model in (AutomationSchedule, AutomationExecution):
+            table = model.__table__.to_metadata(metadata)
+            for column in table.columns:
+                if isinstance(column.type, JSONB):
+                    column.type = JSON(); column.server_default = None
+                if column.primary_key and isinstance(column.type, BigInteger):
+                    column.type = Integer()
+            table.create(self.engine, checkfirst=True)
         self.unit, self.second = uuid4(), uuid4()
         self.snapshot = SourceSnapshot(source_id=self.source_id, observed_at=datetime(2026,10,8,tzinfo=timezone.utc),
             evidence='confirmed source read', complete=True,

@@ -357,6 +357,7 @@ class AutomationTypeCatalogApiTests(AutomationSchedulesApiTestCase):
             [item["key"] for item in response.json()],
             [
                 "employee.sync_iiko_shifts",
+                "products.sync_iiko_prices",
                 "sales.finalize_reports",
                 "sales.sync_iiko",
                 "supply.close_expired_request_cycles",

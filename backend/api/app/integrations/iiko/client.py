@@ -324,6 +324,10 @@ class IikoServerClient(IikoProvider):
             return response
         raise IikoConnectionError("IIKO_RETRY_EXHAUSTED")
 
+    async def get_prices(self, *, date_from: date, date_to: date, department_id: UUID):
+        from app.integrations.iiko.prices import read_prices
+        return await read_prices(self, date_from=date_from, date_to=date_to, department_id=department_id)
+
     async def get_sales_olap(self, body: dict[str, Any]) -> list[dict[str, Any]]:
         """The A0-approved, read-only v2 report contract."""
         import json

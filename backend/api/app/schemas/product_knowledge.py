@@ -88,6 +88,13 @@ class PriceRead(BaseModel):
     observed_at: datetime
 
 
+class PriceHealthRead(BaseModel):
+    department_id: UUID
+    last_success_at: datetime | None
+    stale: bool
+    update_failed: bool
+
+
 class ProductRead(BaseModel):
     id: UUID
     name: str
@@ -103,6 +110,8 @@ class ProductRead(BaseModel):
     source_deleted: bool
     price: PriceRead | None
     prices: list[PriceRead]
+    price_health: list[PriceHealthRead] = Field(default_factory=list)
+    price_conflict_points: list[UUID] = Field(default_factory=list)
     description_source: Literal['EOS', 'iiko']
     photo: None = None
     characteristics: str | None = None

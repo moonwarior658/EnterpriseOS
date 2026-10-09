@@ -3,8 +3,9 @@
 **Тип:** ARCHITECTURE PROPOSAL · **Версия:** 0.1.0 · **Дата:** 08.10.2026
 **Статус:** на review. Обозначения и бизнес-правила — в
 [спецификации](STAGE_3_2_PRODUCT_KNOWLEDGE_AND_PRODUCTION_SPEC.md).
-CURRENT 09.10.2026: K2 реализован локально, см. раздел «K2 implementation» ниже.
-Целевая часть K3–K6 ниже остаётся предложением. Реализованный K1 и отличия
+CURRENT 09.10.2026: K2 развёрнут по подтверждению владельца; K3 обычные цены
+реализованы локально и подготовлены к публикации, см. K3 continuation ниже.
+Целевая часть K4–K6 и непроверенные SCHEDULED precedence остаются предложением. Реализованный K1 и отличия
 зафиксированы в разделе «K1 implementation» в конце документа.
 
 ## 1. Проверенная локальная основа
@@ -375,3 +376,104 @@ not deleted, ON_SALE; будущие consumers обязаны использов
 его нельзя возвращать с доступным `/products` после удаления изделий; при rollback
 раздел должен быть временно закрыт до совместимого backend. Backups/recovery и
 реальная миграция на production требуют отдельного задания.
+
+
+## K3: первый локальный проход импорта подтверждений — 09.10.2026
+
+Историческая запись первого прохода; ограничения доступа/reader ниже заменены
+результатами продолжения K3. Сам механизм ручного импорта сохранён.
+
+`app/product_knowledge/prices.py` принимает `PriceSnapshot`: source_id,
+observed_at с timezone, confirmed_point_ids, office_evidence, список существующих
+`ConfirmedPrice`. Это input уже сверенных effective prices, **не парсер сырых
+приказов iiko** и не доказательство independent Office equality.
+
+`prices-preview` читает EOS DB (PostgreSQL transaction READ ONLY), проверяет
+source/tenant/активные подтверждённые retail points/UUID/единицу/пересечения и
+выдаёт review hash. `prices-import` требует ADMIN через existing TECHNICAL_ADMIN,
+повторяет валидацию после блокировки существующего SalesSyncState и записывает
+цены с аудитом одной транзакцией. Точный повтор ничего не добавляет; изменение
+существующей или пересекающейся версии отклоняется. Hash не зависит от INSERT/KEEP,
+поэтому повтор того же reviewed snapshot идемпотентен. Пропущенные строки ничего
+не удаляют; исправление уже подтверждённого периода потребует отдельного решения.
+
+Используется существующая `product_knowledge_prices` (0074); schema migration
+не нужна. Карточки/их version/status/local knowledge/verification не изменяются.
+Импорт не обращается к iiko и не расширяет ассортимент. Shared automation,
+scheduler, Supply/Sales факты и mappings не меняются.
+
+GET list/detail читают только EOS DB, сохраняют `price`/`prices`; новое additive
+поле `price_conflict_points` содержит только доступные reader точки с пересечением
+или несовместимой единицей цены. Amount в таком контексте не возвращается.
+Периоды полуоткрытые `[valid_from, valid_to)`, выбор даты в UI — Asia/Yekaterinburg.
+Карточка показывает интервал и observed_at отдельно от наблюдения каталога.
+
+Это частичный K3. Реальный контракт v2/price/envelope, приоритеты приказов,
+future/cancelled, currency/unit и независимая Office сверка не реализованы/не
+подтверждены. Исторические 413 candidates не восстановлены: output K1 отсутствует
+в checkout. Report: [K3](STAGE_3_2_K3_REPORT_2026-10-09.md).
+
+
+## K3 continuation: live reader, resolver и регулярное обновление — 09.10.2026
+
+Read-only iiko API повторно прочитан через production client/config. Новый
+reader/collector/preview дополнительно выполнен **в памяти** контейнера API:
+DB transaction READ ONLY + rollback, iiko GET/auth/logout; файлы runtime,
+код checkout и БД не изменялись. HEAD `067a99111944e720db9e41152700419131225c32`,
+Alembic `20261009_0075`; новый 0076 ещё не развёрнут.
+
+`IikoServerClient.get_prices` → typed SUCCESS/errors/response/revision contract,
+Decimal без float-подмены, point guard, size/category/schedule contexts,
+includeOutOfSale=true, bounded window ≤93 days, retry/session существующего
+клиента. Отсутствие/некорректность required fields отвергает весь snapshot.
+
+`price_refresh.collect_prices` выбирает только published UUID текущего EOS source,
+только explicit confirmed_point_ids из утверждённой policy. Проверяет каталог и
+MeasureUnit по ID, не меняет карточки. Каждая точка должна вернуть одну общую
+revision; несогласованная revision → recollect. Сеть выполняется вне DB session.
+Текущий bounded horizon: today−31 … today+32, business timezone из SalesSyncState.
+
+`price_resolver` берёт effective BASE intervals из v2/price, не сортирует raw orders
+по номеру/UUID/dateIncoming для изобретения приоритета. Контекст портала — обычный
+прейскурант без price category и без размера. Category exceptions сохранены в
+snapshot, но не применяются к обычной цене. included=false → null без изменения
+EOS sale_status. Пустая цена/контекст → null, настоящий 0 → Decimal zero.
+
+Date-only resolver возвращает TIME_DEPENDENT при применимом SCHEDULED (либо
+неизвестном/overnight/zero-width расписании), CONFLICT при пересекающихся BASE.
+Для этих состояний UI использует «Цена требует проверки». Произвольный fallback
+в BASE/defaultSalePrice запрещён. Точное time/category/size UI и не подтверждённый
+приоритет пересекающихся SCHEDULED не реализованы. Для текущего пилота SCHEDULED
+отсутствует; это не доказательство глобального отсутствия таких приказов.
+
+Новая таблица `ProductKnowledgePriceSnapshot`, additive migration 0076:
+tenant/source FK, plan_hash unique, `[date_from,date_to)` check, observed_at,
+нормализованный payload. Только append-only публикации. Полный snapshot делает
+отсутствие/исключение новой авторитетной записью; старый импорт не возвращает
+устаревшую сумму. GET выбирает последний snapshot, покрывающий дату, проверяет
+текущие product unit identity и point mapping. История за пределами нового окна
+читается из ранее сохранённых покрывающих snapshots.
+
+CLI source preview/publish используют existing digest/review hash, ADMIN guard,
+source row lock, AuditEvent и идемпотентность. Старые prices-preview/import остаются
+доступны. Поздняя публикация более старой revision отклоняется. Новый snapshot и
+аудит коммитятся вместе; downgrade с историей блокируется.
+
+`products.sync_iiko_prices` включён в existing automation catalog/schema/schedules/
+LocalAutomationActionExecutor: company scope, interval 60 minutes, strict policy
+payload (source, точные три point IDs, RUB, office_evidence). Нет seed/enabling
+schedule в миграции. Existing scheduler/outbox/retry/claim/terminal-state guards
+переиспользуются. Publication выполняется в транзакции действующего outbox claim;
+потерянный/terminal claim не публикует snapshot. Никаких новых n8n workflows.
+
+Реальные 363 обычные цены и approved policy готовы к отдельной публикации;
+production schedule не создан/не включён. Подробности и ссылки на артефакты —
+[отчёт K3](STAGE_3_2_K3_REPORT_2026-10-09.md).
+
+
+K3 release review 09.10.2026: additive `ProductRead.price_health` содержит только
+`department_id`, `last_success_at`, `stale`, `update_failed`. Данные вычисляются
+по latest per-point snapshot и existing automation executions с tenant/source/
+point scope, без iiko calls. Возраст >2h считается устареванием hourly снимка;
+ошибка последнего FAILED/TIMED_OUT/RETRYING после success не стирает дату.
+Новое успешное получение снимает ошибку. Миграция остаётся только 0076.

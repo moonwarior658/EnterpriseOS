@@ -141,6 +141,9 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_prices':
+        from app.product_knowledge.price_refresh import PriceRefreshPayload
+        return PriceRefreshPayload.model_validate(payload).model_dump(mode='json')
     if automation_type == "sales.finalize_reports":
         if payload:
             raise ValueError("Reports action accepts no parameters")
@@ -163,6 +166,10 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'products.sync_iiko_prices' and (
+        not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 60
+    ):
+        raise ValueError('Prices sync requires a 60 minute interval')
     if automation_type == "sales.finalize_reports" and (
         not isinstance(schedule_config, DailyScheduleConfig) or schedule_config.time != "08:00"
     ):
@@ -261,7 +268,7 @@ class AutomationScheduleBase(BaseModel):
     @model_validator(mode="after")
     def validate_complete_scope(self) -> "AutomationScheduleBase":
         validate_scope_pair(self.scope_type, self.scope_id)
-        if self.automation_type in {"sales.sync_iiko", "sales.finalize_reports"} and self.scope_type != "company":
+        if self.automation_type in {"sales.sync_iiko", "sales.finalize_reports", 'products.sync_iiko_prices'} and self.scope_type != "company":
             raise ValueError("Sales sync requires company scope")
         self.payload = validate_automation_schedule_contract(
             self.automation_type,

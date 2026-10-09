@@ -107,4 +107,4 @@ class WorkRequestsApiTests(unittest.TestCase):
     def test_migrations_have_single_head(self):
         config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
         scripts = ScriptDirectory.from_config(config)
-        self.assertEqual(scripts.get_heads(), ['20261009_0075'])
+        self.assertEqual(scripts.get_heads(), ['20261009_0076'])

@@ -30,7 +30,9 @@ Review документов
 ```
 
 R0 выполнен; K0 сохранён как dev demo; K1 развёрнут по подтверждению владельца;
-K2 локально на review. K3–K6 и P ниже —
+K2 развёрнут по подтверждению владельца от 09.10.2026. K3 обычные real prices
+и regular action приняты владельцем к релизу; SCHEDULED precedence
+и browser acceptance остаются непроверенными. K4–K6 и P ниже —
 предлагаемые слайсы, а не прежние обозначения 3.2A–3.2E.
 После R0 границы K1–K6 уточняются по реальным контрактам и объёму данных.
 Себестоимость/ТТК могут потребовать отдельных слайсов; их реализацию не объявлять
@@ -173,6 +175,15 @@ downgrade не штатный путь. Для каждого слайса со�
 - После review остановиться. K3 начинается по отдельному заданию; gate K остаётся открытым.
 
 ## 6. K3 — действующие цены по точкам
+
+**09.10.2026: PARTIAL / ordinary prices приняты к релизу.** Read-only
+collector повторно получил 413 contexts для 141 EOS UUID. 363 цены, 50 exclusions,
+10 missing; валюта/контрольные единицы/цены подтверждены владельцем. Source snapshots,
+review hash/audit/retry, date resolver и existing scheduler/outbox regular action
+реализованы локально. SCHEDULED/date-only ambiguity fail closed; приоритеты
+пересекающихся расписаний без Office evidence не реализуются. [Отчёт K3](STAGE_3_2_K3_REPORT_2026-10-09.md).
+Deployment/publication/schedule enabling/Gate K не выполнены; browser приёмка ниже
+и SCHEDULED controls остаются необходимыми для полного закрытия K3.
 
 - **Цель/результат:** таблица показывает применимую цену, карточка — её контекст.
 - **Зависимости:** K1–K2, P03/Q04 и подтверждённые department mappings.

@@ -68,6 +68,9 @@ def _validated_action_payload(
             parse_schedule_config(schedule_config),
             payload,
         )
+        if automation_type == 'products.sync_iiko_prices':
+            from app.product_knowledge.price_refresh import PriceRefreshPayload, scope
+            scope(session, tenant_id, PriceRefreshPayload.model_validate(normalized))
         if automation_type == SUPPLY_ENSURE_REQUEST_CYCLE:
             require_active_supply_direction(
                 session,
@@ -194,7 +197,7 @@ def update_schedule(
         else schedule.scope_id
     )
     validate_schedule_scope(final_scope_type, final_scope_id)
-    if updates.get("automation_type", schedule.automation_type) in {"sales.sync_iiko", "sales.finalize_reports"} and getattr(final_scope_type, 'value', final_scope_type) != 'company':
+    if updates.get("automation_type", schedule.automation_type) in {"sales.sync_iiko", "sales.finalize_reports", 'products.sync_iiko_prices'} and getattr(final_scope_type, 'value', final_scope_type) != 'company':
         raise InvalidAutomationScheduleActionError("Обновление продаж доступно только для всей компании")
 
     before = schedule_audit_snapshot(schedule)

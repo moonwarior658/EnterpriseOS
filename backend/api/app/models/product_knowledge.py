@@ -97,3 +97,22 @@ class ProductKnowledgePrice(Base):
     evidence: Mapped[str] = mapped_column(String(500))
     verified_by_user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ProductKnowledgePriceSnapshot(Base):
+    """Complete, bounded source observations; corrections retain every snapshot."""
+    __tablename__ = 'product_knowledge_price_snapshots'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'source_id'], ['sales_sync_states.tenant_id', 'sales_sync_states.source_id'], ondelete='RESTRICT'),
+        UniqueConstraint('tenant_id', 'source_id', 'plan_hash', name='uq_pk_price_snapshot_hash'),
+        CheckConstraint('date_to > date_from', name='ck_pk_price_snapshot_dates'),
+        Index('ix_pk_price_snapshot_lookup', 'tenant_id', 'source_id', 'observed_at'),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    source_id: Mapped[str] = mapped_column(String(64))
+    plan_hash: Mapped[str] = mapped_column(String(64))
+    date_from: Mapped[date] = mapped_column(Date)
+    date_to: Mapped[date] = mapped_column(Date)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSON)
