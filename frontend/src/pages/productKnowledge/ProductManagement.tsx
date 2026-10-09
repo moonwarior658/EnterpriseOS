@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { getIikoCandidates, getProductHistory, productCommand, type Catalog, type IikoCandidate, type Product, type ProductHistory } from '../../services/productKnowledge'
 
 const contentFields = { description: 'Описание', characteristics: 'Характеристики', composition: 'Состав', allergens: 'Аллергены', storage: 'Хранение', training: 'Материалы для продавцов' } as const
-const operations: Record<string, string> = { EDIT: 'Изменение карточки', STATUS: 'Изменение статуса', DELETE: 'Удаление из справочника', RESTORE: 'Восстановление', READD: 'Повторное добавление', ADD: 'Добавление', VERIFY: 'Проверка сведений' }
+const operations: Record<string, string> = { PHOTO_UPLOAD: 'Загрузка / замена фотографии', PHOTO_DELETE: 'Удаление фотографии', EDIT: 'Изменение карточки', STATUS: 'Изменение статуса', DELETE: 'Удаление из справочника', RESTORE: 'Восстановление', READD: 'Повторное добавление', ADD: 'Добавление', VERIFY: 'Проверка сведений' }
 const fields: Record<string, string> = { name: 'Название', category_name: 'Категория', description: 'Описание', characteristics: 'Характеристики', composition: 'Состав', allergens: 'Аллергены', storage: 'Хранение', training: 'Материалы', sale_status: 'Статус', deleted_at: 'Удалено', verified_at: 'Проверено', verified_by_name: 'Проверил' }
 const displayValue = (value: unknown) => value == null || value === '' ? 'Нет данных' : value === 'ON_SALE' ? 'В продаже' : value === 'OFF_SALE' ? 'Выведено из продажи' : String(value)
 const errorText = (error: unknown) => error instanceof Error && error.name === 'ProductApiError' ? error.message : 'Не удалось сохранить изменения. Повторите позже'

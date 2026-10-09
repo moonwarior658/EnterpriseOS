@@ -35,6 +35,8 @@ class ProductKnowledgeProduct(Base):
         ForeignKeyConstraint(['tenant_id', 'batch_id'], ['product_knowledge_batches.tenant_id', 'product_knowledge_batches.id'], ondelete='RESTRICT'),
         Index('ix_pk_work_catalog', 'tenant_id', 'published', 'deleted_at', 'verified_at'),
         CheckConstraint('version > 0', name='ck_pk_version'),
+        CheckConstraint("local_photo_hash IS NULL OR local_photo_hash ~ '^[a-f0-9]{64}$'",
+                        name='ck_pk_photo_hash').ddl_if(dialect='postgresql'),
         ForeignKeyConstraint(['tenant_id', 'verified_by_employee_id'], ['employees.tenant_id', 'employees.id'], ondelete='RESTRICT'),
         CheckConstraint("sale_status IN ('ON_SALE', 'OFF_SALE')", name='ck_pk_sale_status'),
         CheckConstraint("sale_mode IN ('UNKNOWN', 'PORTION', 'WEIGHT')", name='ck_pk_sale_mode'),
@@ -60,6 +62,7 @@ class ProductKnowledgeProduct(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     provenance: Mapped[dict] = mapped_column(JSON)
     # Local EOS fields are separate from all source attributes.
+    local_photo_hash: Mapped[str | None] = mapped_column(String(64))
     local_name: Mapped[str | None] = mapped_column(String(500))
     local_description: Mapped[str | None] = mapped_column(String(10000))
     characteristics: Mapped[str | None] = mapped_column(String(10000))

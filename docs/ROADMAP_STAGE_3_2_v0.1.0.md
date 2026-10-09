@@ -203,6 +203,19 @@ Deployment/publication/schedule enabling/Gate K не выполнены; browser
 
 ## 7. K4 — фотографии и локальная база знаний
 
+**CURRENT 09.10.2026: локальное управление фото EOS реализовано, на review.**
+Загрузка/замена/удаление, protected read, K2 права, immutable audit/files,
+таблица/mobile/карточка и persistent volume. Прямое задание владельца утверждает
+локальное фото EOS с приоритетом над будущим iiko cache. Active source photo
+coverage R0=0; downloader iiko не входит в текущую реализацию. Текстовые знания
+повторно не реализованы. K0–K3 production работают по текущему сообщению владельца;
+исторические непроверенные SCHEDULED/browser пункты выше не являются live audit.
+[Отчёт K4](STAGE_3_2_K4_REPORT_2026-10-09.md), [runbook](STAGE_3_2_K4_STORAGE_RUNBOOK.md).
+Backend/frontend/PostgreSQL verification — в отчёте. Docker restart/recreate,
+production DB+volume recovery и browser/business acceptance остаются открытыми.
+Без deployment; K4/Gate K не объявлены завершёнными.
+
+
 - **Цель/результат:** узнаваемые изделия и проверенная информация для продавцов.
 - **Зависимости:** K3; P04/Q09, Q02/Q10. Если price API задерживается, изменение
   порядка K3/K4 допустимо только зафиксированным решением после R0, без части II.

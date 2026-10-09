@@ -79,5 +79,5 @@ class ProductKnowledgePostgresTests(unittest.TestCase):
         try:
             settings.postgres_db=url.database;settings.postgres_user=url.username;settings.postgres_password=url.password or '';settings.postgres_host=url.host;settings.postgres_port=url.port
             with self.assertRaisesRegex(RuntimeError,'PRODUCT_KNOWLEDGE_DATA_EXISTS'):command.downgrade(Config(str(Path(__file__).parents[1]/'alembic.ini')),'20261006_0073')
-            with self.engine.connect() as c:self.assertEqual(c.execute(text('select version_num from alembic_version')).scalar(),'20261009_0075')
+            with self.engine.connect() as c:self.assertEqual(c.execute(text('select version_num from alembic_version')).scalar(),'20261009_0077')
         finally:settings.postgres_db,settings.postgres_user,settings.postgres_password,settings.postgres_host,settings.postgres_port=previous

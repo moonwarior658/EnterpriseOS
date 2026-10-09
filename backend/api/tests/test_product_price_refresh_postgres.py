@@ -72,4 +72,4 @@ class PriceRefreshPostgresTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'PRODUCT_PRICE_SNAPSHOTS_EXIST'):
             command.downgrade(Config(str(Path(__file__).parents[1]/'alembic.ini')), '20261009_0075')
         with self.engine.connect() as connection:
-            self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(), '20261009_0076')
+            self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(), '20261009_0077')

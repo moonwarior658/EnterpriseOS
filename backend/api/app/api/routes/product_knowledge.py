@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, Query, Response, HTTPException
+from fastapi import APIRouter, Depends, Query, Response, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user
 from app.api.routes.action_context import action_context_http_error
@@ -134,3 +134,61 @@ def restore_product(product_id: UUID, command: ProductCommand, db: Db, actor: Ac
 @router.patch('/{product_id}/verification', response_model=ProductRead)
 def verify_product(product_id: UUID, command: VerificationUpdate, db: Db, actor: Actor):
     return execute(db, actor, product_id, 'VERIFY', command)
+
+
+@router.get('/{product_id}/photo')
+def read_product_photo(product_id: UUID, db: Db, actor: Actor):
+    from fastapi.responses import FileResponse
+    from app.core.config import settings
+    from app.product_knowledge import media
+    try:
+        path = media.read(db, actor, product_id, settings.product_photo_upload_dir)
+        return FileResponse(path, media_type='image/webp', headers={
+            'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'"})
+    except ActionContextError as error:
+        raise action_context_http_error(error) from error
+
+
+@router.put('/{product_id}/photo', response_model=ProductRead)
+async def upload_product_photo(product_id: UUID, db: Db, actor: Actor,
+    file: Annotated[UploadFile, File()], expected_version: Annotated[int, Form(ge=1)],
+    reason: Annotated[str, Form(min_length=1, max_length=500)]):
+    from app.core.config import settings
+    from app.product_knowledge import media
+    try:
+        management.manage_context(db, actor)
+        if not reason.strip():
+            raise HTTPException(422, 'Укажите причину')
+        content = await file.read(media.MAX_BYTES + 1)
+        command = ProductCommand(expected_version=expected_version, reason=reason)
+        media.mutate(db, actor, product_id, command, settings.product_photo_upload_dir,
+                     content=content, content_type=file.content_type)
+        result = service.detail(db, actor, product_id, department_id=None, price_at=today())
+        db.commit()
+        return result
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        await file.close()
+
+
+@router.delete('/{product_id}/photo', response_model=ProductRead)
+def delete_product_photo(product_id: UUID, command: ProductCommand, db: Db, actor: Actor):
+    from app.core.config import settings
+    from app.product_knowledge import media
+    try:
+        media.mutate(db, actor, product_id, command, settings.product_photo_upload_dir)
+        result = service.detail(db, actor, product_id, department_id=None, price_at=today())
+        db.commit()
+        return result
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except Exception:
+        db.rollback()
+        raise

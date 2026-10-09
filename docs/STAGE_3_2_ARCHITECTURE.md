@@ -477,3 +477,28 @@ K3 release review 09.10.2026: additive `ProductRead.price_health` содержи
 point scope, без iiko calls. Возраст >2h считается устареванием hourly снимка;
 ошибка последнего FAILED/TIMED_OUT/RETRYING после success не стирает дату.
 Новое успешное получение снимает ошибку. Миграция остаётся только 0076.
+
+## K4 implementation — 09.10.2026, локально на review
+
+Использован существующий паттерн EOS private filesystem + authenticated FileResponse,
+не payment-specific сущности и не публичный static mount. Новая migration 0077
+добавляет nullable `local_photo_hash` к ProductKnowledgeProduct с PostgreSQL hash
+constraint. Отдельная media table для одного основного локального фото не нужна:
+metadata MIME=WebP фиксирована, версия/автор/время и before/after hash уже в audit.
+ProductMedia выше остаётся предложением для будущего source cache.
+
+`GET/PUT/DELETE /products/{EOS UUID}/photo` применяют K2 контекст/tenant/publication
+и manage capability. PUT — bounded multipart, actual MIME/decode/pixel/frame checks,
+нормализация, атомарный immutable blob, row lock, expected_version и digest повтора.
+DELETE — ProductCommand; pointer/version/verification/audit меняются транзакционно.
+Blobs сохраняются при замене/удалении; orphan после DB failure безопасен, автоматическая
+очистка не добавлена. Чтение private/no-store/nosniff, без remote credential URL.
+`ProductRead.photo` теперь nullable hash версии, не public URL. Browser получает
+blob с Authorization и освобождает object URL при размонтировании/смене фото.
+
+Compose volume `product_photo_uploads` сохраняет files при restart/recreate API.
+Настройка `PRODUCT_PHOTO_UPLOAD_DIR` по умолчанию `/app/uploads/product-photos`.
+Offline verifier `python -m app.product_knowledge.media` сверяет все current/audit
+references с SHA-256 файлов. [Backup/recovery runbook](STAGE_3_2_K4_STORAGE_RUNBOOK.md).
+Docker persistence и production recovery пока не проверены: Docker здесь отсутствует.
+K0–K3 production работают по текущему подтверждению владельца; live audit не выполнялся.

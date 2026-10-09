@@ -113,7 +113,7 @@ class ProductRead(BaseModel):
     price_health: list[PriceHealthRead] = Field(default_factory=list)
     price_conflict_points: list[UUID] = Field(default_factory=list)
     description_source: Literal['EOS', 'iiko']
-    photo: None = None
+    photo: str | None = None
     characteristics: str | None = None
     composition: str | None = None
     allergens: str | None = None

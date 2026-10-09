@@ -117,6 +117,7 @@ def projection(product, prices, point, manager=False, conflicts=(), health=()):
         price=next((p for p in prices if p['department_id'] == point), None), prices=prices,
         price_conflict_points=sorted(conflicts, key=str), price_health=list(health),
         description_source='EOS' if product.local_description is not None else 'iiko',
+        photo=product.local_photo_hash,
         characteristics=product.characteristics, composition=product.composition, allergens=product.allergens,
         storage=product.storage, training=product.training, version=product.version,
         deleted_at=product.deleted_at, verified_at=product.verified_at,

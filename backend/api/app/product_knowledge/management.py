@@ -14,7 +14,7 @@ from app.models.supply import SupplyProduct, SupplyUnit
 from app.models.supply import SupplyProductCategory
 from app.product_knowledge.bootstrap import digest
 
-LOCAL_FIELDS = ('local_name', 'category_id', 'category_name', 'local_description', 'characteristics',
+LOCAL_FIELDS = ('local_photo_hash', 'local_name', 'category_id', 'category_name', 'local_description', 'characteristics',
                 'composition', 'allergens', 'storage', 'training', 'sale_status', 'deleted_at',
                 'verified_at', 'verified_by_employee_id', 'verified_by_name', 'version')
 AUDIT_FIELDS = (*LOCAL_FIELDS, 'name', 'description')

@@ -13,6 +13,7 @@
       - work_request_uploads:/app/uploads/work-requests
       - supplier_document_uploads:/app/uploads/supplier-documents
       - employee_avatar_uploads:/app/uploads/employee-avatars
+      - product_photo_uploads:/app/uploads/product-photos
     networks:
       - enterpriseos-network
 
@@ -148,6 +149,7 @@ volumes:
   work_request_uploads:
   supplier_document_uploads:
   employee_avatar_uploads:
+  product_photo_uploads:
   n8n_postgres_data:
   n8n_data:
   npm_data:

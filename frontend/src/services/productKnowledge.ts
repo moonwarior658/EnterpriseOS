@@ -4,7 +4,7 @@ export const PRODUCT_KNOWLEDGE_ROLES: EmployeeRole[] = ['ADMIN','DIRECTOR','DEPU
 export type ProductPrice = { department_id: string; department_name: string; amount: string; currency: string; price_unit: string; valid_from: string; valid_to: string; observed_at: string }
 export type PriceHealth = { department_id: string; last_success_at: string | null; stale: boolean; update_failed: boolean }
 export type Product = {
-  id: string; name: string; sku: string | null; unit_name: string; unit_weight_kg: string | null
+  photo?: string | null; id: string; name: string; sku: string | null; unit_name: string; unit_weight_kg: string | null
   sale_mode: string; sale_status: string; category_id: string | null; category_name: string | null
   description_source: 'EOS' | 'iiko'; description: string | null; observed_at: string; source_deleted: boolean
   characteristics: string | null; composition: string | null; allergens: string | null; storage: string | null; training: string | null
@@ -13,7 +13,7 @@ export type Product = {
   price_health?: PriceHealth[]; price: ProductPrice | null; prices: ProductPrice[]; price_conflict_points?: string[]; allowed_actions: string[]
 }
 export type Catalog = { items: Product[]; total: number; offset: number; limit: number; points: {id: string; name: string}[]; categories: {id: string; name: string}[]; observed_at: string | null; active_count: number; verified_count: number; allowed_actions: string[] }
-export class ProductApiError extends Error { status: number; constructor(status: number) { super(status === 403 ? 'Нет доступа к продукции' : status === 404 ? 'Изделие или точка недоступны' : status === 409 ? 'Данные изменились. Обновите карточку или выберите изделие заново' : status === 422 ? 'Проверьте заполнение полей и категорию' : 'Не удалось загрузить продукцию. Повторите позже'); this.name = 'ProductApiError'; this.status = status } }
+export class ProductApiError extends Error { status: number; constructor(status: number, photo = false) { super(status === 403 ? 'Нет доступа к продукции' : status === 404 ? 'Изделие или точка недоступны' : status === 409 ? 'Данные изменились. Обновите карточку или выберите изделие заново' : status === 413 ? 'Размер фотографии не должен превышать 10 МБ' : status === 415 ? 'Загрузите JPEG, PNG или WebP' : status === 422 ? photo ? 'Проверьте файл: допустима неподвижная фотография до 16 млн пикселей' : 'Проверьте заполнение полей и категорию' : 'Не удалось загрузить продукцию. Повторите позже'); this.name = 'ProductApiError'; this.status = status } }
 async function read<T>(path: string, params: URLSearchParams, signal: AbortSignal): Promise<T> {
   const token = getStoredToken()
   const response = await fetch(`/api/products${path}?${params}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, signal })
