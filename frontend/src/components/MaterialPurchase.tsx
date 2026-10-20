@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MaterialDocumentAdmissions } from './MaterialDocumentAdmissions'
 import { materialRequest, type Material, type PurchaseMetric, type PurchaseHistory, type PurchaseSources, type PurchaseProgress } from '../services/rawMaterials'
 
 const date = (value: string) => new Date(value).toLocaleString('ru-RU', {timeZone:'Asia/Yekaterinburg'})
@@ -40,7 +41,7 @@ export function PurchasePanel({material,onUpdated}: {material:Material;onUpdated
     try {setSources(await materialRequest<PurchaseSources>(`/${material.id}/metrics/${id}/sources`))}
     catch {setError('Не удалось открыть документ-основание')}
   }
-  const current=history?.items[0]&&offset===0?history.items[0]:material.last_purchase_price
+  const current=history?.current||(history?.items[0]&&offset===0?history.items[0]:material.last_purchase_price)
   return <div className="material-purchase"><p>Последняя цена прихода: <PurchaseValue metric={current}/></p>
     <p>Средневзвешенная за 6 полных месяцев: <PurchaseValue metric={current?.six_month_average||material.six_month_average}/></p>{(current?.six_month_average||material.six_month_average)?.date_from&&<small>{(current?.six_month_average||material.six_month_average)?.date_from} — {(current?.six_month_average||material.six_month_average)?.date_to} (конец не включён)</small>}
     {(current?.six_month_average||material.six_month_average)?.reasons?.map(reason=><p key={`average:${reason}`}>Средняя: {reason}</p>)}
@@ -54,6 +55,8 @@ export function PurchasePanel({material,onUpdated}: {material:Material;onUpdated
       {offset>0&&<button onClick={()=>setOffset(v=>Math.max(0,v-25))}>Предыдущие</button>}{history?.items.length===25&&<button onClick={()=>setOffset(v=>v+25)}>Следующие</button>}
     </details>
     {sources&&<section aria-label="Документ-основание"><h3>Основание закупочной цены</h3><p>{sources.warehouse} · Суммы с НДС, RUB</p>
+      {sources.admission_validity&&(!sources.admission_validity.latest||!sources.admission_validity.average)&&<p role="status">Исторический расчёт сохранён. Один из допусков отозван; текущие показатели требуют нового расчёта.</p>}
+      {sources.documents&&<MaterialDocumentAdmissions material={material} sources={sources} onUpdated={()=>{setRetry(v=>v+1);onUpdated();void source(sources.metric.id!)}}/>}
       {sources.metric.status==='BLOCKED'&&<p>Суммы ниже — исходные данные для проверки, закупочная цена не подтверждена.</p>}
       {sources.analytics?.average&&<details><summary>Вычисление средней за шесть месяцев</summary><p>{sources.analytics.average.numerator} / {sources.analytics.average.denominator} {sources.metric.unit} · Сумма с НДС / количество</p>{sources.analytics.average.documents.map(d=><p key={d.document_id}>Накладная №{d.number} · {d.document_id}: {d.numerator} / {d.denominator}</p>)}</details>}
       {sources.candidates.map(doc=><div key={`${doc.document_id}:${doc.number}`}><h4>Накладная №{doc.number}</h4><p>{doc.receipt_at?date(doc.receipt_at):'Дата не подтверждена'} · {doc.supplier_name||'Поставщик требует проверки'}</p>

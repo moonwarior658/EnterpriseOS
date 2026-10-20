@@ -78,5 +78,5 @@ class PurchasePostgresTests(unittest.TestCase):
         with self.sessions() as db:self.assertEqual(db.scalar(select(func.count()).select_from(Snapshot).where(Snapshot.tenant_id==self.tenant)),0)
         with self.sessions.begin() as db:refresh.publish(db,self.tenant,snapshot,execution_id=execution_id)
         with fixture.migration_settings(self.url):
-            with self.assertRaisesRegex(RuntimeError,'MATERIAL_(STANDARD|PURCHASE)_HISTORY_EXISTS'):command.downgrade(Config('alembic.ini'),'20261020_0080')
-        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('SELECT version_num FROM alembic_version')).scalar(),'20261020_0082')
+            with self.assertRaisesRegex(RuntimeError,'MATERIAL_(ADMISSION|STANDARD|PURCHASE)_HISTORY_EXISTS'):command.downgrade(Config('alembic.ini'),'20261020_0080')
+        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('SELECT version_num FROM alembic_version')).scalar(),'20261020_0083')

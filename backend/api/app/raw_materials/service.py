@@ -26,7 +26,7 @@ ENTITY = 'RawMaterialProfile'
 
 def permitted(db, actor, capability):
     try:
-        authorize(db, actor, capability, write=capability in (EDIT, CONFIRM, Capability.MATERIAL_PURCHASE_REFRESH))
+        authorize(db, actor, capability, write=capability in (EDIT, CONFIRM, Capability.MATERIAL_PURCHASE_REFRESH, Capability.MATERIAL_DOCUMENT_ADMIT))
         return True
     except ActionContextError:
         return False
@@ -34,7 +34,7 @@ def permitted(db, actor, capability):
 
 def permissions(db, actor):
     authorize(db, actor, READ)
-    return dict(edit=permitted(db, actor, EDIT), confirm=permitted(db, actor, CONFIRM), money=permitted(db, actor, MONEY), refresh=permitted(db, actor, Capability.MATERIAL_PURCHASE_REFRESH))
+    return dict(admit=permitted(db, actor, Capability.MATERIAL_DOCUMENT_ADMIT), edit=permitted(db, actor, EDIT), confirm=permitted(db, actor, CONFIRM), money=permitted(db, actor, MONEY), refresh=permitted(db, actor, Capability.MATERIAL_PURCHASE_REFRESH))
 
 
 def find(db, actor, product_id, *, lock=False):
@@ -91,13 +91,14 @@ def projection(db, profile, product, rights):
         unit_weight_kg=weight, photo_hash=profile.photo_hash, primary_supplier=primary,
         backup_supplier=backup, backup_ambiguous=ambiguous, suppliers=assigned,
         purchase_access=rights['money'], monthly_consumption=dict(status='NO_DATA', quantity=None),
-        allowed_actions=([ 'EDIT', 'PHOTO', 'ARCHIVE' ] if rights['edit'] else []) + (['CONFIRM'] if rights['confirm'] else []) + (['METRICS_REFRESH'] if rights['refresh'] and not profile.archived and product.is_active else []))
+        allowed_actions=(['DOCUMENT_ADMIT'] if rights.get('admit') else []) + ([ 'EDIT', 'PHOTO', 'ARCHIVE' ] if rights['edit'] else []) + (['CONFIRM'] if rights['confirm'] else []) + (['METRICS_REFRESH'] if rights['refresh'] and not profile.archived and product.is_active else []))
     from app.raw_materials.purchase_refresh import latest_snapshot, analytics_summary
     metric_row = latest_snapshot(db, profile.tenant_id, product.id)
     body['monthly_consumption'] = analytics_summary(metric_row, 'usage')
     if rights['money']:
         from app.raw_materials.purchase_refresh import summary
-        body.update(last_purchase_price=summary(db, profile.tenant_id, product.id), six_month_average=analytics_summary(metric_row, 'average'), tax_basis='WITH_VAT')
+        current = summary(db, profile.tenant_id, product.id)
+        body.update(last_purchase_price=current, six_month_average=current.get('six_month_average', analytics_summary(metric_row, 'average')), tax_basis='WITH_VAT')
     return body
 
 

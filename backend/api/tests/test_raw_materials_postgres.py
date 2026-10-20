@@ -94,10 +94,10 @@ class RawMaterialPostgresTests(unittest.TestCase):
         self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)).status_code,404)
         with self.engine.connect() as connection:
             purchase_history=connection.execute(text('SELECT EXISTS (SELECT 1 FROM material_purchase_snapshots)')).scalar()
-        guard='MATERIAL_(STANDARD_HISTORY|PURCHASE_HISTORY|KNOWLEDGE)_EXISTS'
+        guard='MATERIAL_(ADMISSION_HISTORY|STANDARD_HISTORY|PURCHASE_HISTORY|KNOWLEDGE)_EXISTS'
         with migration_settings(self.url):
             with self.assertRaisesRegex(RuntimeError,guard):command.downgrade(Config('alembic.ini'),'20261009_0079')
-        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0082')
+        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0083')
         self.assertIn('ck_material_kind',{x['name'] for x in inspect(self.engine).get_check_constraints('raw_material_profiles')})
 
     def test_tenant_unique_fk_revision_primary_and_approval_constraints(self):

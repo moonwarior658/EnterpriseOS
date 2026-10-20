@@ -64,6 +64,7 @@ class MaterialPurchaseSnapshot(Base):
     __table_args__ = (
         ForeignKeyConstraint(['tenant_id', 'product_id'], ['raw_material_profiles.tenant_id', 'raw_material_profiles.product_id'], ondelete='RESTRICT'),
         UniqueConstraint('tenant_id', 'product_id', 'execution_id', name='uq_material_purchase_execution'),
+        UniqueConstraint('tenant_id', 'product_id', 'id', name='uq_material_purchase_owner'),
         CheckConstraint("status IN ('READY','BLOCKED','NO_DATA')", name='ck_material_purchase_status'),
         CheckConstraint("(status = 'READY' AND amount IS NOT NULL) OR (status <> 'READY' AND amount IS NULL)", name='ck_material_purchase_amount'),
     )
@@ -114,3 +115,38 @@ class MaterialUnitConversion(Base):
     factor: Mapped[Decimal] = mapped_column(Numeric(24,12))
     valid_from: Mapped[date] = mapped_column(Date)
     valid_to: Mapped[date] = mapped_column(Date)
+
+
+class MaterialDocumentAdmission(Base):
+    """Append-only grants/revocations for one raw-material/document revision or line."""
+    __tablename__ = 'material_document_admissions'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id','product_id','snapshot_id'], ['material_purchase_snapshots.tenant_id','material_purchase_snapshots.product_id','material_purchase_snapshots.id'], ondelete='RESTRICT'),
+        UniqueConstraint('tenant_id','request_id',name='uq_material_admission_request'),
+        UniqueConstraint('scope_key','revision',name='uq_material_admission_revision'),
+        CheckConstraint("kind IN ('EMPLOYEE_PURCHASE','BASE_UNIT_CONTAINER')",name='ck_material_admission_kind'),
+        CheckConstraint("action IN ('GRANT','REVOKE') AND revision>0",name='ck_material_admission_action'),
+        CheckConstraint("kind <> 'BASE_UNIT_CONTAINER' OR line_num <> ''",name='ck_material_admission_line'),
+        CheckConstraint("length(trim(evidence))>=3 AND length(trim(comment))>=3",name='ck_material_admission_proof'),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64),index=True)
+    product_id: Mapped[UUID] = mapped_column(index=True)
+    snapshot_id: Mapped[UUID]
+    request_id: Mapped[UUID]
+    request_hash: Mapped[str] = mapped_column(String(64))
+    scope_key: Mapped[str] = mapped_column(String(64),index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(24))
+    action: Mapped[str] = mapped_column(String(8))
+    source_id: Mapped[str] = mapped_column(String(64))
+    warehouse_id: Mapped[UUID]
+    document_id: Mapped[UUID]
+    document_hash: Mapped[str] = mapped_column(String(64))
+    line_num: Mapped[str] = mapped_column(String(32))
+    line_hash: Mapped[str] = mapped_column(String(64))
+    evidence: Mapped[str] = mapped_column(String(2000))
+    comment: Mapped[str] = mapped_column(String(2000))
+    verification: Mapped[dict] = mapped_column(JSON)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey('users.id',ondelete='RESTRICT'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),server_default=func.now())

@@ -9,7 +9,7 @@ from app.product_knowledge.bootstrap import digest
 WAREHOUSE = '1c22edc0-7ded-41c9-b781-0389462c7247'
 SOURCE = '244d6eaf9c7c106993d10feb0ff9883dbdb73101cd3a2ab6852c9ba5b9907401'
 TECHNICAL = '5bf2b1c7-8c91-b774-01a0-ae4cafa53ba1'
-POLICY = 'rm2-v1-rub-vat-document-sum-exact-unit'
+POLICY = 'rm345-v2-document-admissions-exact-unit'
 
 
 def windows(as_of: date):
@@ -84,6 +84,7 @@ def evaluate(documents, suppliers, mapping, *, date_from, date_to, units=None):
 
 def _evaluate(documents, suppliers, mapping, *, date_from, date_to, units):
     """No implicit historical conversions; unknown newer candidates block fallback."""
+    from app.raw_materials.admission_policy import matching, line_hash
     grouped, exclusions, undated = {}, [], False
     for document in documents:
         relevant = [i for i in document['items'] if i.get('product') == mapping['iiko_product_id']]
@@ -112,19 +113,22 @@ def _evaluate(documents, suppliers, mapping, *, date_from, date_to, units):
             continue
         reason = []
         if status != 'PROCESSED' or document.get('deleted', 'false').lower() != 'false': reason.append('UNCONFIRMED_DOCUMENT')
-        if not supplier or not supplier.get('is_supplier') or supplier.get('is_employee') or supplier.get('is_deleted'):
+        if not supplier or not supplier.get('is_supplier') or supplier.get('is_deleted'):
             reason.append('SUPPLIER_UNCONFIRMED')
         if document.get('currency') not in (None, '', 'RUB'): reason.append('CURRENCY_MISMATCH')
         if any(i.get('isAdditionalExpense', 'false').lower() != 'false' for i in document['items']): reason.append('ADDITIONAL_EXPENSE')
         numerator, denominator, identities = Decimal(0), Decimal(0), set()
         evidence = []
         for item in lines:
+            employee = matching(mapping, document, item, 'EMPLOYEE_PURCHASE') if supplier.get('is_employee') else []
+            packaging = matching(mapping, document, item, 'BASE_UNIT_CONTAINER')
+            if supplier.get('is_employee') and not employee: reason.append('SUPPLIER_UNCONFIRMED')
             identity = item.get('num')
             if not identity or not str(identity).isdigit() or identity in identities: reason.append('LINE_IDENTITY_CONFLICT')
             identities.add(identity)
             if warehouse(item, document) != WAREHOUSE: reason.append('WAREHOUSE_UNCONFIRMED')
             if item.get('amountUnit') != mapping['unit_id']: reason.append('UNIT_MISMATCH')
-            if item.get('containerId') and item.get('containerId') != '00000000-0000-0000-0000-000000000000': reason.append('CONTAINER_UNCONFIRMED')
+            if item.get('containerId') and item.get('containerId') != '00000000-0000-0000-0000-000000000000' and not packaging: reason.append('CONTAINER_UNCONFIRMED')
             if item.get('isAdditionalExpense', 'false').lower() != 'false': reason.append('ADDITIONAL_EXPENSE')
             amount, actual, total = decimal(item.get('amount')), decimal(item.get('actualAmount')), decimal(item.get('sum'))
             if actual is None or amount is None or actual != amount or actual <= 0 or total is None or total <= 0:
@@ -135,9 +139,9 @@ def _evaluate(documents, suppliers, mapping, *, date_from, date_to, units):
             vat, vat_sum = decimal(item.get('vatPercent')), decimal(item.get('vatSum'))
             if vat is None or not 0 <= vat <= 100 or vat_sum is None or vat_sum < 0 or total is None or vat_sum > total or (vat == 0 and vat_sum != 0):
                 reason.append('TAX_UNCONFIRMED')
-            evidence.append(dict(unit_name=units.get(item.get('amountUnit'), mapping['unit'] if item.get('amountUnit') == mapping['unit_id'] else None), **{k: item.get(k) for k in ('num','product','store','amount','actualAmount','amountUnit','containerId','sum','price','priceWithoutVat','vatPercent','vatSum','isAdditionalExpense','original_line','conversion')}))
+            evidence.append(dict(line_hash=line_hash(item), document_admissions=employee+packaging, unit_name=units.get(item.get('amountUnit'), mapping['unit'] if item.get('amountUnit') == mapping['unit_id'] else None), **{k: item.get(k) for k in ('num','product','store','amount','actualAmount','amountUnit','containerId','sum','price','priceUnit','priceWithoutVat','discountSum','vatPercent','vatSum','isAdditionalExpense','original_line','conversion')}))
         candidate = dict(document_id=did, number=document.get('documentNumber'), receipt_at=stamp or None,
-            supplier_id=document.get('supplier'), supplier_name=supplier.get('name') if not supplier.get('is_employee') else None,
+            incoming_date=document.get('incomingDate'), supplier_id=document.get('supplier'), supplier_name=supplier.get('name') if not supplier.get('is_employee') else None,
             supplier_flags={k: supplier.get(k) for k in ('is_supplier','is_employee','represents_store','is_deleted')},
             status=status, revision=document.get('revision'), source_hash=document['source_hash'], lines=evidence,
             numerator=str(numerator), denominator=str(denominator), reasons=sorted(set(reason)))

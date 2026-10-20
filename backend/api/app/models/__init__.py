@@ -189,3 +189,5 @@ from app.models.raw_material import RawMaterialProfile, MaterialSpecificationVer
 from app.models.raw_material import MaterialPurchaseSnapshot
 
 from app.models.raw_material import MaterialProductAllowance, MaterialUnitConversion
+
+from app.models.raw_material import MaterialDocumentAdmission

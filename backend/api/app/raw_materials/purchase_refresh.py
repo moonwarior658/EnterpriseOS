@@ -64,6 +64,9 @@ def scope(db, tenant, product_id):
     spec = service.latest(db, profile, confirmed=True)
     if spec and spec.payload.get('conversions'):
         result.update(conversions=spec.payload['conversions'],specification_hash=spec.content_hash,specification_id=str(spec.id))
+    from app.raw_materials.admissions import active
+    decisions = active(db, tenant, product_id)
+    if decisions: result['document_admissions'] = decisions
     return result
 
 
@@ -208,16 +211,28 @@ def metric(row):
         stale=(datetime.now(timezone.utc) - observed).total_seconds() > 48*3600, six_month_average=analytics_summary(row, 'average'))
 
 
+def current_metric(db, row):
+    from app.raw_materials.admissions import validity
+    body = metric(row)
+    if row is None: return body
+    latest_valid, average_valid = validity(db, row)
+    warning = 'Документный допуск отозван. Требуется новый расчёт'
+    if not latest_valid: body.update(status='BLOCKED', amount=None, reasons=[warning])
+    if not average_valid: body['six_month_average'].update(status='BLOCKED', amount=None, reasons=[warning])
+    return body
+
+
 def summary(db, tenant, product_id):
     row = db.scalar(select(Snapshot).where(Snapshot.tenant_id == tenant, Snapshot.product_id == product_id).order_by(Snapshot.observed_at.desc(), Snapshot.id.desc()).limit(1))
-    return metric(row)
+    return current_metric(db, row)
 
 
 def history(db, actor, product_id, *, offset=0, limit=25):
     authorize(db, actor, Capability.MATERIAL_PURCHASE_READ)
     service.find(db, actor, product_id)
     rows = db.scalars(select(Snapshot).where(Snapshot.tenant_id == actor.tenant_id, Snapshot.product_id == product_id).order_by(Snapshot.observed_at.desc(), Snapshot.id.desc()).offset(offset).limit(limit)).all()
-    return dict(items=[metric(r) for r in rows], refresh=progress(db.scalar(attempts(db, actor.tenant_id, product_id).limit(1))))
+    from app.raw_materials.admissions import validity
+    return dict(items=[dict(**metric(r), admission_validity=dict(zip(('latest','average'), validity(db,r)))) for r in rows], current=summary(db,actor.tenant_id,product_id), refresh=progress(db.scalar(attempts(db, actor.tenant_id, product_id).limit(1))))
 
 
 def sources(db, actor, product_id, snapshot_id):
@@ -228,6 +243,7 @@ def sources(db, actor, product_id, snapshot_id):
     details = row.payload.get('analytics')
     if details:
         details = dict(details, average={**details.get('average', {}), **analytics_summary(row, 'average')})
-    return dict(metric=metric(row), warehouse='Цех Производство ИП', hash=row.content_hash,
+    from app.raw_materials.admissions import validity
+    return dict(metric=metric(row), admission_validity=dict(zip(('latest','average'), validity(db,row))), documents=row.payload['result']['documents'], warehouse='Цех Производство ИП', hash=row.content_hash,
         policy=row.payload['policy'], source_id=row.source_id, source_path='/api/documents/export/incomingInvoice', mapping=row.payload['mapping'], manifest=row.payload['manifest'],
         analytics=details, candidates=row.payload['result']['candidates'], unit_conflicts=[dict(document_id=c['document_id'], number=c['number'], receipt_at=c['receipt_at'], lines=c['lines']) for c in row.payload['result']['documents'] if 'UNIT_MISMATCH' in c['reasons']], exclusions=row.payload['result']['exclusions'])

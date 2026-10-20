@@ -20,7 +20,7 @@ from app.db.session import get_db
 from app.api.routes.raw_materials import router
 from app.models.user import User
 from app.models.employee import EmployeeRole, EmployeeRoleAssignment
-from app.models.raw_material import RawMaterialProfile as Profile, MaterialSpecificationVersion as Specification, MaterialSpecificationApproval as Approval, MaterialPurchaseSnapshot
+from app.models.raw_material import RawMaterialProfile as Profile, MaterialSpecificationVersion as Specification, MaterialSpecificationApproval as Approval, MaterialPurchaseSnapshot, MaterialDocumentAdmission
 from app.models.supply import Department, SupplyUnit, SupplyProduct, SupplyProductCategory, SupplyStorageZone, SupplyRequestDirection, SupplySupplier, SupplyProductSupplier, SupplyProductAlias
 from app.models.iiko import IikoUnitMapping
 from app.models.audit import AuditEvent
@@ -31,7 +31,7 @@ from tests import test_employee_iiko_identity as fixture
 class RawMaterialTests(unittest.TestCase):
     def setUp(self):
         fixture.EmployeeIikoIdentityTests.setUp(self)
-        for model in (SupplyUnit, SupplyProductCategory, SupplyStorageZone, SupplyRequestDirection, SupplyProduct, SupplySupplier, SupplyProductSupplier, SupplyProductAlias, IikoUnitMapping, Profile, Specification, Approval, MaterialPurchaseSnapshot):
+        for model in (SupplyUnit, SupplyProductCategory, SupplyStorageZone, SupplyRequestDirection, SupplyProduct, SupplySupplier, SupplyProductSupplier, SupplyProductAlias, IikoUnitMapping, Profile, Specification, Approval, MaterialPurchaseSnapshot, MaterialDocumentAdmission):
             model.__table__.create(self.engine)
         self.seed()
         self.bind_client()

@@ -10,7 +10,7 @@ from app.core.action_context import ActionContextError
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
-from app.raw_materials import service, purchase_refresh
+from app.raw_materials import service, purchase_refresh, admissions
 from app.schemas.raw_materials import Enroll, SaveKnowledge, Confirm, Archive, Command, SelectReserve
 
 router = APIRouter(prefix='/raw-materials', tags=['raw materials'])
@@ -134,3 +134,13 @@ def select_reserve(product_id: UUID, command: SelectReserve, db: Db, actor: Acto
 @router.get('/{product_id}/standards/options')
 def standard_options(product_id: UUID, db: Db, actor: Actor, response: Response, q: str = Query('', max_length=200)):
     return execute(db, response, lambda: service.standards.options(db, actor, product_id, q=q))
+
+
+@router.get('/{product_id}/document-admissions')
+def admission_history(product_id: UUID, db: Db, actor: Actor, response: Response, offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+    return execute(db, response, lambda: admissions.history(db, actor, product_id, offset=offset, limit=limit))
+
+
+@router.post('/{product_id}/metrics/{snapshot_id}/admissions')
+def admit_document(product_id: UUID, snapshot_id: UUID, command: admissions.DecisionCommand, db: Db, actor: Actor, response: Response):
+    return execute(db, response, lambda: admissions.decide(db, actor, product_id, snapshot_id, command), write=True)

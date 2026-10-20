@@ -59,3 +59,22 @@ Evidence получено: `2026-10-20T08:39:20.546949+00:00`; SHA256 прива
 `independent_verification = NOT_AVAILABLE`. Независимый iikoOffice РОСВ за сопоставимый период не предоставлен. Ни одна строка не имеет OFFICE_VERIFIED. Норматив, отклонение, фактический выпуск/расход конкретной партии не вычислялись.
 
 Приватные исходные данные хранятся вне Git в `/private/tmp/eos-materials-final-evidence/`; в репозиторий попали только этот итог и контрольный hash. Никаких новых карточек, подтверждений стандартов, бизнес-пересчётов или расписаний на production не создавалось.
+
+## Повтор после финальной корректировки документных допусков
+
+Replay выполнен локально над тем же архивом с SHA256 выше; новых обращений к production/iiko не было. Никаких реальных допусков/коэффициентов не добавлено. Для всех десяти UUID машинно проверено точное равенство до/после: статус, сумма, количество и набор причин; исходный отчёт не перезаписывался.
+
+| Карточка | Последняя цена до → после | Средняя до → после | Расход до → после |
+|---|---|---|---|
+| Сливки 33 % | BLOCKED → BLOCKED | BLOCKED → BLOCKED | READY → READY |
+| Растительный крем | READY → READY | READY → READY | READY → READY |
+| Сыр творожный | BLOCKED → BLOCKED | BLOCKED → BLOCKED | READY → READY |
+| Мука | READY → READY | BLOCKED → BLOCKED | READY → READY |
+| Сахар | READY → READY | BLOCKED → BLOCKED | READY → READY |
+| Шоколад | READY → READY | BLOCKED → BLOCKED | READY → READY |
+| Маскарпоне | BLOCKED → BLOCKED | BLOCKED → BLOCKED | READY → READY |
+| Молоко | READY → READY | BLOCKED → BLOCKED | READY → READY |
+| Маргарин | READY → READY | BLOCKED → BLOCKED | READY → READY |
+| Масло | READY → READY | BLOCKED → BLOCKED | READY → READY |
+
+Итого неизменно: последняя цена **7/3**, средняя **1/9**, расход **10/0** (READY/BLOCKED). Это ожидаемый результат без первички: новый интерфейс даёт снабжению документный инструмент разблокировки, но не создаёт решения за владельца. Обоснование и действия — в [исследовании документов](STAGE_3_2_RAW_MATERIALS_DOCUMENT_ADMISSIONS_2026-10-20.md). Синтетические API/Core/PostgreSQL tests проверяют успешную разблокировку, независимость двух допусков, отзыв и новый snapshot; не считаются реальными подтверждениями пилота.
