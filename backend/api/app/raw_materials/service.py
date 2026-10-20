@@ -102,8 +102,13 @@ def projection(db, profile, product, rights):
     return body
 
 
-def catalog(db, actor, *, q='', kind=None, archived=False, category_id=None, supplier_id=None, without_supplier=False, state=None, offset=0, limit=25):
+def catalog(db, actor, *, q='', kind=None, archived=False, category_id=None, supplier_id=None, without_supplier=False, state=None, sort='name', direction='asc', offset=0, limit=25):
     rights = permissions(db, actor)
+    from app.raw_materials import catalog_sort
+    if sort not in catalog_sort.FIELDS or direction not in ('asc', 'desc'):
+        raise HTTPException(422, 'Неизвестная сортировка')
+    if sort in catalog_sort.MONEY and not rights['money']:
+        raise HTTPException(403, 'Нет доступа к закупочным ценам')
     stmt = select(Profile, Product).join(Product, (Product.id == Profile.product_id) & (Product.tenant_id == Profile.tenant_id)).where(Profile.tenant_id == actor.tenant_id, Profile.archived == archived)
     if q:
         pattern = '%' + q.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
@@ -126,8 +131,16 @@ def catalog(db, actor, *, q='', kind=None, archived=False, category_id=None, sup
         has_approved = select(Approval.product_id).where(Approval.tenant_id == actor.tenant_id)
         stmt = stmt.where(Product.id.in_(has_approved) if state == 'CONFIRMED' else Product.id.not_in(has_approved))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.execute(stmt.order_by(Product.normalized_name, Product.id).offset(offset).limit(limit)).all()
-    return dict(items=[projection(db, p, product, rights) for p, product in rows], total=total, offset=offset, limit=limit,
+    if sort == 'name':
+        order = Product.normalized_name.desc() if direction == 'desc' else Product.normalized_name.asc()
+        rows = db.execute(stmt.order_by(order, Product.id).offset(offset).limit(limit)).all()
+        items = [projection(db, p, product, rights) for p, product in rows]
+    else:
+        # Sort saved, permission-filtered projections globally. In particular, the
+        # current admission policy must also apply to prices used for ordering.
+        rows = db.execute(stmt).all()
+        items = catalog_sort.ordered([projection(db, p, product, rights) for p, product in rows], sort, direction == 'desc')[offset:offset + limit]
+    return dict(items=items, total=total, offset=offset, limit=limit,
                 can_enroll=rights['edit'], purchase_access=rights['money'], suppliers=[dict(id=s.id, name=s.display_name) for s in db.scalars(select(Supplier).where(Supplier.tenant_id == actor.tenant_id).order_by(Supplier.display_name))], categories=[dict(id=c.id, name=c.name) for c in db.scalars(select(Category).where(Category.tenant_id == actor.tenant_id).order_by(Category.name))])
 
 

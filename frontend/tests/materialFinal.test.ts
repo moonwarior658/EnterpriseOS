@@ -18,7 +18,7 @@ test('knowledge usage history reads no monetary endpoints and distinguishes unkn
   root=createRoot(document.getElementById('root')!)
   await act(async()=>{root!.render(React.createElement(UsagePanel,{id:'product'}))})
   const body=document.body.textContent!
-  assert.match(body,/Требуется проверка/);assert.match(body,/0 кг/);assert.match(body,/Инвентаризации: -5/);assert.match(body,/Независимая сверка iikoOffice не выполнена/)
+  assert.match(body,/Требуется проверка/);assert.match(body,/0,00 кг/);assert.match(body,/Инвентаризации: -5,00/);assert.match(body,/Независимая сверка iikoOffice не выполнена/)
   assert.doesNotMatch(body,/₽|RUB|OFFICE_VERIFIED/);assert.equal(paths.length,1)
  }finally{
   if(root)await act(async()=>root!.unmount());globalThis.fetch=oldFetch

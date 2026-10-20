@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
+import { materialNumber } from './materialPresentation'
 import { materialRequest, type AdmissionHistory, type DocumentAdmission, type Material, type PurchaseDocument, type PurchaseLine, type PurchaseSources } from '../services/rawMaterials'
 
 type Target = {doc:PurchaseDocument;line?:PurchaseLine;kind:DocumentAdmission['kind'];prior?:DocumentAdmission}
-export function MaterialDocumentAdmissions({material,sources,onUpdated}:{material:Material;sources:PurchaseSources;onUpdated:()=>void}) {
+export function MaterialDocumentAdmissions({material,sources,onUpdated,onDirtyChange,onBusyChange}:{material:Material;sources:PurchaseSources;onUpdated:()=>void;onDirtyChange?:(dirty:boolean)=>void;onBusyChange?:(busy:boolean)=>void}) {
   const [history,setHistory]=useState<AdmissionHistory|null>(null),[target,setTarget]=useState<Target|null>(null)
   const [evidence,setEvidence]=useState(''),[comment,setComment]=useState(''),[checked,setChecked]=useState(false),[quantity,setQuantity]=useState('')
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[request,setRequest]=useState<{key:string;id:string}|null>(null),[offset,setOffset]=useState(0),[revision,setRevision]=useState(0)
+  useEffect(()=>{onDirtyChange?.(Boolean(target))},[target,onDirtyChange])
+  useEffect(()=>{onBusyChange?.(busy)},[busy,onBusyChange])
   const canWrite=material.allowed_actions.includes('DOCUMENT_ADMIT')
   useEffect(()=>{
     const abort=new AbortController()
@@ -29,14 +32,14 @@ export function MaterialDocumentAdmissions({material,sources,onUpdated}:{materia
   }
   function button(doc:PurchaseDocument,kind:DocumentAdmission['kind'],line?:PurchaseLine) {
     const decision=prior(doc,kind,line)
-    return <button type="button" disabled={busy||!history} onClick={()=>choose(doc,kind,line)}>{decision?.action==='GRANT'?'Отозвать допуск':kind==='EMPLOYEE_PURCHASE'?'Проверить внешнюю закупку':'Верифицировать количество в учётной единице'}{line?` · строка ${line.num}`:' · строки этого сырья в документе'}</button>
+    return <button type="button" disabled={busy||!history||Boolean(target)} onClick={()=>choose(doc,kind,line)}>{decision?.action==='GRANT'?'Отозвать допуск':kind==='EMPLOYEE_PURCHASE'?'Проверить внешнюю закупку':'Верифицировать количество в учётной единице'}{line?` · строка ${line.num}`:' · строки этого сырья в документе'}</button>
   }
   return <details><summary>Документные допуски и проверка упаковки</summary>
     <p>Допуск относится только к этому сырью и выбранной версии накладной или строке. Первичные документы iiko и складской учёт не изменяются. После решения запустите новый расчёт показателей.</p>
     {sources.documents?.map(doc=><div key={`${doc.document_id}:${doc.source_hash}`}><h4>Накладная №{doc.number} · {doc.receipt_at?.slice(0,10)||'Дата не подтверждена'}</h4>
       {doc.supplier_flags?.is_employee&&<p>Контрагент отмечен в iiko как сотрудник. Нужна проверка внешней закупки по первичке.</p>}
       {canWrite&&doc.supplier_flags?.is_employee&&button(doc,'EMPLOYEE_PURCHASE')}
-      {doc.lines.map(line=>{const raw=line.original_line||line;return <div key={line.num}><p>Строка {line.num}: {raw.actualAmount} {raw.unit_name||(raw.amountUnit===material.unit_id?material.unit:raw.amountUnit)}; сумма с НДС {raw.sum}. {raw.containerId&&`Контейнер: ${raw.containerId}`}</p>
+      {doc.lines.map(line=>{const raw=line.original_line||line;return <div key={line.num}><p>Строка {line.num}: {materialNumber(raw.actualAmount)} {raw.unit_name||(raw.amountUnit===material.unit_id?material.unit:raw.amountUnit)}; сумма с НДС {materialNumber(raw.sum)}. {raw.containerId&&`Контейнер: ${raw.containerId}`}</p>
         {canWrite&&doc.supplier_flags?.is_employee&&button(doc,'EMPLOYEE_PURCHASE',line)}
         {canWrite&&raw.containerId&&raw.containerId!=='00000000-0000-0000-0000-000000000000'&&raw.amountUnit===material.unit_id&&button(doc,'BASE_UNIT_CONTAINER',line)}</div>})}
     </div>)}
@@ -44,7 +47,7 @@ export function MaterialDocumentAdmissions({material,sources,onUpdated}:{materia
       <label>Основание (номер или ссылка на первичку)<input required minLength={3} maxLength={2000} value={evidence} disabled={busy} onChange={e=>setEvidence(e.target.value)}/></label>
       <label>Комментарий проверки<textarea required minLength={3} maxLength={2000} value={comment} disabled={busy} onChange={e=>setComment(e.target.value)}/></label>
       {target.prior?.action!=='GRANT'&&<><label><input type="checkbox" required checked={checked} disabled={busy} onChange={e=>setChecked(e.target.checked)}/>Первичка проверена; это внешняя закупка, а указанное количество и единица подтверждены</label>
-        {target.kind==='BASE_UNIT_CONTAINER'&&<><p>Подтвердите по первичке, что количество уже выражено в {material.unit}; контейнер описывает упаковку и не требует числового пересчёта. Предполагаемая масса недопустима.</p><label>Проверенное количество в {material.unit}<input required inputMode="decimal" value={quantity} disabled={busy} onChange={e=>setQuantity(e.target.value)}/></label></>}</>}
+        {target.kind==='BASE_UNIT_CONTAINER'&&<><p>Исходное точное количество: {(target.line?.original_line||target.line)?.actualAmount}. Подтвердите по первичке, что количество уже выражено в {material.unit}; контейнер описывает упаковку и не требует числового пересчёта. Предполагаемая масса недопустима.</p><label>Проверенное количество в {material.unit}<input required inputMode="decimal" value={quantity} disabled={busy} onChange={e=>setQuantity(e.target.value)}/></label></>}</>}
       <button disabled={busy}>{busy?'Сохраняем…':'Сохранить решение'}</button><button type="button" disabled={busy} onClick={()=>setTarget(null)}>Отмена</button>
     </form>}
     {error&&<p role="alert">{error}</p>}

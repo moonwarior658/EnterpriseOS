@@ -104,12 +104,36 @@ class RawMaterialTests(unittest.TestCase):
         self.assertEqual(self.client.get('/raw-materials?q=%25').json()['total'],0)
         self.assertEqual(self.client.get('/raw-materials?limit=1').json()['items'][0]['id'],str(self.second))
         self.assertEqual(self.client.get('/raw-materials?limit=1&offset=1').json()['items'][0]['id'],str(self.product))
-        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,422)
+        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,200)
         self.assertEqual(self.client.get('/raw-materials?limit=101').status_code,422)
         r=self.client.patch('/raw-materials/'+str(self.product)+'/archive',json=dict(expected_version=1,reason='Тест архива',archived=True));self.assertEqual(r.status_code,200,r.text)
         self.assertEqual(self.client.get('/raw-materials?archived=true').json()['total'],1)
         self.assertEqual(self.save().status_code,409)
         with self.sessions() as db:self.assertTrue(db.get(SupplyProduct,self.product).is_active)
+
+    def test_catalog_sort_applies_before_pagination_and_forbids_money_order_leaks(self):
+        self.enroll();self.enroll(self.second)
+        # Real DB filtering and pagination; controlled saved EOS projections.
+        def project(db, profile, product, rights):
+            price = '100' if product.id == self.product else '9'
+            return dict(id=str(product.id), name=product.name, last_purchase_price=dict(status='READY', amount=price))
+        with patch('app.raw_materials.service.projection', side_effect=project):
+            for direction, first in [('asc', self.second), ('desc', self.product)]:
+                response=self.client.get('/raw-materials?sort=last_purchase_price&direction='+direction+'&limit=1')
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(response.json()['items'][0]['id'],str(first))
+                self.assertEqual(response.json()['total'],2)
+            self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price&supplier_id='+str(self.supplier)).json()['total'],1)
+        self.role('CONFECTIONER')
+        with patch('app.raw_materials.service.projection') as project:
+            for field in ('last_purchase_price','six_month_average'):
+                for direction in ('asc','desc'):
+                    self.assertEqual(self.client.get('/raw-materials?sort='+field+'&direction='+direction).status_code,403)
+            project.assert_not_called()
+        self.assertEqual(self.client.get('/raw-materials?sort=name&direction=desc').json()['items'][0]['id'],str(self.product))
+        self.assertEqual(self.client.get('/raw-materials?sort=monthly_consumption').status_code,200)
+        self.assertEqual(self.client.get('/raw-materials?sort=invalid').status_code,422)
+        self.assertEqual(self.client.get('/raw-materials?direction=invalid').status_code,422)
 
     def test_versions_confirmation_conflict_history_and_no_money_inputs(self):
         self.role('SUPPLY_MANAGER');self.enroll()
@@ -152,7 +176,7 @@ class RawMaterialTests(unittest.TestCase):
                     self.assertEqual('last_purchase_price' in result,role in money)
                     self.assertEqual('six_month_average' in result,role in money)
                     self.assertEqual(result['purchase_access'],role in money)
-                    self.assertEqual(self.client.get('/raw-materials?sort=six_month_average').status_code,422)
+                    self.assertEqual(self.client.get('/raw-materials?sort=six_month_average').status_code,200 if role in money else 403)
                     self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)).status_code,404)
                 if role not in {'ADMIN','SUPPLY_MANAGER'}:
                     self.assertEqual(self.save(version=1).status_code,403)

@@ -24,7 +24,8 @@ test('material API authenticates, carries concurrency version, and hides backend
 test('registry and card show missing metrics, drafts, backend actions and safe failures',async()=>{
   const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'})
   const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',pretendToBeVisual:true})
-  const values={window:dom.window,document:dom.window.document,getComputedStyle:dom.window.getComputedStyle,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true}
+  dom.window.scrollTo=()=>{}
+ const values={window:dom.window,document:dom.window.document,getComputedStyle:dom.window.getComputedStyle,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true}
   const previous=Object.keys(values).map(name=>Object.getOwnPropertyDescriptor(globalThis,name)),oldFetch=globalThis.fetch
   let root:ReturnType<typeof import('react-dom/client').createRoot>|undefined
   let monetary=true,allowEdit=true,fail=false
@@ -47,7 +48,8 @@ test('registry and card show missing metrics, drafts, backend actions and safe f
     await render('/raw-materials','list')
     assert.equal(document.querySelectorAll('thead th').length,8);assert.match(document.body.textContent!,/Последняя цена прихода/);assert.match(document.body.textContent!,/Нет данных/);assert.equal(document.querySelector('script'),null)
     await render('/raw-materials/supply-id','card')
-    assert.match(document.body.textContent!,/Неподтверждённый черновик/);assert.match(document.body.textContent!,/Резервные товары: Ещё не утверждены/)
+    assert.match(document.body.textContent!,/Сохранён черновик версии 1/);assert.match(document.body.textContent!,/Ещё не утверждены/)
+    await act(async()=>{[...document.querySelectorAll('button')].find(b=>b.textContent==='Изменить спецификацию')!.click()})
     const confirm=[...document.querySelectorAll('button')].find(x=>x.textContent==='Подтвердить версию 1')!;assert.equal(confirm.disabled,true)
     monetary=false;allowEdit=false;await render('/raw-materials/supply-id','restricted')
     assert.match(document.body.textContent!,/Нет доступа к закупочным ценам/);assert.equal(document.querySelector('.material-editor'),null);assert.doesNotMatch(document.body.textContent!,/98765|execution_id|private price/)

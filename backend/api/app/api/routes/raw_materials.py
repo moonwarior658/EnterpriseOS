@@ -38,9 +38,9 @@ def catalog(db: Db, actor: Actor, response: Response,
     q: str = Query('', max_length=200), kind: Literal['RAW_MATERIAL','PACKAGING'] | None = None,
     archived: bool = False, category_id: UUID | None = None, supplier_id: UUID | None = None,
     without_supplier: bool = False, state: Literal['CONFIRMED','UNCONFIRMED'] | None = None,
-    sort: Literal['name'] = 'name', offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+    sort: Literal['name','unit_weight_kg','primary_supplier','backup_supplier','last_purchase_price','six_month_average','monthly_consumption'] = 'name', direction: Literal['asc','desc'] = 'asc', offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
     return execute(db, response, lambda: service.catalog(db, actor, q=q, kind=kind, archived=archived,
-        category_id=category_id, supplier_id=supplier_id, without_supplier=without_supplier, state=state, offset=offset, limit=limit))
+        category_id=category_id, supplier_id=supplier_id, without_supplier=without_supplier, state=state, sort=sort, direction=direction, offset=offset, limit=limit))
 
 
 @router.get('/candidates')

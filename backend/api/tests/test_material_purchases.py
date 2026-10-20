@@ -129,7 +129,7 @@ class PurchaseFlowTests(unittest.TestCase):
         self.role('ADMIN')
         self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)+'/metrics').status_code,404)
         self.assertEqual(self.client.get('/raw-materials/'+str(self.second)+'/metrics/'+result['snapshot_id']+'/sources').status_code,404)
-        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,422)
+        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,200)
         self.assertEqual(self.client.post(self.path+'/metrics/refresh',json=dict(request_id=str(uuid4()),amount='98765')).status_code,422)
 
     def test_lost_claim_and_changed_mapping_no_publication(self):

@@ -74,6 +74,9 @@ class RawMaterialPostgresTests(unittest.TestCase):
     save=api_fixture.RawMaterialTests.save
     confirm=api_fixture.RawMaterialTests.confirm
 
+    role=api_fixture.RawMaterialTests.role
+    test_catalog_sort_applies_before_pagination_and_forbids_money_order_leaks=api_fixture.RawMaterialTests.test_catalog_sort_applies_before_pagination_and_forbids_money_order_leaks
+
     def test_live_api_audit_money_projection_and_immutable_history(self):
         body=self.enroll();saved=self.save();self.assertEqual(saved.status_code,200,saved.text)
         self.assertEqual(self.confirm().status_code,200)
@@ -90,7 +93,7 @@ class RawMaterialPostgresTests(unittest.TestCase):
         for path in ['', '/'+str(self.product), '/'+str(self.product)+'/history']:
             result=self.client.get('/raw-materials'+path);self.assertEqual(result.status_code,200,result.text)
             self.assertNotIn('98765',result.text);self.assertNotIn('last_purchase_price',result.text)
-        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,422)
+        self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,403)
         self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)).status_code,404)
         with self.engine.connect() as connection:
             purchase_history=connection.execute(text('SELECT EXISTS (SELECT 1 FROM material_purchase_snapshots)')).scalar()

@@ -20,7 +20,7 @@ export type MaterialCatalog = { items: Material[]; total: number; offset: number
 export type MaterialHistory = { versions: Specification[]; total: number; events: {id:string; operation:string; occurred_at:string; author:string|null; reason:string; before:Record<string,unknown>; after:Record<string,unknown>}[]; event_total: number }
 export class MaterialApiError extends Error {
   constructor(status: number) {
-    super(status === 403 ? 'Недостаточно прав для работы с сырьём' : status === 404 ? 'Карточка или фотография не найдена' : status === 409 ? 'Карточка изменилась или действие недоступно. Обновите данные' : status === 413 ? 'Размер фотографии не должен превышать 10 МБ' : status === 415 || status === 422 ? 'Проверьте поля и фотографию: JPEG, PNG или WebP до 10 МБ' : 'Не удалось выполнить действие. Повторите позже')
+    super(status === 403 ? 'Недостаточно прав для работы с сырьём' : status === 404 ? 'Карточка или фотография не найдена' : status === 409 ? 'Карточка изменилась или действие недоступно. Обновите данные' : status === 413 ? 'Размер фотографии не должен превышать 10 МБ' : status === 415 ? 'Фотография должна быть JPEG, PNG или WebP' : status === 422 ? 'Проверьте обязательные поля, формат значений и документальные основания' : 'Не удалось выполнить действие. Повторите позже')
     this.name = 'MaterialApiError'
   }
 }

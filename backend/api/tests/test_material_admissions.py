@@ -102,10 +102,18 @@ class AdmissionFlowTests(unittest.TestCase):
         self.assertEqual(self.post(expected_revision=1).status_code,409)
         self.assertEqual(self.client.get(self.path+'/metrics').json()['current']['status'],'BLOCKED') # no rewriting on grant
         calculated=self.recalculate();self.assertEqual(calculated['quality'],'READY')
+        for field in ('last_purchase_price','six_month_average'):
+            listed=self.client.get('/raw-materials?sort='+field+'&direction=desc').json()['items']
+            self.assertEqual(next(r for r in listed if r['id']==str(self.product))[field]['status'],'READY')
         with self.sessions() as db:
             saved=db.get(Snapshot,UUID(calculated['snapshot_id']));payload=copy.deepcopy(saved.payload);content_hash=saved.content_hash
         response=self.post(action='REVOKE',expected_revision=1,primary_checked=False);self.assertEqual(response.status_code,200,response.text)
         current=self.client.get(self.path).json();self.assertEqual(current['last_purchase_price']['status'],'BLOCKED');self.assertIsNone(current['six_month_average']['amount'])
+        # Price sorting must use the revoked-safe projection, not the stored historical amount.
+        for field in ('last_purchase_price','six_month_average'):
+            listed=self.client.get('/raw-materials?sort='+field+'&direction=asc').json()['items']
+            metric=next(r for r in listed if r['id']==str(self.product))[field]
+            self.assertEqual(metric['status'],'BLOCKED');self.assertIsNone(metric['amount'])
         history=self.client.get(self.path+'/metrics').json();self.assertEqual(history['items'][0]['status'],'READY');self.assertFalse(history['items'][0]['admission_validity']['latest']);self.assertEqual(history['current']['status'],'BLOCKED')
         with self.sessions() as db:
             saved=db.get(Snapshot,UUID(calculated['snapshot_id']));self.assertEqual(saved.payload,payload);self.assertEqual(saved.content_hash,content_hash)
