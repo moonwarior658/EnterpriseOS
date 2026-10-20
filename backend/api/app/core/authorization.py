@@ -18,6 +18,7 @@ class Capability(StrEnum):
     MATERIAL_KNOWLEDGE_READ = "MATERIAL_KNOWLEDGE_READ"
     MATERIAL_KNOWLEDGE_EDIT = "MATERIAL_KNOWLEDGE_EDIT"
     MATERIAL_KNOWLEDGE_CONFIRM = "MATERIAL_KNOWLEDGE_CONFIRM"
+    MATERIAL_PURCHASE_REFRESH = "MATERIAL_PURCHASE_REFRESH"
     MATERIAL_PURCHASE_READ = "MATERIAL_PURCHASE_READ"
     PRODUCT_COST_REVIEW = "PRODUCT_COST_REVIEW"
     PRODUCT_COST_READ = "PRODUCT_COST_READ"
@@ -73,6 +74,10 @@ GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
     )),
     Capability.MATERIAL_KNOWLEDGE_EDIT: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
     Capability.MATERIAL_KNOWLEDGE_CONFIRM: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.MATERIAL_PURCHASE_REFRESH: tuple((role, Scope.ALL_COMPANY) for role in (
+        EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.DIRECTOR,
+        EmployeeRole.DEPUTY_DIRECTOR, EmployeeRole.ACCOUNTANT,
+    )),
     Capability.MATERIAL_PURCHASE_READ: tuple((role, Scope.ALL_COMPANY) for role in (
         EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.DIRECTOR,
         EmployeeRole.DEPUTY_DIRECTOR, EmployeeRole.ACCOUNTANT,

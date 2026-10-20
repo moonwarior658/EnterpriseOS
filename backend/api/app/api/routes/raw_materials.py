@@ -1,4 +1,4 @@
-"""Authenticated local material knowledge, no external collection endpoints."""
+"""Authenticated local knowledge and saved purchase facts; manual Core commands."""
 from typing import Annotated, Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, HTTPException, UploadFile, File, Form
@@ -10,7 +10,7 @@ from app.core.action_context import ActionContextError
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
-from app.raw_materials import service
+from app.raw_materials import service, purchase_refresh
 from app.schemas.raw_materials import Enroll, SaveKnowledge, Confirm, Archive, Command
 
 router = APIRouter(prefix='/raw-materials', tags=['raw materials'])
@@ -104,3 +104,18 @@ def read_photo(product_id: UUID, db: Db, actor: Actor, photo_hash: str | None = 
         return FileResponse(path, media_type='image/webp', headers={'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'})
     except ActionContextError as error:
         raise action_context_http_error(error) from error
+
+
+@router.post('/{product_id}/metrics/refresh', status_code=202)
+def refresh_purchase(product_id: UUID, command: purchase_refresh.RefreshCommand, db: Db, actor: Actor, response: Response):
+    return execute(db, response, lambda: purchase_refresh.refresh(db, actor, product_id, command), write=True)
+
+
+@router.get('/{product_id}/metrics')
+def purchase_history(product_id: UUID, db: Db, actor: Actor, response: Response, offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+    return execute(db, response, lambda: purchase_refresh.history(db, actor, product_id, offset=offset, limit=limit))
+
+
+@router.get('/{product_id}/metrics/{snapshot_id}/sources')
+def purchase_sources(product_id: UUID, snapshot_id: UUID, db: Db, actor: Actor, response: Response):
+    return execute(db, response, lambda: purchase_refresh.sources(db, actor, product_id, snapshot_id))

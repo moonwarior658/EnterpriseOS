@@ -1,4 +1,4 @@
-"""R-M1: DB-only projections; no metric inputs, iiko calls or Supply mutations."""
+"""DB-only material projections; purchase facts come from immutable EOS snapshots."""
 from hashlib import sha256
 from types import SimpleNamespace
 from uuid import UUID
@@ -25,7 +25,7 @@ ENTITY = 'RawMaterialProfile'
 
 def permitted(db, actor, capability):
     try:
-        authorize(db, actor, capability, write=capability in (EDIT, CONFIRM))
+        authorize(db, actor, capability, write=capability in (EDIT, CONFIRM, Capability.MATERIAL_PURCHASE_REFRESH))
         return True
     except ActionContextError:
         return False
@@ -33,7 +33,7 @@ def permitted(db, actor, capability):
 
 def permissions(db, actor):
     authorize(db, actor, READ)
-    return dict(edit=permitted(db, actor, EDIT), confirm=permitted(db, actor, CONFIRM), money=permitted(db, actor, MONEY))
+    return dict(edit=permitted(db, actor, EDIT), confirm=permitted(db, actor, CONFIRM), money=permitted(db, actor, MONEY), refresh=permitted(db, actor, Capability.MATERIAL_PURCHASE_REFRESH))
 
 
 def find(db, actor, product_id, *, lock=False):
@@ -90,9 +90,10 @@ def projection(db, profile, product, rights):
         unit_weight_kg=weight, photo_hash=profile.photo_hash, primary_supplier=primary,
         backup_supplier=backup, backup_ambiguous=ambiguous, suppliers=assigned,
         purchase_access=rights['money'], monthly_consumption=dict(status='NO_DATA', quantity=None),
-        allowed_actions=([ 'EDIT', 'PHOTO', 'ARCHIVE' ] if rights['edit'] else []) + (['CONFIRM'] if rights['confirm'] else []))
+        allowed_actions=([ 'EDIT', 'PHOTO', 'ARCHIVE' ] if rights['edit'] else []) + (['CONFIRM'] if rights['confirm'] else []) + (['METRICS_REFRESH'] if rights['refresh'] and not profile.archived and product.is_active else []))
     if rights['money']:
-        body.update(last_purchase_price=dict(status='NO_DATA', amount=None), six_month_average=dict(status='NO_DATA', amount=None), tax_basis='WITH_VAT')
+        from app.raw_materials.purchase_refresh import summary
+        body.update(last_purchase_price=summary(db, profile.tenant_id, product.id), six_month_average=dict(status='NO_DATA', amount=None), tax_basis='WITH_VAT')
     return body
 
 

@@ -92,9 +92,12 @@ class RawMaterialPostgresTests(unittest.TestCase):
             self.assertNotIn('98765',result.text);self.assertNotIn('last_purchase_price',result.text)
         self.assertEqual(self.client.get('/raw-materials?sort=last_purchase_price').status_code,422)
         self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)).status_code,404)
+        with self.engine.connect() as connection:
+            purchase_history=connection.execute(text('SELECT EXISTS (SELECT 1 FROM material_purchase_snapshots)')).scalar()
+        guard='MATERIAL_PURCHASE_HISTORY_EXISTS' if purchase_history else 'MATERIAL_KNOWLEDGE_EXISTS'
         with migration_settings(self.url):
-            with self.assertRaisesRegex(RuntimeError,'MATERIAL_KNOWLEDGE_EXISTS'):command.downgrade(Config('alembic.ini'),'20261009_0079')
-        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0080')
+            with self.assertRaisesRegex(RuntimeError,guard):command.downgrade(Config('alembic.ini'),'20261009_0079')
+        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0081')
         self.assertIn('ck_material_kind',{x['name'] for x in inspect(self.engine).get_check_constraints('raw_material_profiles')})
 
     def test_tenant_unique_fk_revision_primary_and_approval_constraints(self):

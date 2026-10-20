@@ -141,6 +141,9 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'materials.sync_iiko_purchase_price':
+        from app.raw_materials.purchase_refresh import RefreshPayload
+        return RefreshPayload.model_validate(payload).model_dump(mode='json')
     if automation_type == 'products.sync_iiko_costs':
         from app.product_knowledge.costs import CostRefreshPayload
         return CostRefreshPayload.model_validate(payload).model_dump(mode='json')
@@ -172,6 +175,8 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'materials.sync_iiko_purchase_price':
+        raise ValueError('Purchase refresh remains manual until separate business acceptance')
     if automation_type == 'products.sync_iiko_costs' and (
         not isinstance(schedule_config, IntervalScheduleConfig) or schedule_config.minutes != 60
     ):

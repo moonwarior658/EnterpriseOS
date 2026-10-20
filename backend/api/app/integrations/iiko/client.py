@@ -1652,6 +1652,12 @@ class IikoServerClient(IikoProvider):
         })
         return await self._save_internal_transfer(updated.to_update_payload())
 
+    async def get_raw_material_invoice_export(self, *, date_from: date, date_to: date) -> str:
+        """Read-only bounded export. R-M2 validates completeness without silent skips."""
+        root = await self._get_xml(_INCOMING_INVOICE_EXPORT_PATH,
+            params={"from": date_from.isoformat(), "to": date_to.isoformat()})
+        return ET.tostring(root, encoding="unicode")
+
     async def get_incoming_invoices(
         self,
         *,

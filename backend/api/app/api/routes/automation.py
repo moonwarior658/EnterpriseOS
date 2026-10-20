@@ -549,6 +549,11 @@ def receive_automation_callback(
             detail="Automation execution not found",
         )
 
+    if execution.automation_type == 'materials.sync_iiko_purchase_price':
+        # Only the local executor may atomically publish the purchase snapshot and
+        # complete this action. Provider callbacks cannot bypass that transaction.
+        raise HTTPException(status_code=409, detail="This action is finalized locally")
+
     if callback_matches_execution(execution, callback):
         return {"status": "accepted"}
 
