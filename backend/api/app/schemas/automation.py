@@ -141,6 +141,9 @@ def validate_automation_action_payload(
     automation_type: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'materials.refresh_enrolled':
+        from app.raw_materials.daily import DailyPayload
+        return DailyPayload.model_validate(payload).model_dump(mode='json')
     if automation_type == 'materials.sync_iiko_purchase_price':
         from app.raw_materials.purchase_refresh import RefreshPayload
         return RefreshPayload.model_validate(payload).model_dump(mode='json')
@@ -175,6 +178,11 @@ def validate_automation_schedule_contract(
     schedule_config: ScheduleConfig,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if automation_type == 'materials.refresh_enrolled':
+        from app.core.config import settings
+        if not settings.raw_material_daily_accepted or not isinstance(schedule_config,DailyScheduleConfig):
+            raise ValueError('Ежедневное обновление сырья ожидает отдельной бизнес-приёмки')
+        return validate_automation_action_payload(automation_type,payload)
     if automation_type == 'materials.sync_iiko_purchase_price':
         raise ValueError('Purchase refresh remains manual until separate business acceptance')
     if automation_type == 'products.sync_iiko_costs' and (

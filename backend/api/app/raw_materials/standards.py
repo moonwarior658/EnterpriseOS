@@ -5,9 +5,17 @@ from sqlalchemy import select
 from app.models.iiko import IikoUnitMapping, IikoSupplierMapping
 from app.models.raw_material import MaterialProductAllowance, MaterialUnitConversion
 from app.models.supply import SupplyProduct
-from app.schemas.raw_materials import Knowledge
+from app.schemas.raw_materials import Knowledge, ApprovedProduct, UnitConversion
 
 OWNER_STANDARDS={'21fe689f-a2d0-41d4-8c6a-29b73b24e01f':'БМК','be7c1ced-755e-4fa3-b7e9-cc7851c3c07d':'Ларица'}
+
+
+def safe_knowledge(payload):
+    result={k:v for k,v in payload.items() if k in Knowledge.model_fields}
+    for key, model in (('approved_products',ApprovedProduct),('conversions',UnitConversion)):
+        if key in result:
+            result[key]=[{k:v for k,v in item.items() if k in model.model_fields} for item in result[key] if isinstance(item,dict)]
+    return result
 
 
 def validate(db, tenant, product, knowledge):
@@ -42,7 +50,7 @@ def primary(knowledge, fallback):
 
 def products(db, tenant, row):
     if row is None:return []
-    items=Knowledge.model_validate({k:v for k,v in row.payload.items() if k in Knowledge.model_fields}).approved_products
+    items=Knowledge.model_validate(safe_knowledge(row.payload)).approved_products
     names={p.id:p.name for p in db.scalars(select(SupplyProduct).where(SupplyProduct.tenant_id==tenant,SupplyProduct.id.in_([i.product_id for i in items])))} if items else {}
     return [dict(**i.model_dump(mode='json'),name=names.get(i.product_id,'Товар недоступен')) for i in items]
 

@@ -27,7 +27,7 @@ def average(documents, suppliers, mapping, *, start, end, units):
         amount = str(numerator / denominator) if status == 'READY' else None
     return dict(status=status, amount=amount, numerator=str(numerator), denominator=str(denominator),
         reasons=reasons, documents=rows, exclusions=result['exclusions'], date_from=start.isoformat(), date_to=end.isoformat(),
-        unit=mapping['unit'], currency='RUB', tax_basis='WITH_VAT', formula='Σ сумма с НДС / Σ подтверждённое количество')
+        unit=mapping['unit'], currency='RUB', tax_basis='WITH_VAT', document_count=len(rows), line_count=sum(len(r['lines']) for r in rows), formula='Σ сумма с НДС / Σ подтверждённое количество')
 
 
 def parse_xml(xml, root_name, row_name):
@@ -65,9 +65,9 @@ def usage(operations, outgoing, product_types, mapping, *, start, end, opening, 
                 if quantity != 0: reasons.append('NONZERO_COST_CORRECTION')
             elif kind in {'INTERNAL_TRANSFER','TRANSFER'}: category = 'TRANSFER'
             elif kind == 'RETURNED_INVOICE': category = 'RETURN'
-            elif kind in {'INCOMING_INVENTORY','OUTGOING_INVENTORY','INVENTORY'}: category = 'INVENTORY'
+            elif kind in {'INCOMING_INVENTORY','OUTGOING_INVENTORY','INVENTORY'} or (kind=='INVENTORY_CORRECTION' and row.get('documentType') in {'INCOMING_INVENTORY','OUTGOING_INVENTORY'}): category = 'INVENTORY'
             elif kind in {'SESSION_WRITEOFF','WRITEOFF','WRITEOFF_DOCUMENT'}: category = 'WRITEOFF'
-            elif kind == 'INCOMING_INVOICE': category = 'RECEIPT'
+            elif kind == 'INCOMING_INVOICE' or (kind=='INVOICE' and row.get('documentType')=='INCOMING_INVOICE'): category = 'RECEIPT'
             elif kind == 'OUTGOING_INVOICE':
                 doc = docs.get(row.get('documentId'))
                 if not doc or doc.get('status') != 'PROCESSED' or doc.get('defaultStoreId') != WAREHOUSE:
@@ -78,7 +78,7 @@ def usage(operations, outgoing, product_types, mapping, *, start, end, opening, 
             else: reasons.append('MOVEMENT_CLASSIFICATION_UNKNOWN')
             totals[category] += quantity; signed += quantity
             # Quantity-only evidence; never return movement sums to knowledge-only roles.
-            evidence.append(dict(root_products=[dict(product_id=i.get('productId'), product_type=product_types.get(i.get('productId'))) for i in docs.get(row.get('documentId'), {}).get('items', [])], category=category, quantity=str(quantity), date=row.get('date'), document_id=row.get('documentId'), number=row.get('documentNum'), source_hash=digest(row)))
+            evidence.append(dict(document_hash=digest(docs.get(row.get('documentId'), {})), root_products=[dict(product_id=i.get('productId'), product_type=product_types.get(i.get('productId'))) for i in docs.get(row.get('documentId'), {}).get('items', [])], category=category, quantity=str(quantity), date=row.get('date'), document_id=row.get('documentId'), number=row.get('documentNum'), source_hash=digest(row)))
         a, b = decimal(opening), decimal(closing)
         residual = b - a - signed if a is not None and b is not None else None
         if residual is None: reasons.append('BALANCE_BOUNDARY_UNKNOWN')

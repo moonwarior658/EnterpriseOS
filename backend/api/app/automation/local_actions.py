@@ -23,6 +23,7 @@ from app.models.automation import (
 
 
 class LocalAutomationActionExecutor:
+    MATERIAL_DAILY = 'materials.refresh_enrolled'
     MATERIAL_PURCHASE = "materials.sync_iiko_purchase_price"
     SALES_REPORTS = "sales.finalize_reports"
     SALES_SYNC = "sales.sync_iiko"
@@ -41,7 +42,7 @@ class LocalAutomationActionExecutor:
     def supports(automation_type: str) -> bool:
         return (
             automation_type in SUPPLY_ACTION_HANDLERS
-            or automation_type in (LocalAutomationActionExecutor.MATERIAL_PURCHASE, LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS, LocalAutomationActionExecutor.PRODUCT_PRICES, LocalAutomationActionExecutor.PRODUCT_RECIPES, LocalAutomationActionExecutor.PRODUCT_COSTS)
+            or automation_type in (LocalAutomationActionExecutor.MATERIAL_DAILY, LocalAutomationActionExecutor.MATERIAL_PURCHASE, LocalAutomationActionExecutor.IIKO_SHIFT_SYNC, LocalAutomationActionExecutor.SALES_SYNC, LocalAutomationActionExecutor.SALES_REPORTS, LocalAutomationActionExecutor.PRODUCT_PRICES, LocalAutomationActionExecutor.PRODUCT_RECIPES, LocalAutomationActionExecutor.PRODUCT_COSTS)
         )
 
     def execute(
@@ -61,6 +62,9 @@ class LocalAutomationActionExecutor:
         if claim.automation_type == self.SALES_REPORTS:
             from app.sales.reports import finalize_reports
             handler = finalize_reports
+        if claim.automation_type == self.MATERIAL_DAILY:
+            from app.raw_materials.daily import run
+            handler = run
         if handler is None:
             raise ValueError("Unsupported local automation action")
 

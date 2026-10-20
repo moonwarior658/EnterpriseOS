@@ -13,6 +13,9 @@ class AutomationTypeDefinition:
 
 
 AUTOMATION_TYPES = (
+    AutomationTypeDefinition(key='materials.refresh_enrolled',display_name='Ежедневное обновление согласованного сырья',
+        description='Один согласованный набор до 10 включённых карточек; после отдельной бизнес-приёмки.',
+        category='materials',is_system=True,is_available=False,supports_manual_run=False),
     AutomationTypeDefinition(
         key="materials.sync_iiko_purchase_price", display_name="Обновить закупочную цену сырья",
         description="Получает последний подтверждённый закупочный приход включённой карточки.",
@@ -107,8 +110,16 @@ def _validate_catalog() -> None:
 _validate_catalog()
 
 
+def _availability(item):
+    if item.key == 'materials.refresh_enrolled':
+        from dataclasses import replace
+        from app.core.config import settings
+        return replace(item,is_available=settings.raw_material_daily_accepted)
+    return item
+
+
 def get_automation_type(key: str) -> AutomationTypeDefinition | None:
-    return next((item for item in AUTOMATION_TYPES if item.key == key), None)
+    return next((_availability(item) for item in AUTOMATION_TYPES if item.key == key), None)
 
 
 def require_available_automation_type(
@@ -124,7 +135,7 @@ def require_available_automation_type(
 def list_available_automation_types() -> tuple[AutomationTypeDefinition, ...]:
     return tuple(
         sorted(
-            (item for item in AUTOMATION_TYPES if item.is_available),
+            (_availability(item) for item in AUTOMATION_TYPES if _availability(item).is_available),
             key=lambda item: (item.category, item.display_name, item.key),
         )
     )

@@ -58,3 +58,14 @@ class StandardFlowTests(unittest.TestCase):
         self.assertEqual(self.save_standard(approved_products=[product]).status_code,409)
         self.save_standard();self.confirm_standard();body=self.client.get(self.path).json()
         self.assertEqual(self.client.post(self.path+'/reserve-selection',json=dict(expected_version=body['version'],reason='Не разрешено',specification_id=body['current']['id'],target_product_id=str(self.second))).status_code,409)
+
+    def test_nested_future_money_fields_are_redacted_from_knowledge_history(self):
+        from app.models.raw_material import MaterialSpecificationVersion
+        self.save_standard()
+        with self.sessions.begin() as db:
+            row=db.scalar(select(MaterialSpecificationVersion));payload=copy.deepcopy(row.payload)
+            payload['approved_products'][0]['purchase_price']='SECRET_73129'
+            row.payload=payload
+        self.role(EmployeeRole.CHEF_CONFECTIONER)
+        for path in (self.path,self.path+'/history'):
+            response=self.client.get(path);self.assertEqual(response.status_code,200,response.text);self.assertNotIn('SECRET_73129',response.text)

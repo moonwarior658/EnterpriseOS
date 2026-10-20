@@ -43,6 +43,7 @@ export function PurchasePanel({material,onUpdated}: {material:Material;onUpdated
   const current=history?.items[0]&&offset===0?history.items[0]:material.last_purchase_price
   return <div className="material-purchase"><p>Последняя цена прихода: <PurchaseValue metric={current}/></p>
     <p>Средневзвешенная за 6 полных месяцев: <PurchaseValue metric={current?.six_month_average||material.six_month_average}/></p>{(current?.six_month_average||material.six_month_average)?.date_from&&<small>{(current?.six_month_average||material.six_month_average)?.date_from} — {(current?.six_month_average||material.six_month_average)?.date_to} (конец не включён)</small>}
+    {(current?.six_month_average||material.six_month_average)?.reasons?.map(reason=><p key={`average:${reason}`}>Средняя: {reason}</p>)}
     {current?.reasons?.map(reason=><p key={reason}>{reason}</p>)}
     {current?.date_from&&<small>Поиск приходов: {current.date_from} — {current.date_to} (конец не включён)</small>}
     {history?.refresh&&<p role="status">{history.refresh.label}</p>}

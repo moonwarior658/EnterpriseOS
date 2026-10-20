@@ -77,6 +77,15 @@ def progress(row):
         active=row.status in ACTIVE, requested_at=row.requested_at, finished_at=row.finished_at)
 
 
+def ensure_execution(db, tenant, product_id, mapping):
+    row = db.scalar(attempts(db, tenant, product_id).where(Execution.status.in_(ACTIVE)).limit(1))
+    if row is None:
+        payload = RefreshPayload(product_id=product_id, source_id=SOURCE, mapping=mapping)
+        row = create_automation_execution(db, automation_type=ACTION, tenant_id=tenant,
+            scope_type='company', scope_id=None, recipients=[], payload=payload.model_dump(mode='json'))
+    return row
+
+
 def refresh(db, actor, product_id, command):
     context = authorize(db, actor, Capability.MATERIAL_PURCHASE_REFRESH, write=True)
     mapping = scope(db, actor.tenant_id, product_id)  # profile lock serializes competing human commands
@@ -85,11 +94,7 @@ def refresh(db, actor, product_id, command):
     if prior:
         if prior.entity_id != str(product_id): raise HTTPException(409, 'Запрос уже использован для другой карточки')
         return progress(db.scalar(select(Execution).where(Execution.tenant_id == actor.tenant_id, Execution.execution_id == UUID(prior.after['execution_id']))))
-    row = db.scalar(attempts(db, actor.tenant_id, product_id).where(Execution.status.in_(ACTIVE)).limit(1))
-    if row is None:
-        payload = RefreshPayload(product_id=product_id, source_id=SOURCE, mapping=mapping)
-        row = create_automation_execution(db, automation_type=ACTION, tenant_id=actor.tenant_id,
-            scope_type='company', scope_id=None, recipients=[], payload=payload.model_dump(mode='json'))
+    row = ensure_execution(db, actor.tenant_id, product_id, mapping)
     record_audit_event(db, tenant_id=actor.tenant_id, entity_type='MaterialPurchaseRefresh', entity_id=product_id,
         event_type='MATERIAL_PURCHASE_REFRESH_REQUESTED', operation='REFRESH_PURCHASE', actor_user=actor, context=context,
         after=dict(execution_id=str(row.execution_id)), reason='Ручное обновление закупочной цены', correlation_id=str(command.request_id))
@@ -162,7 +167,7 @@ def analytics_summary(row, kind):
     if row is None or kind not in row.payload.get('analytics', {}):
         return dict(status='NO_DATA', **({'quantity':None} if kind == 'usage' else {'amount':None}))
     value = row.payload['analytics'][kind]
-    keys = ('status','quantity','unit','date_from','date_to','reasons','label','independent_verification') if kind == 'usage' else ('status','amount','unit','date_from','date_to','reasons','currency','tax_basis','numerator','denominator','formula')
+    keys = ('status','quantity','unit','date_from','date_to','reasons','label','independent_verification') if kind == 'usage' else ('status','amount','unit','date_from','date_to','reasons','currency','tax_basis','numerator','denominator','formula','document_count','line_count')
     body = {k:value[k] for k in keys if k in value}
     usage_reasons = {'MOVEMENT_DATE_UNKNOWN':'Дата движения не подтверждена','MOVEMENT_OUTSIDE_PERIOD':'Движение вне периода',
         'MOVEMENT_QUANTITY_UNKNOWN':'Количество движения не подтверждено','NONZERO_COST_CORRECTION':'Корректировка стоимости содержит количество',
@@ -220,6 +225,9 @@ def sources(db, actor, product_id, snapshot_id):
     service.find(db, actor, product_id)
     row = db.scalar(select(Snapshot).where(Snapshot.id == snapshot_id, Snapshot.tenant_id == actor.tenant_id, Snapshot.product_id == product_id))
     if row is None: raise HTTPException(404, 'Расшифровка не найдена')
+    details = row.payload.get('analytics')
+    if details:
+        details = dict(details, average={**details.get('average', {}), **analytics_summary(row, 'average')})
     return dict(metric=metric(row), warehouse='Цех Производство ИП', hash=row.content_hash,
         policy=row.payload['policy'], source_id=row.source_id, source_path='/api/documents/export/incomingInvoice', mapping=row.payload['mapping'], manifest=row.payload['manifest'],
-        analytics=row.payload.get('analytics'), candidates=row.payload['result']['candidates'], unit_conflicts=[dict(document_id=c['document_id'], number=c['number'], receipt_at=c['receipt_at'], lines=c['lines']) for c in row.payload['result']['documents'] if 'UNIT_MISMATCH' in c['reasons']], exclusions=row.payload['result']['exclusions'])
+        analytics=details, candidates=row.payload['result']['candidates'], unit_conflicts=[dict(document_id=c['document_id'], number=c['number'], receipt_at=c['receipt_at'], lines=c['lines']) for c in row.payload['result']['documents'] if 'UNIT_MISMATCH' in c['reasons']], exclusions=row.payload['result']['exclusions'])

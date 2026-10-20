@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
 
     default_tenant_id: str = "eclair"
+    raw_material_daily_accepted: bool = False
     business_timezone: str = "Asia/Yekaterinburg"
     automation_callback_token: SecretStr | None = None
     print_service_token: SecretStr | None = None

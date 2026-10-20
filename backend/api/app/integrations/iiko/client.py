@@ -1658,10 +1658,18 @@ class IikoServerClient(IikoProvider):
         if warehouse_id != '1c22edc0-7ded-41c9-b781-0389462c7247' or not start < end or (end-start).days > 31:
             raise ValueError('MATERIAL_USAGE_SCOPE')
         last = end - timedelta(days=1)
-        operations = await self._get_xml('/api/reports/storeOperations', params={
-            'dateFrom': start.strftime('%d.%m.%Y'), 'dateTo': last.strftime('%d.%m.%Y'),
-            'stores': warehouse_id, 'productDetalization': 'true', 'showCostCorrections': 'true'})
-        outgoing = await self._get_xml(_OUTGOING_INVOICE_EXPORT_PATH, params={'from':start.isoformat(), 'to':last.isoformat()})
+        operations, outgoing = ET.Element('storeReportItemDtoes'), ET.Element('outgoingInvoiceDtoes')
+        cursor = start
+        while cursor < end:
+            stop = min(cursor + timedelta(days=7), end)
+            for path, target, params in (
+                ('/api/reports/storeOperations', operations, {'dateFrom':cursor.strftime('%d.%m.%Y'), 'dateTo':(stop-timedelta(days=1)).strftime('%d.%m.%Y'), 'stores':warehouse_id, 'productDetalization':'true', 'showCostCorrections':'true'}),
+                (_OUTGOING_INVOICE_EXPORT_PATH, outgoing, {'from':cursor.isoformat(), 'to':(stop-timedelta(days=1)).isoformat()})):
+                root = await self._get_xml(path, params=params)
+                if root.tag.rsplit('}',1)[-1] != target.tag:
+                    raise IikoContractError('MATERIAL_REPORT_INCOMPLETE')
+                target.extend(list(root))
+            cursor = stop
         balances = []
         for day in (start-timedelta(days=1), last):
             balances.append(await self._get_json_list(_BALANCE_STORES_PATH,

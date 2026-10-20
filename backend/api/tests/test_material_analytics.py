@@ -39,6 +39,28 @@ class CalendarAnalyticsTests(unittest.TestCase):
         self.assertIsNone(self.usage([self.row()],docs=[dict(id='doc',status='NEW',items=[])])['quantity'])
         self.assertIsNone(self.usage([self.row(amount='NaN')])['quantity'])
         self.assertEqual(self.usage([],opening='0',closing='0')['quantity'],'0')
+    def test_observed_type_and_document_type_pairs(self):
+        self.assertEqual(self.usage([self.row(type='INVOICE',documentType='INCOMING_INVOICE')])['categories']['RECEIPT'],'-2')
+        self.assertEqual(self.usage([self.row(type='INVENTORY_CORRECTION',documentType='INCOMING_INVENTORY')])['categories']['INVENTORY'],'-2')
+        self.assertEqual(self.usage([self.row(type='INVOICE',documentType='UNKNOWN')])['status'],'BLOCKED')
+
     def test_report_error_or_pagination_never_means_empty(self):
         for value in ['<error/>','<storeReportItemDtoes><hasMore>true</hasMore></storeReportItemDtoes>']:
             with self.assertRaises(ValueError):parse_xml(value,'storeReportItemDtoes','storeReportItemDto')
+
+class BoundedUsageClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_short_disjoint_windows_preserve_shared_xml_security_limit(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        from xml.etree import ElementTree as ET
+        from app.integrations.iiko.client import IikoServerClient
+        async def xml(path,**kw):return ET.Element('storeReportItemDtoes' if path.endswith('storeOperations') else 'outgoingInvoiceDtoes')
+        fake=SimpleNamespace(_get_xml=AsyncMock(side_effect=xml),_get_json_list=AsyncMock(return_value=[]))
+        result=await IikoServerClient.get_raw_material_usage_inputs(fake,start=date(2026,9,1),end=END,warehouse_id=WAREHOUSE)
+        self.assertEqual(fake._get_xml.await_count,10);self.assertEqual(fake._get_json_list.await_count,2)
+        requests=[call.kwargs['params'] for call in fake._get_xml.await_args_list if call.args[0].endswith('storeOperations')]
+        self.assertEqual([r['dateFrom'] for r in requests],['01.09.2026','08.09.2026','15.09.2026','22.09.2026','29.09.2026'])
+        self.assertEqual([r['dateTo'] for r in requests],['07.09.2026','14.09.2026','21.09.2026','28.09.2026','30.09.2026'])
+        with self.assertRaises(ValueError):await IikoServerClient.get_raw_material_usage_inputs(fake,start=START,end=END,warehouse_id=WAREHOUSE)
+        fake._get_xml=AsyncMock(return_value=ET.Element('error'))
+        with self.assertRaises(Exception):await IikoServerClient.get_raw_material_usage_inputs(fake,start=date(2026,9,1),end=END,warehouse_id=WAREHOUSE)

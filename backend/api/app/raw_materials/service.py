@@ -60,7 +60,7 @@ def version_read(db, row):
     creator = db.scalar(select(User.display_name).where(User.id == row.created_by_user_id, User.tenant_id == row.tenant_id))
     approver = db.scalar(select(User.display_name).where(User.id == approval.confirmed_by_user_id, User.tenant_id == row.tenant_id)) if approval else None
     # Whitelist even historical storage: a future/injected monetary payload never leaks.
-    payload = {k: v for k, v in row.payload.items() if k in Knowledge.model_fields}
+    payload = standards.safe_knowledge(row.payload)
     return dict(id=row.id, revision=row.revision, content_hash=row.content_hash, knowledge=payload,
                 status='CONFIRMED' if approval else 'DRAFT', created_at=row.created_at, author=creator,
                 confirmed_at=approval.confirmed_at if approval else None, approver=approver,
