@@ -1,0 +1,579 @@
+{
+  "research_date": "2026-10-12",
+  "observed_at": "2026-10-12T11:56:11.952424+05:00",
+  "warehouse_id": "1c22edc0-7ded-41c9-b781-0389462c7247",
+  "source_id": "244d6eaf9c7c106993d10feb0ff9883dbdb73101cd3a2ab6852c9ba5b9907401",
+  "warehouse_name": "Цех Производство ИП",
+  "read_only": true,
+  "publication_allowed": false,
+  "source_workbook": {
+    "filename": "Отчет о продажах с 01.09.2026 по 30.09.2026 12.10.2026 11.31.27.xlsx",
+    "sha256": "8cbe72d03fcf7698950ffbb3e282fbee0fda043193e215b533ce3ba8ac3bf834",
+    "sheet": "Отчет о продажах с 01.09.2026 п",
+    "range": "A1:N96",
+    "identity_columns_present": false,
+    "unchanged_after_read": true
+  },
+  "period": {
+    "from": "2026-09-01",
+    "to_exclusive": "2026-10-01",
+    "timezone": "Asia/Yekaterinburg"
+  },
+  "totals": {
+    "report_rows": 91,
+    "export_all_warehouses_documents": 363,
+    "export_selected_warehouse_processed_documents": 321,
+    "additional_sales_document": {
+      "id": "1278e171-f880-b7cb-01a0-e5ac6e8b7f82",
+      "number": "0255",
+      "date": "2026-09-29",
+      "status_independently_read": null,
+      "report_document_sum": "3264.00",
+      "accounting_cost": "986.92"
+    },
+    "export_quantity_mixed_units": "18924.584",
+    "report_quantity_mixed_units": "18941.584",
+    "export_document_sum": "978001.26",
+    "invoice_accounting_cost": "966902.92",
+    "report_revenue": "981265.26",
+    "report_revenue_before_discount": "982081.26",
+    "discount": "816.00",
+    "accounting_cost_all_documents": "967889.84",
+    "gross_profit": "13375.42",
+    "quantity_revenue_candidate_matches": 85,
+    "quantity_revenue_candidate_mismatches": 6,
+    "excel_uuid_identity_confirmed": false,
+    "per_product_cost_independent_reconciliation_complete": false
+  },
+  "sample_verification": [
+    {
+      "document_id": "c8c16bb8-4b04-4cb5-92d2-3e505416666e",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 31,
+      "rpc_lines": 31,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "f17f94e2-ee3d-4cdd-876f-8dcd4576cfcf",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 4,
+      "rpc_lines": 4,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "a7cebc04-c80d-40d3-868d-161b0414e950",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 26,
+      "rpc_lines": 26,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "7a36a48a-714f-419e-bc11-0a8920d0618d",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 26,
+      "rpc_lines": 26,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "5fee550d-3665-409c-87cc-542546879f63",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 18,
+      "rpc_lines": 18,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "bc6378cb-70be-4b8a-b170-ac0e31d21cf1",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 15,
+      "rpc_lines": 15,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "aefb005a-4eca-43e2-8499-f6b4a7ff34e0",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 8,
+      "rpc_lines": 8,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "3c511fe4-b26a-4ea9-8897-b5909f1ae60d",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 22,
+      "rpc_lines": 22,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "5f14f326-c515-40b6-b35a-2cc55885ea53",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 12,
+      "rpc_lines": 12,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    },
+    {
+      "document_id": "e1508562-4b3d-4b74-89c8-9d26bedd42cb",
+      "status": "PROCESSED",
+      "recalculateSumByCost": "true",
+      "export_lines": 11,
+      "rpc_lines": 11,
+      "uuid_amount_price_sum_equal": true,
+      "rpc_money_fields": [
+        "discountSum",
+        "price",
+        "priceUnit",
+        "priceWithoutNds",
+        "sum",
+        "sumWithoutNds"
+      ]
+    }
+  ],
+  "sample_summary": [
+    {
+      "document_id": "c8c16bb8-4b04-4cb5-92d2-3e505416666e",
+      "number": "2947",
+      "date": "2026-09-01T09:02:40.735+05:00",
+      "lines": 31,
+      "quantity_mixed_units": "139.994",
+      "document_sum": "7740.83",
+      "accounting_cost_document": "7731.23",
+      "sum_minus_cost": "9.60"
+    },
+    {
+      "document_id": "f17f94e2-ee3d-4cdd-876f-8dcd4576cfcf",
+      "number": "2983",
+      "date": "2026-09-04T11:33:43.812+05:00",
+      "lines": 4,
+      "quantity_mixed_units": "22",
+      "document_sum": "879.76",
+      "accounting_cost_document": "879.80",
+      "sum_minus_cost": "-0.04"
+    },
+    {
+      "document_id": "a7cebc04-c80d-40d3-868d-161b0414e950",
+      "number": "3028",
+      "date": "2026-09-07T15:00:25.022+05:00",
+      "lines": 26,
+      "quantity_mixed_units": "87",
+      "document_sum": "4439.06",
+      "accounting_cost_document": "4468.27",
+      "sum_minus_cost": "-29.21"
+    },
+    {
+      "document_id": "7a36a48a-714f-419e-bc11-0a8920d0618d",
+      "number": "3067",
+      "date": "2026-09-11T09:04:46.244+05:00",
+      "lines": 26,
+      "quantity_mixed_units": "124.004",
+      "document_sum": "4095.28",
+      "accounting_cost_document": "4088.83",
+      "sum_minus_cost": "6.45"
+    },
+    {
+      "document_id": "5fee550d-3665-409c-87cc-542546879f63",
+      "number": "3106",
+      "date": "2026-09-14T12:29:19.402+05:00",
+      "lines": 18,
+      "quantity_mixed_units": "63",
+      "document_sum": "3925.41",
+      "accounting_cost_document": "3948.70",
+      "sum_minus_cost": "-23.29"
+    },
+    {
+      "document_id": "bc6378cb-70be-4b8a-b170-ac0e31d21cf1",
+      "number": "3154",
+      "date": "2026-09-17T15:38:39.005+05:00",
+      "lines": 15,
+      "quantity_mixed_units": "90",
+      "document_sum": "5211.55",
+      "accounting_cost_document": "5210.07",
+      "sum_minus_cost": "1.48"
+    },
+    {
+      "document_id": "aefb005a-4eca-43e2-8499-f6b4a7ff34e0",
+      "number": "3189",
+      "date": "2026-09-20T16:45:30.868+05:00",
+      "lines": 8,
+      "quantity_mixed_units": "22",
+      "document_sum": "1745.76",
+      "accounting_cost_document": "1743.41",
+      "sum_minus_cost": "2.35"
+    },
+    {
+      "document_id": "3c511fe4-b26a-4ea9-8897-b5909f1ae60d",
+      "number": "3226",
+      "date": "2026-09-24T09:00:22.112+05:00",
+      "lines": 22,
+      "quantity_mixed_units": "115",
+      "document_sum": "3736.77",
+      "accounting_cost_document": "3723.37",
+      "sum_minus_cost": "13.40"
+    },
+    {
+      "document_id": "5f14f326-c515-40b6-b35a-2cc55885ea53",
+      "number": "3261",
+      "date": "2026-09-27T11:27:52.637+05:00",
+      "lines": 12,
+      "quantity_mixed_units": "68",
+      "document_sum": "3570.58",
+      "accounting_cost_document": "3569.15",
+      "sum_minus_cost": "1.43"
+    },
+    {
+      "document_id": "e1508562-4b3d-4b74-89c8-9d26bedd42cb",
+      "number": "3303",
+      "date": "2026-09-30T15:12:45.356+05:00",
+      "lines": 11,
+      "quantity_mixed_units": "39",
+      "document_sum": "2272.77",
+      "accounting_cost_document": "2258.82",
+      "sum_minus_cost": "13.95"
+    }
+  ],
+  "extra_sales_rows_department_2026_09_29": [
+    {
+      "date": "29.09.2026",
+      "productName": "Круассан с шоколадной начинкой",
+      "productId": "38de0ea4-b9f7-4ced-a0b5-b0e1df910d4c",
+      "value": "600.000000000"
+    },
+    {
+      "date": "29.09.2026",
+      "productName": "Кольцо крем-чиз с малиной",
+      "productId": "5e0ca6f7-17a2-45b7-a79e-b9e6ff357c04",
+      "value": "720.000000000"
+    },
+    {
+      "date": "29.09.2026",
+      "productName": "Круассан с заварным кремом и соленой карамелью",
+      "productId": "6ef645cc-71be-4f75-831b-8492b4f0337a",
+      "value": "768.000000000"
+    },
+    {
+      "date": "29.09.2026",
+      "productName": "Пирожное эклер шоколадный 75 гр",
+      "productId": "965ea014-d9a3-47c1-a39c-6ea17256849b",
+      "value": "504.000000000"
+    },
+    {
+      "date": "29.09.2026",
+      "productName": "Пирожное эклер тирамису 95 гр",
+      "productId": "cbc99705-f8d6-42c9-8522-40cf6737e071",
+      "value": "432.000000000"
+    },
+    {
+      "date": "29.09.2026",
+      "productName": "Пирожное эклер карамельный 75 гр",
+      "productId": "fbb17e32-1ea6-4e18-9a88-e7cae92770b4",
+      "value": "240.000000000"
+    }
+  ],
+  "department_report_is_warehouse_scoped": false,
+  "report_differences": [
+    {
+      "excel_row": 27,
+      "report_name": "Круассан с шоколадной начинкой",
+      "candidate_product_id": "38de0ea4-b9f7-4ced-a0b5-b0e1df910d4c",
+      "candidate_article": "00258",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "111",
+      "report_unit_cost_C": "105.16",
+      "report_revenue_before_discount": "12775.08",
+      "report_revenue": "12625.08",
+      "report_gross_profit": "952.53",
+      "report_implied_accounting_cost": "11672.55",
+      "report_implied_cost_per_unit": "105.1581081081081081081081081",
+      "export_quantity": "108",
+      "export_sum": "12025.08",
+      "quantity_delta": "3",
+      "revenue_delta": "600.00",
+      "export_effective_unit_amount": "111.3433333333333333333333333",
+      "quantity_revenue_match": false
+    },
+    {
+      "excel_row": 37,
+      "report_name": "Круассан с заварным кремом и соленой карамелью",
+      "candidate_product_id": "6ef645cc-71be-4f75-831b-8492b4f0337a",
+      "candidate_article": "76399",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "94",
+      "report_unit_cost_C": "66.47",
+      "report_revenue_before_discount": "8525.36",
+      "report_revenue": "8333.36",
+      "report_gross_profit": "2085.49",
+      "report_implied_accounting_cost": "6247.87",
+      "report_implied_cost_per_unit": "66.46670212765957446808510638",
+      "export_quantity": "91",
+      "export_sum": "7565.36",
+      "quantity_delta": "3",
+      "revenue_delta": "768.00",
+      "export_effective_unit_amount": "83.13582417582417582417582418",
+      "quantity_revenue_match": false
+    },
+    {
+      "excel_row": 40,
+      "report_name": "Кольцо крем-чиз с малиной",
+      "candidate_product_id": "5e0ca6f7-17a2-45b7-a79e-b9e6ff357c04",
+      "candidate_article": "76214",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "315",
+      "report_unit_cost_C": "62.93",
+      "report_revenue_before_discount": "22651.29",
+      "report_revenue": "22471.29",
+      "report_gross_profit": "2647.51",
+      "report_implied_accounting_cost": "19823.78",
+      "report_implied_cost_per_unit": "62.93263492063492063492063492",
+      "export_quantity": "312",
+      "export_sum": "21751.29",
+      "quantity_delta": "3",
+      "revenue_delta": "720.00",
+      "export_effective_unit_amount": "69.71567307692307692307692308",
+      "quantity_revenue_match": false
+    },
+    {
+      "excel_row": 59,
+      "report_name": "Пирожное эклер тирамису 95 гр",
+      "candidate_product_id": "cbc99705-f8d6-42c9-8522-40cf6737e071",
+      "candidate_article": "75685",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "212",
+      "report_unit_cost_C": "38.78",
+      "report_revenue_before_discount": "9777.99",
+      "report_revenue": "9669.99",
+      "report_gross_profit": "1447.81",
+      "report_implied_accounting_cost": "8222.18",
+      "report_implied_cost_per_unit": "38.78386792452830188679245283",
+      "export_quantity": "209",
+      "export_sum": "9237.99",
+      "quantity_delta": "3",
+      "revenue_delta": "432.00",
+      "export_effective_unit_amount": "44.20090909090909090909090909",
+      "quantity_revenue_match": false
+    },
+    {
+      "excel_row": 61,
+      "report_name": "Пирожное эклер шоколадный 75 гр",
+      "candidate_product_id": "965ea014-d9a3-47c1-a39c-6ea17256849b",
+      "candidate_article": "75690",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "264",
+      "report_unit_cost_C": "37.17",
+      "report_revenue_before_discount": "11768.88",
+      "report_revenue": "11642.88",
+      "report_gross_profit": "1830.79",
+      "report_implied_accounting_cost": "9812.09",
+      "report_implied_cost_per_unit": "37.16700757575757575757575758",
+      "export_quantity": "261",
+      "export_sum": "11138.88",
+      "quantity_delta": "3",
+      "revenue_delta": "504.00",
+      "export_effective_unit_amount": "42.67770114942528735632183908",
+      "quantity_revenue_match": false
+    },
+    {
+      "excel_row": 75,
+      "report_name": "Пирожное эклер карамельный 75 гр",
+      "candidate_product_id": "fbb17e32-1ea6-4e18-9a88-e7cae92770b4",
+      "candidate_article": "75683",
+      "identity_status": "REVIEW_ONLY_NAME_CANDIDATE_NOT_UUID_CONFIRMED_BY_WORKBOOK",
+      "report_quantity": "318",
+      "report_unit_cost_C": "22.70",
+      "report_revenue_before_discount": "8342.77",
+      "report_revenue": "8282.77",
+      "report_gross_profit": "1062.93",
+      "report_implied_accounting_cost": "7219.84",
+      "report_implied_cost_per_unit": "22.70389937106918238993710692",
+      "export_quantity": "316",
+      "export_sum": "8042.77",
+      "quantity_delta": "2",
+      "revenue_delta": "240.00",
+      "export_effective_unit_amount": "25.45180379746835443037974684",
+      "quantity_revenue_match": false
+    }
+  ],
+  "latest_october": {
+    "from": "2026-10-01",
+    "through": "2026-10-12",
+    "observed_at": "2026-10-12T11:56:11.952424+05:00",
+    "processed_documents": 120,
+    "products_with_positive_transfer": 82,
+    "document_sum": "1220364.51",
+    "accounting_cost_documents": "410529.06",
+    "price_equals_cost_confirmed": false
+  },
+  "api_observations": [
+    {
+      "method": "GET",
+      "path": "/api/documents/export/outgoingInvoice",
+      "result": "200; productId, amount, price, sum; PROCESSED filter; fixed store filter"
+    },
+    {
+      "method": "POST",
+      "path": "/services/document?methodName=getAbstractDocument",
+      "read_only": true,
+      "result": "10 OutgoingInvoice reads match 173 XML export lines; recalculateSumByCost true; per-product accounting cost and valuation flag absent"
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "accept": "application/xml",
+      "result": "200; productDetalization=false gives documentId, documentSum and cost; true gives stock-product details without parent finished-product UUID",
+      "params": {
+        "dateFrom": "01.09.2026",
+        "dateTo": "30.09.2026",
+        "stores": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "productDetalization": "false",
+        "documentTypes": [
+          "OUTGOING_INVOICE",
+          "SALES_DOCUMENT"
+        ],
+        "showCostCorrections": "true"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/reports/olap",
+      "read_only": true,
+      "result": "409 access denied B_VOTR"
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/sales",
+      "result": "200 when explicit parentCorporateId used as department; 29 rows; six 29Sep revenue values corroborate difference; no quantity,cost,documentId or warehouseId; not suitable as warehouse-scoped accounting source"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/export/salesDocument",
+      "result": "404"
+    },
+    {
+      "method": "POST",
+      "path": "/services/document?methodName=getAbstractDocument",
+      "read_only": true,
+      "result": "SalesDocument0255 read denied IikoAuthorizationError; no permission changes"
+    }
+  ],
+  "files": {
+    "report_reconciliation": {
+      "file": "STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_report_reconciliation.csv",
+      "rows": 91,
+      "sha256": "ea438f8c2a450cafe5d02260cfadf9d0676ccb156bc31d4fea12dcead435f794"
+    },
+    "sample_lines": {
+      "file": "STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_sample_lines.csv",
+      "rows": 173,
+      "sha256": "6ebd6339cd1ae75abab0935b113007941052569ba52344f9db347159caf41681"
+    },
+    "documents": {
+      "file": "STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_documents.csv",
+      "rows": 322,
+      "sha256": "64c913424016bec8b9e6a2738f0965b5cff51c539c2d8c00bc00770a7903e65b"
+    },
+    "office_ssn_comparison": {
+      "file": "STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_office_ssn_comparison.csv",
+      "rows": 49,
+      "sha256": "c9c5a395d24d7cdcb0a9ea22bf536adfceff743733b947ec26d9bc0651251e58"
+    },
+    "latest_transfer": {
+      "file": "STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_latest_transfer.csv",
+      "rows": 82,
+      "sha256": "6e5efbef501f96ba99e9b20739306c9f0afd9c2fcacd8968e1bd7c56306da8f0"
+    }
+  },
+  "quality": {
+    "checks_passed": true,
+    "decimal_money": true,
+    "excel_quantity_precision": "1e-9 to remove IEEE754 serialization noise; API quantities have nine decimal places",
+    "no_name_mapping_written": true,
+    "unknown_valuation_kept_null": true,
+    "X3_exclusions_retained": true,
+    "no_product_code_change": true,
+    "no_production_mutation": true,
+    "unresolved": [
+      "Workbook has no UUID/article identifiers",
+      "Quantity17 from six report differences not independently read from SalesDocument",
+      "Per-product accounting cost unavailable with validated APIs/current permissions",
+      "Valuation finality/estimated status unknown; document PROCESSED is not valuation confirmation",
+      "October current-period snapshot may change after collection"
+    ]
+  }
+}
