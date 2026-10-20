@@ -29,6 +29,8 @@ import StatisticsPage from './pages/StatisticsPage'
 import { SALES_ROLES } from './pages/salesAnalyticsLogic'
 import type { EmployeeRole } from './services/actionContext'
 import ProductKnowledgePage from './pages/ProductKnowledgePage'
+import RawMaterialsPage from './pages/RawMaterialsPage'
+import { RAW_MATERIAL_ROLES } from './services/rawMaterials'
 import { PRODUCT_KNOWLEDGE_ROLES } from './services/productKnowledge'
 import ProductKnowledgeDemoPage from './pages/ProductKnowledgeDemoPage'
 import ProductKnowledgeDemoLayout from './pages/ProductKnowledgeDemoLayout'
@@ -69,6 +71,8 @@ function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/raw-materials" element={<ProtectedRoute allowedRoles={RAW_MATERIAL_ROLES}><RawMaterialsPage /></ProtectedRoute>} />
+        <Route path="/raw-materials/:productId" element={<ProtectedRoute allowedRoles={RAW_MATERIAL_ROLES}><RawMaterialsPage /></ProtectedRoute>} />
         <Route path="/products" element={<ProtectedRoute allowedRoles={PRODUCT_KNOWLEDGE_ROLES}><ProductKnowledgePage /></ProtectedRoute>} />
         <Route path="/products/:productId" element={<ProtectedRoute allowedRoles={PRODUCT_KNOWLEDGE_ROLES}><ProductKnowledgePage /></ProtectedRoute>} />
         <Route path="/statistics" element={<ProtectedRoute allowedRoles={SALES_ROLES as EmployeeRole[]}><StatisticsPage /></ProtectedRoute>} />

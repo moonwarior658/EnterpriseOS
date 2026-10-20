@@ -1,0 +1,10 @@
+.material-photo { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; flex-shrink: 0; }
+.material-photo-large { width: 220px; height: 220px; }
+.material-photo-empty { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-muted, #f1f3f5); color: var(--text-muted, #667085); font-size: 12px; }
+.material-editor label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.material-editor label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
+.material-editor textarea { min-height: 84px; width: 100%; resize: vertical; }
+.material-editor button { margin: 8px 12px 8px 0; }
+.material-editor fieldset { margin: 16px 0; border: 1px solid var(--border-color, #d0d5dd); border-radius: 12px; padding: 16px; min-width: 0; }
+.material-page .product-knowledge-section dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .material-photo-large { width: 140px; height: 140px; } }

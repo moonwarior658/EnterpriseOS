@@ -15,6 +15,10 @@ from app.models.work_request import WorkRequest
 
 
 class Capability(StrEnum):
+    MATERIAL_KNOWLEDGE_READ = "MATERIAL_KNOWLEDGE_READ"
+    MATERIAL_KNOWLEDGE_EDIT = "MATERIAL_KNOWLEDGE_EDIT"
+    MATERIAL_KNOWLEDGE_CONFIRM = "MATERIAL_KNOWLEDGE_CONFIRM"
+    MATERIAL_PURCHASE_READ = "MATERIAL_PURCHASE_READ"
     PRODUCT_COST_REVIEW = "PRODUCT_COST_REVIEW"
     PRODUCT_COST_READ = "PRODUCT_COST_READ"
     PRODUCT_COST_CONFIRM = "PRODUCT_COST_CONFIRM"
@@ -62,6 +66,17 @@ class Scope(StrEnum):
 
 # Tuple order is the permission-specific authorized_as precedence.
 GRANTS: dict[Capability, tuple[tuple[EmployeeRole, Scope], ...]] = {
+    Capability.MATERIAL_KNOWLEDGE_READ: tuple((role, Scope.ALL_COMPANY) for role in (
+        EmployeeRole.ADMIN, EmployeeRole.DIRECTOR, EmployeeRole.DEPUTY_DIRECTOR,
+        EmployeeRole.SUPPLY_MANAGER, EmployeeRole.ACCOUNTANT, EmployeeRole.HEAD_OF_PRODUCTION,
+        EmployeeRole.CHEF_CONFECTIONER, EmployeeRole.CONFECTIONER, EmployeeRole.BAKER,
+    )),
+    Capability.MATERIAL_KNOWLEDGE_EDIT: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.MATERIAL_KNOWLEDGE_CONFIRM: ((EmployeeRole.ADMIN, Scope.ALL_COMPANY), (EmployeeRole.SUPPLY_MANAGER, Scope.ALL_COMPANY)),
+    Capability.MATERIAL_PURCHASE_READ: tuple((role, Scope.ALL_COMPANY) for role in (
+        EmployeeRole.ADMIN, EmployeeRole.SUPPLY_MANAGER, EmployeeRole.DIRECTOR,
+        EmployeeRole.DEPUTY_DIRECTOR, EmployeeRole.ACCOUNTANT,
+    )),
     Capability.PRODUCT_COST_READ: (
         (EmployeeRole.ADMIN, Scope.ALL_COMPANY),
         (EmployeeRole.HEAD_OF_PRODUCTION, Scope.ALL_COMPANY),
