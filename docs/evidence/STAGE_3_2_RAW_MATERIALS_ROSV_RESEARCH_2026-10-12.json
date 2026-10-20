@@ -1,0 +1,2888 @@
+{
+  "observed_at": "2026-10-12T08:34:39.063613+00:00",
+  "scope": {
+    "read_only": true,
+    "warehouse_uuid": "1c22edc0-7ded-41c9-b781-0389462c7247",
+    "warehouse_name": "Цех Производство ИП",
+    "timezone": "Asia/Yekaterinburg",
+    "movement_period_half_open": [
+      "2026-09-01",
+      "2026-10-01"
+    ],
+    "purchase_average_period_half_open": [
+      "2026-04-01",
+      "2026-10-01"
+    ],
+    "latest_purchase_search": [
+      "2026-04-01",
+      "2026-10-12"
+    ],
+    "current_balance_as_of": "2026-10-12T13:23:31+05:00",
+    "production_git": "ef92ebfac3f24509382d540044d9c96338aa264e",
+    "alembic": "20261009_0079",
+    "no_business_or_schema_writes": true,
+    "no_permissions_changed": true,
+    "no_sync_or_automation_execution": true
+  },
+  "probes": [
+    {
+      "key": "columns",
+      "method": "GET",
+      "path": "/api/v2/reports/olap/columns",
+      "params": {
+        "reportType": "TRANSACTIONS"
+      },
+      "status": 200,
+      "bytes": 22686,
+      "sha256": "af88bf8c9394afc0ad9f4571efefe38ca910066c2b26ff8e92d9b0c2b8583ec4",
+      "format": "json",
+      "rows": 116,
+      "sample": [
+        "Sum.PartOfIncome",
+        "Sum.PartOfTotalIncome",
+        "PercentOfSummary.ByCol",
+        "PercentOfSummary.ByRow",
+        "Sum.PartOfSummaryByCol",
+        "Sum.PartOfSummaryByRow",
+        "Session.GroupId",
+        "OrderId",
+        "Product.Category.Id",
+        "Counteragent.Id",
+        "Product.Tags.IdsCombo",
+        "Product.Tag.Id",
+        "Account.Id",
+        "Product.Id",
+        "Product.Num",
+        "Product.AccountingCategory",
+        "DateTime.Year",
+        "Session.Group",
+        "Contr-Product.AlcoholClass.Group",
+        "Product.AlcoholClass.Group"
+      ]
+    },
+    {
+      "key": "sep_ops",
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "params": [
+        [
+          "dateFrom",
+          "01.09.2026"
+        ],
+        [
+          "dateTo",
+          "30.09.2026"
+        ],
+        [
+          "stores",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ],
+        [
+          "productDetalization",
+          "true"
+        ],
+        [
+          "showCostCorrections",
+          "true"
+        ]
+      ],
+      "status": 200,
+      "bytes": 14562488,
+      "sha256": "c383358d304ecb6973b89399887e693a3ed7712a38de09d7b6ef58949b66efba",
+      "format": "xml",
+      "root": "storeReportItemDtoes",
+      "rows": 13453,
+      "sample": [
+        {
+          "sum": "-159.000000000",
+          "sumNds": "0.000000000",
+          "sumWithoutNds": "-159.000000000",
+          "amount": "-0.571966875",
+          "secondaryAmount": "0",
+          "documentSum": "0",
+          "firstEstimatedPurchasePrice": "0.000000000",
+          "secondEstimatedPurchasePrice": "0",
+          "cost": "-159.000000000",
+          "date": "10.09.2026",
+          "type": "OUTGOING_INVOICE",
+          "incoming": "false",
+          "documentType": "OUTGOING_INVOICE",
+          "documentId": "3f6d4560-761b-4efb-97f0-ce65de9bc101",
+          "revenueAccount": "1191ea64-d805-4267-a2d0-072d5881e3ff",
+          "expenseAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "documentNum": "3059",
+          "primaryStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "secondaryAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "product": "0e354433-2b3c-4337-8b66-1d4ff86be0c4",
+          "ndsPercent": "0"
+        },
+        {
+          "sum": "-227.610000000",
+          "sumNds": "0.000000000",
+          "sumWithoutNds": "-227.610000000",
+          "amount": "-0.945431567",
+          "secondaryAmount": "0",
+          "documentSum": "0",
+          "firstEstimatedPurchasePrice": "0.000000000",
+          "secondEstimatedPurchasePrice": "0",
+          "cost": "-227.610000000",
+          "date": "22.09.2026",
+          "type": "OUTGOING_INVOICE",
+          "incoming": "false",
+          "documentType": "OUTGOING_INVOICE",
+          "documentId": "df34c2a3-2ca8-4bf8-9af0-58e45e665814",
+          "revenueAccount": "1191ea64-d805-4267-a2d0-072d5881e3ff",
+          "expenseAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "documentNum": "3207",
+          "primaryStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "secondaryAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "product": "3efbb379-00f3-4b14-b96d-643dde6b6664",
+          "ndsPercent": "0"
+        }
+      ]
+    },
+    {
+      "key": "sep_invoices",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "status": 200,
+      "bytes": 3395417,
+      "sha256": "ad27d8a9f6e505a2cbbb2cfee9143b4837d322e0a5819a7a45aa5d4517f189b1",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 412,
+      "sample": [
+        {
+          "id": "ce24a3a0-f711-a34c-019e-e08b471ad482",
+          "transportInvoiceNumber": null,
+          "incomingDocumentNumber": null,
+          "incomingDate": "2026-09-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "74ba6a9b-8597-4b6c-bc97-fc4cd23eb749",
+          "defaultStore": "c3f43576-66fd-421d-a2c2-6ed3bf208ea1",
+          "invoice": null,
+          "dateIncoming": "2026-09-01T00:00:00",
+          "documentNumber": "3082",
+          "conception": "80a37893-ccb1-49dd-a2f4-e040bd093a23",
+          "conceptionCode": "01",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "75c73446-c4e0-0529-01a0-58c8f2bc2c09",
+          "transportInvoiceNumber": null,
+          "incomingDocumentNumber": null,
+          "incomingDate": "2026-09-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "74ba6a9b-8597-4b6c-bc97-fc4cd23eb749",
+          "defaultStore": "d9144d36-f4cb-47d4-afff-f6b3ad8a4ca7",
+          "invoice": null,
+          "dateIncoming": "2026-09-01T00:00:00",
+          "documentNumber": "4204",
+          "conception": "80a37893-ccb1-49dd-a2f4-e040bd093a23",
+          "conceptionCode": "01",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "start_balance",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-09-01T00:00:00"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 17213,
+      "sha256": "5166c9eed83d74c263cdda216ad5d137211914296c3525ffef9698c2ce7abc6f",
+      "format": "json",
+      "rows": 134,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 88.123333353,
+          "sum": 31782.11
+        }
+      ]
+    },
+    {
+      "key": "end_balance",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-10-01T00:00:00"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 17828,
+      "sha256": "7ee1d23e405db42ffea6bc2ab96796f884b2e4d632d663fef2d417c47763f5e2",
+      "format": "json",
+      "rows": 140,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 65.740333334,
+          "sum": 23709.57
+        }
+      ]
+    },
+    {
+      "key": "current_balance",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-10-12T23:59:59"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 18347,
+      "sha256": "db65d25282156b2ec37af356125a2a6f10dd9b9f1c8ebdb604647aa777e618e7",
+      "format": "json",
+      "rows": 144,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 86.243666683,
+          "sum": 29466.14
+        }
+      ]
+    },
+    {
+      "key": "current_balance_now",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-10-12T13:23:31"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 18347,
+      "sha256": "db65d25282156b2ec37af356125a2a6f10dd9b9f1c8ebdb604647aa777e618e7",
+      "format": "json",
+      "rows": 144,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 86.243666683,
+          "sum": 29466.14
+        }
+      ]
+    },
+    {
+      "key": "olap_transactions",
+      "method": "POST read-only report",
+      "path": "/api/v2/reports/olap",
+      "body": {
+        "reportType": "TRANSACTIONS",
+        "buildSummary": false,
+        "groupByRowFields": [
+          "Product.Id",
+          "TransactionType.Code"
+        ],
+        "groupByColFields": [],
+        "aggregateFields": [
+          "Amount.In",
+          "Amount.Out",
+          "Sum.Incoming",
+          "Sum.Outgoing"
+        ],
+        "filters": {
+          "DateTime.DateTyped": {
+            "filterType": "DateRange",
+            "periodType": "CUSTOM",
+            "from": "2026-09-01T00:00:00.000",
+            "to": "2026-10-01T00:00:00.000",
+            "includeLow": true,
+            "includeHigh": false
+          },
+          "Account.Id": {
+            "filterType": "IncludeValues",
+            "values": [
+              "1c22edc0-7ded-41c9-b781-0389462c7247"
+            ]
+          }
+        }
+      },
+      "status": 409,
+      "sha256": "981282328c2c7918bfe7d524b9b5f25eb0761819ca01f764d015e00451e27094",
+      "error": "Доступ запрещен B_VOTR Просматривать OLAP-отчет по проводкам"
+    },
+    {
+      "key": "invoices_04",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-04-01",
+        "to": "2026-04-30"
+      },
+      "status": 200,
+      "bytes": 3616564,
+      "sha256": "0d63d5cec32bdfc7e11094209bb07c4451894dc9df12c2fc041e9de43e448b1c",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 636,
+      "sample": [
+        {
+          "id": "e59b8486-f3db-a2aa-019d-73e61b0c93ce",
+          "incomingDocumentNumber": "1211",
+          "incomingDate": "2026-04-11",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "a6f406c7-de56-4021-b94b-3e8610f13960",
+          "dateIncoming": "2026-04-11T08:45:20",
+          "documentNumber": "1736",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "16ad91b0-f8ef-48de-abed-56779d76afd1",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "e59b8486-f3db-a2aa-019d-73e61b0c9493",
+          "incomingDocumentNumber": "1212",
+          "incomingDate": "2026-04-11",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "d8ac1fa7-73d3-4164-9651-fa2c0b806d0f",
+          "dateIncoming": "2026-04-11T08:45:28",
+          "documentNumber": "1737",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "adb44498-2d7c-4102-b207-486610c19a8c",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "invoices_05",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-05-01",
+        "to": "2026-05-31"
+      },
+      "status": 200,
+      "bytes": 3709731,
+      "sha256": "34b4a89cbec36521ada2dd7686b6a30f80ad06d7a1646adb6c3177c8db24c5d3",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 587,
+      "sample": [
+        {
+          "id": "9875c889-3c9b-6c0d-019d-df82615f6357",
+          "incomingDocumentNumber": "1476",
+          "incomingDate": "2026-05-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "d8ac1fa7-73d3-4164-9651-fa2c0b806d0f",
+          "dateIncoming": "2026-05-01T08:55:25",
+          "documentNumber": "2142",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "3f9e0df7-2b89-4e3f-983a-ca050eb1656b",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "9875c889-3c9b-6c0d-019d-df82615f64a9",
+          "incomingDocumentNumber": "1477",
+          "incomingDate": "2026-05-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "10f8add8-163d-47a7-b4ce-7b766fe9d6f0",
+          "dateIncoming": "2026-05-01T08:55:58",
+          "documentNumber": "2143",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "e4f0e6cf-a86f-47cc-b09f-b006957907bc",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "invoices_06",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-06-01",
+        "to": "2026-06-30"
+      },
+      "status": 200,
+      "bytes": 3559430,
+      "sha256": "0cd4f27f3bd9c163c80ad60429419ec019ec5650b2d14841b0efd8e9746daea3",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 643,
+      "sample": [
+        {
+          "id": "fca0c0a7-124a-5ed5-019f-43543398782c",
+          "transportInvoiceNumber": null,
+          "incomingDocumentNumber": "258",
+          "incomingDate": "2026-06-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "ce4005b1-f54d-47e2-9420-75cadedafdd0",
+          "defaultStore": "210c1b4b-5446-42cd-b473-b06f03fa3907",
+          "invoice": null,
+          "dateIncoming": "2026-06-01T00:00:00",
+          "documentNumber": "0000-000131",
+          "conception": "73b222ba-69c3-4d17-8d2d-c9c27ea900a1",
+          "conceptionCode": "05",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "9875c889-3c9b-6c0d-019e-8054120f1453",
+          "incomingDocumentNumber": "1868",
+          "incomingDate": "2026-06-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "d8ac1fa7-73d3-4164-9651-fa2c0b806d0f",
+          "dateIncoming": "2026-06-01T08:55:35",
+          "documentNumber": "2702",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "a76fb2b4-2bdf-40d4-8ba1-1a43ce1521df",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "invoices_07",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-07-01",
+        "to": "2026-07-31"
+      },
+      "status": 200,
+      "bytes": 3348519,
+      "sha256": "891e94aa4469eb09b9c9fdbfefa3fb880f9a04a77cf91c8418540f3b0edb36ed",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 523,
+      "sample": [
+        {
+          "id": "ae38eade-0786-90c5-019f-6ec22688c328",
+          "transportInvoiceNumber": null,
+          "incomingDocumentNumber": "19822",
+          "incomingDate": "2026-07-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "f1f13629-f234-41f0-97c2-9809d5a0c3bd",
+          "defaultStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "invoice": null,
+          "dateIncoming": "2026-07-01T00:00:00",
+          "documentNumber": "0000-000152",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "ce24a3a0-f711-a34c-019f-199d6d883d18",
+          "incomingDocumentNumber": "2228",
+          "incomingDate": "2026-07-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "d8ac1fa7-73d3-4164-9651-fa2c0b806d0f",
+          "dateIncoming": "2026-07-01T08:49:34",
+          "documentNumber": "3259",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "3b430b91-8d19-4dfb-8b7f-0332412ed576",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "invoices_08",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-08-01",
+        "to": "2026-08-31"
+      },
+      "status": 200,
+      "bytes": 3308224,
+      "sha256": "e3ba41b35d4915e8cea6d788a25a3000e64719b0b96b69d353595dc6e4b3a278",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 382,
+      "sample": [
+        {
+          "id": "4d8f99fe-70d6-a84e-019f-f12e6f07703d",
+          "transportInvoiceNumber": null,
+          "incomingDate": "2026-08-04",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+          "defaultStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "invoice": null,
+          "dateIncoming": "2026-08-01T09:00:00",
+          "documentNumber": "3958",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "ae38eade-0786-90c5-019f-b8d4775c716a",
+          "incomingDocumentNumber": "2601",
+          "incomingDate": "2026-08-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "a6f406c7-de56-4021-b94b-3e8610f13960",
+          "dateIncoming": "2026-08-01T12:27:29",
+          "documentNumber": "3821",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "c4397c81-2ed8-42c2-b69d-2b4fe5a1345b",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "invoices_10",
+      "method": "GET",
+      "path": "/api/documents/export/incomingInvoice",
+      "params": {
+        "from": "2026-10-01",
+        "to": "2026-10-12"
+      },
+      "status": 200,
+      "bytes": 1437865,
+      "sha256": "3963e34b9768a971d4db659314351e5552dbf291ee1aa1ccac01803a55aaf458",
+      "format": "xml",
+      "root": "incomingInvoiceDtoes",
+      "rows": 150,
+      "sample": [
+        {
+          "id": "91fbd726-881e-6081-01a0-f2d37c574eab",
+          "incomingDocumentNumber": "3304",
+          "incomingDate": "2026-10-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "10f8add8-163d-47a7-b4ce-7b766fe9d6f0",
+          "dateIncoming": "2026-10-01T08:54:08",
+          "documentNumber": "4594",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "87b88565-ecb0-4bdc-8ecf-fd6c03da2b61",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        },
+        {
+          "id": "91fbd726-881e-6081-01a0-f2d37c575045",
+          "incomingDocumentNumber": "3305",
+          "incomingDate": "2026-10-01",
+          "useDefaultDocumentTime": "false",
+          "dueDate": "null",
+          "supplier": "47c6accc-4bc7-6be1-0194-ccf9367e208c",
+          "defaultStore": "d8ac1fa7-73d3-4164-9651-fa2c0b806d0f",
+          "dateIncoming": "2026-10-01T08:54:10",
+          "documentNumber": "4595",
+          "status": "PROCESSED",
+          "linkedOutgoingInvoiceId": "f5189bcc-d2e1-4550-b998-f78f2c234d04",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT"
+        }
+      ]
+    },
+    {
+      "key": "opening_exclusive",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-08-31T23:59:59"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 17213,
+      "sha256": "5166c9eed83d74c263cdda216ad5d137211914296c3525ffef9698c2ce7abc6f",
+      "format": "json",
+      "rows": 134,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 88.123333353,
+          "sum": 31782.11
+        }
+      ]
+    },
+    {
+      "key": "closing_exclusive",
+      "method": "GET",
+      "path": "/api/v2/reports/balance/stores",
+      "params": [
+        [
+          "timestamp",
+          "2026-09-30T23:59:59"
+        ],
+        [
+          "store",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ]
+      ],
+      "status": 200,
+      "bytes": 17828,
+      "sha256": "7ee1d23e405db42ffea6bc2ab96796f884b2e4d632d663fef2d417c47763f5e2",
+      "format": "json",
+      "rows": 140,
+      "sample": [
+        {
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "product": "605dbfce-7e9d-4375-a6f1-85067156bce7",
+          "amount": 65.740333334,
+          "sum": 23709.57
+        }
+      ]
+    },
+    {
+      "key": "sep_ops_corrections",
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "params": [
+        [
+          "dateFrom",
+          "01.09.2026"
+        ],
+        [
+          "dateTo",
+          "30.09.2026"
+        ],
+        [
+          "stores",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ],
+        [
+          "productDetalization",
+          "true"
+        ],
+        [
+          "showCostCorrections",
+          "true"
+        ],
+        [
+          "documentTypes",
+          "INCOMING_INVENTORY,INCOMING_INVOICE,INTERNAL_TRANSFER,OUTGOING_INVOICE,SALES_DOCUMENT,WRITEOFF_DOCUMENT"
+        ]
+      ],
+      "status": 404,
+      "bytes": 501,
+      "sha256": "8ec7cdf77fc24eb5db1fd094b26c273bdce1ea743ae04ae8c2ff30163b951edd"
+    },
+    {
+      "key": "sep_returns",
+      "method": "GET",
+      "path": "/api/documents/export/returnedInvoice",
+      "params": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "status": 404,
+      "bytes": 62,
+      "sha256": "fd393321bd0f553684ce06c56c355154b32f9b4c8e61087baaf57384e226c559"
+    },
+    {
+      "key": "sep_ops_corrections_repeated",
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "params": [
+        [
+          "dateFrom",
+          "01.09.2026"
+        ],
+        [
+          "dateTo",
+          "30.09.2026"
+        ],
+        [
+          "stores",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ],
+        [
+          "productDetalization",
+          "true"
+        ],
+        [
+          "showCostCorrections",
+          "true"
+        ],
+        [
+          "documentTypes",
+          "INCOMING_INVENTORY"
+        ],
+        [
+          "documentTypes",
+          "INCOMING_INVOICE"
+        ],
+        [
+          "documentTypes",
+          "INTERNAL_TRANSFER"
+        ],
+        [
+          "documentTypes",
+          "OUTGOING_INVOICE"
+        ],
+        [
+          "documentTypes",
+          "SALES_DOCUMENT"
+        ],
+        [
+          "documentTypes",
+          "WRITEOFF_DOCUMENT"
+        ]
+      ],
+      "status": 200,
+      "bytes": 14562488,
+      "sha256": "c383358d304ecb6973b89399887e693a3ed7712a38de09d7b6ef58949b66efba",
+      "format": "xml",
+      "root": "storeReportItemDtoes",
+      "rows": 13453,
+      "sample": [
+        {
+          "sum": "-159.000000000",
+          "sumNds": "0.000000000",
+          "sumWithoutNds": "-159.000000000",
+          "amount": "-0.571966875",
+          "secondaryAmount": "0",
+          "documentSum": "0",
+          "firstEstimatedPurchasePrice": "0.000000000",
+          "secondEstimatedPurchasePrice": "0",
+          "cost": "-159.000000000",
+          "date": "10.09.2026",
+          "type": "OUTGOING_INVOICE",
+          "incoming": "false",
+          "documentType": "OUTGOING_INVOICE",
+          "documentId": "3f6d4560-761b-4efb-97f0-ce65de9bc101",
+          "revenueAccount": "1191ea64-d805-4267-a2d0-072d5881e3ff",
+          "expenseAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "documentNum": "3059",
+          "primaryStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "secondaryAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "product": "0e354433-2b3c-4337-8b66-1d4ff86be0c4",
+          "ndsPercent": "0"
+        },
+        {
+          "sum": "-227.610000000",
+          "sumNds": "0.000000000",
+          "sumWithoutNds": "-227.610000000",
+          "amount": "-0.945431567",
+          "secondaryAmount": "0",
+          "documentSum": "0",
+          "firstEstimatedPurchasePrice": "0.000000000",
+          "secondEstimatedPurchasePrice": "0",
+          "cost": "-227.610000000",
+          "date": "22.09.2026",
+          "type": "OUTGOING_INVOICE",
+          "incoming": "false",
+          "documentType": "OUTGOING_INVOICE",
+          "documentId": "df34c2a3-2ca8-4bf8-9af0-58e45e665814",
+          "revenueAccount": "1191ea64-d805-4267-a2d0-072d5881e3ff",
+          "expenseAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "documentNum": "3207",
+          "primaryStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "secondaryAccount": "c4b927ba-60e4-4b94-ba41-7c0aaf443f87",
+          "product": "3efbb379-00f3-4b14-b96d-643dde6b6664",
+          "ndsPercent": "0"
+        }
+      ]
+    },
+    {
+      "key": "sep_outgoing",
+      "method": "GET",
+      "path": "/api/documents/export/outgoingInvoice",
+      "params": {
+        "from": "2026-09-01",
+        "to": "2026-09-30"
+      },
+      "status": 200,
+      "bytes": 2094060,
+      "sha256": "e1c4278bf4533d71ca2583061bd923b081aed82fdc84750473ad2075dac80cf3",
+      "format": "xml",
+      "root": "outgoingInvoiceDtoes",
+      "rows": 363,
+      "sample": [
+        {
+          "id": "cb861b61-c868-4840-9214-a4af26ea6d52",
+          "documentNumber": "2102",
+          "dateIncoming": "2026-09-01T08:39:47.914+05:00",
+          "useDefaultDocumentTime": "false",
+          "status": "PROCESSED",
+          "accountToCode": "21",
+          "revenueAccountCode": "20",
+          "defaultStoreId": "bf44ec50-91d2-48b3-a927-2e3e2490f1d6",
+          "defaultStoreCode": "233",
+          "counteragentId": "eac6f3d4-a2f2-0113-0195-53afd17de4dc",
+          "counteragentCode": null,
+          "linkedIncomingInvoiceId": "ce24a3a0-f711-a34c-019e-e0d06ae14efa"
+        },
+        {
+          "id": "c8c16bb8-4b04-4cb5-92d2-3e505416666e",
+          "documentNumber": "2947",
+          "dateIncoming": "2026-09-01T09:02:40.735+05:00",
+          "useDefaultDocumentTime": "false",
+          "status": "PROCESSED",
+          "accountToCode": "21",
+          "revenueAccountCode": "20",
+          "defaultStoreId": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "defaultStoreCode": "21",
+          "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cd",
+          "counteragentCode": null,
+          "linkedIncomingInvoiceId": "75c73446-c4e0-0529-01a0-58c8f2bc6119"
+        }
+      ]
+    },
+    {
+      "key": "six_month_returns_ops",
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "params": [
+        [
+          "dateFrom",
+          "01.04.2026"
+        ],
+        [
+          "dateTo",
+          "30.09.2026"
+        ],
+        [
+          "stores",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ],
+        [
+          "productDetalization",
+          "true"
+        ],
+        [
+          "documentTypes",
+          "RETURNED_INVOICE"
+        ]
+      ],
+      "status": 200,
+      "bytes": 771,
+      "sha256": "5165c713a238873301da165edb9661d42fab24157171089129699af75cc5a6fa",
+      "format": "xml",
+      "root": "storeReportItemDtoes",
+      "rows": 1,
+      "sample": [
+        {
+          "sum": "-250.550000000",
+          "sumNds": "0",
+          "sumWithoutNds": "-250.550000000",
+          "amount": "0",
+          "secondaryAmount": "0",
+          "documentSum": "0",
+          "firstEstimatedPurchasePrice": "0.000000000",
+          "secondEstimatedPurchasePrice": "0",
+          "cost": "-250.550000000",
+          "date": "28.05.2026",
+          "type": "STORE_COST_CORRECTION",
+          "incoming": "true",
+          "primaryStore": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "secondaryAccount": "38a6ccb3-74f6-ee69-bf60-854da6be23d4",
+          "product": "38d544ef-8bc9-4e35-a515-4610eff22f37",
+          "ndsPercent": "0"
+        }
+      ]
+    },
+    {
+      "key": "six_month_returns_no_corrections",
+      "method": "GET",
+      "path": "/api/reports/storeOperations",
+      "params": [
+        [
+          "dateFrom",
+          "01.04.2026"
+        ],
+        [
+          "dateTo",
+          "30.09.2026"
+        ],
+        [
+          "stores",
+          "1c22edc0-7ded-41c9-b781-0389462c7247"
+        ],
+        [
+          "productDetalization",
+          "true"
+        ],
+        [
+          "documentTypes",
+          "RETURNED_INVOICE"
+        ],
+        [
+          "showCostCorrections",
+          "false"
+        ]
+      ],
+      "status": 200,
+      "bytes": 100,
+      "sha256": "9f1a5c715c4e575ecc65f4b5be2d60e6bf8d245780c00f06a2390d45a8c3a4b0",
+      "format": "xml",
+      "root": "storeReportItemDtoes",
+      "rows": 0,
+      "sample": []
+    }
+  ],
+  "source_references": {
+    "product_count": 9815,
+    "unit_count": 10,
+    "supplier_count": 344,
+    "paths": [
+      "/api/v2/entities/products/list",
+      "/api/v2/entities/list?rootType=MeasureUnit&includeDeleted=true",
+      "/api/suppliers"
+    ],
+    "raw_reference_response_http_status_not_captured": true
+  },
+  "summary": {
+    "selected_count": 10,
+    "period": "2026-09-01/2026-10-01",
+    "six_month_period": "2026-04-01/2026-10-01",
+    "all_products": 164,
+    "movement_products": 164,
+    "reconciliation_quantity_fail_count": 0,
+    "reconciliation_sum_fail_count": 0,
+    "quantity_residual_max": "0E-9",
+    "sum_residual_max": "0E-9",
+    "supply_unique_confirmed": 141,
+    "supply_missing": 23,
+    "supply_ambiguous": 0,
+    "k5b_leaf_count": 42,
+    "k5b_leaf_in_movements": 40,
+    "k5b_leaf_in_union": 40,
+    "supplier_flags": {
+      "74ba6a9b-8597-4b6c-bc97-fc4cd23eb749": {
+        "id": "74ba6a9b-8597-4b6c-bc97-fc4cd23eb749",
+        "name": "Алакбаров Э.А. оглы ИП",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "2602f357-53ee-4209-8b92-b06149cfea20": {
+        "id": "2602f357-53ee-4209-8b92-b06149cfea20",
+        "name": "Тебенькова М. А ИП",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "ce4005b1-f54d-47e2-9420-75cadedafdd0": {
+        "id": "ce4005b1-f54d-47e2-9420-75cadedafdd0",
+        "name": "Ахмедов Абузар Шахбаз оглы ИП",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "47c6accc-4bc7-6be1-0194-ccf9367e20cb": {
+        "id": "47c6accc-4bc7-6be1-0194-ccf9367e20cb",
+        "name": "Эклер Игарская: Павильон Эклер Игарская",
+        "is_supplier": true,
+        "represents_store": true,
+        "is_employee": false,
+        "deleted": false
+      },
+      "0f53856e-1808-4fa2-8874-c3531a4b7cc1": {
+        "id": "0f53856e-1808-4fa2-8874-c3531a4b7cc1",
+        "name": "Рестоэксперт ООО",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "eac6f3d4-a2f2-0113-0195-17f2fc89a926": {
+        "id": "eac6f3d4-a2f2-0113-0195-17f2fc89a926",
+        "name": "Кафе GRILL HOUSSE: ЦС Эверест Продукты Полярная 1 а",
+        "is_supplier": true,
+        "represents_store": true,
+        "is_employee": false,
+        "deleted": false
+      },
+      "c64e590a-1b91-4036-bbf4-ca5838656a8e": {
+        "id": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+        "name": null,
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": true,
+        "deleted": false,
+        "employee_name_omitted": true
+      },
+      "aa1a94e1-6fc6-49a2-aab1-58ea69e568b0": {
+        "id": "aa1a94e1-6fc6-49a2-aab1-58ea69e568b0",
+        "name": "МЕТРО Кэш энд Керри ООО",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "0b9fdf7b-092a-4eb1-80f0-7f7b09aaf11b": {
+        "id": "0b9fdf7b-092a-4eb1-80f0-7f7b09aaf11b",
+        "name": "МЕГАПРОД ООО",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "f1f13629-f234-41f0-97c2-9809d5a0c3bd": {
+        "id": "f1f13629-f234-41f0-97c2-9809d5a0c3bd",
+        "name": "Север-Прод ООО",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "bd091fea-3e6d-468a-b5db-97b69e5e7b23": {
+        "id": "bd091fea-3e6d-468a-b5db-97b69e5e7b23",
+        "name": "Махнев Алексей К  ИП",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      },
+      "76b240a6-c03f-4a74-933b-1dc182894903": {
+        "id": "76b240a6-c03f-4a74-933b-1dc182894903",
+        "name": "Насретдинов Д.Н ИП",
+        "is_supplier": true,
+        "represents_store": false,
+        "is_employee": false,
+        "deleted": false
+      }
+    }
+  },
+  "global_movement_types": [
+    {
+      "type": "INVENTORY_CORRECTION",
+      "rows": 163,
+      "documents": 1,
+      "products": 163,
+      "sum": "282029.520000000",
+      "zero_amount_rows": 0
+    },
+    {
+      "type": "INVOICE",
+      "rows": 99,
+      "documents": 38,
+      "products": 53,
+      "sum": "772501.300000000",
+      "zero_amount_rows": 0
+    },
+    {
+      "type": "OUTGOING_INVOICE",
+      "rows": 13144,
+      "documents": 321,
+      "products": 103,
+      "sum": "-966902.920000000",
+      "zero_amount_rows": 0
+    },
+    {
+      "type": "SESSION_WRITEOFF",
+      "rows": 27,
+      "documents": 1,
+      "products": 27,
+      "sum": "-986.920000000",
+      "zero_amount_rows": 0
+    },
+    {
+      "type": "TRANSFER",
+      "rows": 6,
+      "documents": 4,
+      "products": 5,
+      "sum": "31102.800000000",
+      "zero_amount_rows": 0
+    },
+    {
+      "type": "WRITEOFF",
+      "rows": 14,
+      "documents": 1,
+      "products": 14,
+      "sum": "-127.750000000",
+      "zero_amount_rows": 0
+    }
+  ],
+  "six_month_invoice_quality": {
+    "rows": 561,
+    "docs": 236,
+    "additional_expense_rows": 0,
+    "zero_amount_rows": 0,
+    "negative_amount_rows": 0,
+    "zero_sum_positive_amount_rows": 7,
+    "store_supplier_rows": 22
+  },
+  "sample_results": [
+    {
+      "iiko_uuid": "5e3f05ed-f188-4139-b712-b08b9917b925",
+      "name": "т Сахар песок",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+          "name": "Сахар песок",
+          "iiko_id": "5e3f05ed-f188-4139-b712-b08b9917b925",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [
+        {
+          "eos_product_id": "53404ab0-11f4-4b8d-8e70-5044fe4f7cf0",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        },
+        {
+          "eos_product_id": "85c6fd98-a113-433c-9f3a-b88839ec74a6",
+          "leaf": true,
+          "observation_date": "2026-10-09 13:58:57.840982+00:00"
+        },
+        {
+          "eos_product_id": "919054cd-6073-4b0f-be95-7c94eaad71cc",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        },
+        {
+          "eos_product_id": "9f66ef57-3bf6-475b-a04a-d8f25051d521",
+          "leaf": true,
+          "observation_date": "2026-10-09 14:02:42.221248+00:00"
+        },
+        {
+          "eos_product_id": "e38dc23a-ad03-447f-99d2-464319b63e96",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        }
+      ],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+        "amount": "220.539141888",
+        "sum": "20421.42"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+        "amount": "47.374964187",
+        "sum": "4379.49"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+        "amount": "12.524199433",
+        "sum": "1137.89"
+      },
+      "current_book_unit_cost": "90.85530824443555473363245029",
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 316,
+          "quantity": "-339.856359661",
+          "sum": "-32239.810000000",
+          "cost": "-32239.810000000",
+          "in_qty": "0",
+          "out_qty": "339.856359661"
+        },
+        "WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.045651341",
+          "sum": "-4.220000000",
+          "cost": "-4.220000000",
+          "in_qty": "0",
+          "out_qty": "0.045651341"
+        },
+        "INVOICE": {
+          "rows": 5,
+          "quantity": "181.000000000",
+          "sum": "17520.530000000",
+          "cost": "17520.530000000",
+          "in_qty": "181.000000000",
+          "out_qty": "0"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-14.145311915",
+          "sum": "-1307.630000000",
+          "cost": "-1307.630000000",
+          "in_qty": "0",
+          "out_qty": "14.145311915"
+        },
+        "SESSION_WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.116854784",
+          "sum": "-10.800000000",
+          "cost": "-10.800000000",
+          "in_qty": "0",
+          "out_qty": "0.116854784"
+        }
+      },
+      "reconciliation": {
+        "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "220.539141888",
+        "closing_quantity": "47.374964187",
+        "net_quantity": "-173.164177701",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 14,
+        "qty": "1800.000000000",
+        "sum": "155335.240000000",
+        "gross_document_weighted": "86.29735555555555555555555556",
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [
+          {
+            "id": "0b9fdf7b-092a-4eb1-80f0-7f7b09aaf11b",
+            "name": "МЕГАПРОД ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+            "name": null,
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": true,
+            "deleted": false,
+            "employee_name_omitted": true
+          }
+        ],
+        "technical_smoke_excluded_rows": 1,
+        "after_smoke_exclusion_qty": "1799.000000000",
+        "after_smoke_exclusion_sum": "155229.340000000",
+        "comparable_document_average": "86.28645914396887159533073930",
+        "quality": "DOCUMENT_AVERAGE_NOT_INDEPENDENTLY_ACCEPTED",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [
+        {
+          "id": "c640c5f8-a253-4eeb-01a1-1f67482b20b6",
+          "documentNumber": "4708",
+          "dateIncoming": "2026-10-08T09:00:00",
+          "supplier": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT",
+          "isAdditionalExpense": "false",
+          "actualAmount": "30.000",
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "code": "00178",
+          "price": "84.990000000",
+          "priceWithoutVat": "84.990000000",
+          "sum": "2549.70",
+          "vatPercent": "0.000000000",
+          "vatSum": "0.00",
+          "discountSum": "0.00",
+          "amountUnit": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+          "num": "2",
+          "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+          "productArticle": "00178",
+          "amount": "30.000",
+          "sum_per_amount": "84.99",
+          "unit_matches_current_main_unit": true
+        }
+      ],
+      "outgoing_classification": {
+        "product": "5e3f05ed-f188-4139-b712-b08b9917b925",
+        "rows": 316,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 316,
+        "derived_ingredient_quantity": "339.856359661",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "-128.610000000",
+              "amount": "-1.318800511",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "8cdf0631-f2e3-4283-b515-fab7776fc067",
+              "documentNum": "3183",
+              "product": "5e3f05ed-f188-4139-b712-b08b9917b925"
+            },
+            "document": {
+              "id": "8cdf0631-f2e3-4283-b515-fab7776fc067",
+              "documentNumber": "3183",
+              "dateIncoming": "2026-09-20T09:04:40.976+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "91fbd726-881e-6081-01a0-b7a62e235723",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cb"
+            },
+            "original_product_uuids": [
+              "cea57e19-3c8d-467a-a31b-8ca8bbe5609f",
+              "bbc4772e-dad9-4857-96f1-29001a655d01",
+              "b7d89c43-0f3f-4ec5-a4cc-bb5dd9cf2f48",
+              "0855a204-61c2-42d5-9cb9-81586c62155d",
+              "59879617-2f6b-4c4a-a52c-fffd49d1471a",
+              "2c24f3f6-69d6-4c2b-994c-86429a81cb88",
+              "48491fc4-325c-432d-b71a-9f93ec668e1d",
+              "b6c35657-7d2d-4831-a49b-ff0da166431f",
+              "c5f15acb-a4d6-47e7-83e2-a4735ad2cacf",
+              "68120bb9-789d-4dd3-8260-2c1c36b73a0f",
+              "1debac70-a7ab-458e-8459-f438425ae28e",
+              "fa53c8a4-1ecd-4013-a1a7-6062b9bd66ee",
+              "6b012f1f-6c7c-4bf1-bbcf-85f2b5ce5341",
+              "5b9f1a69-80f8-4a88-8be3-a113185eaecf",
+              "e29d9d7a-c1f3-4745-8934-c507647b65ad",
+              "8cb5cfe5-2fdc-4148-a3c0-b59195f68eb3",
+              "ad3443d9-3c15-4cc2-8f0e-a53892e58d1b",
+              "eb7da612-fba4-4695-947d-7d992c321534",
+              "25ba4321-1daf-468f-9eaf-777858bdcd32",
+              "76d26051-5ee0-4c91-b8f2-648f4698c23b",
+              "ed5a643c-be3f-46ac-96aa-a3d84feae4f3"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "RATIO_OF_POSITIVE_BOOK_BALANCE_NOT_CONFIRMED_PURCHASE_PRICE"
+    },
+    {
+      "iiko_uuid": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+      "name": "т Сливки 33 % ",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "21fe689f-a2d0-41d4-8c6a-29b73b24e01f",
+          "name": "Сливки 33 %",
+          "iiko_id": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [
+        {
+          "eos_product_id": "85c6fd98-a113-433c-9f3a-b88839ec74a6",
+          "leaf": true,
+          "observation_date": "2026-10-09 13:58:57.840982+00:00"
+        },
+        {
+          "eos_product_id": "919054cd-6073-4b0f-be95-7c94eaad71cc",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        },
+        {
+          "eos_product_id": "9f66ef57-3bf6-475b-a04a-d8f25051d521",
+          "leaf": true,
+          "observation_date": "2026-10-09 14:02:42.221248+00:00"
+        }
+      ],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+        "amount": "214.379031261",
+        "sum": "77176.45"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+        "amount": "265.72055971",
+        "sum": "98316.61"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+        "amount": "133.777626059",
+        "sum": "49497.72"
+      },
+      "current_book_unit_cost": "369.9999877271704666376494263",
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 283,
+          "quantity": "-295.476689118",
+          "sum": "-107182.580000000",
+          "cost": "-107182.580000000",
+          "in_qty": "0",
+          "out_qty": "295.476689118"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "179.187155639",
+          "sum": "66299.250000000",
+          "cost": "66299.250000000",
+          "in_qty": "179.187155639",
+          "out_qty": "0"
+        },
+        "INVOICE": {
+          "rows": 1,
+          "quantity": "168.000000000",
+          "sum": "62160.000000000",
+          "cost": "62160.000000000",
+          "in_qty": "168.000000000",
+          "out_qty": "0"
+        },
+        "SESSION_WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.368938072",
+          "sum": "-136.510000000",
+          "cost": "-136.510000000",
+          "in_qty": "0",
+          "out_qty": "0.368938072"
+        }
+      },
+      "reconciliation": {
+        "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "214.379031261",
+        "closing_quantity": "265.72055971",
+        "net_quantity": "51.341528449",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 9,
+        "qty": "1528.500000000",
+        "sum": "585920.940000000",
+        "gross_document_weighted": "383.3306771344455348380765456",
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 2,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [
+          {
+            "id": "aa1a94e1-6fc6-49a2-aab1-58ea69e568b0",
+            "name": "МЕТРО Кэш энд Керри ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "bd091fea-3e6d-468a-b5db-97b69e5e7b23",
+            "name": "Махнев Алексей К  ИП",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+            "name": null,
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": true,
+            "deleted": false,
+            "employee_name_omitted": true
+          }
+        ],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "1528.500000000",
+        "after_smoke_exclusion_sum": "585920.940000000",
+        "comparable_document_average": null,
+        "quality": "MIXED_UNITS_BLOCKED",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [
+        {
+          "id": "ee378b63-d67c-4d8d-b658-45bb6d4590c6",
+          "documentNumber": "4563",
+          "dateIncoming": "2026-09-27T09:00:00",
+          "supplier": "bd091fea-3e6d-468a-b5db-97b69e5e7b23",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT",
+          "isAdditionalExpense": "false",
+          "actualAmount": "168.000000000",
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "code": "10538",
+          "price": "370.000000000",
+          "priceWithoutVat": "370.000000000",
+          "sum": "62160.000000000",
+          "vatPercent": "0.000000000",
+          "vatSum": "0.000000000",
+          "discountSum": "0.000000000",
+          "amountUnit": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+          "num": "1",
+          "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+          "productArticle": "10538",
+          "amount": "168.000000000",
+          "sum_per_amount": "370",
+          "unit_matches_current_main_unit": true
+        }
+      ],
+      "outgoing_classification": {
+        "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff",
+        "rows": 283,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 283,
+        "derived_ingredient_quantity": "295.476689118",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "-69.300000000",
+              "amount": "-0.192500001",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "81bf97da-8941-4f31-b96d-94f9c25cfe8c",
+              "documentNum": "3009",
+              "product": "f3d30911-46b9-4afa-8c5b-0ecc58665fff"
+            },
+            "document": {
+              "id": "81bf97da-8941-4f31-b96d-94f9c25cfe8c",
+              "documentNumber": "3009",
+              "dateIncoming": "2026-09-06T14:55:12.903+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "0471b398-2bb4-a812-01a0-6711d1f3fb0b",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cd"
+            },
+            "original_product_uuids": [
+              "a2cd94b5-de4d-48b0-86e7-aab3596a10e6",
+              "5d61bbae-6f05-4de3-8a67-4405ca031463",
+              "5feb7db7-8c6f-4bd9-9e08-0d75b13305ee",
+              "8a254428-e73a-4629-9689-aface4421ff6",
+              "d30920c6-3ed2-447c-a778-76f20787a079"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "RATIO_OF_POSITIVE_BOOK_BALANCE_NOT_CONFIRMED_PURCHASE_PRICE"
+    },
+    {
+      "iiko_uuid": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+      "name": "т Мука пшеничная в/с",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "be7c1ced-755e-4fa3-b7e9-cc7851c3c07d",
+          "name": "Мука пшеничная в/с",
+          "iiko_id": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [
+        {
+          "eos_product_id": "53404ab0-11f4-4b8d-8e70-5044fe4f7cf0",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        },
+        {
+          "eos_product_id": "919054cd-6073-4b0f-be95-7c94eaad71cc",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        },
+        {
+          "eos_product_id": "9f66ef57-3bf6-475b-a04a-d8f25051d521",
+          "leaf": true,
+          "observation_date": "2026-10-09 14:02:42.221248+00:00"
+        },
+        {
+          "eos_product_id": "e38dc23a-ad03-447f-99d2-464319b63e96",
+          "leaf": true,
+          "observation_date": "2026-10-09 09:51:33.592773+00:00"
+        }
+      ],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+        "amount": "316.90541791",
+        "sum": "13193.09"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+        "amount": "143.179114149",
+        "sum": "6235.79"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+        "amount": "-85.428297448",
+        "sum": "-4447.31"
+      },
+      "current_book_unit_cost": null,
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 316,
+          "quantity": "-1078.799155418",
+          "sum": "-46722.990000000",
+          "cost": "-46722.990000000",
+          "in_qty": "0",
+          "out_qty": "1078.799155418"
+        },
+        "INVOICE": {
+          "rows": 1,
+          "quantity": "1000.000000000",
+          "sum": "43900.000000000",
+          "cost": "43900.000000000",
+          "in_qty": "1000.000000000",
+          "out_qty": "0"
+        },
+        "WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.157032375",
+          "sum": "-6.840000000",
+          "cost": "-6.840000000",
+          "in_qty": "0",
+          "out_qty": "0.157032375"
+        },
+        "SESSION_WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.162645941",
+          "sum": "-7.090000000",
+          "cost": "-7.090000000",
+          "in_qty": "0",
+          "out_qty": "0.162645941"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-94.607470027",
+          "sum": "-4120.380000000",
+          "cost": "-4120.380000000",
+          "in_qty": "0",
+          "out_qty": "94.607470027"
+        }
+      },
+      "reconciliation": {
+        "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "316.90541791",
+        "closing_quantity": "143.179114149",
+        "net_quantity": "-173.726303761",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 23,
+        "qty": "7306.000000000",
+        "sum": "290494.910000000",
+        "gross_document_weighted": "39.76114289624965781549411443",
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [
+          {
+            "id": "0b9fdf7b-092a-4eb1-80f0-7f7b09aaf11b",
+            "name": "МЕГАПРОД ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "0f53856e-1808-4fa2-8874-c3531a4b7cc1",
+            "name": "Рестоэксперт ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+            "name": null,
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": true,
+            "deleted": false,
+            "employee_name_omitted": true
+          }
+        ],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "7306.000000000",
+        "after_smoke_exclusion_sum": "290494.910000000",
+        "comparable_document_average": "39.76114289624965781549411443",
+        "quality": "DOCUMENT_AVERAGE_NOT_INDEPENDENTLY_ACCEPTED",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [
+        {
+          "id": "c640c5f8-a253-4eeb-01a1-1f67482b20b6",
+          "documentNumber": "4708",
+          "dateIncoming": "2026-10-08T09:00:00",
+          "supplier": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT",
+          "isAdditionalExpense": "false",
+          "actualAmount": "50.000",
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "code": "00018",
+          "price": "51.400000000",
+          "priceWithoutVat": "51.400000000",
+          "sum": "2569.90",
+          "vatPercent": "0.000000000",
+          "vatSum": "0.00",
+          "discountSum": "0.00",
+          "amountUnit": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+          "num": "1",
+          "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+          "productArticle": "00018",
+          "amount": "50.000",
+          "sum_per_amount": "51.398",
+          "unit_matches_current_main_unit": true
+        }
+      ],
+      "outgoing_classification": {
+        "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c",
+        "rows": 316,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 316,
+        "derived_ingredient_quantity": "1078.799155418",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "-13.670000000",
+              "amount": "-0.313951158",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "e77bc6c2-9bc8-4a6e-8d82-78e7c17ab1d6",
+              "documentNum": "3297",
+              "product": "e7e6b07d-84cb-4038-9a30-9e1758c75c3c"
+            },
+            "document": {
+              "id": "e77bc6c2-9bc8-4a6e-8d82-78e7c17ab1d6",
+              "documentNumber": "3297",
+              "dateIncoming": "2026-09-30T11:51:11.817+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "91fbd726-881e-6081-01a0-ed612f4f854b",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cb"
+            },
+            "original_product_uuids": [
+              "fa53c8a4-1ecd-4013-a1a7-6062b9bd66ee",
+              "4e4b836c-ba41-40e2-8c5c-0663cae10c7d",
+              "c8110384-456d-490d-bf49-9fc13b8bafb5"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "NONPOSITIVE_OR_ABSENT_BALANCE"
+    },
+    {
+      "iiko_uuid": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+      "name": "т Сахарная пудра",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "09c145e8-dfdc-452c-8414-6742447eee61",
+          "name": "Сахарная пудра",
+          "iiko_id": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+        "amount": "3.747959596",
+        "sum": "596.76"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+        "amount": "36.461988778",
+        "sum": "6333.92"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+        "amount": "15.536512373",
+        "sum": "2698.89"
+      },
+      "current_book_unit_cost": "173.7127313521304656833745116",
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 229,
+          "quantity": "-41.135457263",
+          "sum": "-7444.960000000",
+          "cost": "-7444.960000000",
+          "in_qty": "0",
+          "out_qty": "41.135457263"
+        },
+        "INVOICE": {
+          "rows": 3,
+          "quantity": "61.000000000",
+          "sum": "10950.000000000",
+          "cost": "10950.000000000",
+          "in_qty": "61.000000000",
+          "out_qty": "0"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "12.860837797",
+          "sum": "2234.090000000",
+          "cost": "2234.090000000",
+          "in_qty": "12.860837797",
+          "out_qty": "0"
+        },
+        "SESSION_WRITEOFF": {
+          "rows": 1,
+          "quantity": "-0.011351352",
+          "sum": "-1.970000000",
+          "cost": "-1.970000000",
+          "in_qty": "0",
+          "out_qty": "0.011351352"
+        }
+      },
+      "reconciliation": {
+        "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "3.747959596",
+        "closing_quantity": "36.461988778",
+        "net_quantity": "32.714029182",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 13,
+        "qty": "230.000000000",
+        "sum": "41128.510000000",
+        "gross_document_weighted": "178.8196086956521739130434783",
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [
+          {
+            "id": "0b9fdf7b-092a-4eb1-80f0-7f7b09aaf11b",
+            "name": "МЕГАПРОД ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "0f53856e-1808-4fa2-8874-c3531a4b7cc1",
+            "name": "Рестоэксперт ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "2602f357-53ee-4209-8b92-b06149cfea20",
+            "name": "Тебенькова М. А ИП",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "aa1a94e1-6fc6-49a2-aab1-58ea69e568b0",
+            "name": "МЕТРО Кэш энд Керри ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          },
+          {
+            "id": "c64e590a-1b91-4036-bbf4-ca5838656a8e",
+            "name": null,
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": true,
+            "deleted": false,
+            "employee_name_omitted": true
+          },
+          {
+            "id": "f1f13629-f234-41f0-97c2-9809d5a0c3bd",
+            "name": "Север-Прод ООО",
+            "is_supplier": true,
+            "represents_store": false,
+            "is_employee": false,
+            "deleted": false
+          }
+        ],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "230.000000000",
+        "after_smoke_exclusion_sum": "41128.510000000",
+        "comparable_document_average": "178.8196086956521739130434783",
+        "quality": "DOCUMENT_AVERAGE_NOT_INDEPENDENTLY_ACCEPTED",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [
+        {
+          "id": "91fbd726-881e-6081-01a0-d21447fbc5dc",
+          "documentNumber": "EOS-IN-20260925-F9ADF0F66F8A",
+          "dateIncoming": "2026-09-25T04:54:34",
+          "supplier": "0f53856e-1808-4fa2-8874-c3531a4b7cc1",
+          "status": "PROCESSED",
+          "distributionAlgorithm": "DISTRIBUTION_BY_AMOUNT",
+          "isAdditionalExpense": "false",
+          "actualAmount": "30.000000000",
+          "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+          "code": "00902",
+          "price": "163.000000000",
+          "priceWithoutVat": "163.000000000",
+          "sum": "4890.000000000",
+          "vatPercent": "0.000000000",
+          "vatSum": "0.000000000",
+          "discountSum": "0.000000000",
+          "amountUnit": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+          "num": "6",
+          "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+          "productArticle": "00902",
+          "supplierProduct": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+          "supplierProductArticle": "00902",
+          "amount": "30.000000000",
+          "sum_per_amount": "163",
+          "unit_matches_current_main_unit": true
+        }
+      ],
+      "outgoing_classification": {
+        "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa",
+        "rows": 229,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 229,
+        "derived_ingredient_quantity": "41.135457263",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "-6.670000000",
+              "amount": "-0.041894736",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "e9ca8c2a-f540-4cf2-a0fc-774775a84b7f",
+              "documentNum": "2957",
+              "product": "cbe466d1-fbbf-4365-a5e8-b97cc1836cfa"
+            },
+            "document": {
+              "id": "e9ca8c2a-f540-4cf2-a0fc-774775a84b7f",
+              "documentNumber": "2957",
+              "dateIncoming": "2026-09-01T17:08:13.220+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "75c73446-c4e0-0529-01a0-58c8f2bcbfbc",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cd"
+            },
+            "original_product_uuids": [
+              "b6cba28c-a583-4bd9-849f-87c8851f55db",
+              "4d28cf51-de76-4799-85f4-9a475399a500",
+              "fbb17e32-1ea6-4e18-9a88-e7cae92770b4",
+              "965ea014-d9a3-47c1-a39c-6ea17256849b",
+              "cbc99705-f8d6-42c9-8522-40cf6737e071",
+              "fa53c8a4-1ecd-4013-a1a7-6062b9bd66ee"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "RATIO_OF_POSITIVE_BOOK_BALANCE_NOT_CONFIRMED_PURCHASE_PRICE"
+    },
+    {
+      "iiko_uuid": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+      "name": "т Мука ржаная",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "02a0e6ca-9e31-4846-a217-0bc01248537b",
+          "name": "Мука ржаная",
+          "iiko_id": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+        "amount": "208.500384593",
+        "sum": "7371.38"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+        "amount": "140.90076923",
+        "sum": "4981.45"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+        "amount": "107.639999992",
+        "sum": "3805.54"
+      },
+      "current_book_unit_cost": "35.35432924826119132279904804",
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 93,
+          "quantity": "-82.803076944",
+          "sum": "-2927.440000000",
+          "cost": "-2927.440000000",
+          "in_qty": "0",
+          "out_qty": "82.803076944"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "15.203461581",
+          "sum": "537.510000000",
+          "cost": "537.510000000",
+          "in_qty": "15.203461581",
+          "out_qty": "0"
+        }
+      },
+      "reconciliation": {
+        "product": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "208.500384593",
+        "closing_quantity": "140.90076923",
+        "net_quantity": "-67.599615363",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "85729d10-3559-4d25-8def-1f9ebe5d0530",
+        "rows": 93,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 93,
+        "derived_ingredient_quantity": "82.803076944",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "-44.930000000",
+              "amount": "-1.270769231",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "cac14196-64e3-4c21-bd8d-a3110b6c5b56",
+              "documentNum": "3283",
+              "product": "85729d10-3559-4d25-8def-1f9ebe5d0530"
+            },
+            "document": {
+              "id": "cac14196-64e3-4c21-bd8d-a3110b6c5b56",
+              "documentNumber": "3283",
+              "dateIncoming": "2026-09-29T08:50:09.396+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "91fbd726-881e-6081-01a0-e68e70459a39",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cb"
+            },
+            "original_product_uuids": [
+              "1debac70-a7ab-458e-8459-f438425ae28e",
+              "1debac70-a7ab-458e-8459-f438425ae28e",
+              "fb32ed72-78df-4516-b5c7-74dfee996ae7",
+              "c5f15acb-a4d6-47e7-83e2-a4735ad2cacf",
+              "68120bb9-789d-4dd3-8260-2c1c36b73a0f",
+              "76d26051-5ee0-4c91-b8f2-648f4698c23b",
+              "ed5a643c-be3f-46ac-96aa-a3d84feae4f3",
+              "cea57e19-3c8d-467a-a31b-8ca8bbe5609f",
+              "57dda769-c4e5-48b1-a125-87df38ce81bd",
+              "bbc4772e-dad9-4857-96f1-29001a655d01",
+              "b7d89c43-0f3f-4ec5-a4cc-bb5dd9cf2f48",
+              "0855a204-61c2-42d5-9cb9-81586c62155d",
+              "59879617-2f6b-4c4a-a52c-fffd49d1471a",
+              "2c24f3f6-69d6-4c2b-994c-86429a81cb88",
+              "48491fc4-325c-432d-b71a-9f93ec668e1d",
+              "b6c35657-7d2d-4831-a49b-ff0da166431f",
+              "eb7da612-fba4-4695-947d-7d992c321534"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "RATIO_OF_POSITIVE_BOOK_BALANCE_NOT_CONFIRMED_PURCHASE_PRICE"
+    },
+    {
+      "iiko_uuid": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+      "name": "т Мука миндальная ",
+      "iiko_type": "GOODS",
+      "unit_uuid": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+      "unit": {
+        "external_id": "7ba81c3a-8de5-8f9d-fb9f-e39efcbc57cc",
+        "name": "кг",
+        "short_name": "166",
+        "code": "166",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "04f38b85-474b-43a2-ae93-49a99d045b01",
+          "name": "Мука миндальная",
+          "iiko_id": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a01"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+        "amount": "26.5",
+        "sum": "34625.6"
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+        "amount": "25.75",
+        "sum": "33645.63"
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+        "amount": "25.5",
+        "sum": "33318.97"
+      },
+      "current_book_unit_cost": "1306.626274509803921568627451",
+      "movement_groups": {
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-0.750000000",
+          "sum": "-979.970000000",
+          "cost": "-979.970000000",
+          "in_qty": "0",
+          "out_qty": "0.750000000"
+        }
+      },
+      "reconciliation": {
+        "product": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": "26.5",
+        "closing_quantity": "25.75",
+        "net_quantity": "-0.750000000",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "d666091a-f1a1-43da-a39f-c0295d69bc91",
+        "rows": 0,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 0,
+        "derived_ingredient_quantity": "0",
+        "unmatched_document_rows": 0,
+        "document_examples": []
+      },
+      "current_book_unit_cost_status": "RATIO_OF_POSITIVE_BOOK_BALANCE_NOT_CONFIRMED_PURCHASE_PRICE"
+    },
+    {
+      "iiko_uuid": "62423eb6-157e-4673-b167-430e599f6d51",
+      "name": "ту Коробка  для сэндвича 130*130*50 мм Крафт с окном ",
+      "iiko_type": "GOODS",
+      "unit_uuid": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+      "unit": {
+        "external_id": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+        "name": "шт",
+        "short_name": "796",
+        "code": "796",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "7f39bdb1-e8ef-4df3-ad77-521c32855aa7",
+          "name": "Коробка  для сэндвича 130*130*50 мм Крафт с окном",
+          "iiko_id": "62423eb6-157e-4673-b167-430e599f6d51",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a03"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "62423eb6-157e-4673-b167-430e599f6d51",
+        "amount": 79,
+        "sum": 0
+      },
+      "closing": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "62423eb6-157e-4673-b167-430e599f6d51",
+        "amount": -7,
+        "sum": 0
+      },
+      "current": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "62423eb6-157e-4673-b167-430e599f6d51",
+        "amount": -13,
+        "sum": 0
+      },
+      "current_book_unit_cost": null,
+      "movement_groups": {
+        "OUTGOING_INVOICE": {
+          "rows": 32,
+          "quantity": "-105.000000000",
+          "sum": "0",
+          "cost": "0",
+          "in_qty": "0",
+          "out_qty": "105.000000000"
+        },
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "19.000000000",
+          "sum": "0",
+          "cost": "0",
+          "in_qty": "19.000000000",
+          "out_qty": "0"
+        }
+      },
+      "reconciliation": {
+        "product": "62423eb6-157e-4673-b167-430e599f6d51",
+        "opening_present": true,
+        "closing_present": true,
+        "opening_quantity": 79,
+        "closing_quantity": -7,
+        "net_quantity": "-86.000000000",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "62423eb6-157e-4673-b167-430e599f6d51",
+        "rows": 32,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 32,
+        "derived_ingredient_quantity": "105.000000000",
+        "unmatched_document_rows": 0,
+        "document_examples": [
+          {
+            "movement": {
+              "sum": "0",
+              "amount": "-4.000000000",
+              "type": "OUTGOING_INVOICE",
+              "documentId": "9679d197-b08b-4256-8034-d35291581cef",
+              "documentNum": "3156",
+              "product": "62423eb6-157e-4673-b167-430e599f6d51"
+            },
+            "document": {
+              "id": "9679d197-b08b-4256-8034-d35291581cef",
+              "documentNumber": "3156",
+              "dateIncoming": "2026-09-18T08:46:04.028+05:00",
+              "status": "PROCESSED",
+              "linkedIncomingInvoiceId": "5bf2b1c7-8c91-b774-01a0-ae4cafa55a40",
+              "counteragentId": "47c6accc-4bc7-6be1-0194-ccf9367e20cd"
+            },
+            "original_product_uuids": [
+              "57dda769-c4e5-48b1-a125-87df38ce81bd",
+              "a476651a-8aa3-4346-be8c-719cca110351",
+              "fa53c8a4-1ecd-4013-a1a7-6062b9bd66ee",
+              "6b012f1f-6c7c-4bf1-bbcf-85f2b5ce5341",
+              "95aa7af7-eea7-4134-99c3-acbb96be879c",
+              "0b0ff009-20c9-40cc-8b20-d16582dfd31e",
+              "5b9f1a69-80f8-4a88-8be3-a113185eaecf",
+              "25ba4321-1daf-468f-9eaf-777858bdcd32",
+              "4d28cf51-de76-4799-85f4-9a475399a500"
+            ]
+          }
+        ]
+      },
+      "current_book_unit_cost_status": "NONPOSITIVE_OR_ABSENT_BALANCE"
+    },
+    {
+      "iiko_uuid": "08d81c8e-cb26-4b48-9a85-ebeb077109cc",
+      "name": "ту Упаковка для макарони 180x110x55 крафт/белый с окном",
+      "iiko_type": "GOODS",
+      "unit_uuid": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+      "unit": {
+        "external_id": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+        "name": "шт",
+        "short_name": "796",
+        "code": "796",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "8af086f8-0f21-4d5f-b0ea-a4f383d62285",
+          "name": "Упаковка для макарони 180x110x55 крафт/белый с окном",
+          "iiko_id": "08d81c8e-cb26-4b48-9a85-ebeb077109cc",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a03"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "08d81c8e-cb26-4b48-9a85-ebeb077109cc",
+        "amount": 200,
+        "sum": 2876
+      },
+      "closing": null,
+      "current": null,
+      "current_book_unit_cost": null,
+      "movement_groups": {
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-200.000000000",
+          "sum": "-2876.000000000",
+          "cost": "-2876.000000000",
+          "in_qty": "0",
+          "out_qty": "200.000000000"
+        }
+      },
+      "reconciliation": {
+        "product": "08d81c8e-cb26-4b48-9a85-ebeb077109cc",
+        "opening_present": true,
+        "closing_present": false,
+        "opening_quantity": 200,
+        "closing_quantity": null,
+        "net_quantity": "-200.000000000",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "08d81c8e-cb26-4b48-9a85-ebeb077109cc",
+        "rows": 0,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 0,
+        "derived_ingredient_quantity": "0",
+        "unmatched_document_rows": 0,
+        "document_examples": []
+      },
+      "current_book_unit_cost_status": "NONPOSITIVE_OR_ABSENT_BALANCE"
+    },
+    {
+      "iiko_uuid": "b76f7aea-7bf6-467d-bf62-185472c0350e",
+      "name": "ту Упаковка для пирожных 200х80х60 крафт/белый",
+      "iiko_type": "GOODS",
+      "unit_uuid": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+      "unit": {
+        "external_id": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+        "name": "шт",
+        "short_name": "796",
+        "code": "796",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "5b66477a-8c3c-4ec2-a73b-8bbc4a098b1d",
+          "name": "Упаковка для пирожных 200х80х60 крафт/белый",
+          "iiko_id": "b76f7aea-7bf6-467d-bf62-185472c0350e",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a03"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "b76f7aea-7bf6-467d-bf62-185472c0350e",
+        "amount": 175,
+        "sum": 3633
+      },
+      "closing": null,
+      "current": null,
+      "current_book_unit_cost": null,
+      "movement_groups": {
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-175.000000000",
+          "sum": "-3633.000000000",
+          "cost": "-3633.000000000",
+          "in_qty": "0",
+          "out_qty": "175.000000000"
+        }
+      },
+      "reconciliation": {
+        "product": "b76f7aea-7bf6-467d-bf62-185472c0350e",
+        "opening_present": true,
+        "closing_present": false,
+        "opening_quantity": 175,
+        "closing_quantity": null,
+        "net_quantity": "-175.000000000",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "b76f7aea-7bf6-467d-bf62-185472c0350e",
+        "rows": 0,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 0,
+        "derived_ingredient_quantity": "0",
+        "unmatched_document_rows": 0,
+        "document_examples": []
+      },
+      "current_book_unit_cost_status": "NONPOSITIVE_OR_ABSENT_BALANCE"
+    },
+    {
+      "iiko_uuid": "d7a220ab-22f2-4566-94fa-b19baee2581e",
+      "name": "ту Коробка для торта 180х180х100 белый/белый с окном",
+      "iiko_type": "GOODS",
+      "unit_uuid": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+      "unit": {
+        "external_id": "cd19b5ea-1b32-a6e5-1df7-5d2784a0549a",
+        "name": "шт",
+        "short_name": "796",
+        "code": "796",
+        "precision": null,
+        "is_active": true
+      },
+      "supply_mappings": [
+        {
+          "id": "c160cae9-ea88-4404-8bc7-4a579730da75",
+          "name": "Коробка для торта 180х180х100 белый/белый с окном",
+          "iiko_id": "d7a220ab-22f2-4566-94fa-b19baee2581e",
+          "default_unit_id": "b20cf0ae-cb8e-4b06-a3ea-a38057a02a03"
+        }
+      ],
+      "k5b_refs": [],
+      "opening": {
+        "store": "1c22edc0-7ded-41c9-b781-0389462c7247",
+        "product": "d7a220ab-22f2-4566-94fa-b19baee2581e",
+        "amount": 26,
+        "sum": "1154.66"
+      },
+      "closing": null,
+      "current": null,
+      "current_book_unit_cost": null,
+      "movement_groups": {
+        "INVENTORY_CORRECTION": {
+          "rows": 1,
+          "quantity": "-26.000000000",
+          "sum": "-1154.660000000",
+          "cost": "-1154.660000000",
+          "in_qty": "0",
+          "out_qty": "26.000000000"
+        }
+      },
+      "reconciliation": {
+        "product": "d7a220ab-22f2-4566-94fa-b19baee2581e",
+        "opening_present": true,
+        "closing_present": false,
+        "opening_quantity": 26,
+        "closing_quantity": null,
+        "net_quantity": "-26.000000000",
+        "quantity_residual": "0E-9",
+        "sum_residual": "0E-9"
+      },
+      "six_months": {
+        "rows": 0,
+        "qty": "0",
+        "sum": "0",
+        "gross_document_weighted": null,
+        "zero_sum_rows": 0,
+        "unit_mismatch_rows": 0,
+        "actual_amount_diff_rows": 0,
+        "supplier_store_rows": 0,
+        "supplier_flags": [],
+        "technical_smoke_excluded_rows": 0,
+        "after_smoke_exclusion_qty": "0",
+        "after_smoke_exclusion_sum": "0",
+        "comparable_document_average": null,
+        "quality": "NO_PURCHASE_IN_WINDOW",
+        "basis": "sum / amount; incl document VAT, before any unverified currency conversion; technical smoke UUID excluded; no cross-unit averaging"
+      },
+      "last_date_candidates": [],
+      "outgoing_classification": {
+        "product": "d7a220ab-22f2-4566-94fa-b19baee2581e",
+        "rows": 0,
+        "direct_raw_movement_rows": 0,
+        "direct_raw_quantity": "0",
+        "derived_ingredient_rows": 0,
+        "derived_ingredient_quantity": "0",
+        "unmatched_document_rows": 0,
+        "document_examples": []
+      },
+      "current_book_unit_cost_status": "NONPOSITIVE_OR_ABSENT_BALANCE"
+    }
+  ],
+  "purchase_invoice_reconciliation": {
+    "groups": 99,
+    "unmatched": 0,
+    "qty_mismatches": 0,
+    "sum_mismatches": 0,
+    "target_export_group_count": 99,
+    "target_export_not_in_movement": []
+  },
+  "unmapped_products": [
+    {
+      "uuid": "06986c59-46be-418a-9dc9-5731aa9ff6e6",
+      "name": "т Бананы ",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "1debac70-a7ab-458e-8459-f438425ae28e",
+      "name": "Тесто дрожжевое",
+      "type": "DISH"
+    },
+    {
+      "uuid": "291bcaf8-5478-4bd2-a85d-4b31f6170246",
+      "name": "Корж ореховый",
+      "type": "DISH"
+    },
+    {
+      "uuid": "319b520d-cb6f-4b5b-b4d5-15cdfd5c9a36",
+      "name": "пф ип конфи клубничное",
+      "type": "PREPARED"
+    },
+    {
+      "uuid": "5514f437-f01f-49d6-b50c-2e99787e34b0",
+      "name": "пф б пюре малина",
+      "type": "PREPARED"
+    },
+    {
+      "uuid": "5573026d-6af0-4669-a773-329302a3c4f2",
+      "name": "Печенье Гусиные лапки 250гр",
+      "type": "DISH"
+    },
+    {
+      "uuid": "57dda769-c4e5-48b1-a125-87df38ce81bd",
+      "name": "Гамбургер классический ",
+      "type": "DISH"
+    },
+    {
+      "uuid": "7d14ee0a-83f5-4bb6-962d-1c085039f451",
+      "name": "Печенье Шоколадное с трещинками 250гр",
+      "type": "DISH"
+    },
+    {
+      "uuid": "85bc32c1-2ff6-430b-816b-40adc2fa4915",
+      "name": "Пирожное Красный бархат",
+      "type": "DISH"
+    },
+    {
+      "uuid": "8a254428-e73a-4629-9689-aface4421ff6",
+      "name": "Бабушкин пирог ",
+      "type": "DISH"
+    },
+    {
+      "uuid": "8bc49045-2b81-4e93-86b9-32544936024c",
+      "name": "пф ип тесто кракелин новая конд.",
+      "type": "PREPARED"
+    },
+    {
+      "uuid": "953c4f0a-ba0e-4ed0-bcae-1de411a08689",
+      "name": "т Пюре из манго с/м",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "b21723c9-1dcd-4a6c-9520-224e4b1caf2f",
+      "name": "Коробка 25*25*10 с окном",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "bfd75d0a-9c1d-499b-b526-0cf5bd83bc5a",
+      "name": "т Перец черный молотый",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "c4fe15fb-925b-4b65-a57f-5e667e0acfc9",
+      "name": "ту w-303 пластик контейнер",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "c5168df7-b465-4cde-884f-37d92bf49455",
+      "name": "Емкость  Т-206Д 230 шт_т",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "cf623b9d-d9e6-4589-95a6-e0446c104103",
+      "name": "Емкость  РК-11 Д",
+      "type": "GOODS"
+    },
+    {
+      "uuid": "d25f94d3-f1e5-491f-acd1-c496adead5fb",
+      "name": "пф ип конфи малиновое",
+      "type": "PREPARED"
+    },
+    {
+      "uuid": "d30920c6-3ed2-447c-a778-76f20787a079",
+      "name": "Рулет Меренговый  с клубникой 220гр",
+      "type": "DISH"
+    },
+    {
+      "uuid": "f56137f7-93e5-4c53-808c-499284759ba2",
+      "name": "Сочник с творогом",
+      "type": "DISH"
+    },
+    {
+      "uuid": "f8747921-de14-49ac-a783-2efdcdc29637",
+      "name": "Кекс с изюмом",
+      "type": "DISH"
+    },
+    {
+      "uuid": "f9eb6117-3697-4445-86e0-7fcf8cd059e6",
+      "name": "пф ип конфи черная смородина",
+      "type": "PREPARED"
+    },
+    {
+      "uuid": "fbe51d38-9abf-4af5-88e7-b739772349b7",
+      "name": "Печенье Курабье 250гр",
+      "type": "DISH"
+    }
+  ],
+  "k5b_leaves_missing_movements": [
+    {
+      "uuid": "4652f9db-d791-4dd9-9203-e553afe510fe",
+      "name": "ту  Бумага под бургер и шаурму"
+    },
+    {
+      "uuid": "d03264c1-82e0-480b-9869-35727ffe647b",
+      "name": "т Говяжий жир сырец"
+    }
+  ],
+  "known_technical_smoke": {
+    "uuid": "5bf2b1c7-8c91-b774-01a0-ae4cafa53ba1",
+    "document_number": "EOS-CONTRACT-20260917-001",
+    "source": "docs/STAGE_3_SUPPLY_AUDIT_2026-09-18.md:20",
+    "quantity": "1",
+    "sum": "105.9",
+    "action": "Excluded analytically from comparable purchase average only; original business artifact unchanged"
+  },
+  "boundaries": {
+    "same_opening_response_at_midnight_and_previous_second": true,
+    "same_closing_response_at_midnight_and_previous_second": true,
+    "absence_zero_only_in_reconciliation_arithmetic": true,
+    "sparse_response_fields_remain_null": true,
+    "future_end_of_today_initial_probe_not_used_for_current_value": true
+  },
+  "csv_files": [
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_indicators.csv",
+      "rows": 18,
+      "sha256": "4321d8236fdd26228bc8df6577af55a39f5a3216766b427e0b3fd16a525878bf"
+    },
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_samples.csv",
+      "rows": 10,
+      "sha256": "01fd1794ea85f53fd2fa96f1b52c7e4482a51ef4862b8957e625b2d859453f9c"
+    },
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_purchase_lines.csv",
+      "rows": 72,
+      "sha256": "48d7fa3495ce3c8206e4de7e9c87c95e5ba5598b7ba53a66edcdde49ab9b282e"
+    },
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_monthly_balance.csv",
+      "rows": 164,
+      "sha256": "ccd84ad5c102e8f8200b20b5b530758c96ee895758f7b6d1107d528d82b421c3"
+    },
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_supplier_prices.csv",
+      "rows": 15,
+      "sha256": "597595b1472959feb092c1ae2c2a023bf196256db4443b923b3a29b4211de37e"
+    },
+    {
+      "file": "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_purchase_reconciliation.csv",
+      "rows": 99,
+      "sha256": "c8ab8cce7781d1e558a1fee2ade95fefac4f6223fb10abc835b5eb842a758913"
+    }
+  ],
+  "baseline_worktree": [
+    " M backend/api/app/api/routes/product_knowledge.py",
+    " M backend/api/app/product_knowledge/cost_calculation.py",
+    " M backend/api/app/product_knowledge/cost_portal.py",
+    " M backend/api/app/product_knowledge/costs.py",
+    " M backend/api/tests/test_product_costs.py",
+    " M backend/api/tests/test_product_costs_postgres.py",
+    " M docs/ROADMAP_STAGE_3_2_v0.1.0.md",
+    " M docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md",
+    " M docs/STAGE_3_2_K5C_RELEASE_RUNBOOK_2026-10-09.md",
+    " M docs/STAGE_3_2_K5C_REPORT_2026-10-09.md",
+    " M frontend/src/pages/productKnowledge/ProductCosts.tsx",
+    " M frontend/src/services/productCosts.ts",
+    "?? backend/api/app/product_knowledge/cost_config.py",
+    "?? docs/STAGE_3_2_K5C_FIXED_WAREHOUSE_REVIEW_2026-10-12.md",
+    "?? docs/STAGE_3_2_K5C_OUTGOING_COST_RESEARCH_2026-10-12.md",
+    "?? docs/STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12.md",
+    "?? docs/evidence/STAGE_3_2_K5C_FIXED_WAREHOUSE_2026-10-12.json",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12.json",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_documents.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_latest_transfer.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_office_ssn_comparison.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_report_reconciliation.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_sample_lines.csv",
+    "?? docs/evidence/STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12.json",
+    "?? docs/evidence/STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_api.csv",
+    "?? docs/evidence/STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_components.csv",
+    "?? docs/evidence/STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_models.csv"
+  ],
+  "limitations": [
+    "Composite balance/movement reconciliation is internal API evidence, not independent ROSV iikoOffice business acceptance",
+    "No exact dedicated ROSV report export confirmed; OLAP TRANSACTIONS denied B_VOTR",
+    "iiko GET requests are sequential, not one atomic accounting transaction",
+    "Current product units do not certify historical quantity conversions; cream has PCS/KG mismatch",
+    "Gross document sum average differs from rounded price field; VAT varies; currency absent from payload",
+    "Staff/store counterparties and known technical smoke prevent treating every PROCESSED line as an independently verified external purchase",
+    "Last receipt bounded to searched dates; no row is not proof no older receipt",
+    "Supplier receipt grouping does not imply supplier breakdown of closing stock or usage",
+    "No supplier returned-invoice movements observed Apr-Sep with corrections disabled; unsupported return export remains404",
+    "K5B comparison covers five saved observations only; names used to select examples, never to create identity mappings"
+  ],
+  "approval_review": {
+    "compressed_execution_rejected": true,
+    "reason": "Opaque compressed production script could not be verified as read-only",
+    "resolution": "Continued with visible Python source using SELECT in READ ONLY transaction and read-only iiko report/export calls; rejected command not retried as opaque payload"
+  },
+  "validation": {
+    "result": "PASS",
+    "csv_hashes_and_counts": {
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_indicators.csv": 18,
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_samples.csv": 10,
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_purchase_lines.csv": 72,
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_monthly_balance.csv": 164,
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_supplier_prices.csv": 15,
+      "STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12_purchase_reconciliation.csv": 99
+    },
+    "all_164_balance_quantity_and_sum_residuals_zero": true,
+    "all_99_invoice_pairs_match": true,
+    "ten_samples_have_unique_existing_confirmed_supply_mapping": true,
+    "cream_cross_unit_average_blocked": true,
+    "one_known_sugar_technical_row_excluded_from_average_only": true,
+    "latest_receipt_price_ratios_recomputed": true,
+    "all_report_local_links_exist": true,
+    "new_file_whitespace_check": true,
+    "git_diff_check": true,
+    "unchanged_baseline_status_entries": 27,
+    "new_research_files": 8,
+    "runtime_tests": "not run; research artifacts only; no application changes",
+    "independent_iikoOffice_acceptance": false
+  }
+}
