@@ -1,0 +1,105 @@
+# Stage 3.2 — roadmap MVP «Сырьё», 12.10.2026
+
+Статус всех срезов: **TODO / PROPOSED / REVIEW**. Документ — план, не разрешение реализации или deployment. Основная [спецификация](STAGE_3_2_RAW_MATERIALS_MVP_SPEC_2026-10-12.md) определяет правила/контракты; [разведка](STAGE_3_2_RAW_MATERIALS_ROSV_RESEARCH_2026-10-12.md) — датированную доказательную основу.
+
+## 1. Изменение scope и зависимостей
+
+Новый раздел входит в базу знаний Stage 3.2: iiko ведёт товарный учёт, EOS хранит знания и аналитические snapshots. Это **не запуск производственного планирования до Gate K** и не новая складская бухгалтерия. Сначала рабочая/проверенная база, затем отдельное проектирование и реализация собственных ТТК/плановой себестоимости/производственной потребности.
+
+Существующие записи [Supply roadmap](ROADMAP_STAGE_3_SUPPLY_v0.1.0.md) 3.1C.4 Weighted Average и 3.1C.11 Substitutions остаются исторически **DEFERRED для transactional MVP Supply**. Новое поручение владельца создаёт конкретный trigger возврата:
+
+- Закупочная средняя нужна в базе знаний «Сырьё» по датированным iiko приходам; она не становится новым invariant заказов/приёмок и не backfill в Supply receipt ledger.
+- Технологические требования, производители и разрешённые замены нужны как подтверждённые знания. Автоматическое применение замен в заказах/ТТК/планировании остаётся вне MVP.
+
+В [основном roadmap](ROADMAP_v0.12.0.md) краткое Weighted Average/Substitutions — DEFERRED читается в прежнем scope Supply. Предлагаемый возврат ограничен новым design package; исторические статусы не объявляются DONE. Устаревшие общие даты production baseline и противоречащие друг другу K2 статусы в заголовке/тексте подробного roadmap не являются новым live подтверждением: для фактов 12 октября используются датированные audit/evidence. Их широкая историческая правка вне этого задания.
+
+## 2. Порядок и критерий первого рабочего результата
+
+```text
+R-M0: review данных/политик и контрольного набора
+  → R-M1: реестр существующих SupplyProduct + карточка знаний
+  → R-M2: один bounded manual refresh, последняя закупочная цена и источники
+  → R-M3: шестимесячная средняя и прошлый месячный расход
+  → R-M4: версии спецификаций, единицы, допуски и ручные замены
+  → R-M5: история/независимая сверка/эксплуатационная приёмка
+```
+
+MVP считается собранным после R-M1–R-M5, а не после появления пустой таблицы. Каждый срез даёт проверяемый end-to-end результат, передаётся на review и реализуется отдельным разрешённым заданием. Нельзя считать документационное согласование deployment. Допустимы missing/blocked поля, если причина правдива и обработка проверена; нельзя заявлять полноту цен без фактов.
+
+## 3. R-M0 — согласование политики и pilot, без разработки
+
+**Зависимости:** эта спецификация; существующие evidence. **Результат:** подписанный набор 5–10 SupplyProduct UUID, принадлежность сырьё/упаковка, владелец знаний; решения по единице/НДС/валюте/контрагентам/показателю расхода и правам. Технический sugar smoke UUID включён в исключения; 23 неизвестных UUID оставлены gaps.
+
+Подтвердить, что шесть месяцев — полные календарные, последнее поступление — bounded search с честным окном. Получить iikoOffice РОСВ/приходный экспорт, если доступен; отсутствие зафиксировать, не заменять screenshots ССН или sales report. Подтверждение пересчётов сливок не требуется для начала pilot с заблокированной средней, но требуется для принятой цифры сливок.
+
+**Приёмка:** нет непомеченных бизнес-предположений; определены ответственные за исключения/приёмку. **Риск:** владелец может выбрать другое определение расхода; тогда R-M3 перепроектируется до кода. **Откат:** не нужен, меняется только проектная политика.
+
+## 4. R-M1 — Supply-backed реестр и карточка знаний
+
+**Зависимости:** R-M0 (assortment, доступ). **Вертикальный результат:** пользователь открывает реестр существующих UUID, поиск/фильтры/пагинацию и карточку, задаёт фото/требования/ответственного; видит PRIMARY/BACKUP Supply и честные «Нет данных» для ещё не собранных показателей.
+
+**Backend/DB:** additive profile/specification version storage и audit, unique tenant+SupplyProduct, soft archive без удаления SupplyProduct, expected_version. Не делать seed всего каталога. Начальная self-approval конкретного товарного UUID только вручную. Существующие supplier services/relations используются без копий. Набор permission capabilities проходит общий RBAC; monetary redaction заложен с самого начала.
+
+**Frontend:** существующая визуальная система продукции; восемь заданных колонок; overview/technology/suppliers/history. Для фото — адаптер существующих safe normalize/store patterns и private read, отдельный owner binding, не подмена ProductKnowledgeProduct.
+
+**Проверки:** isolated Postgres upgrade/downgrade/upgrade без данных и safe downgrade policy при истории; tenant FK/unique, optimistic conflict, knowledge versions/photo reference audit, malformed image/private read; недопустимые денежные поля не выдаются даже в сортировке/истории. Build/lint изменённых frontend файлов, browser smoke отдельно.
+
+**Приёмка:** изменение названия/поставщика/архива существующих Supply товаров не меняет UUID, заказы и документы; immutable фото продукции остаются доступны; пустые метрики не нули. **Риск:** current supplier roles/availability могут быть пустыми — показывать факт, не автозаполнять. **Откат:** выключить новый route/action feature, сохранить additive данные/историю; не удалять профиль/фото.
+
+## 5. R-M2 — последняя закупочная цена через Core
+
+**Зависимости:** R-M1, закупочная политика и валюта R-M0. **Вертикальный результат:** разрешённый пользователь обновляет ограниченный pilot из EOS, получает queued/running/result и последнюю цену с датой/единицей/исходным документом/quality; история сохраняется.
+
+**Backend/DB:** один action type в Automation Core catalog/local executor или существующем Provider path; bounded reader incomingInvoice + references, фильтрация item warehouse, PROCESSED, исключения, conversions; collection/snapshots append-only. Source inputs/hashes обеспечивают воспроизводимость. Новые transport/adapter методы минимальны, API read-only allowlist. Получение iiko данных вне долгой DB-транзакции; сохранение через существующие execution/outbox terminal protection. Никакого EOS full-sync или iiko write.
+
+**Frontend:** последние цены/датировки/нет данных/blocked, детализация источников и прошлые snapshots; 202 не означает завершение. Для сотрудника-контрагента/нулевого sum — review, не fallback к старой «последней» цене.
+
+**Проверки:** processed/new/cancelled, header defaultStore vs item.store, чужой склад, technical exact UUID vs обычный EOS-prefix, repeated pages/doc revisions, latest-time ties, unknown newer receipt, rounded price vs sum/qty, decimal, null, unit/currency block. Worker retry/callback/idempotency/concurrent refresh/terminal execution; full backend suite из-за automation/models/permissions. Никаких live production fixtures в обычных тестах.
+
+**Приёмка:** один execution/content → один результат, trace до строки и коэффициента; источники не создают acceptance/order/receipt. Три разных состояния success/no-data/failure различимы. **Риски:** неизвестная внешняя природа контрагента; неатомарные iiko reads; большой экспорт всех складов. Полнота manifest и scoped filter обязательны. **Откат:** отключить action/route и сохранить snapshots; существующие Supply/K3 actions продолжают работать.
+
+## 6. R-M3 — шестимесячная средняя и классифицированный расход
+
+**Зависимости:** R-M2, определение расхода R-M0. **Вертикальный результат:** две оставшиеся числовые колонки и раскрытие формул/периодов/исключений работают для pilot; цена и расход имеют независимые статусы.
+
+**Backend:** переиспользовать collection, добавить шесть monthly invoice windows, previous-month storeOperations/XML и original outgoingInvoice; balance boundary checks. Shared source read по scope один раз, не на каждую карточку. Сохранить policy-specific price/usage snapshots с числителем/знаменателем, counts и classification evidence. Дополнительный ledger не создавать.
+
+**Frontend:** шесть месяцев как точный диапазон; название расхода объясняет учётное списание при передаче. Источники подразделяются на закупки, прямые перемещения сырья, расход готовой продукции, возвраты, инвентаризацию, корректировки, session/explicit writeoff; пользователь видит причины разниц.
+
+**Проверки:** неодинаковые веса месяцев, нулевой denominator, частичный месяц/timeout, mixed PCS/KG без коэффициента, исторический valid_from, разные валюты/НДС, store counterparty, technical exclusion revisions. Для расхода — root product classification, missing outgoing document, прямой сырьевой item, positive/reversal, all-inventory packaging, zero-cost/negative-stock, zero-qty cost correction. Балансовые identities выполняются до returned precision; неизвестные границы не маскируются нулём.
+
+**Приёмка:** сливки blocked для полной средней при неподтверждённом PCS/KG; sugar smoke отсутствует в purchase numerator/denominator, остаётся в учётной сверке; три упаковки с одной инвентаризацией не дают ложного production usage. Контрольные числа прежней разведки служат диагностикой, а не runtime snapshot fixture на вечность. Изменённые/поздние документы создают новую ревизию периода.
+
+**Риск:** отчет содержит производные движения без связи с конкретной строкой готового изделия; не обещать точную себестоимость/расход партии. **Откат:** выключить новые metric kinds, последнюю закупку/knowledge сохранить; историю не переписывать.
+
+## 7. R-M4 — проверенные единицы и технологические допуски
+
+**Зависимости:** R-M1–R-M3, правила approval. **Вертикальный результат:** ответственный подтверждает нетто/условную единицу и исторический пересчёт; новая версия метрики воспроизводимо использует его. В карточке редактируются/подтверждаются допустимые производители, существующие конкретные товары и направленные условные замены.
+
+**Backend/DB:** immutable conversion revisions, explicit product approval/substitution links к существующим SupplyProduct, tenant/date/unit/variant constraints; confirmed specs нельзя редактировать inplace; поправка создаёт draft и новое подтверждение. Серверная проверка неоднозначных интервалов/цепей, audit actor/reason/proof, expected_version. Source self-approval не позволяет принять любой supplier SKU.
+
+**Frontend:** список допусков/замен и условия; версия/ответственный/дата, draft vs confirmed; предложение замены не применяет её к заказу, SupplyProduct mapping или ТТК. Выбор другой условной упаковки меняет display, не историческую базовую единицу.
+
+**Проверки:** KG↔G и L↔ML; forbidden implicit PCS↔KG/L↔KG; точная historic effective period, brand/container scope, нетто vs брутто; cross-tenant targets, overlapping paths, направленная замена A→B не означает B→A. Подтверждённая версия остаётся доступна после архива товара/связи.
+
+**Приёмка:** все поля собственной базы знаний из спецификации представлены, фото/изменения/ответственные прослеживаются; ни одна замена не исполняется автоматически. Сливки можно разблокировать только применимым доказанным пересчётом и новым snapshot, прежний blocked snapshot сохранён. **Риск:** несколько concurrent supplier SKU не поддерживаются текущей relation — ограничение показано, constraint не снимается скрыто. **Откат:** отключить edit/confirm новых знаний, чтение истории сохранить.
+
+## 8. R-M5 — приёмка данных и эксплуатация
+
+**Зависимости:** R-M1–R-M4; bounded manual run на отдельно разрешённом окружении. **Результат:** каталог пригоден для повседневного чтения; история, независимая проверка/её отсутствие и свежесть ясны.
+
+1. Сверить 5–10 UUID с предоставленным iikoOffice РОСВ выбранного склада: документ/hash, параметры, период, единицы, opening/closing/turnovers/sums. Для subset usage — объяснённое разложение общего расхода. Проверить последние приходы/P_6m отдельно по закупочным документам, которых РОСВ не заменяет.
+2. Экспорт недоступен → записать NOT_AVAILABLE; разрешено review интерфейса и кандидатных данных, **не** отметка OFFICE_VERIFIED/«всё независимо сверено». Owner может принять ограниченный pilot с этой явно названной границей, не подменяя факт сверки.
+3. Проверить iiko outage: карточки/фото/история доступны, новое обновление безопасно failed/stale, старые даты видны; new blocked input не выдаёт старую цену за актуальную. Проверить late invoice correction, месяц rollover, смену политики/коэффициента и повторную обработку.
+4. Провести browser/business smoke ролевой матрицы, поиска/фильтров/сортировок, monetary redaction, истории и source drill-down. Зафиксировать число принятых/blocked/no-data карточек, а не только green tests.
+5. Только после отдельного разрешения deployment: current HEAD/Alembic/dirty preflight, verified backup/recovery, совместимые additive migrations/API/worker/UI, bounded manual checks. Только после бизнес-приёмки отдельно включить одно Core расписание по тем же правилам, без нового scheduler. Дата успеха/next_run_at авторитетны на backend.
+
+**Откат:** выключить новый action/schedule, завершить/ограничить in-flight согласно Core, вернуть совместимый image/feature. Не выполнять destructive downgrade с накопленной историей, не откатывать всю БД поверх новых Supply данных. Проверить recovery приватных фото и сохранность snapshots.
+
+## 9. Инварианты сохранности и регрессии
+
+Ни один срез не меняет UUID существующих SupplyProduct/ProductKnowledgeProduct, mappings или архивные документы. Не затрагивать K3 sale prices и photos/hashes продукции; K5B ТТК/историю и K5C observations/verifications/X3 сохранять; SupplierOrders/confirmations/documents/acceptances/payments и их ссылки не переразмечать. Не делать batch name matching, receipt backfill, автосоздание товаров или объединение эквивалентных UUID. Новые FK tenant-aware, RESTRICT/history-aware; физическое удаление не является lifecycle.
+
+Для реализации проверки масштабируются по изменению: targeted tests каждого среза; full backend при models/migrations/auth/permissions/worker/outbox изменениях; isolated Postgres migrations/constraints/concurrency; frontend build/lint changed files; browser smoke и data/business acceptance отдельные. Две baseline ESLint ошибки AuthContext вне scope. Секреты/raw production payloads не попадают в UI/commit/test fixtures.
+
+Существующие 35 dirty/untracked файлов на начало проектирования и research evidence сохранены. Текущий результат — два новых design документа и датированные дополнения к двум подробным roadmap; код/схема/production не менялись. **Без commit, push и deployment. Остановка на review.**
