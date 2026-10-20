@@ -40,11 +40,12 @@ test('live catalog: API filters, paging, safe card, errors and empty data withou
     const price={department_id:'point',department_name:'Подтверждённая точка',amount:'0',currency:'RUB',price_unit:'шт',valid_from:'2026-10-08',valid_to:'2026-10-09',observed_at:'2026-10-08T09:00:00Z'}
     Object.assign(product,{price,prices:[price],price_health:[{department_id:'point',last_success_at:'2026-10-08T09:00:00Z',stale:true,update_failed:true}]})
     await render('/products?point=point&date=2026-10-08');await settle()
-    assert.match(document.querySelector('tbody')!.textContent!,/0 RUB \/ шт/)
+    assert.match(document.querySelector('tbody')!.textContent!,/0,00 ₽\/шт/)
     assert.match(document.querySelector('tbody')!.textContent!,/Ценовой снимок устарел/)
     assert.match(document.querySelector('tbody')!.textContent!,/Последнее обновление цен завершилось ошибкой/)
     assert.match(document.querySelector('tbody')!.textContent!,/Последнее успешное получение цен:/)
     await act(async()=>document.querySelector<HTMLAnchorElement>('tbody a')!.click());await settle()
+    await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Цены по точкам и источники')!.click())
     assert.match(document.body.textContent!,/период с 2026-10-08 до 2026-10-09/)
     assert.match(document.body.textContent!,/Ценовой снимок устарел/)
     Object.assign(product,{price:null,prices:[],price_conflict_points:['point']})

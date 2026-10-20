@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom'
 test('photo: private fetch, placeholder, revoked blob, manager upload/delete, conflict and duplicate submission', async () => {
   const server = await createServer({server:{middlewareMode:true,ws:false},appType:'custom'})
   const dom = new JSDOM('<div id="root"></div>',{url:'http://localhost',pretendToBeVisual:true})
+  dom.window.scrollTo=()=>{}
   const values = {window:dom.window, document:dom.window.document, getComputedStyle:dom.window.getComputedStyle, IS_REACT_ACT_ENVIRONMENT:true, sessionStorage:dom.window.sessionStorage}
   const previous = Object.keys(values).map(name=>Object.getOwnPropertyDescriptor(globalThis,name))
   const originalFetch=globalThis.fetch, originalCreate=URL.createObjectURL, originalRevoke=URL.revokeObjectURL
@@ -39,6 +40,7 @@ test('photo: private fetch, placeholder, revoked blob, manager upload/delete, co
     await render(ProductPhotoEditor,{product:{...product,allowed_actions:[]},onSaved:()=>saved++})
     assert.equal(document.querySelector('form'),null)
     await render(ProductPhotoEditor,{product,onSaved:()=>saved++})
+    await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Изменить фотографию')!.click())
     const input=document.querySelector<HTMLInputElement>('input:not([type="file"])')!
     await act(async()=>{const setter=Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value')!.set!;setter.call(input,'Новая фотография');input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));input.dispatchEvent(new dom.window.Event('change',{bubbles:true}))})
     const fileInput=document.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -51,6 +53,8 @@ test('photo: private fetch, placeholder, revoked blob, manager upload/delete, co
     const form=requests.at(-1)!.init!.body as FormData
     assert.equal(form.get('expected_version'),'3');assert.equal(form.get('reason'),'Новая фотография');assert(form.get('file') instanceof File)
     held=false;await act(async()=>release!());assert.equal(saved,1)
+    await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Изменить фотографию')!.click())
+    await act(async()=>{const el=document.querySelector<HTMLInputElement>('input:not([type="file"])')!;Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value')!.set!.call(el,'Удаление устаревшего фото');el.dispatchEvent(new dom.window.Event('input',{bubbles:true}))})
     status=409
     await act(async()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Удалить фотографию')!.click())
     assert.match(document.querySelector('[role="alert"]')!.textContent!,/Данные изменились/)

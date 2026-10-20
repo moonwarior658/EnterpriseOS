@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { KnowledgePhotoPicker } from './KnowledgeUI'
 import { MaterialDialog } from './MaterialDialog'
 import { EosCheckbox } from './EosFormControls'
 import { knowledgeLabels } from './materialPresentation'
@@ -69,7 +70,7 @@ export function MaterialPhotoEditor({material,onSaved,onClose}:Props) {
     }catch(e){setError(errorLabel(e))}finally{pending.current=false;setBusy(false)}
   }
   return <MaterialDialog title="Фотография сырья" dirty={Boolean(file||reason)} busy={busy} onClose={onClose}><form className="material-editor" onSubmit={e=>{e.preventDefault();void mutate()}}><fieldset disabled={busy}>
-    <legend>JPEG, PNG или WebP до 10 МБ</legend><label className="material-file-picker">Выбрать фотографию<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><p>{file?file.name:'Файл не выбран'}</p>
+    <legend>JPEG, PNG или WebP до 10 МБ</legend><KnowledgePhotoPicker file={file} disabled={busy} onChange={setFile}/>
     <label>Причина изменения *<input required minLength={3} maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Например: фото упаковки с актуальной маркировкой"/></label>
     {reason.trim().length<3&&<p role="status">Укажите причину изменения: не менее 3 символов.</p>}{!file&&<p>Выберите файл для загрузки.</p>}
     {error&&<p role="alert">{error}</p>}<div className="product-actions"><button className="primary-action" disabled={busy||!file||reason.trim().length<3}>{busy?'Загружаем…':'Загрузить фотографию'}</button>{material.photo_hash&&<button className="danger-action" type="button" disabled={busy||reason.trim().length<3} onClick={()=>void mutate(true)}>Убрать фотографию</button>}</div>

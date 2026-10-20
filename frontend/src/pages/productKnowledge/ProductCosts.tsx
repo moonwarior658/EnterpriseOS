@@ -3,7 +3,7 @@ import { EosPagination, EosSelect } from '../../components/EosFormControls'
 import { CostApiError, costLabel, exactCostNumber, getProductCosts, confirmProductCost, type CostReview, type CostPortal } from '../../services/productCosts'
 
 const checkedAt = (value: string | undefined) => value ? new Date(value).toLocaleString('ru-RU', {timeZone: 'Asia/Yekaterinburg'}) : 'Нет данных'
-export function ProductCosts({productId}: {productId: string}) {
+export function ProductCosts({productId,onDirtyChange,onBusyChange}: {productId: string;onDirtyChange?:(v:boolean)=>void;onBusyChange?:(v:boolean)=>void}) {
   const [context, setContext] = useState(''), [offset, setOffset] = useState(0), [retry, setRetry] = useState(0)
   const [review, setReview] = useState(false)
   const key = JSON.stringify([productId, context, offset, retry, review])
@@ -30,15 +30,18 @@ export function ProductCosts({productId}: {productId: string}) {
         <details><summary>Расчёт по ингредиентам</summary><p>{current.rounding}</p><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Ингредиент</th><th>Количество</th><th>Единица</th><th>Стоимость за единицу, ₽</th><th>Вклад в итог, ₽</th></tr></thead><tbody>{current.components.map((c,index) => <tr key={index}><td>{c.name || 'Наименование отсутствует'}</td><td>{exactCostNumber(c.quantity)}</td><td>{c.unit || 'Нет данных'}</td><td>{exactCostNumber(c.unit_cost)}</td><td>{exactCostNumber(c.contribution)}</td></tr>)}</tbody></table></div></details>
       </>}
       {data.can_review && current?.status !== 'VERIFIED' && <button className="secondary-action" onClick={() => setReview(value => !value)}>{review ? 'Закрыть проверку' : 'Проверить расчёт'}</button>}
-      {review && data.review && <CostReviewForm key={`${productId}:${data.review.observation_id}`} productId={productId} review={data.review} onConfirmed={() => {setReview(false);setRetry(value => value+1)}} />}
+      {review && data.review && <CostReviewForm onDirtyChange={onDirtyChange} onBusyChange={onBusyChange} key={`${productId}:${data.review.observation_id}`} productId={productId} review={data.review} onConfirmed={() => {setReview(false);setRetry(value => value+1)}} />}
       {data.history.length > 0 && <details><summary>История расчётов</summary>{data.history.map(row => <p key={row.observation_id}>{checkedAt(row.stock_at)}: {costLabel(row)} · {row.context} · исторический расчёт{row.verification_at && ` · сверил ${row.verification_author || 'Ответственный сотрудник'} ${checkedAt(row.verification_at)}`}</p>)}<EosPagination offset={offset} total={data.total} pageSize={25} itemCount={data.history.length} onPageChange={setOffset} /></details>}
     </>}
   </section>
 }
 
-function CostReviewForm({productId,review,onConfirmed}: {productId:string;review:CostReview;onConfirmed:()=>void}) {
+function CostReviewForm({productId,review,onConfirmed,onDirtyChange,onBusyChange}: {productId:string;review:CostReview;onConfirmed:()=>void;onDirtyChange?:(v:boolean)=>void;onBusyChange?:(v:boolean)=>void}) {
   const [office,setOffice] = useState(''),[estimate,setEstimate] = useState(''),[evidence,setEvidence] = useState('')
   const [warehouse,setWarehouse] = useState(false),[context,setContext] = useState(false),[pending,setPending] = useState(false),[error,setError] = useState('')
+  useEffect(()=>{onDirtyChange?.(Boolean(office||estimate||evidence||warehouse||context))},[office,estimate,evidence,warehouse,context,onDirtyChange])
+  useEffect(()=>{onBusyChange?.(pending)},[pending,onBusyChange])
+  useEffect(()=>()=>{onDirtyChange?.(false);onBusyChange?.(false)},[onDirtyChange,onBusyChange])
   const normalized = office.trim().replace(',', '.')
   const valid = review.can_confirm && warehouse && context && estimate !== '' && /^\d+(\.\d{1,2})?$/.test(normalized) && evidence.trim().length >= 20
   const submit = async (event: React.FormEvent) => {

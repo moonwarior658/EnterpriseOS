@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom'
 test('K2 controls enforce explicit actions, preserve UUID confirmation and handle conflicts and duplicate submission', async () => {
   const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'})
   const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',pretendToBeVisual:true})
+  dom.window.scrollTo=()=>{}
   const values={window:dom.window,document:dom.window.document,getComputedStyle:dom.window.getComputedStyle,IS_REACT_ACT_ENVIRONMENT:true,sessionStorage:dom.window.sessionStorage}
   const previous=Object.keys(values).map(name=>Object.getOwnPropertyDescriptor(globalThis,name)),originalFetch=globalThis.fetch
   let root:ReturnType<typeof import('react-dom/client').createRoot>|undefined
@@ -52,6 +53,7 @@ test('K2 controls enforce explicit actions, preserve UUID confirmation and handl
     assert(document.querySelector('fieldset')!.disabled)
     await act(async()=>release!());release=undefined;assert.equal(saved,1)
     await render(React.createElement(ManualProductAdd,{onSaved:()=>saved++}))
+    await act(async()=>button('Добавить продукцию по UUID iiko').click())
     await act(async()=>document.querySelector('form')!.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true})))
     assert.match(document.body.textContent!,new RegExp(candidate.iiko_product_id))
     await act(async()=>document.querySelector<HTMLInputElement>('input[type="radio"]')!.click())

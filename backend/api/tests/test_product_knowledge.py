@@ -169,6 +169,28 @@ class ProductKnowledgeTests(unittest.TestCase):
         self.assertEqual(plan['sale_modes_confirmed'],2)
         self.assertEqual({x['sale_mode'] for x in plan['rows']},{'WEIGHT','PORTION'})
 
+    def test_catalog_order_before_pagination_and_cost_permissions(self):
+        self.load()
+        with self.sessions.begin() as db:
+            rows=list(db.scalars(select(ProductKnowledgeProduct).order_by(ProductKnowledgeProduct.id)))
+            rows[0].local_name='А';rows[0].unit_weight_kg=Decimal('100')
+            rows[1].local_name='Я';rows[1].unit_weight_kg=Decimal('9');cheap=rows[1].id
+        for direction, expected in [('asc',cheap),('desc',rows[0].id)]:
+            response=self.client.get('/products?sort=unit_weight_kg&direction='+direction+'&limit=1')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()['items'][0]['id'],str(expected))
+            self.assertEqual(response.json()['total'],2)
+        for field in ('name','sale_mode','sale_status','price'):
+            self.assertEqual(self.client.get('/products?sort='+field+'&direction=desc').status_code,200)
+        self.assertEqual(self.client.get('/products?sort=unknown').status_code,422)
+        self.assertEqual(self.client.get('/products?direction=unknown').status_code,422)
+        with patch('app.product_knowledge.cost_portal.cost_rows',return_value=(False,{})):
+            for direction in ('asc','desc'):
+                response=self.client.get('/products?sort=cost&direction='+direction)
+                self.assertEqual(response.status_code,403)
+                self.assertNotIn('amount',response.text)
+        self.assertEqual(self.client.get('/products?sort=price&department_id='+str(uuid4())).status_code,404)
+
     def test_foreign_tenant_product_not_found(self):
         self.load()
         with self.sessions.begin() as db:

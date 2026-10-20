@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { KnowledgeDialog } from '../../components/KnowledgeDialog'
+import { KnowledgePhoto, KnowledgePhotoPicker } from '../../components/KnowledgeUI'
 import { getStoredToken } from '../../services/auth'
 import { ProductApiError, productCommand, type Product } from '../../services/productKnowledge'
 
@@ -16,12 +18,11 @@ export function ProductPhoto({ product, large = false }: { product: Product; lar
       .catch(() => { if (!controller.signal.aborted) setFailed(key) })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
   }, [key, product.id, product.photo])
-  return <div className={`product-image${large ? ' product-image-large' : ''}`}>
-    {loaded?.key === key && failed !== key ? <img src={loaded.url} alt={product.name} onError={() => setFailed(key)} /> : product.photo ? failed === key ? 'Фото недоступно' : <span role="status">Загрузка…</span> : 'Нет фото'}
-  </div>
+  return <KnowledgePhoto name={product.name} url={loaded?.key===key?loaded.url:undefined} failed={failed===key} loading={Boolean(product.photo)&&loaded?.key!==key} large={large} fit="contain" onError={()=>setFailed(key)}/>
 }
 
 export function ProductPhotoEditor({ product, onSaved }: { product: Product; onSaved: () => void }) {
+  const [open,setOpen]=useState(false)
   const [file, setFile] = useState<File | null>(null), [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const submitting = useRef(false)
@@ -37,14 +38,14 @@ export function ProductPhotoEditor({ product, onSaved }: { product: Product; onS
         const response = await fetch(`/api/products/${product.id}/photo`, {method: 'PUT', headers: {Authorization: `Bearer ${getStoredToken()}`}, body: form})
         if (!response.ok) throw new ProductApiError(response.status, true)
       }
-      onSaved()
+      setOpen(false);setFile(null);setReason('');onSaved()
     } catch (error) { setError(error instanceof Error && error.name === 'ProductApiError' ? error.message : 'Не удалось сохранить фотографию. Повторите позже') }
     finally { submitting.current = false; setBusy(false) }
   }
-  return <section className="product-knowledge-section product-management"><h2>Фотография изделия</h2><form onSubmit={e => {e.preventDefault(); void save(false)}}><fieldset disabled={busy}>
+  return <><button className="secondary-action" onClick={()=>setOpen(true)}>Изменить фотографию</button>{open&&<KnowledgeDialog title="Фотография изделия" cancelLabel="Отмена" dirty={Boolean(file||reason)} busy={busy} onClose={()=>{setOpen(false);setFile(null);setReason('');setError('')}}><form onSubmit={e => {e.preventDefault(); void save(false)}}><fieldset disabled={busy}>
     <p>JPEG, PNG или WebP, до 10 МБ и 16 млн пикселей. После изменения отметка «Проверено» снимается.</p>
-    <label>Файл фотографии<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => {const selected = e.target.files?.[0] || null; setFile(selected); setError(selected && selected.size > 10 * 1024 * 1024 ? 'Размер фотографии не должен превышать 10 МБ' : '')}} /></label>
+    <KnowledgePhotoPicker file={file} disabled={busy} onChange={selected=>{setFile(selected);setError(selected&&selected.size>10*1024*1024?'Размер фотографии не должен превышать 10 МБ':'')}}/>
     <label>Причина / комментарий<input required maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></label>
-    <div className="product-management-actions"><button disabled={busy || !file || file.size > 10 * 1024 * 1024 || !reason.trim()}>{busy ? 'Сохраняем…' : product.photo ? 'Заменить фотографию' : 'Загрузить фотографию'}</button>{product.photo && <button type="button" disabled={busy || !reason.trim()} onClick={() => void save(true)}>Удалить фотографию</button>}</div>
-  </fieldset></form>{error && <p role="alert">{error} <button disabled={busy} onClick={onSaved}>Обновить карточку</button></p>}</section>
+    <div className="product-management-actions"><button className="primary-action" disabled={busy || !file || file.size > 10 * 1024 * 1024 || !reason.trim()}>{busy ? 'Сохраняем…' : product.photo ? 'Заменить фотографию' : 'Загрузить фотографию'}</button>{product.photo && <button className="danger-action" type="button" disabled={busy || !reason.trim()} onClick={() => void save(true)}>Удалить фотографию</button>}</div>
+  </fieldset></form>{error && <p role="alert">{error} <button className="secondary-action" disabled={busy||Boolean(file||reason)} onClick={onSaved}>Обновить карточку</button></p>}</KnowledgeDialog>}</>
 }

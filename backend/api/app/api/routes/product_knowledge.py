@@ -35,11 +35,12 @@ def list_products(db: Db, actor: Actor, response: Response,
     mode: Literal['UNKNOWN','PORTION','WEIGHT'] | None = None, category_id: UUID | None = None,
     department_id: UUID | None = None, price_at: date | None = None,
     deleted: bool = False, unverified: bool = False,
+    sort: Literal['name','unit_weight_kg','sale_mode','price','cost','sale_status'] = 'name', direction: Literal['asc','desc'] = 'asc',
     offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
     response.headers['Cache-Control'] = 'no-store'
     try:
         return service.catalog(db, actor, q=q, status=status, mode=mode, category_id=category_id,
-            department_id=department_id, price_at=price_at or today(), offset=offset, limit=limit, deleted=deleted, unverified=unverified)
+            department_id=department_id, price_at=price_at or today(), offset=offset, limit=limit, deleted=deleted, unverified=unverified, sort=sort, direction=direction)
     except ActionContextError as error:
         raise action_context_http_error(error) from error
 

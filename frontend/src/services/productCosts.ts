@@ -1,3 +1,4 @@
+import { knowledgeNumber } from '../components/knowledgePresentation'
 import { getStoredToken } from './auth'
 
 export type Cost = { status: string; amount: string | null; note: string; estimated?: boolean | null; currency?: string; unit?: string; method?: string; source?: string; context?: string; warehouse?: string; stock_at?: string; observed_at?: string }
@@ -15,7 +16,7 @@ export async function getProductCosts(id: string, context: string, offset: numbe
 export const exactCostNumber = (value: string) => value.replace('.', ',')
 export function costLabel(cost: Cost | null | undefined) {
   if (!cost || cost.status !== 'VERIFIED' || cost.amount === null) return cost?.note || 'Нет подтверждённой себестоимости'
-  return `${exactCostNumber(cost.amount)} ₽${cost.estimated ? ' *' : ''}`
+  return `${knowledgeNumber(cost.amount)} ₽${cost.estimated ? ' *' : ''}`
 }
 
 export type CostReview = {candidate_amount: string | null; components: CostDetail['components']; observation_id: string; content_hash: string; quality: string; issues: string[]; can_confirm: boolean; context: string; warehouse: string; method: string}

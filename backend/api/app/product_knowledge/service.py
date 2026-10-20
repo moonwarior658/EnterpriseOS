@@ -127,7 +127,10 @@ def projection(product, prices, point, manager=False, conflicts=(), health=()):
 
 
 def catalog(db: Session, user, *, q='', status=None, mode=None, category_id=None,
-            department_id=None, price_at: date, offset=0, limit=25, deleted=False, unverified=False):
+            department_id=None, price_at: date, offset=0, limit=25, deleted=False, unverified=False, sort='name', direction='asc'):
+    from app.product_knowledge import catalog_order
+    if sort not in catalog_order.FIELDS or direction not in ('asc','desc'):
+        raise HTTPException(422,'Неизвестная сортировка')
     points = points_for(db, user)
     if department_id is not None and department_id not in {p.id for p in points}:
         raise HTTPException(404, 'Точка недоступна')
@@ -147,7 +150,13 @@ def catalog(db: Session, user, *, q='', status=None, mode=None, category_id=None
     if category_id:
         stmt = stmt.where(Product.category_id == category_id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = list(db.scalars(stmt.order_by(func.coalesce(Product.local_name, Product.name), Product.id).offset(offset).limit(limit)))
+    if sort == 'name':
+        name = func.coalesce(Product.local_name, Product.name)
+        rows = list(db.scalars(stmt.order_by(name.desc() if direction == 'desc' else name.asc(), Product.id).offset(offset).limit(limit)))
+    else:
+        # Existing scoped projections are sorted before slicing; no supplier,
+        # warehouse, historical or unverified amount is used as a fallback.
+        rows = list(db.scalars(stmt))
     prices, conflicts = price_rows(db, user, [p.id for p in rows], points, price_at)
     health = {source: price_health(db, user, source, points) for source in {p.source_id for p in rows}}
     category_rows = list(db.scalars(select(SupplyProductCategory).where(
@@ -157,8 +166,12 @@ def catalog(db: Session, user, *, q='', status=None, mode=None, category_id=None
     active = select(Product).where(Product.tenant_id == user.tenant_id, Product.published.is_(True), Product.deleted_at.is_(None))
     from app.product_knowledge.cost_portal import cost_rows
     cost_access, costs = cost_rows(db,user,[p.id for p in rows])
+    if sort == 'cost' and not cost_access:
+        raise HTTPException(403, 'Нет доступа к себестоимости')
     items = [dict(**projection(p,prices[p.id],department_id,manager,conflicts[p.id],health[p.source_id]),
         cost_access=cost_access,cost=costs.get(p.id)) for p in rows]
+    if sort != 'name':
+        items = catalog_order.ordered(items, sort, direction == 'desc')[offset:offset + limit]
     return dict(items=items, cost_access=cost_access, total=total,
         offset=offset, limit=limit, points=[dict(id=p.id, name=p.name) for p in points],
         categories=[dict(id=p.id, name=p.name) for p in category_rows],

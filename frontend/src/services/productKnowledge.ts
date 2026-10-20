@@ -1,3 +1,4 @@
+import { knowledgeNumber } from '../components/knowledgePresentation'
 import type { Cost } from './productCosts'
 import { getStoredToken } from './auth'
 import type { EmployeeRole } from './actionContext'
@@ -32,10 +33,10 @@ export function priceLabel(price: ProductPrice | null, point: string, conflicts:
   if (!point) return 'Выберите точку'
   if (conflicts.includes(point)) return 'Цена требует проверки'
   if (!price) return 'Нет подтверждённой цены'
-  return `${Number(price.amount).toLocaleString('ru-RU', { maximumFractionDigits: 6 })} ${price.currency} / ${price.price_unit}`
+  return `${knowledgeNumber(price.amount)} ${price.currency==='RUB'?'₽':price.currency}/${price.price_unit}`
 }
 export function weightLabel(product: Product) {
-  return product.unit_weight_kg ? `${Number(product.unit_weight_kg).toLocaleString('ru-RU', { maximumFractionDigits: 6 })} кг / ${product.unit_name}` : 'Нет данных'
+  return product.unit_weight_kg ? `${knowledgeNumber(product.unit_weight_kg)} кг / ${product.unit_name}` : 'Нет данных'
 }
 
 export type IikoCandidate = { source_id: string; iiko_product_id: string; name: string; unit_name: string; source_deleted: boolean; existing_id: string | null; confirmation_hash: string }

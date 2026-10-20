@@ -24,11 +24,13 @@ function Chart({ chart, charts, path = [] }: { chart: RecipeChart; charts: Recip
     {chart.kind === 'SOURCE' && <details><summary>Технология приготовления</summary><p className="recipe-text">{chart.technology || 'Технологический текст отсутствует'}</p></details>}
   </article>
 }
-export function ProductRecipes({ productId }: { productId: string }) {
+export function ProductRecipes({ productId,onDirtyChange,onBusyChange }: { productId: string;onDirtyChange?:(v:boolean)=>void;onBusyChange?:(v:boolean)=>void }) {
   const [context, setContext] = useState(''), [observationId, setObservationId] = useState(''), [offset, setOffset] = useState(0)
   const [date, setDate] = useState(today), [retry, setRetry] = useState(0)
   const [state, setState] = useState<{ key: string; selection: string; data: RecipePortal | null; error: string | null }>({ key: '', selection: '', data: null, error: null })
   const [busy, setBusy] = useState(false), [commandError, setCommandError] = useState(''), [evidence, setEvidence] = useState(''), [reviewed, setReviewed] = useState('')
+  useEffect(()=>{onDirtyChange?.(Boolean(evidence||reviewed))},[evidence,reviewed,onDirtyChange])
+  useEffect(()=>{onBusyChange?.(busy)},[busy,onBusyChange])
   const commandLock = useRef(false), pendingRequest = useRef<{ signature: string; id: string } | null>(null)
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])

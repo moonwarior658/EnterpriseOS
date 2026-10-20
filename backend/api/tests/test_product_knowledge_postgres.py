@@ -59,6 +59,23 @@ class ProductKnowledgePostgresTests(unittest.TestCase):
     def load(self):
         with self.sessions.begin() as db:return publish(db,db.get(User,self.actor),self.plan,expected_hash=self.plan['plan_hash'],initial_status='ON_SALE',confirmed_point_ids=[self.department]).id
 
+    def test_catalog_global_order_on_real_postgres_preserves_scope_and_unknown_price(self):
+        from app.product_knowledge.service import catalog
+        self.load()
+        with self.sessions.begin() as db:
+            rows=list(db.scalars(select(ProductKnowledgeProduct).where(ProductKnowledgeProduct.tenant_id==self.tenant).order_by(ProductKnowledgeProduct.id)))
+            rows[0].local_name='А';rows[0].unit_weight_kg='100';rows[1].local_name='Я';rows[1].unit_weight_kg='9'
+            cheap=rows[1].id;expensive=rows[0].id
+        with self.sessions() as db:
+            actor=db.get(User,self.actor)
+            for direction, expected in [('asc',cheap),('desc',expensive)]:
+                result=catalog(db,actor,price_at=date(2026,10,20),sort='unit_weight_kg',direction=direction,limit=1)
+                self.assertEqual(result['total'],2);self.assertEqual(result['items'][0]['id'],expected)
+                self.assertIsNone(result['items'][0]['price'])
+            foreign=uuid4()
+            from fastapi import HTTPException
+            with self.assertRaises(HTTPException):catalog(db,actor,price_at=date(2026,10,20),department_id=foreign,sort='price')
+
     def test_concurrent_retry_constraints_weight_and_rollback(self):
         with ThreadPoolExecutor(max_workers=2) as executor:ids=list(executor.map(lambda _:self.load(),range(2)))
         self.assertEqual(ids[0],ids[1])

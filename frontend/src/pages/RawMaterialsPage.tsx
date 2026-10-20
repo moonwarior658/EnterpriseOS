@@ -9,6 +9,7 @@ import { MaterialDialog } from '../components/MaterialDialog'
 import { MaterialEditor, MaterialPhotoEditor, MaterialArchiveEditor } from '../components/MaterialEditor'
 import { EosCheckbox } from '../components/EosFormControls'
 import { materialNumber, knowledgeLabels as labels } from '../components/materialPresentation'
+import { KnowledgeHeader, KnowledgeActions, KnowledgeInfo, KnowledgeStatus, KnowledgeSortHeader, KnowledgeFilterToggle, KnowledgePhoto } from '../components/KnowledgeUI'
 import './ProductKnowledgePage.css'
 import './RawMaterialsPage.css'
 
@@ -28,7 +29,7 @@ export function RawMaterialPhoto({material, large=false}: {material: Material; l
     }).catch(() => {})
     return () => {controller.abort();if(url)URL.revokeObjectURL(url)}
   }, [material.id,material.photo_hash,key])
-  return image?.key === key ? <img className={`material-photo ${large ? 'material-photo-large' : ''}`} src={image.url} alt={material.name} /> : <span className={`material-photo material-photo-empty ${large ? 'material-photo-large' : ''}`} aria-label="Фото отсутствует">Нет фото</span>
+  return <KnowledgePhoto name={material.name} url={image?.key===key?image.url:undefined} large={large}/>
 }
 
 function SpecificationView({value, title}: {value: Specification | null | undefined; title: string}) {
@@ -83,22 +84,22 @@ function MaterialCard({material,onSaved}:{material:Material;onSaved:()=>void}) {
   const saved=(reason?:string)=>{if(reason!==undefined)setSavedReason(reason);setNotice('Изменения сохранены. Данные карточки обновлены.');onSaved()}
   const backups=material.suppliers.filter(s=>s.role==='BACKUP')
   return <>
-    <div className="material-card-actions product-actions">
+    <KnowledgeActions>
       {material.allowed_actions.includes('EDIT')&&<button className="primary-action" disabled={!editable} onClick={()=>{setNotice('');setSavedReason('');setModal('specification')}}>Изменить спецификацию</button>}
       {material.allowed_actions.includes('PHOTO')&&<button className="secondary-action" disabled={!editable} onClick={()=>setModal('photo')}>Изменить фотографию</button>}
       <button className="secondary-action" onClick={()=>setModal('history')}>История изменений</button>
       {material.allowed_actions.includes('ARCHIVE')&&<button className="secondary-action" onClick={()=>setModal('archive')}>{material.archived?'Восстановить карточку':'Архивировать карточку'}</button>}
-    </div>
+    </KnowledgeActions>
     {notice&&<p role="status" className="material-notice">{notice}</p>}
     {!editable&&<p className="material-notice">{material.archived?'Карточка в архиве. Восстановите её для редактирования.':'Товар Supply архивирован. Сначала восстановите его в Supply.'}</p>}
-    <section className="product-card-overview material-overview"><RawMaterialPhoto material={material} large/><div className="product-knowledge-section"><h2>О сырье</h2><dl className="material-info-grid">
-      <div><dt>Тип</dt><dd>{material.kind==='PACKAGING'?'Упаковка':'Сырьё'}</dd></div>
-      <div><dt>Статус карточки</dt><dd><span className={`material-status ${material.archived?'material-status-empty':'material-status-ready'}`}>{material.archived?'В архиве':'Активна'}</span></dd></div>
-      <div><dt>Учётная единица iiko</dt><dd>{material.unit||'Не подтверждена'}</dd></div>
-      <div><dt>Вес условной единицы</dt><dd>{material.unit_weight_kg?`${materialNumber(material.unit_weight_kg)} кг`:'Нет данных'}</dd></div>
-      <div><dt>Действующий стандарт</dt><dd>{material.current?`Подтверждён · версия ${material.current.revision}`:'Ещё не утверждён'}</dd></div>
-      <div><dt>Черновик</dt><dd>{material.latest?.status==='DRAFT'?`Версия ${material.latest.revision} · ожидает подтверждения`:'Нет черновика'}</dd></div>
-    </dl></div></section>
+    <section className="product-card-overview material-overview"><RawMaterialPhoto material={material} large/><KnowledgeInfo title="О сырье" items={[
+      {label:'Тип',value:material.kind==='PACKAGING'?'Упаковка':'Сырьё'},
+      {label:'Статус карточки',value:<KnowledgeStatus tone={material.archived?'empty':'ready'}>{material.archived?'В архиве':'Активна'}</KnowledgeStatus>},
+      {label:'Учётная единица iiko',value:material.unit||'Не подтверждена'},
+      {label:'Вес условной единицы',value:material.unit_weight_kg?`${materialNumber(material.unit_weight_kg)} кг`:'Нет данных'},
+      {label:'Действующий стандарт',value:material.current?`Подтверждён · версия ${material.current.revision}`:'Ещё не утверждён'},
+      {label:'Черновик',value:material.latest?.status==='DRAFT'?`Версия ${material.latest.revision} · ожидает подтверждения`:'Нет черновика'}
+    ]}/></section>
     <PurchasePanel material={material} onUpdated={onSaved}/>
     <section className="product-knowledge-section material-suppliers"><h2>Товары и поставщики</h2><div className="product-knowledge-grid">
       <article><h3>Основной утверждённый товар</h3><p>{material.current?(material.approved_products?.find(p=>p.role==='PRIMARY')?.name||material.name):'Ещё не утверждён'}</p><h3>Разрешённые резервные товары</h3>
@@ -130,19 +131,15 @@ export default function RawMaterialsPage() {
   const sort=(field:string)=>{const next=new URLSearchParams(params);next.set('sort',field);next.set('direction',params.get('sort')===field&&params.get('direction')!=='desc'?'desc':'asc');next.delete('page');setParams(next,{replace:true})}
   // Preserve the open action dialog during a successful save/reload of this card.
   const loading=key!==state.key&&(!productId||state.material?.id!==productId),material=state.material,catalog=state.catalog,qs=query?`?${query}`:'',reload=()=>setRetry(v=>v+1)
-  return <div className="page-shell"><section className="page-panel product-page material-page"><div className="page-title-row"><div><p className="eyebrow">БАЗА ЗНАНИЙ</p><h1>{productId&&!loading?material?.name||'Карточка сырья':'Сырьё'}</h1><p className="muted-text">Технологические сведения, спецификации и поставщики</p></div></div>
+  return <div className="page-shell"><section className="page-panel product-page material-page"><KnowledgeHeader title={productId&&!loading?material?.name||'Карточка сырья':'Сырьё'} description="Технологические сведения, спецификации и поставщики"/>
     {productId&&<Link className="product-back" to={`/raw-materials${qs}`}>← К списку сырья</Link>}
     {!productId&&<><div className="product-filters"><EosSearchField label="Поиск" placeholder="Название, алиас или UUID" value={params.get('q')||''} onChange={e=>update('q',e.target.value)}/><label>Вид<EosSelect value={params.get('kind')||''} onChange={e=>update('kind',e.target.value)}><option value="">Все виды</option><option value="RAW_MATERIAL">Сырьё</option><option value="PACKAGING">Упаковка</option></EosSelect></label><label>Категория<EosSelect value={params.get('category_id')||''} onChange={e=>update('category_id',e.target.value)}><option value="">Все категории</option>{catalog?.categories.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</EosSelect></label><label>Спецификация<EosSelect value={params.get('state')||''} onChange={e=>update('state',e.target.value)}><option value="">Все состояния</option><option value="CONFIRMED">Есть подтверждённая версия</option><option value="UNCONFIRMED">Нет подтверждённой версии</option></EosSelect></label><label>Поставщик<EosSelect value={params.get('supplier_id')||''} onChange={e=>update('supplier_id',e.target.value)}><option value="">Все поставщики</option>{catalog?.suppliers.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</EosSelect></label></div>
-      <div className="product-actions material-filter-actions"><button className="secondary-action" aria-pressed={params.get('without_supplier')==='true'} onClick={()=>update('without_supplier',params.get('without_supplier')==='true'?'':'true')}>Без поставщика</button><button className="secondary-action" aria-pressed={params.get('archived')==='true'} onClick={()=>update('archived',params.get('archived')==='true'?'':'true')}>Архив карточек</button><button className="secondary-action" onClick={()=>setParams({})}>Сбросить фильтры</button></div>
+      <div className="product-actions material-filter-actions"><KnowledgeFilterToggle active={params.get('without_supplier')==='true'} onClick={()=>update('without_supplier',params.get('without_supplier')==='true'?'':'true')}>Без поставщика</KnowledgeFilterToggle><KnowledgeFilterToggle active={params.get('archived')==='true'} onClick={()=>update('archived',params.get('archived')==='true'?'':'true')}>Архив карточек</KnowledgeFilterToggle><button className="secondary-action" onClick={()=>setParams({})}>Сбросить фильтры</button></div>
     </>}
     {loading?<p className="product-state" role="status">Загружаем сырьё…</p>:state.error?<div role="alert"><p>{state.error}</p><button className="secondary-action" onClick={reload}>Повторить</button></div>:material?<MaterialCard key={material.id} material={material} onSaved={reload}/>:catalog?<>
       {catalog.can_enroll&&<EnrollMaterial onSaved={reload}/>}
       <p className="product-scroll-hint">Прокрутите таблицу вправо, чтобы увидеть все колонки.</p>
-      <div className="product-table-wrap" role="region" aria-label="Реестр сырья" tabIndex={0}><table className="product-table"><caption className="product-sr-only">Сырьё и упаковка</caption><thead><tr>{columns.map(([field,label])=>{
-        const allowed=field&&!(['last_purchase_price','six_month_average'].includes(field)&&!catalog.purchase_access)
-        const selected=(params.get('sort')||'name')===field
-        return <th scope="col" key={label} aria-sort={allowed?(selected?(params.get('direction')==='desc'?'descending':'ascending'):'none'):undefined}>{allowed?<button className="material-sort" onClick={()=>sort(field)}>{label}<span aria-hidden="true">{selected?(params.get('direction')==='desc'?' ↓':' ↑'):' ↕'}</span></button>:label}</th>
-      })}</tr></thead><tbody>{catalog.items.map(p=><tr key={p.id}><td><Link to={`/raw-materials/${p.id}${qs}`} aria-label={`Карточка ${p.name}`}><RawMaterialPhoto material={p}/></Link></td><td><Link to={`/raw-materials/${p.id}${qs}`}>{p.name}</Link><small>{p.unit||'Единица не подтверждена'} · {p.kind==='PACKAGING'?'Упаковка':'Сырьё'}{!p.supply_active?' · Товар Supply архивирован':''}</small></td><td>{p.unit_weight_kg?`${materialNumber(p.unit_weight_kg)} кг`:'Нет данных'}</td><td>{supplierLabel(p.primary_supplier)}</td><td>{p.backup_ambiguous?'Несколько кандидатов':supplierLabel(p.backup_supplier)}</td><td>{catalog.purchase_access?<PurchaseValue metric={p.last_purchase_price}/>: 'Нет доступа'}</td><td>{catalog.purchase_access?<PurchaseValue metric={p.six_month_average}/>:'Нет доступа'}</td><td><UsageValue metric={p.monthly_consumption}/></td></tr>)}</tbody></table></div>
+      <div className="product-table-wrap" role="region" aria-label="Реестр сырья" tabIndex={0}><table className="product-table"><caption className="product-sr-only">Сырьё и упаковка</caption><thead><tr>{columns.map(([field,label])=><KnowledgeSortHeader key={label} field={field} label={label} selected={params.get('sort')||'name'} direction={params.get('direction')||'asc'} onSort={sort} enabled={catalog.purchase_access||!['last_purchase_price','six_month_average'].includes(field)}/>)}</tr></thead><tbody>{catalog.items.map(p=><tr key={p.id}><td><Link to={`/raw-materials/${p.id}${qs}`} aria-label={`Карточка ${p.name}`}><RawMaterialPhoto material={p}/></Link></td><td><Link to={`/raw-materials/${p.id}${qs}`}>{p.name}</Link><small>{p.unit||'Единица не подтверждена'} · {p.kind==='PACKAGING'?'Упаковка':'Сырьё'}{!p.supply_active?' · Товар Supply архивирован':''}</small></td><td>{p.unit_weight_kg?`${materialNumber(p.unit_weight_kg)} кг`:'Нет данных'}</td><td>{supplierLabel(p.primary_supplier)}</td><td>{p.backup_ambiguous?'Несколько кандидатов':supplierLabel(p.backup_supplier)}</td><td>{catalog.purchase_access?<PurchaseValue metric={p.last_purchase_price}/>: 'Нет доступа'}</td><td>{catalog.purchase_access?<PurchaseValue metric={p.six_month_average}/>:'Нет доступа'}</td><td><UsageValue metric={p.monthly_consumption}/></td></tr>)}</tbody></table></div>
       {!catalog.items.length&&<div className="product-state" role="status"><h2>Ничего не найдено</h2><p>Измените фильтры. Новые карточки включаются после согласования состава.</p></div>}
       <EosPagination offset={offset} total={catalog.total} pageSize={PAGE_SIZE} itemCount={catalog.items.length} onPageChange={next=>update('page',String(next/PAGE_SIZE+1))}/>
     </>:null}
