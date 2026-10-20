@@ -2,7 +2,7 @@ import { getStoredToken } from './auth'
 
 export type Cost = { status: string; amount: string | null; note: string; estimated?: boolean | null; currency?: string; unit?: string; method?: string; source?: string; context?: string; warehouse?: string; stock_at?: string; observed_at?: string }
 export type CostDetail = Cost & { verification_at?: string; verification_author?: string | null; observation_id: string; content_hash: string; context_key: string; rounding: string; historical: boolean; components: { name: string | null; quantity: string; unit: string | null; unit_cost: string; contribution: string }[] }
-export type CostPortal = { can_review?: boolean; review?: CostReview | null; contexts: {key: string; label: string; warehouse: string}[]; selected_context: string | null; current: CostDetail | null; history: CostDetail[]; total: number; offset: number; limit: number; note: string | null }
+export type CostPortal = { can_refresh?: boolean; refresh?: {active: boolean; state: string; label: string} | null; can_review?: boolean; review?: CostReview | null; contexts: {key: string; label: string; warehouse: string}[]; selected_context: string | null; current: CostDetail | null; history: CostDetail[]; total: number; offset: number; limit: number; note: string | null }
 export class CostApiError extends Error {
   constructor(status: number) { super(status === 403 ? 'Нет доступа к себестоимости' : status === 404 ? 'Расчёт недоступен' : status === 409 ? 'Расчёт изменился или не допускается к подтверждению. Обновите данные и повторите сверку' : status === 422 ? 'Проверьте сумму, оценочность и подтверждение складов' : 'Не удалось загрузить себестоимость. Повторите позже'); this.name = 'CostApiError' }
 }
@@ -22,5 +22,10 @@ export type CostReview = {candidate_amount: string | null; components: CostDetai
 export type CostConfirmation = {observation_id: string; content_hash: string; office_ssn: string; estimated: boolean; warehouse_confirmed: boolean; context_confirmed: boolean; office_evidence: string; allow_updates: false}
 export async function confirmProductCost(id: string, command: CostConfirmation): Promise<void> {
   const response = await fetch(`/api/products/${encodeURIComponent(id)}/costs/confirm`, {method:'POST', headers:{Authorization:`Bearer ${getStoredToken()}`, 'Content-Type':'application/json'},body:JSON.stringify(command)})
+  if (!response.ok) throw new CostApiError(response.status)
+}
+
+export async function refreshProductCost(id: string, requestId: string): Promise<void> {
+  const response = await fetch(`/api/products/${encodeURIComponent(id)}/costs/refresh`, {method:'POST', headers:{Authorization:`Bearer ${getStoredToken()}`, 'Content-Type':'application/json'},body:JSON.stringify({request_id:requestId})})
   if (!response.ok) throw new CostApiError(response.status)
 }

@@ -37,7 +37,7 @@ def applies(spec, department):
     return (department not in ids) if spec['inverse'] else (department in ids)
 
 
-def calculate(root, *, at: date, department=None):
+def calculate(root, *, at: date, department=None, warehouse_id=None):
     """Normalized UUID-keyed tree, references, units and monetary stock snapshot.
 
     Root always uses its raw set (SSN), irrespective of finished-dish writeoff.
@@ -64,12 +64,14 @@ def calculate(root, *, at: date, department=None):
     if any(len({(b['product_key'], b['store_key']) for b in group['rows']}) != len(group['rows']) for group in rows):
         return dict(amount=None, reason='DUPLICATE_BALANCE', components=[], risks=[], signature=None)
     balances = [b for group in rows for b in group['rows']]
+    if warehouse_id is not None and any(b['store_key'] != warehouse_id for b in balances):
+        return dict(amount=None, reason='FOREIGN_WAREHOUSE', components=[], risks=[], signature=None)
     if len({(b['product_key'], b['store_key']) for b in balances}) != len(balances):
         return dict(amount=None, reason='DUPLICATE_BALANCE', components=[], risks=[], signature=None)
 
     def valuation(pid):
         selected = [b for b in balances if b['product_key'] == pid and number(b['amount']) > 0]
-        method = 'POSITIVE_STOCK_POOL'
+        method = 'WAREHOUSE_STOCK_RATIO' if warehouse_id else 'POSITIVE_STOCK_POOL'
         if not selected:
             selected = [b for b in balances if b['product_key'] == pid and number(b['amount']) < 0]
             method = 'NEGATIVE_STOCK_RATIO'
@@ -140,7 +142,7 @@ def calculate(root, *, at: date, department=None):
             value = visit(root['key'], Decimal(1), (), True)
             amount = str(value.quantize(CENT, rounding=ROUND_HALF_UP))
         # Excludes changing prices, includes norms/units/valuation method/zero state.
-        signature = dict(policy=POLICY, charts=used_charts,
+        signature = dict(policy=POLICY, warehouse_id=warehouse_id, charts=used_charts,
             references=[{k:p.get(k) for k in ('key','type','mainUnit_key','unitWeight','deleted')} for p in root['references']],
             units=root.get('units', []), methods=methods)
         return dict(amount=amount, unrounded_amount=str(value), reason=None,

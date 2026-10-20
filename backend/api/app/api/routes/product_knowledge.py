@@ -66,6 +66,20 @@ def refresh_costs(command: CostRefreshPayload, db: Db, actor: Actor):
         raise HTTPException(409,'Проверьте источник, UUID изделий и контекст расчёта') from error
 
 
+@router.post('/{product_id}/costs/refresh', status_code=202)
+def refresh_product_cost(product_id: UUID, command: cost_portal.PortalRefresh, db: Db, actor: Actor):
+    try:
+        result = cost_portal.refresh(db,actor,product_id,command)
+        db.commit()
+        return result
+    except ActionContextError as error:
+        db.rollback()
+        raise action_context_http_error(error) from error
+    except PublicationError as error:
+        db.rollback()
+        raise HTTPException(409,'Источник или склад себестоимости не подтверждён') from error
+
+
 @router.get('/{product_id}/costs')
 def product_costs(product_id: UUID, db: Db, actor: Actor, response: Response,
     context_key: str | None = Query(None, pattern=r'^[a-f0-9]{64}$'),

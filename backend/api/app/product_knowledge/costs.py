@@ -15,6 +15,7 @@ from app.models.sales import SalesSyncState
 from app.product_knowledge.bootstrap import PublicationError, digest
 from app.product_knowledge.cost_calculation import calculate, POLICY
 from app.sales.sync import source_identity
+from app.product_knowledge.cost_config import require_scope
 
 ACTION = 'products.sync_iiko_costs'
 
@@ -24,8 +25,8 @@ class CostRefreshPayload(BaseModel):
     source_id: str = Field(pattern=r'^[a-f0-9]{64}$')
     product_ids: list[UUID] = Field(min_length=1, max_length=141)
     department_id: UUID | None = None
-    # Empty means an explicitly requested aggregate of ALL source warehouses.
-    warehouse_ids: list[UUID] = Field(max_length=100)
+    # K5C accepts exactly the configured production warehouse.
+    warehouse_ids: list[UUID] = Field(min_length=1, max_length=1)
     context_label: str = Field(min_length=3, max_length=240)
     scope_evidence: str = Field(min_length=20, max_length=1000)
 
@@ -45,6 +46,7 @@ def context(payload):
 
 
 def scope(db, tenant, payload):
+    require_scope(payload)
     state = db.scalar(select(SalesSyncState).where(SalesSyncState.tenant_id == tenant, SalesSyncState.source_id == payload.source_id))
     if state is None:
         raise PublicationError('COST_SOURCE_MISMATCH')
@@ -92,6 +94,7 @@ def normalize(pid, tree, references, units, balances, scales=None):
 async def collect_costs(session_factory, *, tenant_id, payload, now, client_factory=IikoServerClient):
     if now.tzinfo is None or now.utcoffset() is None:
         raise PublicationError('COST_TIMEZONE_REQUIRED')
+    require_scope(payload)
     config = get_iiko_settings()
     if payload.source_id != source_identity(config):
         raise PublicationError('COST_SOURCE_MISMATCH')
@@ -180,7 +183,7 @@ def publish_costs(db, tenant, snapshot, *, execution_id):
         refs = {p['key']:p for p in root['references']}
         if refs.get(pid,{}).get('mainUnit_key') != str(product.unit_id):
             raise PublicationError('COST_ROOT_UNIT_MISMATCH')
-        result = calculate(root,at=snapshot['stock_at'].astimezone(ZoneInfo('Asia/Yekaterinburg')).date(),department=str(payload.department_id) if payload.department_id else None)
+        result = calculate(root,at=snapshot['stock_at'].astimezone(ZoneInfo('Asia/Yekaterinburg')).date(),department=str(payload.department_id) if payload.department_id else None,warehouse_id=str(payload.warehouse_ids[0]))
         report = dict(context=context(payload), scope_evidence=payload.scope_evidence, input=root, result=result,
             source='IIKO_RECIPE_AND_STOCK', method=POLICY, currency='RUB')
         if previous:

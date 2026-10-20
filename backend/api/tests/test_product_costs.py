@@ -31,10 +31,16 @@ def fixture(root=None, unit=None):
     return dict(key=root,charts=[chart(root,child,'0.5','1'),chart(child,goods,'0.3','2')],
         references=[dict(key=p,name='Same name',type=t,mainUnit_key=unit,unitWeight='1',deleted=False)
             for p,t in [(root,'DISH'),(child,'PREPARED'),(goods,'GOODS')]],
-        units=[dict(key=unit,name='кг')],balances=[dict(rows=[dict(product_key=goods,store_key=str(uuid4()),amount='3',sum='10')])])
+        units=[dict(key=unit,name='кг')],balances=[dict(rows=[dict(product_key=goods,store_key='1c22edc0-7ded-41c9-b781-0389462c7247',amount='3',sum='10')])])
 
 
 class CostCalculationTests(unittest.TestCase):
+    def test_fixed_warehouse_rejects_foreign_stock_instead_of_pooling(self):
+        r=fixture();warehouse=r['balances'][0]['rows'][0]['store_key']
+        self.assertEqual(calculate(r,at=date(2026,10,12),warehouse_id=warehouse)['amount'],'0.25')
+        r['balances'][0]['rows'].append(dict(r['balances'][0]['rows'][0],store_key=str(uuid4()),sum='999999'))
+        self.assertEqual(calculate(r,at=date(2026,10,12),warehouse_id=warehouse)['reason'],'FOREIGN_WAREHOUSE')
+
     def test_nested_norms_per_output_basis_and_precise_rounding(self):
         result=calculate(fixture(),at=date(2026,10,9));self.assertEqual(result['amount'],'0.25')
         self.assertEqual(result['components'][0]['quantity'],'0.075');self.assertEqual(result['components'][0]['unit_cost'],'3.33')
@@ -89,7 +95,8 @@ class CostPersistenceTests(unittest.TestCase):
     row=k1.ProductKnowledgeTests.row;ingest=k1.ProductKnowledgeTests.ingest;plan=k1.ProductKnowledgeTests.plan;load=k1.ProductKnowledgeTests.load;tearDown=k1.ProductKnowledgeTests.tearDown
     def setUp(self):
         k1.ProductKnowledgeTests.setUp(self);self.load();self.execution=uuid4();self.now=datetime.now(timezone.utc).replace(microsecond=0)
-        self.policy=CostRefreshPayload(source_id=self.source_id,product_ids=[self.product],warehouse_ids=[],context_label='Explicit Office aggregate',scope_evidence='Fixture confirmed source warehouse aggregation')
+        config_patch=patch('app.product_knowledge.cost_config.SOURCE_ID',self.source_id);config_patch.start();self.addCleanup(config_patch.stop)
+        self.policy=CostRefreshPayload(source_id=self.source_id,product_ids=[self.product],warehouse_ids=['1c22edc0-7ded-41c9-b781-0389462c7247'],context_label='Explicit Office aggregate',scope_evidence='Fixture confirmed source warehouse aggregation')
         with self.sessions() as db:
             products=scope(db,'eclair',self.policy);p=db.get(Product,UUID(products[str(self.product)]));self.local=p.id;self.root=fixture(str(self.product),str(p.unit_id))
         self.snapshot=dict(products=products,roots={str(self.product):self.root},scope=self.policy.model_dump(mode='json'),stock_at=self.now,observed_at=self.now)
@@ -98,6 +105,54 @@ class CostPersistenceTests(unittest.TestCase):
     def command(self,db,**kw):
         row=db.scalar(select(Observation).where(Observation.product_id==self.local).order_by(Observation.observed_at.desc()))
         return CostConfirmation(observation_id=row.id,content_hash=row.content_hash,office_ssn='0.25',estimated=False,warehouse_confirmed=True,context_confirmed=True,office_evidence='Synthetic independent Office agreement and explicit scope',**kw)
+    def test_fixed_scope_blocks_empty_foreign_and_aggregate(self):
+        from pydantic import ValidationError
+        for stores in ([],[uuid4(),uuid4()]):
+            with self.assertRaises(ValidationError):CostRefreshPayload.model_validate(dict(self.policy.model_dump(),warehouse_ids=stores))
+        with self.sessions() as db:
+            with self.assertRaisesRegex(ValueError,'COST_FIXED_WAREHOUSE_REQUIRED'):
+                scope(db,'eclair',self.policy.model_copy(update={'warehouse_ids':[uuid4()]}))
+        self.root['balances'][0]['rows'][0]['store_key']=str(uuid4())
+        self.apply()
+        with self.sessions() as db:
+            row=db.scalar(select(Observation));self.assertEqual(row.status,'INCOMPLETE')
+            self.assertEqual(row.payload['result']['reason'],'FOREIGN_WAREHOUSE')
+
+    def test_portal_refresh_outbox_duplicate_request_active_and_rbac(self):
+        from app.models.automation import AutomationExecution, OutboxEvent, ExecutionStatus
+        from sqlalchemy import MetaData, Integer, JSON
+        from sqlalchemy.dialects.postgresql import JSONB
+        metadata=MetaData()
+        AutomationExecution.__table__.to_metadata(metadata)
+        table=OutboxEvent.__table__.to_metadata(metadata)
+        table.c.id.type=Integer()
+        for column in table.columns:
+            if isinstance(column.type,JSONB):
+                column.type=JSON();column.server_default=None
+        table.create(self.engine)
+        route=f'/products/{self.local}/costs/refresh';command={'request_id':str(uuid4())}
+        for payload in (command,command,{'request_id':str(uuid4())}):
+            response=self.client.post(route,json=payload);self.assertEqual(response.status_code,202,response.text)
+            self.assertTrue(response.json()['active']);self.assertNotIn('execution_id',response.json())
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(select(func.count()).select_from(AutomationExecution)),1)
+            self.assertEqual(db.scalar(select(func.count()).select_from(OutboxEvent)),1)
+            execution=db.scalar(select(AutomationExecution))
+            self.assertEqual(execution.payload['warehouse_ids'],self.policy.model_dump(mode='json')['warehouse_ids'])
+            self.assertEqual(execution.payload['product_ids'],[str(self.product)])
+            self.assertEqual(db.scalar(select(func.count()).select_from(Observation)),0)
+            self.assertTrue(detail(db,db.get(User,1),self.local)['can_refresh'])
+        with self.sessions.begin() as db:
+            db.scalar(select(AutomationExecution)).status=ExecutionStatus.FAILED
+        self.assertEqual(self.client.post(route,json=command).json()['state'],'failed')
+        with self.sessions() as db:self.assertEqual(db.scalar(select(func.count()).select_from(AutomationExecution)),1)
+        self.assertEqual(self.client.post(route,json={'request_id':str(uuid4())}).status_code,202)
+        with self.sessions() as db:self.assertEqual(db.scalar(select(func.count()).select_from(AutomationExecution)),2)
+        with self.sessions.begin() as db:
+            db.get(User,1).is_admin=False
+            for role in db.scalars(select(EmployeeRoleAssignment)):role.role=EmployeeRole.SELLER
+        self.assertEqual(self.client.post(route,json=command).status_code,403)
+
     def test_idempotent_history_unknown_money_hidden_and_no_adjacent_mutation(self):
         first=self.apply();self.assertEqual(first,self.apply())
         with self.sessions() as db:

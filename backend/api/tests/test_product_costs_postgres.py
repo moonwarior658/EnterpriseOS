@@ -35,7 +35,8 @@ class CostPostgresTests(unittest.TestCase):
         with patch.object(k1,'URL',URL):k1.ProductKnowledgePostgresTests.setUp(self)
         k1.ProductKnowledgePostgresTests.load(self)
         root=str(self.snapshot.products[0].id);self.now=datetime.now(timezone.utc).replace(microsecond=0)
-        self.policy=CostRefreshPayload(source_id=self.source,product_ids=[root],warehouse_ids=[],context_label='Fixture explicit Office context',scope_evidence='Explicit synthetic stock aggregation and Office comparison')
+        config_patch=patch('app.product_knowledge.cost_config.SOURCE_ID',self.source);config_patch.start();self.addCleanup(config_patch.stop)
+        self.policy=CostRefreshPayload(source_id=self.source,product_ids=[root],warehouse_ids=['1c22edc0-7ded-41c9-b781-0389462c7247'],context_label='Fixture explicit Office context',scope_evidence='Explicit synthetic stock aggregation and Office comparison')
         with self.sessions() as db:
             products=scope(db,self.tenant,self.policy);p=db.get(Product,UUID(products[root]));self.local=p.id;self.root=fixture(root,str(p.unit_id))
         self.collected=dict(products=products,roots={root:self.root},scope=self.policy.model_dump(mode='json'),stock_at=self.now,observed_at=self.now)

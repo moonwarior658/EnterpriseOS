@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { EosPagination, EosSelect } from '../../components/EosFormControls'
-import { CostApiError, costLabel, exactCostNumber, getProductCosts, confirmProductCost, type CostReview, type CostPortal } from '../../services/productCosts'
+import { CostApiError, costLabel, exactCostNumber, getProductCosts, confirmProductCost, refreshProductCost, type CostReview, type CostPortal } from '../../services/productCosts'
 
 const checkedAt = (value: string | undefined) => value ? new Date(value).toLocaleString('ru-RU', {timeZone: 'Asia/Yekaterinburg'}) : 'Нет данных'
 export function ProductCosts({productId}: {productId: string}) {
   const [context, setContext] = useState(''), [offset, setOffset] = useState(0), [retry, setRetry] = useState(0)
   const [review, setReview] = useState(false)
+  const [busy, setBusy] = useState(false), [refreshError, setRefreshError] = useState('')
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
   const key = JSON.stringify([productId, context, offset, retry, review])
   const [state, setState] = useState<{key: string; data: CostPortal | null; error: string | null}>({key:'',data:null,error:null})
   useEffect(() => {
@@ -18,8 +20,23 @@ export function ProductCosts({productId}: {productId: string}) {
     return () => controller.abort()
   }, [productId, context, offset, key, review])
   const loading = state.key !== key, data = state.data, current = data?.current
+  useEffect(() => {
+    if (!data?.refresh?.active) return
+    const timer = window.setTimeout(() => setRetry(value => value+1),5000)
+    return () => window.clearTimeout(timer)
+  }, [data, retry])
+  const update = async () => {
+    if (busy || data?.refresh?.active) return
+    setBusy(true);setRefreshError('')
+    try {await refreshProductCost(productId,requestId);setRequestId(crypto.randomUUID());setRetry(value => value+1)}
+    catch (error:unknown) {setRefreshError(error instanceof CostApiError ? error.message : 'Не удалось запустить сбор. Повторите позже')}
+    finally {setBusy(false)}
+  }
   return <section className="product-knowledge-section"><h2>Себестоимость · ССН</h2>
     {loading ? <p role="status">Загружаем себестоимость…</p> : state.error ? <div role="alert"><p>{state.error}</p><button className="secondary-action" onClick={() => setRetry(x => x+1)}>Повторить</button></div> : data && <>
+      {data.can_refresh && <button className="secondary-action" disabled={busy || data.refresh?.active} onClick={update}>{busy ? 'Запускаем…' : data.refresh?.active ? 'Сбор выполняется…' : 'Собрать себестоимость из iiko'}</button>}
+      {data.refresh && <p role="status">{data.refresh.label}{data.refresh.state === 'succeeded' && ' · Для отображения суммы требуется сверка с iikoOffice'}</p>}
+      {refreshError && <p role="alert">{refreshError}</p>}
       {data.contexts.length > 1 && <label>Контекст расчёта<EosSelect value={context || data.selected_context || ''} onChange={event => {setContext(event.target.value);setOffset(0)}}><option value="">Выберите контекст</option>{data.contexts.map(c => <option value={c.key} key={c.key}>{c.label} · {c.warehouse}</option>)}</EosSelect></label>}
       <p><strong>{costLabel(current)}</strong>{current?.status === 'VERIFIED' && ` / ${current.unit}`}</p>
       {data.note && <p role="status">{data.note}</p>}

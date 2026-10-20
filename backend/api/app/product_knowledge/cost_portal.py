@@ -16,10 +16,68 @@ from app.models.product_knowledge import ProductKnowledgeProduct
 from app.product_knowledge.bootstrap import digest
 from app.product_knowledge.management import find_product
 from app.product_knowledge.cost_calculation import POLICY
+from app.product_knowledge import cost_config
+from app.product_knowledge.costs import CostRefreshPayload, enqueue, ACTION
+from app.models.automation import AutomationExecution
+from app.models.audit import AuditEvent
+from app.product_knowledge.recipe_portal import ACTIVE, progress
 
 # UUID hashes from independent Office article/code/UUID reconciliation evidence.
 # An article rename must not silently lift the limited-release exclusion.
 EXCLUDED_PRODUCT_KEYS = frozenset({'3bc212001fae4a31', 'e0d033c3e736fcba'})
+
+
+def fixed_context(row):
+    ctx = row.payload['context']
+    return ctx['source_id'] == cost_config.SOURCE_ID and ctx['warehouse_ids'] == [str(cost_config.WAREHOUSE_ID)]
+
+
+def refresh_attempt(db, actor, product, *, active=False):
+    stmt = select(AutomationExecution).where(AutomationExecution.tenant_id == actor.tenant_id,
+        AutomationExecution.automation_type == ACTION,
+        AutomationExecution.payload['source_id'].as_string() == product.source_id)
+    if db.get_bind().dialect.name == 'sqlite':
+        members = func.json_each(AutomationExecution.payload['product_ids']).table_valued('value')
+        stmt = stmt.where(select(1).select_from(members).where(members.c.value == str(product.iiko_product_id)).exists())
+    else:
+        stmt = stmt.where(AutomationExecution.payload['product_ids'].contains([str(product.iiko_product_id)]))
+    if active:
+        stmt = stmt.where(AutomationExecution.status.in_(ACTIVE))
+    return db.scalar(stmt.order_by(AutomationExecution.requested_at.desc(), AutomationExecution.id.desc()).limit(1))
+
+
+class PortalRefresh(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+
+
+def refresh(db, actor, product_id, command):
+    auth = authorize(db, actor, Capability.TECHNICAL_ADMIN, write=True)
+    product = find_product(db, actor, product_id, lock=True)
+    if product.deleted_at is not None or excluded_product(product):
+        raise HTTPException(409, 'Изделие не допускается к сбору себестоимости')
+    warehouse = cost_config.warehouse_for(product.source_id)
+    state = db.scalar(select(SalesSyncState).where(SalesSyncState.tenant_id == actor.tenant_id,
+        SalesSyncState.source_id == product.source_id).with_for_update())
+    if state is None:
+        raise HTTPException(409, 'Источник недоступен')
+    prior = db.scalar(select(AuditEvent).where(AuditEvent.tenant_id == actor.tenant_id,
+        AuditEvent.entity_type == 'ProductCostRefresh', AuditEvent.entity_id == str(product.id),
+        AuditEvent.correlation_id == str(command.request_id)))
+    if prior:
+        execution = db.scalar(select(AutomationExecution).where(AutomationExecution.tenant_id == actor.tenant_id,
+            AutomationExecution.execution_id == UUID(prior.after['execution_id'])))
+        return progress(execution)
+    execution = refresh_attempt(db, actor, product, active=True)
+    if execution is None or execution.status not in ACTIVE:
+        payload = CostRefreshPayload(source_id=product.source_id, product_ids=[product.iiko_product_id],
+            warehouse_ids=[warehouse], context_label=cost_config.WAREHOUSE_LABEL,
+            scope_evidence=cost_config.SCOPE_EVIDENCE)
+        execution = enqueue(db, actor, payload)
+    record_audit_event(db, tenant_id=actor.tenant_id, event_type='PRODUCT_COST_REFRESH_REQUESTED',
+        entity_type='ProductCostRefresh', entity_id=product.id, operation='REFRESH_COSTS', actor_user=actor, context=auth,
+        source='HUMAN', correlation_id=str(command.request_id), after=dict(execution_id=str(execution.execution_id)))
+    return progress(execution)
 
 
 def excluded_product(product):
@@ -70,7 +128,7 @@ def verification_map(db, tenant, rows):
 def projection(row, verification=None, *, detailed=False, now=None, historical=False, excluded=False):
     now = now or datetime.now(timezone.utc)
     current = historical or (utc(row.stock_at) <= now and now-utc(row.stock_at) <= timedelta(hours=2))
-    usable = verification is not None and row.status != 'INCOMPLETE' and current and not excluded
+    usable = verification is not None and row.status != 'INCOMPLETE' and current and not excluded and (historical or fixed_context(row))
     result = row.payload['result']
     context = row.payload['context']
     status = 'VERIFIED' if usable else ('STALE' if not current else ('EXCLUDED' if excluded else row.status))
@@ -82,7 +140,7 @@ def projection(row, verification=None, *, detailed=False, now=None, historical=F
     body = dict(status=status, amount=result['amount'] if usable else None,
         currency='RUB', unit=unit, method='Расчёт EOS по ТТК',
         source='iiko: ТТК и складской учёт', context=context['context_label'],
-        warehouse='Все склады источника' if not context['warehouse_ids'] else f"Выбранные склады: {len(context['warehouse_ids'])}",
+        warehouse=cost_config.WAREHOUSE_LABEL if fixed_context(row) else 'Все склады источника' if not context['warehouse_ids'] else f"Выбранные склады: {len(context['warehouse_ids'])}",
         stock_at=row.stock_at, observed_at=row.observed_at,
         estimated=verification.payload['estimated'] if usable else None, note=notes[status])
     if detailed:
@@ -110,7 +168,7 @@ def cost_rows(db, actor, product_ids, *, context_key=None, now=None):
         return False, {}
     if not product_ids:
         return True, {}
-    rows = latest_rows(db,actor.tenant_id,product_ids,context_key)
+    rows = [r for r in latest_rows(db,actor.tenant_id,product_ids,context_key) if fixed_context(r)]
     chosen, contexts = {}, {}
     for row in rows:
         if context_key and row.context_hash != context_key:
@@ -150,7 +208,8 @@ def detail(db, actor, product_id, *, context_key=None, offset=0, limit=25, now=N
         warehouse='Все склады источника' if not row.payload['context']['warehouse_ids'] else 'Выбранные склады') for row in rows}
     if context_key is not None and context_key not in choices:
         raise HTTPException(404,'Контекст недоступен')
-    selected = context_key or (next(iter(choices)) if len(choices)==1 else None)
+    fixed_choices = [r.context_hash for r in rows if fixed_context(r)]
+    selected = context_key or (fixed_choices[0] if len(fixed_choices)==1 else next(iter(choices)) if len(choices)==1 else None)
     stmt = select(Observation).where(Observation.tenant_id == actor.tenant_id,
         Observation.product_id == product.id,Observation.source_id == product.source_id,Observation.context_hash == selected)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) if selected else 0
@@ -161,7 +220,7 @@ def detail(db, actor, product_id, *, context_key=None, offset=0, limit=25, now=N
     preview = None
     if review and current:
         safe = projection(current,detailed=True,now=now,excluded=excluded_product(product))
-        valid = safe['status'] != 'STALE' and current.status != 'INCOMPLETE' and current.payload['result']['amount'] is not None
+        valid = fixed_context(current) and safe['status'] != 'STALE' and current.status != 'INCOMPLETE' and current.payload['result']['amount'] is not None
         excluded = excluded_product(product)
         issues = ['Складской контекст требует независимого подтверждения', 'Оценочность требует проверки в iikoOffice']
         risks = current.payload['result']['risks']
@@ -178,7 +237,12 @@ def detail(db, actor, product_id, *, context_key=None, offset=0, limit=25, now=N
             warehouse_ids=current.payload['context']['warehouse_ids'],
             department_id=current.payload['context'].get('department_id'),
             context=safe['context'],warehouse=safe['warehouse'],method='Расчёт EOS по ТТК')
-    return dict(can_review=can_review,review=preview,contexts=list(choices.values()),selected_context=selected,
+    try:
+        authorize(db,actor,Capability.TECHNICAL_ADMIN,write=True)
+        can_refresh = product.deleted_at is None and not excluded_product(product) and product.source_id == cost_config.SOURCE_ID
+    except ActionContextError:
+        can_refresh = False
+    return dict(can_refresh=can_refresh,refresh=progress(refresh_attempt(db,actor,product)) if can_refresh else None,can_review=can_review,review=preview,contexts=list(choices.values()),selected_context=selected,
         current=projection(current,verified.get(current.id),detailed=True,now=now,excluded=excluded_product(product)) if current else None,
         history=[projection(row,verified.get(row.id),detailed=True,now=now,historical=True,excluded=excluded_product(product)) for row in page],
         total=total,offset=offset,limit=limit,
@@ -203,6 +267,8 @@ def confirm(db, actor, product_id, command, *, now=None):
         Observation.stock_at.desc(),Observation.observed_at.desc(),Observation.id.desc()))
     if latest.id != row.id or row.content_hash != command.content_hash or digest(row.payload) != row.content_hash:
         raise HTTPException(409,'Расчёт изменился. Выполните сверку заново')
+    if not fixed_context(row):
+        raise HTTPException(409,'Нужен новый расчёт на складе Цех Производство')
     if row.status != 'UNVERIFIED' or row.method_hash is None or row.payload.get('method') != POLICY:
         raise HTTPException(409,'Исходных данных недостаточно для подтверждения')
     if row.payload['result']['amount'] is None or Decimal(row.payload['result']['amount']) != command.office_ssn:

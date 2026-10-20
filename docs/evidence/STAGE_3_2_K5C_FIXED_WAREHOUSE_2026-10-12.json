@@ -1,0 +1,892 @@
+{
+  "date": "2026-10-12",
+  "warehouse_id": "1c22edc0-7ded-41c9-b781-0389462c7247",
+  "warehouse_name": "Цех Производство ИП",
+  "source_id": "244d6eaf9c7c106993d10feb0ff9883dbdb73101cd3a2ab6852c9ba5b9907401",
+  "identity_evidence": {
+    "iiko_account_type": "INVENTORY_ASSETS",
+    "code": "21",
+    "active": true,
+    "deleted": false,
+    "eos_mapping_status": "CONFIRMED",
+    "internal_transfer_target_matches": true,
+    "production_git": "ef92ebfac3f24509382d540044d9c96338aa264e",
+    "alembic": "20261009_0079"
+  },
+  "stock_at": "2026-10-12T11:26:13+05:00",
+  "office_evidence": "Owner screenshot in task conversation, 12.10.2026; warehouse/date declared by owner, headers/selector/time absent in crop; article/code compared to prior UUID reconciliation",
+  "calculation": "Existing production K5C collector/calculator in memory, one warehouse parameter; no publish/enqueue/database writes",
+  "office_timestamp": null,
+  "office_department_id": null,
+  "estimated_api_flag": null,
+  "total": 49,
+  "existing_eos": 43,
+  "exact": 1,
+  "mismatch": 38,
+  "incomplete": 4,
+  "not_in_eos": 6,
+  "publication_allowed": false,
+  "rows": [
+    {
+      "article": "76214",
+      "code": "18474",
+      "name": "Кольцо крем-чиз с малиной",
+      "product_key": "e85d43dcc6b3ea87",
+      "office_ssn": "60.92",
+      "office_estimated": false,
+      "eos_candidate": "63.62",
+      "delta": "2.70",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "00241",
+      "code": "285",
+      "name": "Пирожное ежик шоколадный 150 гр",
+      "product_key": "d9a737a2b71b2b5e",
+      "office_ssn": "25.79",
+      "office_estimated": false,
+      "eos_candidate": "27.68",
+      "delta": "1.89",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75911",
+      "code": "18156",
+      "name": "Пирожное йогуртовое 170 гр",
+      "product_key": "b5610c1b79139e9e",
+      "office_ssn": "39.00",
+      "office_estimated": false,
+      "eos_candidate": "39.89",
+      "delta": "0.89",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75753",
+      "code": "17983",
+      "name": "Пирожное кольцо творожное 140 гр",
+      "product_key": "8e31468253a3a907",
+      "office_ssn": "45.59",
+      "office_estimated": false,
+      "eos_candidate": "46.83",
+      "delta": "1.24",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75834",
+      "code": "18072",
+      "name": "Пирожное корзинка лимонная 90 гр",
+      "product_key": "d39b4fa7c9b86982",
+      "office_ssn": "26.14",
+      "office_estimated": false,
+      "eos_candidate": "28.89",
+      "delta": "2.75",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "74796",
+      "code": "16924",
+      "name": "Пирожное корзинка песочная с крем чиз 85 гр",
+      "product_key": "73b4feba3f9c7912",
+      "office_ssn": "26.12",
+      "office_estimated": false,
+      "eos_candidate": "26.52",
+      "delta": "0.40",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75835",
+      "code": "18073",
+      "name": "Пирожное корзинка с брусникой 100 гр",
+      "product_key": "687196007bcefad9",
+      "office_ssn": "31.44",
+      "office_estimated": false,
+      "eos_candidate": "31.88",
+      "delta": "0.44",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75836",
+      "code": "18074",
+      "name": "Пирожное корзинка с черникой 100 гр",
+      "product_key": "55a6786ddb0bcfcb",
+      "office_ssn": "31.97",
+      "office_estimated": false,
+      "eos_candidate": "32.41",
+      "delta": "0.44",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "00236",
+      "code": "280",
+      "name": "Пирожное корзинка фруктовая 100 гр",
+      "product_key": "47d5bdfb4b6f1aa7",
+      "office_ssn": "33.36",
+      "office_estimated": false,
+      "eos_candidate": "33.92",
+      "delta": "0.56",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75837",
+      "code": "18075",
+      "name": "Пирожное корзинка шоколадно-ореховая 100 гр",
+      "product_key": "096eb4361c39401d",
+      "office_ssn": "31.16",
+      "office_estimated": false,
+      "eos_candidate": "31.90",
+      "delta": "0.74",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76409",
+      "code": "18674",
+      "name": "Пирожное корпусное «Банан», 46 г",
+      "product_key": "13d0a86657f158a7",
+      "office_ssn": "39.23",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "UNRESOLVED_PRODUCT",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76397",
+      "code": "18661",
+      "name": "Пирожное Кофейное зерно",
+      "product_key": "6f9f0dbbda7fa1a6",
+      "office_ssn": "74.24",
+      "office_estimated": false,
+      "eos_candidate": "74.25",
+      "delta": "0.01",
+      "exact": false,
+      "reason": null,
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76387",
+      "code": "18650",
+      "name": "Пирожное Красный бархат с клубникой 100г",
+      "product_key": "891edf4c5f0bdca5",
+      "office_ssn": "41.30",
+      "office_estimated": false,
+      "eos_candidate": "41.91",
+      "delta": "0.61",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76347",
+      "code": "18609",
+      "name": "Пирожное Малина 100 гр",
+      "product_key": "644426929e9e917f",
+      "office_ssn": "152.34",
+      "office_estimated": false,
+      "eos_candidate": "152.36",
+      "delta": "0.02",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76065",
+      "code": "18315",
+      "name": "Пирожное Медовик 160 гр",
+      "product_key": "a5cc2be53384d99b",
+      "office_ssn": "49.52",
+      "office_estimated": false,
+      "eos_candidate": "51.95",
+      "delta": "2.43",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75751",
+      "code": "17981",
+      "name": "Пирожное муравейник 100 гр",
+      "product_key": "69342b2b62b42e83",
+      "office_ssn": "49.95",
+      "office_estimated": false,
+      "eos_candidate": "56.86",
+      "delta": "6.91",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75919",
+      "code": "18164",
+      "name": "Пирожное Обжорка 250 гр",
+      "product_key": "af6d60af1688dd4c",
+      "office_ssn": "61.17",
+      "office_estimated": false,
+      "eos_candidate": "63.63",
+      "delta": "2.46",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75951",
+      "code": "18198",
+      "name": "Пирожное орешек с вареной сгущенкой 20 гр",
+      "product_key": "bac9202ab43e6a98",
+      "office_ssn": "7.80",
+      "office_estimated": false,
+      "eos_candidate": "9.26",
+      "delta": "1.46",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76060",
+      "code": "18310",
+      "name": "Пирожное Павлова 120 гр",
+      "product_key": "1a8bc4114bac83f6",
+      "office_ssn": "43.41",
+      "office_estimated": false,
+      "eos_candidate": "44.53",
+      "delta": "1.12",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76354",
+      "code": "18616",
+      "name": "Пирожное Рафаэлло 100 гр креманкка",
+      "product_key": "1e690fac3b10b8ab",
+      "office_ssn": "45.53",
+      "office_estimated": false,
+      "eos_candidate": "46.12",
+      "delta": "0.59",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75913",
+      "code": "18158",
+      "name": "Пирожное сметанное 170 гр",
+      "product_key": "6312d5424dfc342d",
+      "office_ssn": "50.66",
+      "office_estimated": false,
+      "eos_candidate": "51.87",
+      "delta": "1.21",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76366",
+      "code": "18629",
+      "name": "Пирожное Тирамису 100 гр",
+      "product_key": "11ffbe0a656abbc9",
+      "office_ssn": "93.11",
+      "office_estimated": false,
+      "eos_candidate": "93.11",
+      "delta": "0.00",
+      "exact": true,
+      "reason": null,
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "01412",
+      "code": "1619",
+      "name": "Пирожное тирамису креманка 168 гр",
+      "product_key": "a774e0f77b797e5e",
+      "office_ssn": "114.11",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "MISSING_STOCK_VALUATION",
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76410",
+      "code": "18675",
+      "name": "Пирожное Тирамису по-ямальски с брусникой  креманка 200 гр",
+      "product_key": "ac1c2b5210f7ade7",
+      "office_ssn": "112.94",
+      "office_estimated": true,
+      "eos_candidate": "113.15",
+      "delta": "0.21",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO",
+        "ZERO_VALUATION_REQUIRES_REVIEW"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "00152",
+      "code": "191",
+      "name": "Пирожное трубочка 100 гр",
+      "product_key": "33d6a219e0659f6c",
+      "office_ssn": "27.24",
+      "office_estimated": false,
+      "eos_candidate": "27.52",
+      "delta": "0.28",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75950",
+      "code": "18197",
+      "name": "Пирожное трубочка вафельная с вареной сгущенкой 95 гр",
+      "product_key": "09e1ab4c0016729a",
+      "office_ssn": "36.61",
+      "office_estimated": false,
+      "eos_candidate": "42.99",
+      "delta": "6.38",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75915",
+      "code": "18160",
+      "name": "Пирожное трюфель 170 гр",
+      "product_key": "460ca5955cdfdc01",
+      "office_ssn": "60.72",
+      "office_estimated": false,
+      "eos_candidate": "62.26",
+      "delta": "1.54",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75922",
+      "code": "18167",
+      "name": "Пирожное чизкейк Сан-Себастьян 230 гр",
+      "product_key": "6c2524e73c406ec4",
+      "office_ssn": "95.86",
+      "office_estimated": false,
+      "eos_candidate": "97.44",
+      "delta": "1.58",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75683",
+      "code": "17910",
+      "name": "Пирожное эклер карамельный 75 гр",
+      "product_key": "b22356f1bc446f77",
+      "office_ssn": "21.80",
+      "office_estimated": false,
+      "eos_candidate": "23.46",
+      "delta": "1.66",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "00201",
+      "code": "245",
+      "name": "Пирожное эклер сливочный 65 гр",
+      "product_key": "5e4ffcb4c244512f",
+      "office_ssn": "17.89",
+      "office_estimated": false,
+      "eos_candidate": "18.74",
+      "delta": "0.85",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75685",
+      "code": "17912",
+      "name": "Пирожное эклер тирамису 95 гр",
+      "product_key": "e31dc9d058109abd",
+      "office_ssn": "39.59",
+      "office_estimated": false,
+      "eos_candidate": "41.49",
+      "delta": "1.90",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75690",
+      "code": "17917",
+      "name": "Пирожное эклер шоколадный 75 гр",
+      "product_key": "105bec6921838b9e",
+      "office_ssn": "36.72",
+      "office_estimated": false,
+      "eos_candidate": "37.49",
+      "delta": "0.77",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76243",
+      "code": "18504",
+      "name": "Х3 Пирожное эклер карамельный  в упаковке 225 гр",
+      "product_key": "3bc212001fae4a31",
+      "office_ssn": "467.65",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "DEPARTMENT_REQUIRED",
+      "risks": [],
+      "excluded": true,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76242",
+      "code": "18503",
+      "name": "Х3 Пирожное эклер сливочный в упаковке 195 гр",
+      "product_key": "e0d033c3e736fcba",
+      "office_ssn": "467.08",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "DEPARTMENT_REQUIRED",
+      "risks": [],
+      "excluded": true,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "74872",
+      "code": "17007",
+      "name": "Тарт клубничный 500 гр",
+      "product_key": "92b5a196083c86bb",
+      "office_ssn": "150.16",
+      "office_estimated": false,
+      "eos_candidate": "156.61",
+      "delta": "6.45",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "12425",
+      "code": "4421",
+      "name": "Тарт Фруктово-Ягодный 1000 гр",
+      "product_key": "0b306a6c37ada1b9",
+      "office_ssn": "246.70",
+      "office_estimated": false,
+      "eos_candidate": "248.02",
+      "delta": "1.32",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75810",
+      "code": "18046",
+      "name": "Торт Йогуртовый 1000 гр",
+      "product_key": "4451b49d25442429",
+      "office_ssn": "312.08",
+      "office_estimated": false,
+      "eos_candidate": "318.57",
+      "delta": "6.49",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "13756",
+      "code": "5843",
+      "name": "Торт Красный бархат 1000 гр",
+      "product_key": "70232a5556199e8f",
+      "office_ssn": "335.16",
+      "office_estimated": false,
+      "eos_candidate": "340.10",
+      "delta": "4.94",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75957",
+      "code": "18204",
+      "name": "Торт Медовик 1000 гр",
+      "product_key": "0ea35d0437aba09f",
+      "office_ssn": "354.44",
+      "office_estimated": false,
+      "eos_candidate": "366.84",
+      "delta": "12.40",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75806",
+      "code": "18042",
+      "name": "Торт Наслаждение 1000 гр",
+      "product_key": "4dc4d9af3d9c5739",
+      "office_ssn": "308.85",
+      "office_estimated": false,
+      "eos_candidate": "314.33",
+      "delta": "5.48",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75800",
+      "code": "18036",
+      "name": "Торт Праздничный 1000 гр",
+      "product_key": "9ce75f8d4cdb838c",
+      "office_ssn": "312.89",
+      "office_estimated": false,
+      "eos_candidate": "319.69",
+      "delta": "6.80",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75808",
+      "code": "18044",
+      "name": "Торт Сметанный 1000 гр",
+      "product_key": "5760fc5fa90f74d2",
+      "office_ssn": "277.89",
+      "office_estimated": false,
+      "eos_candidate": "284.79",
+      "delta": "6.90",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "75802",
+      "code": "18038",
+      "name": "Торт Эскимо 1000 гр",
+      "product_key": "5606fddfb9c53cd1",
+      "office_ssn": "392.74",
+      "office_estimated": false,
+      "eos_candidate": "438.18",
+      "delta": "45.44",
+      "exact": false,
+      "reason": null,
+      "risks": [
+        "NEGATIVE_STOCK_RATIO"
+      ],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "11612",
+      "code": "3570",
+      "name": "Пирожное Красный бархат",
+      "product_key": "3ae972bcf17d1144",
+      "office_ssn": "34.45",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76070",
+      "code": "18320",
+      "name": "Пирожное Чизкейк сникерс 175 гр",
+      "product_key": "aa1293e07c9c179d",
+      "office_ssn": "89.87",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "12441",
+      "code": "4437",
+      "name": "Пирожное шоколадный профитроль 145 гр",
+      "product_key": "c6dbc2e98d45a48f",
+      "office_ssn": "70.96",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76411",
+      "code": "18676",
+      "name": "Торт Смородиновый 1,250гр",
+      "product_key": "af266fc6c64bf94f",
+      "office_ssn": "468.80",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "76069",
+      "code": "18319",
+      "name": "Торт Чизкейк сникерс 1400 гр",
+      "product_key": "094d786fbc67b4f9",
+      "office_ssn": "763.94",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    },
+    {
+      "article": "11602",
+      "code": "3560",
+      "name": "Торт Эстерхайзер",
+      "product_key": "eec0f6c7d7ba839c",
+      "office_ssn": "1159.06",
+      "office_estimated": false,
+      "eos_candidate": null,
+      "delta": null,
+      "exact": false,
+      "reason": "NOT_IN_EXISTING_EOS_CATALOG",
+      "risks": [],
+      "excluded": false,
+      "estimated": null,
+      "publication_allowed": false
+    }
+  ]
+}
