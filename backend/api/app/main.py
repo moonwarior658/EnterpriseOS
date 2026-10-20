@@ -5,6 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.automation import router as automation_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.sales import router as sales_router
+from app.api.routes.raw_materials import router as raw_materials_router
 from app.api.routes.product_knowledge import router as product_knowledge_router
 from app.api.routes.action_context import router as action_context_router
 from app.api.routes.audit import router as audit_router
@@ -51,6 +52,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(sales_router)
 app.include_router(product_knowledge_router)
+app.include_router(raw_materials_router)
 app.include_router(action_context_router)
 app.include_router(audit_router)
 app.include_router(employees_router)

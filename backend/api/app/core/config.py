@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     work_request_upload_dir: str = "/app/uploads/work-requests"
     supplier_document_upload_dir: str = "/app/uploads/supplier-documents"
     product_photo_upload_dir: str = "/app/uploads/product-photos"
+    raw_material_photo_upload_dir: str = "/app/uploads/product-photos/raw-materials"
     employee_avatar_upload_dir: str = "/app/uploads/employee-avatars"
 
     model_config = SettingsConfigDict(
