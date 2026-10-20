@@ -59,8 +59,12 @@ def scope(db, tenant, product_id):
     if len(mappings) != 1 or len(units) != 1 or mappings[0].source_unit_id != units[0].iiko_unit_id:
         raise HTTPException(409, 'Сначала подтвердите UUID товара и учётную единицу iiko в Supply')
     mapping, unit = mappings[0], units[0]
-    return dict(iiko_product_id=str(mapping.iiko_product_id), unit_id=str(unit.iiko_unit_id), unit=unit.source_name,
+    result = dict(iiko_product_id=str(mapping.iiko_product_id), unit_id=str(unit.iiko_unit_id), unit=unit.source_name,
         mapping_id=str(mapping.id), mapping_updated_at=str(mapping.updated_at), unit_mapping_id=str(unit.id), unit_updated_at=str(unit.updated_at))
+    spec = service.latest(db, profile, confirmed=True)
+    if spec and spec.payload.get('conversions'):
+        result.update(conversions=spec.payload['conversions'],specification_hash=spec.content_hash,specification_id=str(spec.id))
+    return result
 
 
 def attempts(db, tenant, product_id):

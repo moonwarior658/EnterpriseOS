@@ -75,6 +75,8 @@ def decimal(value):
 
 
 def evaluate(documents, suppliers, mapping, *, date_from, date_to, units=None):
+    from app.raw_materials.conversions import normalize
+    documents = normalize(documents, mapping)
     with localcontext() as context:
         context.prec = 80
         return _evaluate(documents, suppliers, mapping, date_from=date_from, date_to=date_to, units=units or {})
@@ -133,7 +135,7 @@ def _evaluate(documents, suppliers, mapping, *, date_from, date_to, units):
             vat, vat_sum = decimal(item.get('vatPercent')), decimal(item.get('vatSum'))
             if vat is None or not 0 <= vat <= 100 or vat_sum is None or vat_sum < 0 or total is None or vat_sum > total or (vat == 0 and vat_sum != 0):
                 reason.append('TAX_UNCONFIRMED')
-            evidence.append(dict(unit_name=units.get(item.get('amountUnit'), mapping['unit'] if item.get('amountUnit') == mapping['unit_id'] else None), **{k: item.get(k) for k in ('num','product','store','amount','actualAmount','amountUnit','containerId','sum','price','priceWithoutVat','vatPercent','vatSum','isAdditionalExpense')}))
+            evidence.append(dict(unit_name=units.get(item.get('amountUnit'), mapping['unit'] if item.get('amountUnit') == mapping['unit_id'] else None), **{k: item.get(k) for k in ('num','product','store','amount','actualAmount','amountUnit','containerId','sum','price','priceWithoutVat','vatPercent','vatSum','isAdditionalExpense','original_line','conversion')}))
         candidate = dict(document_id=did, number=document.get('documentNumber'), receipt_at=stamp or None,
             supplier_id=document.get('supplier'), supplier_name=supplier.get('name') if not supplier.get('is_employee') else None,
             supplier_flags={k: supplier.get(k) for k in ('is_supplier','is_employee','represents_store','is_deleted')},

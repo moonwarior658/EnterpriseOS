@@ -94,10 +94,10 @@ class RawMaterialPostgresTests(unittest.TestCase):
         self.assertEqual(self.client.get('/raw-materials/'+str(self.foreign)).status_code,404)
         with self.engine.connect() as connection:
             purchase_history=connection.execute(text('SELECT EXISTS (SELECT 1 FROM material_purchase_snapshots)')).scalar()
-        guard='MATERIAL_PURCHASE_HISTORY_EXISTS' if purchase_history else 'MATERIAL_KNOWLEDGE_EXISTS'
+        guard='MATERIAL_(STANDARD_HISTORY|PURCHASE_HISTORY|KNOWLEDGE)_EXISTS'
         with migration_settings(self.url):
             with self.assertRaisesRegex(RuntimeError,guard):command.downgrade(Config('alembic.ini'),'20261009_0079')
-        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0081')
+        with self.engine.connect() as connection:self.assertEqual(connection.execute(text('select version_num from alembic_version')).scalar(),'20261020_0082')
         self.assertIn('ck_material_kind',{x['name'] for x in inspect(self.engine).get_check_constraints('raw_material_profiles')})
 
     def test_tenant_unique_fk_revision_primary_and_approval_constraints(self):
@@ -114,7 +114,7 @@ class RawMaterialPostgresTests(unittest.TestCase):
         for change in [dict(id=uuid4()),dict(id=uuid4(),tenant_id='other'),dict(id=uuid4(),revision=0)]:
             with self.assertRaises(IntegrityError):
                 with self.sessions.begin() as db:db.add(Specification(**{**values,**change}));db.flush()
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises(DBAPIError):
             with self.sessions.begin() as db:
                 db.add(Approval(tenant_id=self.tenant,product_id=self.product,specification_id=spec.id,primary_product_id=self.second,confirmed_by_user_id=self.actor_id));db.flush()
         self.assertEqual(self.confirm(saved).status_code,200)

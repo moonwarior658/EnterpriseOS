@@ -1,7 +1,8 @@
 """Supply-owned identity with additive knowledge, immutable revisions and approvals."""
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 from uuid import UUID, uuid4
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Numeric, Date, Index, text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -48,7 +49,6 @@ class MaterialSpecificationApproval(Base):
         UniqueConstraint('specification_id', name='uq_material_spec_approval'),
         ForeignKeyConstraint(['tenant_id', 'product_id', 'specification_id'], ['material_specification_versions.tenant_id', 'material_specification_versions.product_id', 'material_specification_versions.id'], ondelete='RESTRICT'),
         ForeignKeyConstraint(['tenant_id', 'primary_product_id'], ['supply_products.tenant_id', 'supply_products.id'], ondelete='RESTRICT'),
-        CheckConstraint('primary_product_id = product_id', name='ck_material_primary_self_rm1'),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     tenant_id: Mapped[str] = mapped_column(String(64))
@@ -77,3 +77,40 @@ class MaterialPurchaseSnapshot(Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     payload: Mapped[dict] = mapped_column(JSON)
+
+
+class MaterialProductAllowance(Base):
+    __tablename__ = 'material_product_allowances'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id','product_id','specification_id'], ['material_specification_versions.tenant_id','material_specification_versions.product_id','material_specification_versions.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['tenant_id','target_product_id'], ['supply_products.tenant_id','supply_products.id'], ondelete='RESTRICT'),
+        UniqueConstraint('specification_id','target_product_id', name='uq_material_allowance_target'),
+        Index('uq_material_single_primary','specification_id',unique=True,postgresql_where=text("role='PRIMARY'"),sqlite_where=text("role='PRIMARY'")),
+        CheckConstraint("role IN ('PRIMARY','RESERVE')", name='ck_material_allowance_role'),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    product_id: Mapped[UUID]
+    specification_id: Mapped[UUID]
+    target_product_id: Mapped[UUID]
+    role: Mapped[str] = mapped_column(String(16))
+
+
+class MaterialUnitConversion(Base):
+    __tablename__ = 'material_unit_conversions'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id','product_id','specification_id'], ['material_specification_versions.tenant_id','material_specification_versions.product_id','material_specification_versions.id'], ondelete='RESTRICT'),
+        CheckConstraint('factor > 0 AND factor <= 100000', name='ck_material_conversion_factor'),
+        CheckConstraint('valid_to > valid_from AND from_unit_id <> to_unit_id', name='ck_material_conversion_period'),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    product_id: Mapped[UUID]
+    specification_id: Mapped[UUID]
+    from_unit_id: Mapped[UUID]
+    to_unit_id: Mapped[UUID]
+    supplier_iiko_id: Mapped[UUID]
+    container_id: Mapped[UUID | None]
+    factor: Mapped[Decimal] = mapped_column(Numeric(24,12))
+    valid_from: Mapped[date] = mapped_column(Date)
+    valid_to: Mapped[date] = mapped_column(Date)

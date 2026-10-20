@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.raw_materials import service, purchase_refresh
-from app.schemas.raw_materials import Enroll, SaveKnowledge, Confirm, Archive, Command
+from app.schemas.raw_materials import Enroll, SaveKnowledge, Confirm, Archive, Command, SelectReserve
 
 router = APIRouter(prefix='/raw-materials', tags=['raw materials'])
 Db = Annotated[Session, Depends(get_db)]
@@ -124,3 +124,13 @@ def purchase_sources(product_id: UUID, snapshot_id: UUID, db: Db, actor: Actor, 
 @router.get('/{product_id}/usage')
 def usage_history(product_id: UUID, db: Db, actor: Actor, response: Response, offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
     return execute(db, response, lambda: purchase_refresh.usage_history(db, actor, product_id, offset=offset, limit=limit))
+
+
+@router.post('/{product_id}/reserve-selection')
+def select_reserve(product_id: UUID, command: SelectReserve, db: Db, actor: Actor, response: Response):
+    return execute(db, response, lambda: service.select_reserve(db, actor, product_id, command), write=True)
+
+
+@router.get('/{product_id}/standards/options')
+def standard_options(product_id: UUID, db: Db, actor: Actor, response: Response, q: str = Query('', max_length=200)):
+    return execute(db, response, lambda: service.standards.options(db, actor, product_id, q=q))

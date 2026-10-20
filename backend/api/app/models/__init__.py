@@ -187,3 +187,5 @@ from app.models.product_cost import ProductCostObservation, ProductCostVerificat
 from app.models.raw_material import RawMaterialProfile, MaterialSpecificationVersion, MaterialSpecificationApproval
 
 from app.models.raw_material import MaterialPurchaseSnapshot
+
+from app.models.raw_material import MaterialProductAllowance, MaterialUnitConversion

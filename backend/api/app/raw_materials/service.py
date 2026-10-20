@@ -15,6 +15,7 @@ from app.models.user import User
 from app.product_knowledge import media
 from app.product_knowledge.bootstrap import digest
 from app.schemas.raw_materials import Knowledge
+from app.raw_materials import standards
 
 READ = Capability.MATERIAL_KNOWLEDGE_READ
 EDIT = Capability.MATERIAL_KNOWLEDGE_EDIT
@@ -148,7 +149,12 @@ def detail(db, actor, product_id):
     rights = permissions(db, actor)
     profile, product = find(db, actor, product_id)
     body = projection(db, profile, product, rights)
-    body.update(current=version_read(db, latest(db, profile, confirmed=True)), latest=version_read(db, latest(db, profile)), reserves=[], reserves_status='NOT_APPROVED')
+    confirmed = latest(db, profile, confirmed=True)
+    approved = standards.products(db, actor.tenant_id, confirmed)
+    selection = db.scalar(select(AuditEvent).where(AuditEvent.tenant_id==actor.tenant_id, AuditEvent.entity_type==ENTITY, AuditEvent.entity_id==str(product_id), AuditEvent.operation=='RESERVE_SELECTED').order_by(AuditEvent.occurred_at.desc(),AuditEvent.id.desc()).limit(1))
+    selected = selection.after.get('selected_reserve_product_id') if selection and confirmed and selection.after.get('specification_id')==str(confirmed.id) else None
+    body.update(current=version_read(db, confirmed), latest=version_read(db, latest(db, profile)),
+        approved_products=approved, reserves=[p for p in approved if p['role']=='RESERVE'], reserves_status='APPROVED' if approved else 'NOT_APPROVED', selected_reserve_product_id=selected)
     return body
 
 
@@ -191,10 +197,11 @@ def editable(db, actor, product_id, command, capability=EDIT, *, allow_archived=
 def save(db, actor, product_id, command):
     auth, profile, product = editable(db, actor, product_id, command)
     previous = latest(db, profile)
+    standards.validate(db, actor.tenant_id, product, command.knowledge)
     payload = command.knowledge.model_dump(mode='json')
     row = Specification(tenant_id=actor.tenant_id, product_id=product.id, revision=previous.revision + 1 if previous else 1,
         payload=payload, content_hash=digest(payload), created_by_user_id=actor.id)
-    db.add(row); db.flush(); profile.version += 1
+    db.add(row); db.flush(); standards.save_links(db, row, command.knowledge); db.flush(); profile.version += 1
     audit(db, actor, auth, profile, 'DRAFT_SAVED', after=dict(specification_id=str(row.id), revision=row.revision, content_hash=row.content_hash), reason=command.reason)
     db.flush()
     return detail(db, actor, product_id)
@@ -205,14 +212,22 @@ def confirm(db, actor, product_id, command):
     row = latest(db, profile)
     if row is None or row.id != command.specification_id or row.content_hash != command.content_hash or digest(row.payload) != command.content_hash:
         raise HTTPException(409, 'Черновик изменён. Повторите проверку')
-    if command.primary_product_id != product.id:
-        raise HTTPException(409, 'Основной товар R-M1 должен совпадать с товаром карточки')
+    knowledge = Knowledge.model_validate(row.payload)
+    standards.validate(db, actor.tenant_id, product, knowledge)
+    primary = standards.primary(knowledge, product.id)
+    if command.primary_product_id != primary:
+        raise HTTPException(409, 'Основной товар должен совпадать с утверждаемой спецификацией')
+    manufacturer = next((p.manufacturer for p in knowledge.approved_products if p.role=='PRIMARY'),knowledge.manufacturer)
+    required = standards.OWNER_STANDARDS.get(str(product.id))
+    if required and manufacturer != required:
+        if not command.owner_standard_override or str(auth.authorized_as) != 'ADMIN':
+            raise HTTPException(409, 'Изменение стандарта производителя требует отдельного решения владельца')
     if db.scalar(select(Approval.id).where(Approval.specification_id == row.id)):
         raise HTTPException(409, 'Версия уже подтверждена')
     db.add(Approval(tenant_id=actor.tenant_id, product_id=product.id, specification_id=row.id,
-        primary_product_id=product.id, confirmed_by_user_id=actor.id))
+        primary_product_id=primary, confirmed_by_user_id=actor.id))
     profile.version += 1
-    audit(db, actor, auth, profile, 'CONFIRMED', after=dict(specification_id=str(row.id), revision=row.revision, content_hash=row.content_hash, primary_product_id=str(product.id)), reason=command.reason)
+    audit(db, actor, auth, profile, 'CONFIRMED', after=dict(specification_id=str(row.id), revision=row.revision, content_hash=row.content_hash, primary_product_id=str(primary), owner_standard_override=command.owner_standard_override), reason=command.reason)
     db.flush()
     return detail(db, actor, product_id)
 
@@ -231,7 +246,7 @@ def history(db, actor, product_id, *, offset=0, limit=25):
     profile, _ = find(db, actor, product_id)
     versions = select(Specification).where(Specification.tenant_id == actor.tenant_id, Specification.product_id == product_id)
     events = select(AuditEvent).where(AuditEvent.tenant_id == actor.tenant_id, AuditEvent.entity_type == ENTITY, AuditEvent.entity_id == str(product_id))
-    safe_keys = {'kind', 'archived', 'photo_hash', 'specification_id', 'revision', 'content_hash', 'primary_product_id'}
+    safe_keys = {'kind', 'archived', 'photo_hash', 'specification_id', 'revision', 'content_hash', 'primary_product_id', 'selected_reserve_product_id', 'owner_standard_override'}
     def safe_state(value):
         return {k:v for k,v in (value or {}).items() if k in safe_keys}
     return dict(versions=[version_read(db, r) for r in db.scalars(versions.order_by(Specification.revision.desc()).offset(offset).limit(limit))],
@@ -269,3 +284,16 @@ def read_photo(db, actor, product_id, root, photo_hash=None):
     if not path.is_file():
         raise HTTPException(404, 'Фотография не найдена')
     return path
+
+
+def select_reserve(db, actor, product_id, command):
+    auth, profile, product = editable(db, actor, product_id, command)
+    row = latest(db, profile, confirmed=True)
+    if row is None or row.id != command.specification_id:
+        raise HTTPException(409,'Утверждённая спецификация изменилась')
+    allowed = [p for p in standards.products(db, actor.tenant_id, row) if p['role']=='RESERVE' and p['product_id']==str(command.target_product_id)]
+    target=db.scalar(select(Product).where(Product.id==command.target_product_id,Product.tenant_id==actor.tenant_id,Product.is_active.is_(True)))
+    if not allowed or target is None:raise HTTPException(409,'Выберите активный резерв из утверждённого списка')
+    audit(db, actor, auth, profile, 'RESERVE_SELECTED',after=dict(specification_id=str(row.id),selected_reserve_product_id=str(target.id)),reason=command.reason)
+    profile.version += 1;db.flush()
+    return detail(db,actor,product_id)
