@@ -119,3 +119,8 @@ def purchase_history(product_id: UUID, db: Db, actor: Actor, response: Response,
 @router.get('/{product_id}/metrics/{snapshot_id}/sources')
 def purchase_sources(product_id: UUID, snapshot_id: UUID, db: Db, actor: Actor, response: Response):
     return execute(db, response, lambda: purchase_refresh.sources(db, actor, product_id, snapshot_id))
+
+
+@router.get('/{product_id}/usage')
+def usage_history(product_id: UUID, db: Db, actor: Actor, response: Response, offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+    return execute(db, response, lambda: purchase_refresh.usage_history(db, actor, product_id, offset=offset, limit=limit))

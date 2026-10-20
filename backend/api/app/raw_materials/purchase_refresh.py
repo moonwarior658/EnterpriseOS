@@ -117,10 +117,22 @@ async def collect(session_factory, *, tenant_id, payload, now):
             manifest.append(dict(date_from=start.isoformat(), date_to=end.isoformat(), documents=len(rows),
                 hash=digest(rows), fetched_at=datetime.now(timezone.utc).isoformat()))
             documents.extend(rows)
+        from app.raw_materials import analytics
+        first, end, month = analytics.periods(today)
+        inputs = await client.get_raw_material_usage_inputs(start=month, end=end, warehouse_id=WAREHOUSE)
+        operations = analytics.parse_xml(inputs['operations'], 'storeReportItemDtoes', 'storeReportItemDto')
+        outgoing = analytics.parse_xml(inputs['outgoing'], 'outgoingInvoiceDtoes', 'document')
+        def balance(rows):
+            selected = [r for r in rows if r.get('store') == WAREHOUSE and r.get('product') == payload.mapping['iiko_product_id']]
+            return selected[0].get('amount') if len(selected) == 1 else None
+        usage = analytics.usage(operations, outgoing, {pid:getattr(p, 'product_type', None) for pid,p in products.items()},
+            payload.mapping, start=month, end=end, opening=balance(inputs['opening']), closing=balance(inputs['closing']))
+        usage['input_hash'] = digest(inputs)
     relevant = [d for d in documents if any(i.get('product') == payload.mapping['iiko_product_id'] for i in d['items'])]
     result = evaluate(relevant, suppliers, payload.mapping, date_from=bounds[0][0].isoformat(), date_to=bounds[-1][1].isoformat(), units=unit_names)
     return dict(product_id=str(payload.product_id), source_id=SOURCE, mapping=payload.mapping, policy=POLICY,
-        observed_at=datetime.now(timezone.utc).isoformat(), manifest=manifest, result=result)
+        observed_at=datetime.now(timezone.utc).isoformat(), manifest=manifest, result=result,
+        analytics=dict(policy=analytics.POLICY, average=analytics.average(relevant, suppliers, payload.mapping, start=first, end=end, units=unit_names), usage=usage))
 
 
 def publish(db, tenant, snapshot, *, execution_id):
@@ -142,6 +154,41 @@ def publish(db, tenant, snapshot, *, execution_id):
     return dict(snapshot_id=str(row.id), quality=row.status)
 
 
+def analytics_summary(row, kind):
+    if row is None or kind not in row.payload.get('analytics', {}):
+        return dict(status='NO_DATA', **({'quantity':None} if kind == 'usage' else {'amount':None}))
+    value = row.payload['analytics'][kind]
+    keys = ('status','quantity','unit','date_from','date_to','reasons','label','independent_verification') if kind == 'usage' else ('status','amount','unit','date_from','date_to','reasons','currency','tax_basis','numerator','denominator','formula')
+    body = {k:value[k] for k in keys if k in value}
+    usage_reasons = {'MOVEMENT_DATE_UNKNOWN':'Дата движения не подтверждена','MOVEMENT_OUTSIDE_PERIOD':'Движение вне периода',
+        'MOVEMENT_QUANTITY_UNKNOWN':'Количество движения не подтверждено','NONZERO_COST_CORRECTION':'Корректировка стоимости содержит количество',
+        'OUTGOING_DOCUMENT_UNCONFIRMED':'Исходная расходная накладная не подтверждена','OUTGOING_ROOT_CLASSIFICATION_UNKNOWN':'Назначение исходных товаров требует проверки',
+        'MOVEMENT_CLASSIFICATION_UNKNOWN':'Тип движения требует проверки','BALANCE_BOUNDARY_UNKNOWN':'Границы баланса не подтверждены',
+        'BALANCE_MISMATCH':'Баланс движений не сошёлся','OUTGOING_REVISION_CONFLICT':'Версии расходной накладной различаются'}
+    body['reasons'] = [(usage_reasons if kind == 'usage' else REASONS).get(r, 'Требуется проверка документа') for r in value.get('reasons', [])]
+    return dict(id=str(row.id), observed_at=row.observed_at, **body)
+
+
+def latest_snapshot(db, tenant, product_id):
+    return db.scalar(select(Snapshot).where(Snapshot.tenant_id == tenant, Snapshot.product_id == product_id).order_by(Snapshot.observed_at.desc(), Snapshot.id.desc()).limit(1))
+
+
+def usage_history(db, actor, product_id, *, offset=0, limit=25):
+    authorize(db, actor, Capability.MATERIAL_KNOWLEDGE_READ)
+    service.find(db, actor, product_id)
+    rows = db.scalars(select(Snapshot).where(Snapshot.tenant_id == actor.tenant_id, Snapshot.product_id == product_id).order_by(Snapshot.observed_at.desc(), Snapshot.id.desc()).offset(offset).limit(limit)).all()
+    items = []
+    for row in rows:
+        item = analytics_summary(row, 'usage')
+        value = row.payload.get('analytics', {}).get('usage', {})
+        from app.raw_materials.analytics import CATEGORIES
+        item['categories'] = {k:v for k,v in value.get('categories', {}).items() if k in CATEGORIES}
+        item['documents'] = [{k:d.get(k) for k in ('category','quantity','date','document_id','number','source_hash')} for d in value.get('documents', [])]
+        item['balance'] = {k:v for k,v in value.get('balance', {}).items() if k in ('opening','closing','signed_movements','residual')}
+        items.append(item)
+    return dict(items=items)
+
+
 def metric(row):
     if row is None: return dict(status='NO_DATA', amount=None)
     result = row.payload['result']
@@ -149,7 +196,7 @@ def metric(row):
     return dict(id=row.id, status=row.status, amount=row.amount, unit=result['unit'], currency='RUB', tax_basis='WITH_VAT',
         receipt_at=result['receipt_at'], observed_at=row.observed_at, date_from=result['date_from'], date_to=result['date_to'],
         reasons=[REASONS.get(r, 'Требуется проверка исходного документа') for r in result['reasons']],
-        stale=(datetime.now(timezone.utc) - observed).total_seconds() > 48*3600)
+        stale=(datetime.now(timezone.utc) - observed).total_seconds() > 48*3600, six_month_average=analytics_summary(row, 'average'))
 
 
 def summary(db, tenant, product_id):
@@ -171,4 +218,4 @@ def sources(db, actor, product_id, snapshot_id):
     if row is None: raise HTTPException(404, 'Расшифровка не найдена')
     return dict(metric=metric(row), warehouse='Цех Производство ИП', hash=row.content_hash,
         policy=row.payload['policy'], source_id=row.source_id, source_path='/api/documents/export/incomingInvoice', mapping=row.payload['mapping'], manifest=row.payload['manifest'],
-        candidates=row.payload['result']['candidates'], unit_conflicts=[dict(document_id=c['document_id'], number=c['number'], receipt_at=c['receipt_at'], lines=c['lines']) for c in row.payload['result']['documents'] if 'UNIT_MISMATCH' in c['reasons']], exclusions=row.payload['result']['exclusions'])
+        analytics=row.payload.get('analytics'), candidates=row.payload['result']['candidates'], unit_conflicts=[dict(document_id=c['document_id'], number=c['number'], receipt_at=c['receipt_at'], lines=c['lines']) for c in row.payload['result']['documents'] if 'UNIT_MISMATCH' in c['reasons']], exclusions=row.payload['result']['exclusions'])

@@ -28,7 +28,7 @@ test('manual purchase update polls completion and opens protected document; fail
   root=createRoot(document.getElementById('root')!)
   const onUpdated=()=>{}
   await act(async()=>{root!.render(React.createElement(PurchasePanel,{material:{id:'product',allowed_actions:['METRICS_REFRESH'],last_purchase_price:{status:'NO_DATA',amount:null}},onUpdated}))})
-  let button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Обновить закупочную цену')!
+  let button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Обновить показатели сырья')!
   await act(async()=>{button.click()})
   assert.equal(posts,1);assert.ok([...document.querySelectorAll('button')].some(b=>b.textContent==='Обновляем…'&&b.disabled))
   complete=true
@@ -38,7 +38,7 @@ test('manual purchase update polls completion and opens protected document; fail
   await act(async()=>{button.click()})
   assert.match(document.body.textContent!,/ПН-42/);assert.match(document.body.textContent!,/Внешний поставщик/);assert.match(document.body.textContent!,/100 \/ 3 кг/)
   failed=true
-  button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Обновить закупочную цену')!
+  button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Обновить показатели сырья')!
   await act(async()=>{button.click()})
   assert.match(document.body.textContent!,/история сохранена/);assert.match(document.body.textContent!,/33,3333/);assert.doesNotMatch(document.body.textContent!,/private stack/)
  }finally{

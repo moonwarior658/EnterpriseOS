@@ -42,17 +42,19 @@ export function PurchasePanel({material,onUpdated}: {material:Material;onUpdated
   }
   const current=history?.items[0]&&offset===0?history.items[0]:material.last_purchase_price
   return <div className="material-purchase"><p>Последняя цена прихода: <PurchaseValue metric={current}/></p>
+    <p>Средневзвешенная за 6 полных месяцев: <PurchaseValue metric={current?.six_month_average||material.six_month_average}/></p>{(current?.six_month_average||material.six_month_average)?.date_from&&<small>{(current?.six_month_average||material.six_month_average)?.date_from} — {(current?.six_month_average||material.six_month_average)?.date_to} (конец не включён)</small>}
     {current?.reasons?.map(reason=><p key={reason}>{reason}</p>)}
     {current?.date_from&&<small>Поиск приходов: {current.date_from} — {current.date_to} (конец не включён)</small>}
     {history?.refresh&&<p role="status">{history.refresh.label}</p>}
-    {material.allowed_actions.includes('METRICS_REFRESH')&&<button disabled={busy||active} onClick={()=>void refresh()}>{busy||active?'Обновляем…':'Обновить закупочную цену'}</button>}
+    {material.allowed_actions.includes('METRICS_REFRESH')&&<button disabled={busy||active} onClick={()=>void refresh()}>{busy||active?'Обновляем…':'Обновить показатели сырья'}</button>}
     {error&&<p role="alert">{error}</p>}
     <details><summary>История закупочной цены и документы</summary>
-      {!history?.items.length?<p>Нет данных</p>:history.items.map(item=><div key={item.id}><PurchaseValue metric={item}/>{item.observed_at&&<small>Проверено {date(item.observed_at)}</small>}<button className="secondary-action" onClick={()=>void source(item.id!)}>Документ-основание</button></div>)}
+      {!history?.items.length?<p>Нет данных</p>:history.items.map(item=><div key={item.id}><PurchaseValue metric={item}/><p>Средняя: <PurchaseValue metric={item.six_month_average}/></p>{item.observed_at&&<small>Проверено {date(item.observed_at)}</small>}<button className="secondary-action" onClick={()=>void source(item.id!)}>Документ-основание</button></div>)}
       {offset>0&&<button onClick={()=>setOffset(v=>Math.max(0,v-25))}>Предыдущие</button>}{history?.items.length===25&&<button onClick={()=>setOffset(v=>v+25)}>Следующие</button>}
     </details>
     {sources&&<section aria-label="Документ-основание"><h3>Основание закупочной цены</h3><p>{sources.warehouse} · Суммы с НДС, RUB</p>
       {sources.metric.status==='BLOCKED'&&<p>Суммы ниже — исходные данные для проверки, закупочная цена не подтверждена.</p>}
+      {sources.analytics?.average&&<details><summary>Вычисление средней за шесть месяцев</summary><p>{sources.analytics.average.numerator} / {sources.analytics.average.denominator} {sources.metric.unit} · Сумма с НДС / количество</p>{sources.analytics.average.documents.map(d=><p key={d.document_id}>Накладная №{d.number} · {d.document_id}: {d.numerator} / {d.denominator}</p>)}</details>}
       {sources.candidates.map(doc=><div key={`${doc.document_id}:${doc.number}`}><h4>Накладная №{doc.number}</h4><p>{doc.receipt_at?date(doc.receipt_at):'Дата не подтверждена'} · {doc.supplier_name||'Поставщик требует проверки'}</p>
         <p>Документ: {doc.document_id}</p><p>Сумма / подтверждённое количество: {doc.numerator} / {doc.denominator}{sources.metric.status==='READY'?` ${sources.metric.unit}`:' (единицы требуют проверки)'}</p>
         <table><thead><tr><th>Строка</th><th>Количество</th><th>Сумма с НДС</th><th>В том числе НДС</th></tr></thead><tbody>{doc.lines.map((line,i)=><tr key={i}><td>{line.num??'Не задана'}</td><td>{line.actualAmount||'Не подтверждено'} {line.unit_name||'единица не подтверждена'}</td><td>{line.sum??'Нет данных'}</td><td>{line.vatSum??'Нет данных'}</td></tr>)}</tbody></table></div>)}

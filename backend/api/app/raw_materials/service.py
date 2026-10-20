@@ -91,9 +91,12 @@ def projection(db, profile, product, rights):
         backup_supplier=backup, backup_ambiguous=ambiguous, suppliers=assigned,
         purchase_access=rights['money'], monthly_consumption=dict(status='NO_DATA', quantity=None),
         allowed_actions=([ 'EDIT', 'PHOTO', 'ARCHIVE' ] if rights['edit'] else []) + (['CONFIRM'] if rights['confirm'] else []) + (['METRICS_REFRESH'] if rights['refresh'] and not profile.archived and product.is_active else []))
+    from app.raw_materials.purchase_refresh import latest_snapshot, analytics_summary
+    metric_row = latest_snapshot(db, profile.tenant_id, product.id)
+    body['monthly_consumption'] = analytics_summary(metric_row, 'usage')
     if rights['money']:
         from app.raw_materials.purchase_refresh import summary
-        body.update(last_purchase_price=summary(db, profile.tenant_id, product.id), six_month_average=dict(status='NO_DATA', amount=None), tax_basis='WITH_VAT')
+        body.update(last_purchase_price=summary(db, profile.tenant_id, product.id), six_month_average=analytics_summary(metric_row, 'average'), tax_basis='WITH_VAT')
     return body
 
 

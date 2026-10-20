@@ -160,6 +160,9 @@ class PurchaseFlowTests(unittest.TestCase):
             async def get_products(inner):return [SimpleNamespace(dto=SimpleNamespace(external_id=self.source_product,is_deleted=False,base_unit_external_id=self.source_unit))]
             async def get_units(inner):return [SimpleNamespace(dto=SimpleNamespace(external_id=self.source_unit,name='кг'))]
             async def get_suppliers(inner):return [SimpleNamespace(external_id='supplier',model_dump=lambda **kw:SUPPLIERS['supplier'])]
+            async def get_raw_material_usage_inputs(inner,**bounds):
+                row=dict(store=WAREHOUSE,product=str(self.source_product),amount='0')
+                return dict(operations='<storeReportItemDtoes/>',outgoing='<outgoingInvoiceDtoes/>',opening=[row],closing=[row])
             async def get_raw_material_invoice_export(inner,**bounds):
                 calls.append(bounds)
                 return ET.tostring(root,encoding='unicode') if bounds['date_from'].month==10 else '<incomingInvoiceDtoes/>'
@@ -208,3 +211,17 @@ class PurchaseFlowTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.scalar(select(Execution)).status,'pending')
             self.assertEqual(db.scalar(select(func.count()).select_from(Snapshot)),0)
+
+    def test_calendar_projection_usage_history_and_money_redaction(self):
+        self.request();claim=self.claim();snapshot=self.snapshot(claim)
+        snapshot['analytics']=dict(average=dict(status='READY',amount='731.29',unit='кг',numerator='73129',denominator='100',date_from='2026-04-01',date_to='2026-10-01',reasons=[]),
+            usage=dict(status='READY',quantity='12.5',unit='кг',date_from='2026-09-01',date_to='2026-10-01',reasons=[],categories={'PRODUCTION':'-12.5'},documents=[],balance={}))
+        self.run_claim(claim,snapshot)
+        body=self.client.get(self.path).json()
+        self.assertEqual(body['six_month_average']['amount'],'731.29');self.assertEqual(body['monthly_consumption']['quantity'],'12.5')
+        self.role(EmployeeRole.CHEF_CONFECTIONER)
+        for path in (self.path,'/raw-materials',self.path+'/usage',self.path+'/history'):
+            response=self.client.get(path);self.assertEqual(response.status_code,200,response.text);self.assertNotIn('731.29',response.text);self.assertNotIn('73129',response.text)
+        self.assertEqual(self.client.get(self.path+'/usage').json()['items'][0]['quantity'],'12.5')
+        self.assertEqual(self.client.get(self.path+'/metrics').status_code,403)
+        self.assertEqual(self.client.get(self.path+'/metrics/'+self.client.get(self.path+'/usage').json()['items'][0]['id']+'/sources').status_code,403)

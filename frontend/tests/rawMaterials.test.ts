@@ -35,6 +35,7 @@ test('registry and card show missing metrics, drafts, backend actions and safe f
     globalThis.fetch=async(url)=>{
       if(fail)return new Response('{"detail":"private price 98765.43 stack"}',{status:503})
       const path=String(url)
+      if(path.includes('/usage'))return Response.json({items:[]})
       if(path.includes('/metrics'))return Response.json({items:[],refresh:null})
       if(path.includes('/history'))return Response.json({versions:[specification],total:1,events:[],event_total:0})
       if(path.includes('/supply-id'))return Response.json(product())

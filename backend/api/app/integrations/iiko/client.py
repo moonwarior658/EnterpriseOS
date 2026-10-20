@@ -1652,6 +1652,23 @@ class IikoServerClient(IikoProvider):
         })
         return await self._save_internal_transfer(updated.to_update_payload())
 
+    async def get_raw_material_usage_inputs(self, *, start: date, end: date, warehouse_id: str) -> dict:
+        """One bounded report scope. No imports, posting or balance writes."""
+        from datetime import timedelta
+        if warehouse_id != '1c22edc0-7ded-41c9-b781-0389462c7247' or not start < end or (end-start).days > 31:
+            raise ValueError('MATERIAL_USAGE_SCOPE')
+        last = end - timedelta(days=1)
+        operations = await self._get_xml('/api/reports/storeOperations', params={
+            'dateFrom': start.strftime('%d.%m.%Y'), 'dateTo': last.strftime('%d.%m.%Y'),
+            'stores': warehouse_id, 'productDetalization': 'true', 'showCostCorrections': 'true'})
+        outgoing = await self._get_xml(_OUTGOING_INVOICE_EXPORT_PATH, params={'from':start.isoformat(), 'to':last.isoformat()})
+        balances = []
+        for day in (start-timedelta(days=1), last):
+            balances.append(await self._get_json_list(_BALANCE_STORES_PATH,
+                params={'timestamp':day.isoformat()+'T23:59:59', 'store':warehouse_id}))
+        return dict(operations=ET.tostring(operations, encoding='unicode'),
+            outgoing=ET.tostring(outgoing, encoding='unicode'), opening=balances[0], closing=balances[1])
+
     async def get_raw_material_invoice_export(self, *, date_from: date, date_to: date) -> str:
         """Read-only bounded export. R-M2 validates completeness without silent skips."""
         root = await self._get_xml(_INCOMING_INVOICE_EXPORT_PATH,
