@@ -1,0 +1,3038 @@
+{
+  "observed_at": "2026-10-12T07:19:01.534159+00:00",
+  "read_only": true,
+  "schema": {
+    "product_knowledge_products": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supply_product_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "batch_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "sku",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "unit_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "unit_weight_kg",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sale_mode",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "sale_status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "category_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "category_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "source_deleted",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "provenance",
+        "data_type": "json",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "published",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "local_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "local_description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "characteristics",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "composition",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "allergens",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "storage",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "training",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "version",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "deleted_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "verified_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "verified_by_employee_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "verified_by_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "local_photo_hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "product_knowledge_batches": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "plan_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "report",
+        "data_type": "json",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "initial_status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "rolled_back_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "rolled_back_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      }
+    ],
+    "product_knowledge_prices": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "department_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "valid_from",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "valid_to",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "amount",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "price_unit",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "evidence",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "verified_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "product_knowledge_price_snapshots": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "plan_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "date_from",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "date_to",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "json",
+        "is_nullable": "NO"
+      }
+    ],
+    "product_recipe_versions": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "chart_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "kind",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "content_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "json",
+        "is_nullable": "NO"
+      }
+    ],
+    "product_recipe_observations": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "execution_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "effective_on",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "json",
+        "is_nullable": "NO"
+      }
+    ],
+    "product_cost_observations": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "execution_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "stock_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "context_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "method_hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "content_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "json",
+        "is_nullable": "NO"
+      }
+    ],
+    "product_cost_verifications": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "observation_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confirmed_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confirmed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "json",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_products": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "normalized_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "default_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "request_direction_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_active",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_id",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "category_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "storage_zone_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "archived_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "archived_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      }
+    ],
+    "supply_units": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "code",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name_ru",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "short_name_ru",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "allows_fraction",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_active",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_product_suppliers": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_product_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_sku",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "role",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "priority",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "price_per_package",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_available",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "unavailable_until",
+        "data_type": "date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "is_active",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "archived_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "archived_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_product_supplier_price_history": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_supplier_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "price_per_package",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "base_unit_price_snapshot",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "effective_from",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "changed_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_orders": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "number",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "purchase_request_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "planned_delivery_date",
+        "data_type": "date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "total_amount",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confirmed_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cancelled_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recipient_email_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recipient_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "responsible_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "responsible_phone_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sent_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      }
+    ],
+    "supply_supplier_order_lines": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_allocation_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "packages_count",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_quantity_snapshot",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_unit_id_snapshot",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "quantity_base",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "price_per_package_snapshot",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "base_unit_price_snapshot",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "planned_amount",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_active_owner",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_confirmations": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "revision_number",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "response_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_reference",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_delivery_date",
+        "data_type": "date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "responded_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_confirmation_lines": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confirmation_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_line_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "response_status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confirmed_packages_count",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_package_quantity",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_package_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_quantity_base",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_price_per_package",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "confirmed_planned_amount",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_line_comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_documents": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_confirmation_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "document_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "document_number",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "document_date",
+        "data_type": "date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_display_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_inn_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_kpp_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "total_amount",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payment_due_date",
+        "data_type": "date",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "obligation_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "financial_role",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_document_lines": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_document_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_confirmation_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_order_line_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_confirmation_line_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "product_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "pricing_basis",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "package_quantity_snapshot",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "package_unit_id_snapshot",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "packages_count",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "quantity_base",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "price_per_package",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_price",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "line_amount",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_line_reference",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_supplier_acceptances": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_document_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_confirmation_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "accepted_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "received_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recorded_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "destination_mapping_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      }
+    ],
+    "supply_supplier_acceptance_lines": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "acceptance_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_order_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_confirmation_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_document_line_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_order_line_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "supplier_confirmation_line_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "product_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "unit_name_snapshot",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "documented_quantity",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "received_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "accepted_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "rejected_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "documented_unit_price",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "accepted_unit_price",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "accepted_amount",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "currency",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "rejection_reason",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "comment",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_iiko_incoming_receipts": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_acceptance_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "destination_mapping_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_supplier_mapping_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "eos_document_number",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "date_incoming",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "incoming_date",
+        "data_type": "date",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_document_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iiko_document_number",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iiko_status",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "payload_hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_attempt_count",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "process_attempt_count",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "last_error_code",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_error_message",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_in_iiko_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "process_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "posted_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "supply_iiko_incoming_receipt_lines": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "receipt_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "acceptance_line_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "supplier_document_line_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_amount_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_store_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "historical_unit_price",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "allocated_sum",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "line_no",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "accounted_quantity",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "accounted_sum",
+        "data_type": "numeric",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "iiko_product_mappings": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_product_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "eos_product_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "source_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_code",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "source_sku",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "source_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_deleted",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confidence",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "reasons",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "decided_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "decided_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "iiko_unit_mappings": [
+      {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "iiko_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "eos_unit_id",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "source_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "source_code",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_deleted",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "confidence",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "reasons",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "decided_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "decided_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "automation_schedules": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "automation_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "contract_version",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "scope_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "scope_id",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "schedule_config",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "recipients",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "timezone",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "is_enabled",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "next_run_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_by_user_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      }
+    ],
+    "automation_executions": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "execution_id",
+        "data_type": "uuid",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "schedule_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "contract_version",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "automation_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tenant_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "provider",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "status",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "requested_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "finished_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "payload",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "result",
+        "data_type": "jsonb",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "error_code",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "error_message",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "attempt_count",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "max_attempts",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "next_retry_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "scope_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "scope_id",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "recipients",
+        "data_type": "jsonb",
+        "is_nullable": "NO"
+      }
+    ]
+  },
+  "counts": {
+    "product_knowledge_products": [
+      {
+        "tenant_id": "eclair",
+        "count": 141
+      }
+    ],
+    "product_knowledge_batches": [
+      {
+        "tenant_id": "eclair",
+        "count": 1
+      }
+    ],
+    "product_knowledge_prices": [],
+    "product_knowledge_price_snapshots": [
+      {
+        "tenant_id": "eclair",
+        "count": 74
+      }
+    ],
+    "product_recipe_versions": [
+      {
+        "tenant_id": "eclair",
+        "count": 38
+      }
+    ],
+    "product_recipe_observations": [
+      {
+        "tenant_id": "eclair",
+        "status": "INCOMPLETE",
+        "count": 2
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "UNCONFIRMED",
+        "count": 3
+      }
+    ],
+    "product_cost_observations": [],
+    "product_cost_verifications": [],
+    "supply_products": [
+      {
+        "tenant_id": "eclair",
+        "count": 957
+      }
+    ],
+    "supply_units": [
+      {
+        "tenant_id": "eclair",
+        "count": 6
+      }
+    ],
+    "supply_product_suppliers": [
+      {
+        "tenant_id": "eclair",
+        "count": 3
+      }
+    ],
+    "supply_product_supplier_price_history": [
+      {
+        "tenant_id": "eclair",
+        "count": 4
+      }
+    ],
+    "supply_supplier_orders": [
+      {
+        "tenant_id": "eclair",
+        "status": "CANCELLED",
+        "count": 1
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "SENT",
+        "count": 5
+      }
+    ],
+    "supply_supplier_order_lines": [
+      {
+        "tenant_id": "eclair",
+        "count": 6
+      }
+    ],
+    "supply_supplier_confirmations": [
+      {
+        "tenant_id": "eclair",
+        "status": "RECORDED",
+        "count": 4
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "SUPERSEDED",
+        "count": 1
+      }
+    ],
+    "supply_supplier_confirmation_lines": [
+      {
+        "tenant_id": "eclair",
+        "count": 5
+      }
+    ],
+    "supply_supplier_documents": [
+      {
+        "tenant_id": "eclair",
+        "status": "DRAFT",
+        "count": 2
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "RECORDED",
+        "count": 2
+      }
+    ],
+    "supply_supplier_document_lines": [
+      {
+        "tenant_id": "eclair",
+        "count": 5
+      }
+    ],
+    "supply_supplier_acceptances": [
+      {
+        "tenant_id": "eclair",
+        "status": "CANCELLED",
+        "count": 1
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "RECORDED",
+        "count": 4
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "DRAFT",
+        "count": 1
+      }
+    ],
+    "supply_supplier_acceptance_lines": [
+      {
+        "tenant_id": "eclair",
+        "count": 6
+      }
+    ],
+    "supply_iiko_incoming_receipts": [
+      {
+        "tenant_id": "eclair",
+        "status": "POSTED",
+        "count": 1
+      }
+    ],
+    "supply_iiko_incoming_receipt_lines": [
+      {
+        "tenant_id": "eclair",
+        "count": 1
+      }
+    ],
+    "iiko_product_mappings": [
+      {
+        "tenant_id": "eclair",
+        "status": "UNMAPPED",
+        "count": 1
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "CONFLICT",
+        "count": 37
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "CONFIRMED",
+        "count": 956
+      }
+    ],
+    "iiko_unit_mappings": [
+      {
+        "tenant_id": "eclair",
+        "status": "IGNORED",
+        "count": 5
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "CONFIRMED",
+        "count": 5
+      }
+    ],
+    "automation_schedules": [
+      {
+        "tenant_id": "eclair",
+        "count": 5
+      }
+    ],
+    "automation_executions": [
+      {
+        "tenant_id": "eclair",
+        "status": "succeeded",
+        "count": 782
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "pending",
+        "count": 1
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "failed",
+        "count": 9
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "timed_out",
+        "count": 30
+      }
+    ]
+  },
+  "queries": {
+    "catalog_quality": [
+      {
+        "tenant_id": "eclair",
+        "total": 141,
+        "published": 141,
+        "deleted": 7,
+        "supply_linked": 5,
+        "local_photos": 0,
+        "verified": 0
+      }
+    ],
+    "cost_contexts": {
+      "error_type": "ProgrammingError"
+    },
+    "recipe_coverage": [
+      {
+        "tenant_id": "eclair",
+        "status": "INCOMPLETE",
+        "observations": 2,
+        "products": 2,
+        "first_date": "2026-10-09",
+        "last_date": "2026-10-09"
+      },
+      {
+        "tenant_id": "eclair",
+        "status": "UNCONFIRMED",
+        "observations": 3,
+        "products": 3,
+        "first_date": "2026-10-09",
+        "last_date": "2026-10-09"
+      }
+    ],
+    "recipe_approvals": [],
+    "recorded_acceptance_quality": [
+      {
+        "tenant_id": "eclair",
+        "lines": 4,
+        "positive": 4,
+        "missing_product": 0,
+        "missing_unit": 0,
+        "missing_price": 0,
+        "zero_price": 0,
+        "missing_amount": 0,
+        "no_document_line": 3,
+        "distinct_products": 2,
+        "first_date": "2026-09-18 07:00:06.502771+00:00",
+        "last_date": "2026-09-25 04:54:34.703026+00:00"
+      }
+    ],
+    "acceptance_default_units": [
+      {
+        "tenant_id": "eclair",
+        "lines": 4,
+        "same_default_unit": 4,
+        "other_unit": 0
+      }
+    ],
+    "manual_price_history": [
+      {
+        "tenant_id": "eclair",
+        "source": "MANUAL",
+        "n": 4,
+        "supplier_products": 3,
+        "earliest": "2026-09-14 09:44:42.242475+00:00",
+        "latest": "2026-09-25 03:52:08.123615+00:00"
+      }
+    ],
+    "posted_receipt_quality": [
+      {
+        "tenant_id": "eclair",
+        "lines": 1,
+        "products": 1,
+        "quantity_mixed_units": "111.000000",
+        "allocated_sum": "9988.890000",
+        "accounted_sum": "9988.890000"
+      }
+    ],
+    "supplier_pack_units": [
+      {
+        "tenant_id": "eclair",
+        "relations": 3,
+        "no_price": 0,
+        "other_unit": 0
+      }
+    ],
+    "automation_product_types": [
+      {
+        "tenant_id": "eclair",
+        "automation_type": "products.sync_iiko_prices",
+        "status": "succeeded",
+        "n": 73
+      },
+      {
+        "tenant_id": "eclair",
+        "automation_type": "products.sync_iiko_recipes",
+        "status": "succeeded",
+        "n": 3
+      }
+    ],
+    "schema_triggers": [
+      {
+        "event_object_table": "product_cost_observations",
+        "trigger_name": "immutable_cost",
+        "event_manipulation": "DELETE"
+      },
+      {
+        "event_object_table": "product_cost_observations",
+        "trigger_name": "immutable_cost",
+        "event_manipulation": "UPDATE"
+      },
+      {
+        "event_object_table": "product_cost_verifications",
+        "trigger_name": "immutable_cost",
+        "event_manipulation": "DELETE"
+      },
+      {
+        "event_object_table": "product_cost_verifications",
+        "trigger_name": "immutable_cost",
+        "event_manipulation": "UPDATE"
+      },
+      {
+        "event_object_table": "product_recipe_observations",
+        "trigger_name": "immutable_recipe",
+        "event_manipulation": "DELETE"
+      },
+      {
+        "event_object_table": "product_recipe_observations",
+        "trigger_name": "immutable_recipe",
+        "event_manipulation": "UPDATE"
+      },
+      {
+        "event_object_table": "product_recipe_versions",
+        "trigger_name": "immutable_recipe",
+        "event_manipulation": "DELETE"
+      },
+      {
+        "event_object_table": "product_recipe_versions",
+        "trigger_name": "immutable_recipe",
+        "event_manipulation": "UPDATE"
+      }
+    ],
+    "schema_fks": [
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "fk_pk_verified_employee",
+        "definition": "FOREIGN KEY (tenant_id, verified_by_employee_id) REFERENCES employees(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "ck_pk_sale_status",
+        "definition": "CHECK (((sale_status)::text = ANY ((ARRAY['ON_SALE'::character varying, 'OFF_SALE'::character varying])::text[])))"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "ck_pk_sale_mode",
+        "definition": "CHECK (((sale_mode)::text = ANY ((ARRAY['UNKNOWN'::character varying, 'PORTION'::character varying, 'WEIGHT'::character varying])::text[])))"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "ck_pk_weight",
+        "definition": "CHECK (((unit_weight_kg IS NULL) OR (unit_weight_kg > (0)::numeric)))"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "product_knowledge_products_tenant_id_source_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, source_id) REFERENCES sales_sync_states(tenant_id, source_id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "product_knowledge_products_tenant_id_supply_product_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, supply_product_id) REFERENCES supply_products(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "product_knowledge_products_tenant_id_batch_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, batch_id) REFERENCES product_knowledge_batches(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "ck_pk_version",
+        "definition": "CHECK ((version > 0))"
+      },
+      {
+        "table_name": "product_knowledge_products",
+        "conname": "ck_pk_photo_hash",
+        "definition": "CHECK (((local_photo_hash IS NULL) OR ((local_photo_hash)::text ~ '^[a-f0-9]{64}$'::text)))"
+      },
+      {
+        "table_name": "product_recipe_versions",
+        "conname": "ck_recipe_kind",
+        "definition": "CHECK (((kind)::text = ANY ((ARRAY['SOURCE'::character varying, 'PREPARED'::character varying])::text[])))"
+      },
+      {
+        "table_name": "product_recipe_versions",
+        "conname": "product_recipe_versions_tenant_id_source_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, source_id) REFERENCES sales_sync_states(tenant_id, source_id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_recipe_observations",
+        "conname": "ck_recipe_status",
+        "definition": "CHECK (((status)::text = ANY ((ARRAY['INCOMPLETE'::character varying, 'CONFLICT'::character varying, 'UNCONFIRMED'::character varying])::text[])))"
+      },
+      {
+        "table_name": "product_recipe_observations",
+        "conname": "product_recipe_observations_tenant_id_product_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, product_id) REFERENCES product_knowledge_products(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_recipe_observations",
+        "conname": "product_recipe_observations_tenant_id_source_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, source_id) REFERENCES sales_sync_states(tenant_id, source_id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_cost_observations",
+        "conname": "ck_cost_status",
+        "definition": "CHECK (((status)::text = ANY ((ARRAY['UNVERIFIED'::character varying, 'INCOMPLETE'::character varying])::text[])))"
+      },
+      {
+        "table_name": "product_cost_observations",
+        "conname": "product_cost_observations_tenant_id_product_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, product_id) REFERENCES product_knowledge_products(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_cost_observations",
+        "conname": "product_cost_observations_tenant_id_source_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, source_id) REFERENCES sales_sync_states(tenant_id, source_id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_cost_verifications",
+        "conname": "product_cost_verifications_tenant_id_observation_id_fkey",
+        "definition": "FOREIGN KEY (tenant_id, observation_id) REFERENCES product_cost_observations(tenant_id, id) ON DELETE RESTRICT"
+      },
+      {
+        "table_name": "product_cost_verifications",
+        "conname": "product_cost_verifications_confirmed_by_user_id_fkey",
+        "definition": "FOREIGN KEY (confirmed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT"
+      }
+    ],
+    "cost_contexts_corrected": [],
+    "product_schedules_corrected": [
+      {
+        "id": 13,
+        "name": "Цены на продукцию обновляем",
+        "automation_type": "products.sync_iiko_prices",
+        "is_enabled": true
+      }
+    ],
+    "actual_recipe_cost_audit": [
+      {
+        "event_type": "PRODUCT_RECIPES_OBSERVED",
+        "n": 3
+      },
+      {
+        "event_type": "PRODUCT_RECIPES_REQUESTED",
+        "n": 3
+      },
+      {
+        "event_type": "PRODUCT_RECIPE_REFRESH_REQUESTED",
+        "n": 2
+      }
+    ],
+    "purchase_fact_products": [
+      {
+        "id": "7f39bdb1-e8ef-4df3-ad77-521c32855aa7",
+        "name": "Коробка  для сэндвича 130*130*50 мм Крафт с окном",
+        "unit": "PCS",
+        "status": "RECORDED",
+        "accepted_at": "2026-09-18 07:00:06.502771+00:00",
+        "accepted_quantity": "500.000000",
+        "accepted_unit_price": "10.000000",
+        "accepted_amount": "5000.000000",
+        "supplier_document_line_id": null,
+        "supplier_order_line_id": "63cfdab2-ae36-42da-8ef5-04dbdd578fb5"
+      },
+      {
+        "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+        "name": "Сахар песок",
+        "unit": "KG",
+        "status": "RECORDED",
+        "accepted_at": "2026-09-25 03:55:15.864913+00:00",
+        "accepted_quantity": "1000.000000",
+        "accepted_unit_price": "89.990000",
+        "accepted_amount": "89990.000000",
+        "supplier_document_line_id": null,
+        "supplier_order_line_id": "c0e0153b-a901-4a0e-a0a1-cf8d805d08ec"
+      },
+      {
+        "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+        "name": "Сахар песок",
+        "unit": "KG",
+        "status": "RECORDED",
+        "accepted_at": "2026-09-25 04:07:51.268534+00:00",
+        "accepted_quantity": "10.000000",
+        "accepted_unit_price": "89.990000",
+        "accepted_amount": "899.900000",
+        "supplier_document_line_id": null,
+        "supplier_order_line_id": "c25dc424-cb72-4bbd-ac7d-3511bf339a29"
+      },
+      {
+        "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+        "name": "Сахар песок",
+        "unit": "KG",
+        "status": "RECORDED",
+        "accepted_at": "2026-09-25 04:54:34.703026+00:00",
+        "accepted_quantity": "111.000000",
+        "accepted_unit_price": "89.990000",
+        "accepted_amount": "9988.890000",
+        "supplier_document_line_id": "56a12807-d20b-4141-a031-48e841acef6f",
+        "supplier_order_line_id": "4d041eef-3eb3-468d-8b1b-a8387027997b"
+      }
+    ],
+    "price_relation_products": [
+      {
+        "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+        "name": "Сахар песок",
+        "package_quantity": "1.000",
+        "unit": "KG",
+        "price_per_package": "89.99"
+      },
+      {
+        "id": "d5b79f17-c09f-4496-a9fd-c64a135f94bc",
+        "name": "Сахар песок",
+        "package_quantity": "1.000",
+        "unit": "KG",
+        "price_per_package": "89.99"
+      },
+      {
+        "id": "7f39bdb1-e8ef-4df3-ad77-521c32855aa7",
+        "name": "Коробка  для сэндвича 130*130*50 мм Крафт с окном",
+        "package_quantity": "1.000",
+        "unit": "PCS",
+        "price_per_package": "10.00"
+      }
+    ],
+    "k3_latest": [
+      {
+        "tenant_id": "eclair",
+        "observed_at": "2026-10-12 06:58:50.282129+00:00",
+        "date_from": "2026-09-11",
+        "date_to": "2026-11-13",
+        "contexts": 413
+      }
+    ],
+    "photo_audit": []
+  },
+  "files": {
+    "app/models/product_knowledge.py": "ae57054b2a0db1f2a80fe412247573c84f5429eff655adaa0cadcf29bfe27eaf",
+    "app/models/product_recipe.py": "652573fa8563e2b8d18a9334aa79fd067694c9ad496b747ba736987066553f6c",
+    "app/models/product_cost.py": "443fc945f57678776178225a1c58e37f9b582d84f09f116b3d48756698273787",
+    "app/product_knowledge/costs.py": "4608252302a2decb321eb599b25ac6e5c2fe37df12cd85875ed956e1d2d05dbc",
+    "app/product_knowledge/cost_calculation.py": "d9403c457306ae2d314d3d454c5064785b9407fa61aaedbb087e6b03a042d1ab",
+    "app/product_knowledge/cost_portal.py": "c6fe215a8ef34561bfca28ba2f63957871099a786a0171f7fa69583f4bedf689",
+    "app/product_knowledge/recipe_portal.py": "7333079ca26c1bc90c15a5ac761d635140aa7ecbb55e7592cbbf70505ea99b1b",
+    "app/api/routes/product_knowledge.py": "a3ab3903df1619819b9e4c838f7ed1fdac533c53884b2b2083684a30ec61541b",
+    "app/core/authorization.py": "b90bd539a480f5b7c0d12d37e32f7f4a6da3644dc36e488fecf03d5255b5dc57",
+    "app/automation/local_actions.py": "e8190a8139e254f6befb6a470b201bed78358a01ddcdc4ee165648ef9c2bdb26"
+  },
+  "transaction_read_only": "on",
+  "alembic": [
+    "20261009_0079"
+  ],
+  "all_table_names": [
+    "alembic_version",
+    "work_request_attachments",
+    "work_request_comments",
+    "supply_units",
+    "supply_request_cycles",
+    "supply_products",
+    "users",
+    "automation_schedules",
+    "automation_executions",
+    "outbox_events",
+    "supply_request_directions",
+    "departments",
+    "automation_schedule_audit_events",
+    "supply_product_categories",
+    "supply_storage_zones",
+    "supply_request_lines",
+    "supply_requests",
+    "automation_runtime_status",
+    "supply_department_debts",
+    "supply_product_aliases",
+    "supply_line_allocations",
+    "supply_department_debt_events",
+    "iiko_raw_entities",
+    "supply_request_line_debt_links",
+    "iiko_sync_runs",
+    "iiko_product_mappings",
+    "iiko_unit_mappings",
+    "supply_product_source_mappings",
+    "iiko_mapping_audit_events",
+    "supply_product_source_mapping_audit_events",
+    "iiko_warehouse_mappings",
+    "supply_department_product_mappings",
+    "supply_department_product_corrections",
+    "supply_department_product_mapping_audit_events",
+    "supply_stock_calculations",
+    "supply_stock_calculation_lines",
+    "supply_stock_calculation_audit_events",
+    "iiko_stock_balance_snapshot_sources",
+    "iiko_stock_balance_snapshot_lines",
+    "supply_product_suppliers",
+    "supply_print_jobs",
+    "iiko_document_writes",
+    "supply_product_supplier_price_history",
+    "supply_purchase_requests",
+    "supply_purchase_request_line_sources",
+    "supply_purchase_request_lines",
+    "supply_purchase_allocations",
+    "supply_suppliers",
+    "supply_supplier_order_lines",
+    "supply_procurement_needs",
+    "supply_supplier_confirmation_lines",
+    "supply_supplier_orders",
+    "supply_supplier_order_delivery_attempts",
+    "supply_supplier_confirmations",
+    "supply_supplier_confirmation_deviations",
+    "supply_supplier_document_lines",
+    "supply_supplier_acceptance_lines",
+    "supply_supplier_acceptances",
+    "supply_acceptance_resolutions",
+    "supply_supplier_payments",
+    "supply_supplier_obligations",
+    "supply_supplier_documents",
+    "supply_supplier_payment_allocations",
+    "supply_supplier_settlement_adjustments",
+    "supply_purchase_allocation_sources",
+    "supply_supplier_order_line_sources",
+    "supply_supplier_acceptance_line_sources",
+    "iiko_supplier_mappings",
+    "supply_iiko_incoming_receipts",
+    "supply_iiko_incoming_receipt_lines",
+    "supply_supplier_document_attachments",
+    "employees",
+    "employee_role_assignments",
+    "employee_department_assignments",
+    "employee_lifecycle_events",
+    "iiko_employee_links",
+    "employee_iiko_shifts",
+    "shift_department_confirmations",
+    "contractor_specializations",
+    "audit_events",
+    "external_contractors",
+    "iiko_department_mappings",
+    "contractor_specialization_links",
+    "sales_period_snapshots",
+    "work_requests",
+    "sales_day_syncs",
+    "sales_facts",
+    "sales_targets",
+    "sales_sync_states",
+    "product_knowledge_batches",
+    "product_recipe_observations",
+    "product_knowledge_prices",
+    "product_knowledge_price_snapshots",
+    "product_knowledge_products",
+    "product_recipe_versions",
+    "product_cost_observations",
+    "product_cost_verifications"
+  ],
+  "recipe_leaf_purchase_coverage": {
+    "eclair": {
+      "latest_observation_products": 5,
+      "distinct_leaf_iiko_uuids": 42,
+      "confirmed_supply_mapping": 42,
+      "with_positive_recorded_acceptance_price_and_unit": 1,
+      "note": "syntactic leaf classification only; unit equivalence, tax, provenance and recipe approval not certified"
+    }
+  },
+  "fixed_cost_config_present": false,
+  "product_routes": [],
+  "product_routes_corrected": {
+    "/products": [
+      "get",
+      "post"
+    ],
+    "/products/costs/refresh": [
+      "post"
+    ],
+    "/products/{product_id}/costs": [
+      "get"
+    ],
+    "/products/{product_id}/costs/confirm": [
+      "post"
+    ],
+    "/products/recipes/refresh": [
+      "post"
+    ],
+    "/products/iiko-candidates": [
+      "get"
+    ],
+    "/products/{product_id}": [
+      "get",
+      "delete"
+    ],
+    "/products/{product_id}/history": [
+      "get"
+    ],
+    "/products/{product_id}/recipes": [
+      "get"
+    ],
+    "/products/{product_id}/recipes/confirm": [
+      "post"
+    ],
+    "/products/{product_id}/recipes/refresh": [
+      "post"
+    ],
+    "/products/{product_id}/knowledge": [
+      "patch"
+    ],
+    "/products/{product_id}/sale-status": [
+      "patch"
+    ],
+    "/products/{product_id}/restore": [
+      "post"
+    ],
+    "/products/{product_id}/verification": [
+      "patch"
+    ],
+    "/products/{product_id}/photo": [
+      "get",
+      "put",
+      "delete"
+    ]
+  },
+  "backend_file_comparison": {
+    "backend/api/app/models/product_knowledge.py": {
+      "production_lf_sha256": "8e21075fdd37bdc74efbe696f4462963efbd1ce42af2969ae0b7710113d077af",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    },
+    "backend/api/app/models/product_recipe.py": {
+      "production_lf_sha256": "bf632d77cf3f439190a51e98899147e5756dca2a5f6fcba5236bc6978166a0f5",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    },
+    "backend/api/app/models/product_cost.py": {
+      "production_lf_sha256": "cc6e61dded5555f10c8761afae97d146d78aa188465a0b51a933b6fb29f13c17",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    },
+    "backend/api/app/product_knowledge/costs.py": {
+      "production_lf_sha256": "2b37aee46e01837484faf46c9dc49272144f0182e9d3968fe7e5ed1d0922c6b2",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": false
+    },
+    "backend/api/app/product_knowledge/cost_calculation.py": {
+      "production_lf_sha256": "d6f411d517a1b7643f263ecac5eaa2efbada9b2031efa94064eb892a93c77f91",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": false
+    },
+    "backend/api/app/product_knowledge/cost_portal.py": {
+      "production_lf_sha256": "f2c87f1f34e75086d3ff80b12aba1e8da2c3842d545149d582c5d60e76887707",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": false
+    },
+    "backend/api/app/product_knowledge/recipe_portal.py": {
+      "production_lf_sha256": "977a81e909dd3908d4f7045d8b67d9d5406559ceb43964c11b4c61cdaf20e9da",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    },
+    "backend/api/app/api/routes/product_knowledge.py": {
+      "production_lf_sha256": "3755c3f38c7509751a2de7339459f7716b2dc0846cc71d814fffcf87b58bd723",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": false
+    },
+    "backend/api/app/core/authorization.py": {
+      "production_lf_sha256": "d2119ec4c65f1feb1ee5a7ed09d4bbfb4b9d575eb3e70481316f458661006e4e",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    },
+    "backend/api/app/automation/local_actions.py": {
+      "production_lf_sha256": "765d45fd803fc1421dc87c69057578175e10cf3ee22d1aa1648ad274d4199053",
+      "matches_production_commit": true,
+      "matches_local_head": true,
+      "matches_worktree": true
+    }
+  },
+  "frontend_file_comparison": {
+    "frontend/src/pages/ProductKnowledgePage.tsx": {
+      "production_lf_sha256": "ca8ad0b332881db48914b06c4cb7d16da1709e3f29af80a9f960edc468b570c3",
+      "matches_production_commit": true,
+      "matches_worktree": true
+    },
+    "frontend/src/pages/productKnowledge/ProductCosts.tsx": {
+      "production_lf_sha256": "64a783ded7c0e8ea8c66f53fa70e1def5f874175cec120fa21f76c5c9087bb78",
+      "matches_production_commit": true,
+      "matches_worktree": false
+    },
+    "frontend/src/pages/productKnowledge/ProductRecipes.tsx": {
+      "production_lf_sha256": "d25c0843432766e03cf9d19801d69d3c5b3fe56e41e61837a255fad92e363ec7",
+      "matches_production_commit": true,
+      "matches_worktree": true
+    },
+    "frontend/src/pages/productKnowledge/ProductPhoto.tsx": {
+      "production_lf_sha256": "2ae260215fa89c6e3e0b5c05961c8cf2fe1db1b0a9adb80236cb94f425590f02",
+      "matches_production_commit": true,
+      "matches_worktree": true
+    },
+    "frontend/src/pages/productKnowledge/ProductManagement.tsx": {
+      "production_lf_sha256": "915badaee9d7a16c013325fb729e7725e66a8f94a3187e3df18ac1912782cdd1",
+      "matches_production_commit": true,
+      "matches_worktree": true
+    },
+    "frontend/src/services/productCosts.ts": {
+      "production_lf_sha256": "0f472d548a904ecd71cd664156d5c24dcea228397f13bb72b323891c0069cd84",
+      "matches_production_commit": true,
+      "matches_worktree": false
+    },
+    "frontend/src/App.tsx": {
+      "production_lf_sha256": "1bef70e15f58691684a6e6c77144922f80d62508fd82f10da204d781eb9ee535",
+      "matches_production_commit": true,
+      "matches_worktree": true
+    }
+  },
+  "production_git": "ef92ebfac3f24509382d540044d9c96338aa264e",
+  "local_git": "27124d2c405183c4c74862bd74902ffc494e8f96",
+  "no_production_writes": true,
+  "runtime_api_openapi_only_not_business_smoke": true,
+  "database_snapshot_is_physical_truth_verification": false,
+  "limitations": [
+    "5 imported recipe observations only; leaf coverage not whole assortment",
+    "Accepted price can be inherited from order; RECORDED is not independent fiscal verification",
+    "41/42 observed recipe leaves have no positive recorded acceptance price",
+    "No current independent unit/tax/valuation certification",
+    "Local database contents not audited; local schema assessed through source and migrations",
+    "Initial cost grouping and schedule probes failed due JSON equality and wrong column name; corrected probes retained",
+    "Initial product route filter used /api/products whereas OpenAPI has /products; corrected list retained",
+    "Raw file hashes differ across CRLF; parity assessed using LF-normalized hashes",
+    "No browser/business acceptance performed"
+  ],
+  "inventory_files": {
+    "models": {
+      "file": "STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_models.csv",
+      "rows": 60,
+      "sha256": "6338da452fe453e3e7a2c7f9ffc96d1214850c2d26007cd570ae59f3d635704c"
+    },
+    "api": {
+      "file": "STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_api.csv",
+      "rows": 176,
+      "sha256": "4580b039d6893775fc267db099e06c07d83773cc74a25fb4ce7f8411164a0f8d"
+    },
+    "components": {
+      "file": "STAGE_3_2_PRODUCT_RECIPE_SUPPLY_ARCHITECTURE_AUDIT_2026-10-12_components.csv",
+      "rows": 32,
+      "sha256": "012a6a3d5b98f88980db4746bde395370e2ba08bb106c6af51b5bf1e4a1aa377"
+    }
+  },
+  "baseline_worktree": [
+    " M backend/api/app/api/routes/product_knowledge.py",
+    " M backend/api/app/product_knowledge/cost_calculation.py",
+    " M backend/api/app/product_knowledge/cost_portal.py",
+    " M backend/api/app/product_knowledge/costs.py",
+    " M backend/api/tests/test_product_costs.py",
+    " M backend/api/tests/test_product_costs_postgres.py",
+    " M docs/ROADMAP_STAGE_3_2_v0.1.0.md",
+    " M docs/ROADMAP_STAGE_3_SUPPLY_v0.1.0.md",
+    " M docs/STAGE_3_2_K5C_RELEASE_RUNBOOK_2026-10-09.md",
+    " M docs/STAGE_3_2_K5C_REPORT_2026-10-09.md",
+    " M frontend/src/pages/productKnowledge/ProductCosts.tsx",
+    " M frontend/src/services/productCosts.ts",
+    "?? backend/api/app/product_knowledge/cost_config.py",
+    "?? docs/STAGE_3_2_K5C_FIXED_WAREHOUSE_REVIEW_2026-10-12.md",
+    "?? docs/STAGE_3_2_K5C_OUTGOING_COST_RESEARCH_2026-10-12.md",
+    "?? docs/evidence/STAGE_3_2_K5C_FIXED_WAREHOUSE_2026-10-12.json",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12.json",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_documents.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_latest_transfer.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_office_ssn_comparison.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_report_reconciliation.csv",
+    "?? docs/evidence/STAGE_3_2_K5C_OUTGOING_COST_2026-10-12_sample_lines.csv"
+  ],
+  "audit_validation": {
+    "json_csv_row_counts_and_sha256": "PASS",
+    "component_paths": "PASS",
+    "report_links": 4,
+    "normalized_deployed_file_parity": "10 backend / 7 frontend PASS",
+    "tracked_diff_whitespace": "PASS",
+    "new_artifact_whitespace": "PASS",
+    "preexisting_worktree_entries_preserved": 22,
+    "new_untracked_audit_files": 5,
+    "runtime_tests": "NOT RUN - research only; no code changes"
+  }
+}
